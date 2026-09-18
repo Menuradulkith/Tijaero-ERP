@@ -85,6 +85,7 @@ import { branchApi } from "../api";
 const SORT_OPTIONS: SortOption[] = [
   { value: "branch_code", label: "Branch Code" },
   { value: "branch_name", label: "Branch Name" },
+  { value: "created_at", label: "Creation Date" },
 ];
 
 const BRANCH_STATUS_OPTIONS: TFilterStatusOption[] = [
@@ -231,6 +232,8 @@ export default function BranchesPage() {
         return a.branch_code.localeCompare(b.branch_code);
       } else if (sortField === "branch_name") {
         return a.branch_name.localeCompare(b.branch_name);
+      } else if (sortField === "created_at") {
+        return (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0);
       }
       return 0;
     });
@@ -293,11 +296,12 @@ export default function BranchesPage() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: BranchCreate }) =>
       branchApi.update(id, data),
-    onSuccess: () => {
+    onSuccess: (updatedBranch) => {
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       showSuccessToast("Branch updated successfully");
       markAsSaved();
       setIsEditing(false);
+      setSelectedBranch(updatedBranch);
     },
     onError: (error: unknown) => {
       showErrorToast(handleApiError(error, "Failed to update branch"));

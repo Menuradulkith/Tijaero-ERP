@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, Numeric, Boolean, TIMESTAMP, text
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, Numeric, Boolean, TIMESTAMP, text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from app.common.base_models import TimestampMixin, AuditMixin
@@ -89,6 +89,7 @@ class Supplier(Base, AuditMixin):
     advance_payments = relationship("SupplierAdvancePayment", back_populates="supplier")
     payment_methods = relationship("SupplierPaymentMethod", back_populates="supplier", cascade="all, delete-orphan")
     contact_persons = relationship("SupplierContactPerson", back_populates="supplier", cascade="all, delete-orphan")
+    supplier_products = relationship("SupplierProduct", back_populates="supplier", cascade="all, delete-orphan")
 
 class SupplierContactPerson(Base, AuditMixin):
     """
@@ -132,6 +133,32 @@ class SupplierPaymentMethod(Base, AuditMixin):
     active = Column(Boolean, nullable=False, default=True)
 
     supplier = relationship("Supplier", back_populates="payment_methods")
+
+
+class SupplierProduct(Base, AuditMixin):
+    """
+    Which suppliers can supply a given product, and on what terms — the
+    "approved vendor list" mapping. A product commonly has more than one
+    supplier, each with their own cost, lead time, and MOQ, so this is a
+    many-to-many junction rather than a single supplier_id on Product.
+    """
+    __tablename__ = "supplier_product"
+    __table_args__ = (
+        UniqueConstraint("supplier_id", "product_id", name="uq_supplier_product"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    supplier_id = Column(Integer, ForeignKey("supplier.id", ondelete="CASCADE"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    supplier_sku = Column(String(255))
+    cost_price = Column(Numeric(60, 2), nullable=False)
+    lead_time_days = Column(Integer)
+    minimum_order_qty = Column(Integer)
+    is_preferred = Column(Boolean, nullable=False, default=False)
+    active = Column(Boolean, nullable=False, default=True)
+
+    supplier = relationship("Supplier", back_populates="supplier_products")
+    product = relationship("Product", back_populates="supplier_products")
 
 
 class PurchasingOrder(Base, AuditMixin):

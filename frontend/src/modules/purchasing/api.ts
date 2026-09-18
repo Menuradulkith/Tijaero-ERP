@@ -29,6 +29,9 @@ import {
   SupplierPaymentAccount,
   SupplierPaymentAccountCreate,
   SupplierPaymentAccountUpdate,
+  SupplierProduct,
+  SupplierProductCreate,
+  SupplierProductUpdate,
 } from "./types";
 
 // Helper to clean empty strings to null/undefined for optional fields.
@@ -191,6 +194,33 @@ export const suppliersApi = {
 
   deleteContactPerson: async (supplierId: number, contactId: number) => {
     await apiClient.delete(`/purchasing/suppliers/${supplierId}/contact-persons/${contactId}`);
+  },
+
+  getProducts: async (supplierId: number) => {
+    const response = await apiClient.get<SupplierProduct[]>(
+      `/purchasing/suppliers/${supplierId}/products`
+    );
+    return response.data;
+  },
+
+  createProduct: async (supplierId: number, data: SupplierProductCreate) => {
+    const response = await apiClient.post<SupplierProduct>(
+      `/purchasing/suppliers/${supplierId}/products`,
+      data
+    );
+    return response.data;
+  },
+
+  updateProduct: async (supplierId: number, mappingId: number, data: SupplierProductUpdate) => {
+    const response = await apiClient.patch<SupplierProduct>(
+      `/purchasing/suppliers/${supplierId}/products/${mappingId}`,
+      data
+    );
+    return response.data;
+  },
+
+  deleteProduct: async (supplierId: number, mappingId: number) => {
+    await apiClient.delete(`/purchasing/suppliers/${supplierId}/products/${mappingId}`);
   },
 };
 

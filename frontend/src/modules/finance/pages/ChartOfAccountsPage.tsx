@@ -73,6 +73,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "account_code", label: "Account Code" },
   { value: "account_name", label: "Account Name" },
   { value: "account_type", label: "Account Type" },
+  { value: "created_at", label: "Creation Date" },
 ];
 
 const STATUS_FILTER_OPTIONS = [
@@ -220,6 +221,9 @@ export default function ChartOfAccountsPage() {
         return a.account_name.localeCompare(b.account_name);
       if (sortField === "account_type")
         return a.account_type.localeCompare(b.account_type);
+      if (sortField === "created_at")
+        return (b.created_at ? new Date(b.created_at).getTime() : 0) -
+          (a.created_at ? new Date(a.created_at).getTime() : 0);
       return a.account_code.localeCompare(b.account_code);
     });
     return filtered;

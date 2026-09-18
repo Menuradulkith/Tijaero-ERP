@@ -109,6 +109,7 @@ const SORT_OPTIONS: SortOption[] = [
     { value: "added_date", label: "Date" },
     { value: "sale_return_no", label: "Return Number" },
     { value: "total_refund", label: "Refund Amount" },
+    { value: "created_at", label: "Creation Date" },
 ];
 
 // Return reason options
@@ -419,6 +420,9 @@ export default function SaleReturnsPage() {
         filtered.sort((a, b) => {
             if (sortField === "added_date") {
                 return new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
+            }
+            if (sortField === "created_at") {
+                return (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0);
             }
             const fieldA = a[sortField as keyof SaleReturn] || "";
             const fieldB = b[sortField as keyof SaleReturn] || "";

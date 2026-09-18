@@ -4,7 +4,7 @@
  */
 
 import { SxProps, Theme } from "@mui/material";
-import { ReactNode } from "react";
+import { Dispatch, ReactNode, SetStateAction } from "react";
 
 // =============================================================================
 // Common Types
@@ -324,7 +324,10 @@ export interface UseMasterDetailStateReturn<T extends BaseEntity, TCreate> {
   
   // Selection
   selectedItem: T | null;
-  setSelectedItem: (item: T | null) => void;
+  // The underlying implementation is a plain useState setter, so it accepts
+  // a functional updater too — useful for guarding a late-arriving async
+  // response against having clobbered a selection made in the meantime.
+  setSelectedItem: Dispatch<SetStateAction<T | null>>;
   
   // Edit state
   isEditing: boolean;

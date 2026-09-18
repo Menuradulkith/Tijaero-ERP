@@ -46,6 +46,7 @@ import { Customer, CustomerCreate } from "../types";
 const SORT_OPTIONS: SortOption[] = [
   { value: "customer_name", label: "Customer Name" },
   { value: "company_name", label: "Company Name" },
+  { value: "created_at", label: "Creation Date" },
 ];
 
 const INITIAL_FORM_DATA: CustomerCreate = {
@@ -153,6 +154,8 @@ export default function CustomersPage() {
         return a.customer_name.localeCompare(b.customer_name);
       } else if (sortField === "company_name") {
         return (a.company_name || "").localeCompare(b.company_name || "");
+      } else if (sortField === "created_at") {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       }
       return 0;
     });

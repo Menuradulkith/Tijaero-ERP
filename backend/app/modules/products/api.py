@@ -4,7 +4,8 @@ from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
 from app.modules.products import schemas, service
-from fastapi import APIRouter, Depends, Query, status
+from app.modules.purchasing.schemas import SupplierProduct as SupplierProductSchema
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 router = APIRouter()
@@ -56,6 +57,24 @@ def get_product(
     return service.product_service.get_product(db, product_id)
 
 
+@router.get(
+    "/products/{product_id}/suppliers",
+    response_model=List[SupplierProductSchema],
+    summary="List Suppliers For Product",
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_VIEW))],
+)
+def list_product_suppliers(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
+):
+    """Read-only reciprocal view of the approved-vendor mapping — which
+    suppliers can supply this product, and at what cost/lead time."""
+    from app.modules.purchasing.service import SupplierProductService
+
+    return SupplierProductService(db).list_by_product(product_id)
+
+
 @router.post(
     "/products/",
     response_model=schemas.Product,
@@ -100,6 +119,38 @@ def delete_product(
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_DELETE)),
 ):
     return service.product_service.delete_product(db, product_id, user_id=current_user.id)
+
+
+@router.post(
+    "/products/{product_id}/image",
+    response_model=schemas.Product,
+    summary="Upload Product Image",
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_UPDATE))],
+)
+def upload_product_image(
+    product_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
+):
+    from app.common.file_storage import save_image
+
+    relative_path = save_image(file, subdir="products")
+    return service.product_service.update_image(db, product_id, relative_path)
+
+
+@router.delete(
+    "/products/{product_id}/image",
+    response_model=schemas.Product,
+    summary="Remove Product Image",
+    dependencies=[Depends(require_permission(*Permissions.PRODUCT_UPDATE))],
+)
+def remove_product_image(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
+):
+    return service.product_service.remove_image(db, product_id)
 
 
 @router.get(

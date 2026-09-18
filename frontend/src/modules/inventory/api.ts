@@ -1,4 +1,5 @@
 import apiClient from "@/api/client";
+import type { SupplierProduct } from "../purchasing/types";
 import {
   Product,
   ProductCreate,
@@ -65,7 +66,52 @@ export const productsApi = {
     const response = await apiClient.delete<{ message: string }>(`/inventory/products/${id}`);
     return response.data;
   },
+
+  // Read-only reciprocal view of the approved-vendor mapping managed on the
+  // Suppliers page — which suppliers can supply this product, and at what
+  // cost/lead time. See purchasing/types.ts SupplierProduct.
+  getSuppliers: async (id: number) => {
+    const response = await apiClient.get<SupplierProduct[]>(
+      `/inventory/products/${id}/suppliers`
+    );
+    return response.data;
+  },
+
+  uploadImage: async (id: number, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await apiClient.post<Product>(
+      `/inventory/products/${id}/image`,
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } }
+    );
+    return response.data;
+  },
+
+  removeImage: async (id: number) => {
+    const response = await apiClient.delete<Product>(
+      `/inventory/products/${id}/image`
+    );
+    return response.data;
+  },
 };
+
+// The API client's baseURL includes /api/v1; uploaded files are served from
+// the plain origin at /uploads (mirrors SupplierLogoUploader's own helper).
+const API_ORIGIN = (
+  import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1"
+).replace(/\/api\/v1$/, "");
+
+/**
+ * Resolves a product's `image_url` to a displayable URL. Handles both an
+ * uploaded file's relative path (e.g. "products/xyz.png", stored by
+ * productsApi.uploadImage) and the older free-text external URL some
+ * products still carry from before the uploader existed.
+ */
+export function productImageUrl(imageUrl?: string | null): string | null {
+  if (!imageUrl) return null;
+  return /^https?:\/\//i.test(imageUrl) ? imageUrl : `${API_ORIGIN}/uploads/${imageUrl}`;
+}
 
 export const categoriesApi = {
   getAll: async (skip = 0, limit = 100000, activeOnly = false) => {

@@ -11,7 +11,7 @@ import { usePermission } from "@/auth/permissions";
 import { fmtLKR } from "@/components/tijaero";
 import { KpiSparkCard } from "@/components/dashboard";
 import { LocationRef, REFERENCE_DATA_PRESETS, useReferenceData } from "@/hooks";
-import { salesStockApi } from "@/modules/inventory/api";
+import { productImageUrl, salesStockApi } from "@/modules/inventory/api";
 import {
     Brand,
     Category,
@@ -247,10 +247,10 @@ const StockDetailsPanel = ({
                       bgcolor: "action.hover",
                     }}
                   >
-                    {product.image_url ? (
+                    {productImageUrl(product.image_url) ? (
                       <Box
                         component="img"
-                        src={product.image_url}
+                        src={productImageUrl(product.image_url)!}
                         alt={product.name}
                         onError={(
                           e: React.SyntheticEvent<HTMLImageElement>,
@@ -271,7 +271,7 @@ const StockDetailsPanel = ({
                     <Box
                       id={`img-fallback-${stock.id}`}
                       sx={{
-                        display: product.image_url ? "none" : "flex",
+                        display: productImageUrl(product.image_url) ? "none" : "flex",
                         flexDirection: "column",
                         alignItems: "center",
                         gap: 0.5,
@@ -1164,10 +1164,10 @@ export default function SalesStockDashboard() {
                         <Box
                           sx={{ display: "flex", alignItems: "center", gap: 1 }}
                         >
-                          {product?.image_url && (
+                          {product && productImageUrl(product.image_url) && (
                             <Box
                               component="img"
-                              src={product.image_url}
+                              src={productImageUrl(product.image_url)!}
                               alt={product.name}
                               onError={(
                                 e: React.SyntheticEvent<HTMLImageElement>,

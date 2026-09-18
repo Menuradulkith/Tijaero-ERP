@@ -907,8 +907,9 @@ export default function SuppliersPage() {
     invalidateQueryKeys: [["suppliers"], ["referenceData"], ["supplierActivityLog"]],
     successMessage: "Supplier updated successfully",
     errorMessage: "Failed to update supplier",
-    onSuccess: () => {
+    onSuccess: (updatedSupplier) => {
       setIsEditing(false);
+      setSelectedSupplier(updatedSupplier);
     },
     onError: async (error) => {
       // 409 = someone else changed this supplier since it was loaded (see

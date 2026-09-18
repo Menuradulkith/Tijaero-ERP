@@ -151,6 +151,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "company_name", label: "Name" },
   { value: "outstanding", label: "Outstanding" },
   { value: "max_credit_limit", label: "Credit Limit" },
+  { value: "created_at", label: "Creation Date" },
 ];
 
 const PAYMENT_METHODS = [
@@ -489,6 +490,9 @@ export default function SupplierPaymentsPage() {
             (a.max_credit_limit - (a.left_credit_amount ?? a.max_credit_limit));
         case "max_credit_limit":
           return b.max_credit_limit - a.max_credit_limit;
+        case "created_at":
+          return (b.created_at ? new Date(b.created_at).getTime() : 0) -
+            (a.created_at ? new Date(a.created_at).getTime() : 0);
         default:
           return 0;
       }

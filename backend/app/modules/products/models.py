@@ -5,7 +5,7 @@ from app.common.base_models import TimestampMixin, AuditMixin
 
 class Category(Base, AuditMixin):
     __tablename__ = "category"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     category_code = Column(String(255), nullable=False)
@@ -13,7 +13,7 @@ class Category(Base, AuditMixin):
     description = Column(Text)
     active = Column(Boolean, nullable=False)
     created_date = Column(TIMESTAMP, nullable=False)
-    
+
 
     products = relationship("Product", back_populates="category")
 
@@ -47,7 +47,7 @@ class Product(Base, AuditMixin):
     items_brand_id = Column(Integer, ForeignKey("items_brand.id"), nullable=False, index=True)
     added_date = Column(TIMESTAMP, nullable=False)
     image_url = Column(Text, nullable=True)
-    
+
     category = relationship("Category", back_populates="products")
     brand = relationship("ItemsBrand", back_populates="products")
     invoice_items = relationship("InvoiceItems", back_populates="product")
@@ -58,6 +58,7 @@ class Product(Base, AuditMixin):
     cs_job_items = relationship("CSJobItem", back_populates="product")
     item_transfer_note_items = relationship("ItemTransferNoteItems", back_populates="product")
     item_transfer_note_item_products = relationship("ItemTransferNoteItemProduct", back_populates="product")
+    supplier_products = relationship("SupplierProduct", back_populates="product", cascade="all, delete-orphan")
     cupon_codes = relationship("CustomerCuponCodes", back_populates="product")
     company_assets = relationship("CompanyAssets", back_populates="product")
     sales_stock = relationship("SalesStock", back_populates="product")

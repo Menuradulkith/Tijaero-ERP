@@ -110,6 +110,7 @@ import { formatDateTimeReadable } from "@/utils/formatters";
 const SORT_OPTIONS: SortOption[] = [
   { value: "good_received_date", label: "Date" },
   { value: "good_received_no", label: "GRN Number" },
+  { value: "added_date", label: "Creation Date" },
 ];
 
 const FORM_STEPS = ["GRN Information", "Received Items"];
@@ -540,6 +541,10 @@ export default function GoodReceivedNotesPage() {
     filtered.sort((a, b) => {
       if (sortField === "good_received_date") {
         const diff = new Date(b.good_received_date || "").getTime() - new Date(a.good_received_date || "").getTime();
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
+      if (sortField === "added_date") {
+        const diff = new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
         return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
       const fieldA = a[sortField as keyof GoodReceivedNote] || "";

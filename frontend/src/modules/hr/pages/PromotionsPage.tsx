@@ -34,6 +34,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "appointed_desc", label: "Date (Newest)" },
   { value: "employee_id", label: "Employee ID" },
   { value: "designation", label: "Designation" },
+  { value: "created_at", label: "Creation Date" },
 ];
 
 const INITIAL_FORM: EmployeePromotionCreate = {
@@ -52,7 +53,7 @@ export default function PromotionsPage() {
   const {
     searchQuery, setSearchQuery,
     sortField, setSortField,
-    selectedItem, isEditing, isCreating,
+    selectedItem, setSelectedItem, isEditing, isCreating,
     setIsCreating, setIsEditing,
     formData, setFormData,
     handleSelectItem, handleNew, handleCancel: baseCancel, handleStartEdit,
@@ -80,6 +81,9 @@ export default function PromotionsPage() {
     list.sort((a, b) => {
       if (sortField === "employee_id") return a.employee_id.localeCompare(b.employee_id);
       if (sortField === "designation") return a.designation.localeCompare(b.designation);
+      if (sortField === "created_at")
+        return (b.created_at ? new Date(b.created_at).getTime() : 0) -
+          (a.created_at ? new Date(a.created_at).getTime() : 0);
       return b.appointed_date.localeCompare(a.appointed_date);
     });
     return list;
@@ -102,10 +106,11 @@ export default function PromotionsPage() {
 
   const updateMut = useMutation({
     mutationFn: ({ id, data }: { id: number; data: EmployeePromotionCreate }) => promotionsApi.update(id, data),
-    onSuccess: () => {
+    onSuccess: (updated) => {
       qc.invalidateQueries({ queryKey: ["promotions"] });
       showSuccessToast("Promotion updated");
       setIsEditing(false);
+      setSelectedItem(updated);
     },
     onError: (e) => showErrorToast(handleApiError(e, "Failed to update promotion")),
   });

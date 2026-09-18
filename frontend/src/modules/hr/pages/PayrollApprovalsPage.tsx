@@ -71,6 +71,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "payroll_month", label: "Payroll Period" },
   { value: "batch_no", label: "Batch No" },
   { value: "total_net_salary", label: "Net Salary" },
+  { value: "created_desc", label: "Date (Newest)" },
 ];
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -164,6 +165,8 @@ export default function PayrollApprovalsPage() {
         return Number(b.total_net_salary || 0) - Number(a.total_net_salary || 0);
       if (sortField === "batch_no")
         return (b.batch_no || "").localeCompare(a.batch_no || "");
+      if (sortField === "created_desc")
+        return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
       // Default: sort by year then month descending
       if (b.payroll_year !== a.payroll_year)
         return (b.payroll_year || 0) - (a.payroll_year || 0);

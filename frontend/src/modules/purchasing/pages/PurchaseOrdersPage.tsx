@@ -13,8 +13,8 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
 import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
@@ -24,6 +24,7 @@ import {
     Autocomplete,
     Box,
     Button,
+    CircularProgress,
     Dialog,
     DialogActions,
     DialogContent,
@@ -89,8 +90,9 @@ import {
     PurchasingOrderItemCreate,
     PurchasingOrderWithItems,
     Supplier,
+    SupplierProduct,
 } from "@/modules/purchasing/types";
-import PriceTierManager from "@/modules/inventory/components/PriceTierManager";
+import { productsApi } from "@/modules/inventory/api";
 
 import { useAuthStore } from "@/state/authStore";
 import { hasPermission } from "@/auth/permissions";
@@ -102,7 +104,7 @@ const SORT_OPTIONS: SortOption[] = [
 
 // Status options are now imported from common components (PO_STATUS_OPTIONS)
 
-const FORM_STEPS = ["Order Information", "Order Items"];
+const FORM_STEPS = ["Select Products", "Order Information"];
 
 /** Preview the next sequential number using the same format as the backend */
 const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
@@ -148,7 +150,6 @@ const INITIAL_FORM_DATA: PurchaseOrderFormData = {
 
 interface OrderLineItem extends PurchasingOrderItemCreate {
   _id: string;
-  price_tier_id?: number;
 }
 
 const resetFormFromOrder = (
@@ -183,7 +184,10 @@ export default function PurchaseOrdersPage() {
   const user = useAuthStore((s) => s.user);
 
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
-  const [tierManagerProductId, setTierManagerProductId] = useState<number | null>(null);
+  // Which line item's "Compare Suppliers" dialog is open (null = closed).
+  // Tracks the line item id, not just the product, since the price it picks
+  // must be quick-filled back onto that specific row.
+  const [compareSuppliersFor, setCompareSuppliersFor] = useState<{ itemId: string; productId: number } | null>(null);
   const [formStep, setFormStep] = useState(0);
 
   // Confirm dialog for unsaved changes and delete actions
@@ -416,6 +420,56 @@ export default function PurchaseOrdersPage() {
   } = useReferenceData(["products", "branches"]);
   const products = refData?.products || [];
   const branches = filteredBranches || [];
+
+  // Which products the PO's primary supplier has an approved-vendor mapping
+  // for (Suppliers -> Products), so the line-item picker can flag them and
+  // default to that supplier's own cost price instead of the product's
+  // generic cost_price or an unrelated price tier.
+  const { data: supplierProductList } = useQuery({
+    queryKey: ["supplier-products", formData.first_suppliers_id],
+    queryFn: () => suppliersApi.getProducts(formData.first_suppliers_id),
+    enabled: !!formData.first_suppliers_id && (isEditing || isCreating),
+  });
+  const supplierProductMap = useMemo(() => {
+    const map = new Map<number, SupplierProduct>();
+    (supplierProductList || []).forEach((sp) => map.set(sp.product_id, sp));
+    return map;
+  }, [supplierProductList]);
+
+  // Mapped-to-this-supplier products first, so they're easy to find, without
+  // hiding the rest — a supplier can still occasionally send something new.
+  const productOptions = useMemo(() => {
+    if (supplierProductMap.size === 0) return products;
+    return [...products].sort((a: any, b: any) => {
+      const aMapped = supplierProductMap.has(a.id) ? 1 : 0;
+      const bMapped = supplierProductMap.has(b.id) ? 1 : 0;
+      return bMapped - aMapped;
+    });
+  }, [products, supplierProductMap]);
+
+  // The reverse lookup: every supplier who can supply the product currently
+  // open in the "Compare Suppliers" dialog, with their cost/lead time/MOQ —
+  // reuses the same reciprocal endpoint that backs the Products page.
+  const { data: compareSuppliers, isLoading: compareSuppliersLoading } = useQuery({
+    queryKey: ["product-suppliers-compare", compareSuppliersFor?.productId],
+    queryFn: () => productsApi.getSuppliers(compareSuppliersFor!.productId),
+    enabled: !!compareSuppliersFor,
+  });
+
+  const handleQuickFillSupplierPrice = useCallback((supplier: SupplierProduct) => {
+    if (!compareSuppliersFor) return;
+    setLineItems((prev) =>
+      prev.map((lineItem) =>
+        lineItem._id === compareSuppliersFor.itemId
+          ? { ...lineItem, unit_price: supplier.cost_price }
+          : lineItem
+      )
+    );
+    showSuccessToast(
+      `Unit price set to Rs. ${supplier.cost_price} from ${supplier.supplier_company_name || "this supplier"}`
+    );
+    setCompareSuppliersFor(null);
+  }, [compareSuppliersFor]);
 
   // Auto-default branch filter for non-superuser users
   useEffect(() => {
@@ -874,8 +928,9 @@ export default function PurchaseOrdersPage() {
     invalidateQueryKeys: [["purchaseOrders"]],
     successMessage: "Purchase order updated successfully",
     errorMessage: "Failed to update purchase order",
-    onSuccess: () => {
+    onSuccess: (updatedOrder) => {
       setIsEditing(false);
+      setSelectedOrder(updatedOrder);
     },
   });
 
@@ -1115,18 +1170,24 @@ export default function PurchaseOrdersPage() {
     return !!getFieldError(fieldName);
   };
 
-  // Step 1 validation: Order Information, Dates & Payments, Remarks
+  // Order Information step validation: Order Information, Dates & Payments, Remarks
   // When creating, purchasing_order_no is auto-generated (nextPONumber) and not stored in formData until submit
   const effectivePONumber = isCreating
     ? nextPONumber
     : formData.purchasing_order_no;
-  const isStep1Valid =
+  const isOrderInfoStepValid =
     formData.first_suppliers_id > 0 &&
     effectivePONumber &&
     formData.branch_code;
 
+  // Select Products step validation: at least one line item with a product and quantity chosen
+  const isProductsStepValid =
+    lineItems.length > 0 &&
+    lineItems.every((item) => item.product_id > 0 && item.quantity > 0);
+
   // Full form validation (both steps)
-  const isFormValid = isStep1Valid && lineItems.length > 0;
+  const isFormValid =
+    isProductsStepValid && isOrderInfoStepValid && !isDailyLimitExceeded;
 
   const handleNextStep = useCallback(() => {
     if (formStep < FORM_STEPS.length - 1) {
@@ -1360,7 +1421,7 @@ export default function PurchaseOrdersPage() {
               size="small"
               variant="contained"
               onClick={handleNextStep}
-              disabled={!isStep1Valid || isDailyLimitExceeded}
+              disabled={!isProductsStepValid}
               endIcon={<ArrowForwardIcon />}
             >
               Next
@@ -1405,9 +1466,21 @@ export default function PurchaseOrdersPage() {
               </Stepper>
             )}
 
-            {/* Step 1: Order Information, Dates & Payments, Remarks (always show in view/edit mode) */}
-            {(formStep === 0 || !isCreating) && (
+            {/* Order Information, Dates & Payments, Remarks (step 2 in create mode; always show in view/edit mode) */}
+            {(formStep === 1 || !isCreating) && (
               <>
+                {/* Back button in create mode only */}
+                {isCreating && (
+                  <Button
+                    variant="text"
+                    onClick={handlePreviousStep}
+                    startIcon={<ArrowBackIcon />}
+                    sx={{ mb: 2 }}
+                  >
+                    Back to Select Products
+                  </Button>
+                )}
+
                 <FormSection title="Order Information" columns={3}>
                   <TextField
                     label="Order Number"
@@ -1481,7 +1554,7 @@ export default function PurchaseOrdersPage() {
                         (s: Supplier) => s.id === formData.first_suppliers_id,
                       ) || null
                     }
-                    onChange={(_, newValue: Supplier | null) => {
+                    onChange={async (_, newValue: Supplier | null) => {
                       let computedGrnDate = formData.good_received_note_date;
                       if (newValue?.average_lead_time_days != null) {
                         const base = new Date(
@@ -1501,6 +1574,31 @@ export default function PurchaseOrdersPage() {
                         good_received_note_date: computedGrnDate,
                       });
                       handleBlur("first_suppliers_id");
+
+                      // Re-price every cart line for the newly chosen supplier:
+                      // their listed cost if they carry the product, otherwise
+                      // fall back to the product's own default cost price.
+                      if (newValue && lineItems.length > 0) {
+                        const supplierProducts = await queryClient.fetchQuery({
+                          queryKey: ["supplier-products", newValue.id],
+                          queryFn: () => suppliersApi.getProducts(newValue.id),
+                        });
+                        const costByProduct = new Map(
+                          supplierProducts.map((sp) => [sp.product_id, sp.cost_price]),
+                        );
+                        setLineItems((prev) =>
+                          prev.map((item) => {
+                            if (!item.product_id) return item;
+                            const baseCost =
+                              products.find((p: any) => p.id === item.product_id)
+                                ?.cost_price ?? 0;
+                            return {
+                              ...item,
+                              unit_price: costByProduct.get(item.product_id) ?? baseCost,
+                            };
+                          }),
+                        );
+                      }
                     }}
                     disabled={!isEditing && !isCreating}
                     renderInput={(params) => (
@@ -1545,6 +1643,66 @@ export default function PurchaseOrdersPage() {
                     )}
                   />
                 </FormSection>
+
+                {(isCreating || isEditing) &&
+                  formData.first_suppliers_id > 0 &&
+                  lineItems.some((item) => item.product_id) && (
+                    <FormSection title="Price Comparison" columns={1}>
+                      <Paper
+                        variant="outlined"
+                        sx={{
+                          overflow: "hidden",
+                          borderRadius: 2,
+                          border: "1px solid",
+                          borderColor: "divider",
+                        }}
+                      >
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow sx={modernTableStyles.headerRow}>
+                              <TableCell>Product</TableCell>
+                              <TableCell align="right">Base Cost (Rs.)</TableCell>
+                              <TableCell align="right">
+                                {(suppliers?.find(
+                                  (s: Supplier) => s.id === formData.first_suppliers_id,
+                                )?.company_name || "Supplier") + "'s Cost (Rs.)"}
+                              </TableCell>
+                              <TableCell align="right">Lead Time (days)</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {lineItems
+                              .filter((item) => item.product_id)
+                              .map((item) => {
+                                const product = products.find(
+                                  (p: any) => p.id === item.product_id,
+                                );
+                                const mapping = supplierProductMap.get(item.product_id);
+                                const baseCost = product?.cost_price ?? 0;
+                                return (
+                                  <TableRow key={item._id}>
+                                    <TableCell>{product?.name || "-"}</TableCell>
+                                    <TableCell align="right">{fmtLKR(baseCost)}</TableCell>
+                                    <TableCell align="right">
+                                      {mapping ? (
+                                        fmtLKR(mapping.cost_price)
+                                      ) : (
+                                        <Typography variant="body2" color="text.secondary">
+                                          {fmtLKR(baseCost)} (base)
+                                        </Typography>
+                                      )}
+                                    </TableCell>
+                                    <TableCell align="right">
+                                      {mapping?.lead_time_days ?? "—"}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                          </TableBody>
+                        </Table>
+                      </Paper>
+                    </FormSection>
+                  )}
 
                 <FormSection title="Dates & Payment" columns={3}>
                   <TextField
@@ -1737,21 +1895,9 @@ export default function PurchaseOrdersPage() {
               </>
             )}
 
-            {/* Step 2: Order Items (always show in view/edit mode, step 2 in create mode) */}
-            {(formStep === 1 || !isCreating) && (
+            {/* Order Items (step 1 in create mode; always show in view/edit mode) */}
+            {(formStep === 0 || !isCreating) && (
               <>
-                {/* Back button in create mode only */}
-                {isCreating && (
-                  <Button
-                    variant="text"
-                    onClick={handlePreviousStep}
-                    startIcon={<ArrowBackIcon />}
-                    sx={{ mb: 2 }}
-                  >
-                    Back to Order Information
-                  </Button>
-                )}
-
                 <Box
                   sx={{
                     display: "flex",
@@ -1829,18 +1975,32 @@ export default function PurchaseOrdersPage() {
                                     <Box sx={{ display: "flex", gap: 1 }}>
                                       <Autocomplete
                                         size="small"
-                                        options={products || []}
+                                        options={productOptions}
                                         getOptionLabel={(option: any) =>
                                           option.name || ""
                                         }
+                                        renderOption={(props, option: any) => {
+                                          const mapping = supplierProductMap.get(option.id);
+                                          return (
+                                            <li {...props} key={option.id}>
+                                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
+                                                <Typography variant="body2" sx={{ flex: 1 }}>{option.name}</Typography>
+                                                {mapping && (
+                                                  <Tooltip title={`This supplier's cost: Rs. ${mapping.cost_price}${mapping.is_preferred ? " (preferred)" : ""}`}>
+                                                    <CheckIcon fontSize="small" color={mapping.is_preferred ? "primary" : "success"} />
+                                                  </Tooltip>
+                                                )}
+                                              </Box>
+                                            </li>
+                                          );
+                                        }}
                                         value={
                                           products?.find(
                                             (p: any) => p.id === item.product_id,
                                           ) || null
                                         }
                                         onChange={(_, newValue: any) => {
-                                          const activeTiers = newValue?.price_tiers?.filter((t: any) => t.is_active) || [];
-                                          const defaultTier = activeTiers.find((t: any) => t.remark === 'Default') || activeTiers[0];
+                                          const supplierMapping = newValue ? supplierProductMap.get(newValue.id) : undefined;
 
                                           const updatedItems = lineItems.map(
                                             (lineItem) =>
@@ -1848,9 +2008,8 @@ export default function PurchaseOrdersPage() {
                                                 ? {
                                                     ...lineItem,
                                                     product_id: newValue?.id || 0,
-                                                    price_tier_id: defaultTier?.id || undefined,
                                                     unit_price:
-                                                      defaultTier?.cost_price || newValue?.cost_price || 0,
+                                                      supplierMapping?.cost_price ?? newValue?.cost_price ?? 0,
                                                   }
                                                 : lineItem,
                                           );
@@ -1866,50 +2025,17 @@ export default function PurchaseOrdersPage() {
                                         sx={{ minWidth: 180, flexGrow: 1 }}
                                       />
                                       {item.product_id ? (
-                                        <Tooltip title="Manage Price Tiers">
+                                        <Tooltip title="Compare Suppliers">
                                           <IconButton
                                             size="small"
                                             color="primary"
-                                            onClick={() => setTierManagerProductId(item.product_id)}
+                                            onClick={() => setCompareSuppliersFor({ itemId: item._id, productId: item.product_id })}
                                           >
-                                            <EditIcon />
+                                            <CompareArrowsIcon />
                                           </IconButton>
                                         </Tooltip>
                                       ) : null}
                                     </Box>
-                                    {(() => {
-                                      const p: any = products?.find((p: any) => p.id === item.product_id);
-                                      const activeTiers = p?.price_tiers?.filter((t: any) => t.is_active) || [];
-                                      if (activeTiers.length > 0) {
-                                        return (
-                                          <Autocomplete
-                                            size="small"
-                                            options={activeTiers}
-                                            getOptionLabel={(option: any) =>
-                                              `${option.remark || "Unnamed Tier"} - Rs. ${option.cost_price}`
-                                            }
-                                            value={activeTiers.find((t: any) => t.id === item.price_tier_id) || null}
-                                            onChange={(_, newValue: any) => {
-                                              const updatedItems = lineItems.map(
-                                                (lineItem) =>
-                                                  lineItem._id === item._id
-                                                    ? {
-                                                        ...lineItem,
-                                                        price_tier_id: newValue?.id || undefined,
-                                                        unit_price: newValue?.cost_price || p.cost_price || 0,
-                                                      }
-                                                    : lineItem,
-                                              );
-                                              setLineItems(updatedItems);
-                                            }}
-                                            renderInput={(params) => (
-                                              <TextField {...params} size="small" placeholder="Select Price Tier" />
-                                            )}
-                                          />
-                                        );
-                                      }
-                                      return null;
-                                    })()}
                                   </Box>
                                 ) : (
                                   getProductName(item.product_id)
@@ -1941,14 +2067,14 @@ export default function PurchaseOrdersPage() {
                                     size="small"
                                     type="number"
                                     value={Number(item.unit_price)}
-                                    disabled
-                                    sx={{
-                                      width: 100,
-                                      "& .MuiInputBase-input.Mui-disabled": {
-                                        WebkitTextFillColor: "inherit",
-                                        color: "inherit",
-                                      },
-                                    }}
+                                    onChange={(e) =>
+                                      handleUpdateLineItem(
+                                        item._id,
+                                        "unit_price",
+                                        parseFloat(e.target.value) || 0,
+                                      )
+                                    }
+                                    sx={{ width: 100 }}
                                     inputProps={{ min: 0, step: 0.01 }}
                                   />
                                 ) : (
@@ -2207,24 +2333,61 @@ export default function PurchaseOrdersPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Inline Price Tier Manager Dialog */}
       <Dialog
-        open={tierManagerProductId !== null}
-        onClose={() => setTierManagerProductId(null)}
-        maxWidth="md"
+        open={compareSuppliersFor !== null}
+        onClose={() => setCompareSuppliersFor(null)}
+        maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Manage Price Tiers</DialogTitle>
+        <DialogTitle>Compare Suppliers</DialogTitle>
         <DialogContent dividers>
-          {tierManagerProductId && (
-            <PriceTierManager
-              productId={tierManagerProductId}
-              canEdit={hasPermission(user, "products", "update")}
-            />
+          {compareSuppliersLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : !compareSuppliers || compareSuppliers.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No suppliers are mapped to this product yet. Add one from the supplier's own
+              Products section.
+            </Typography>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Supplier</TableCell>
+                  <TableCell align="right">Cost Price</TableCell>
+                  <TableCell align="right">Lead Time</TableCell>
+                  <TableCell align="right">MOQ</TableCell>
+                  <TableCell align="right"> </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {compareSuppliers.map((supplier) => (
+                  <TableRow key={supplier.id} hover sx={{ cursor: "pointer" }} onClick={() => handleQuickFillSupplierPrice(supplier)}>
+                    <TableCell>
+                      {supplier.supplier_company_name || `#${supplier.supplier_id}`}
+                      {supplier.is_preferred && (
+                        <Typography component="span" variant="caption" color="primary" sx={{ ml: 1 }}>
+                          (preferred)
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell align="right">Rs. {supplier.cost_price}</TableCell>
+                    <TableCell align="right">{supplier.lead_time_days != null ? `${supplier.lead_time_days}d` : "-"}</TableCell>
+                    <TableCell align="right">{supplier.minimum_order_qty ?? "-"}</TableCell>
+                    <TableCell align="right">
+                      <Button size="small" onClick={(e) => { e.stopPropagation(); handleQuickFillSupplierPrice(supplier); }}>
+                        Use Price
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setTierManagerProductId(null)}>Done</Button>
+          <Button onClick={() => setCompareSuppliersFor(null)}>Close</Button>
         </DialogActions>
       </Dialog>
 

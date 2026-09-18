@@ -75,7 +75,6 @@ class ProductService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Website price cannot be less than cost price."
             )
-
         created = repository.product_repository.create(db, product, user_id)
         log_audit(
             db,
@@ -119,7 +118,6 @@ class ProductService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Website price cannot be less than cost price."
             )
-
         submitted_fields = product.model_dump(exclude_unset=True)
         before_values = {field: getattr(curr_product, field) for field in submitted_fields}
 
@@ -147,6 +145,44 @@ class ProductService:
 
         _attach_user_names(db, [updated_product])
         return updated_product
+
+    def update_image(self, db: Session, product_id: int, relative_path: str) -> schemas.Product:
+        from app.common.file_storage import delete_file
+
+        product = repository.product_repository.get_by_id(db, product_id)
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product with id {product_id} not found"
+            )
+        old_path = product.image_url
+        product.image_url = relative_path
+        db.commit()
+        db.refresh(product)
+        # Only clean up files this uploader saved — a pasted external URL
+        # (the old free-text behavior) isn't ours to delete.
+        if old_path and old_path != relative_path and not old_path.startswith("http"):
+            delete_file(old_path)
+        _attach_user_names(db, [product])
+        return product
+
+    def remove_image(self, db: Session, product_id: int) -> schemas.Product:
+        from app.common.file_storage import delete_file
+
+        product = repository.product_repository.get_by_id(db, product_id)
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product with id {product_id} not found"
+            )
+        old_path = product.image_url
+        product.image_url = None
+        db.commit()
+        db.refresh(product)
+        if old_path and not old_path.startswith("http"):
+            delete_file(old_path)
+        _attach_user_names(db, [product])
+        return product
 
     def delete_product(self, db: Session, product_id: int, user_id: Optional[int] = None) -> dict:
         product = repository.product_repository.get_by_id(db, product_id)
@@ -222,7 +258,7 @@ class CategoryService:
             )
         _attach_user_names(db, [category])
         return category
-    
+
     def get_all_categories(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[schemas.Category]:
         categories = repository.category_repository.get_all(db, skip, limit, active_only)
         _attach_user_names(db, categories)

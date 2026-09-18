@@ -102,6 +102,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "entry_date", label: "Entry Date" },
   { value: "journal_entry_no", label: "Entry No" },
   { value: "total_debit", label: "Amount" },
+  { value: "created_at", label: "Creation Date" },
 ];
 
 const FORM_STEPS = ["Entry Information", "Line Items"];
@@ -287,6 +288,11 @@ export default function JournalEntriesPage() {
       }
       if (sortField === "journal_entry_no") {
         const diff = (b.journal_entry_no || "").localeCompare(a.journal_entry_no || "");
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
+      if (sortField === "created_at") {
+        const diff = (b.created_at ? new Date(b.created_at).getTime() : 0) -
+          (a.created_at ? new Date(a.created_at).getTime() : 0);
         return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
       const timeDiff = new Date(b.entry_date || "").getTime() - new Date(a.entry_date || "").getTime();

@@ -68,6 +68,7 @@ import { SaleReturn, SaleReturnWithItems } from "@/modules/sales/types";
 const SORT_OPTIONS: SortOption[] = [
     { value: "added_date", label: "Date" },
     { value: "sale_return_no", label: "Return Number" },
+    { value: "created_at", label: "Creation Date" },
 ];
 
 export default function SaleReturnApprovalsPage() {
@@ -161,6 +162,9 @@ export default function SaleReturnApprovalsPage() {
         filtered.sort((a, b) => {
             if (sortField === "sale_return_no") {
                 return (a.sale_return_no || "").localeCompare(b.sale_return_no || "");
+            }
+            if (sortField === "created_at") {
+                return (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0);
             }
             return new Date(b.added_date).getTime() - new Date(a.added_date).getTime();
         });

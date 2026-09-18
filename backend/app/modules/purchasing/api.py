@@ -452,6 +452,60 @@ def delete_supplier_contact_person(
 
 
 @router.get(
+    "/suppliers/{supplier_id}/products",
+    response_model=List[schemas.SupplierProduct],
+)
+def list_supplier_products(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
+):
+    return service.SupplierProductService(db).list_by_supplier(supplier_id)
+
+
+@router.post(
+    "/suppliers/{supplier_id}/products",
+    response_model=schemas.SupplierProduct,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_supplier_product(
+    supplier_id: int,
+    payload: schemas.SupplierProductCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+):
+    return service.SupplierProductService(db).create_mapping(supplier_id, payload)
+
+
+@router.patch(
+    "/suppliers/{supplier_id}/products/{mapping_id}",
+    response_model=schemas.SupplierProduct,
+)
+def update_supplier_product(
+    supplier_id: int,
+    mapping_id: int,
+    payload: schemas.SupplierProductUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+):
+    return service.SupplierProductService(db).update_mapping(supplier_id, mapping_id, payload)
+
+
+@router.delete(
+    "/suppliers/{supplier_id}/products/{mapping_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_supplier_product(
+    supplier_id: int,
+    mapping_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+):
+    service.SupplierProductService(db).delete_mapping(supplier_id, mapping_id)
+    return None
+
+
+@router.get(
     "/orders/daily-limit/{branch_code}",
     response_model=schemas.DailyPOLimitCheck,
     dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
