@@ -36,6 +36,7 @@ import DownloadIcon from "@mui/icons-material/FileDownload";
 const SORT_OPTIONS: SortOption[] = [
   { value: "employee_id", label: "Employee ID" },
   { value: "full_name", label: "Full Name" },
+  { value: "created_desc", label: "Date (Newest)" },
 ];
 
 interface EmployeeRow extends Employee {
@@ -114,11 +115,13 @@ export default function EmployeesPage() {
         (r.email || "").toLowerCase().includes(q) ||
         r.username.toLowerCase().includes(q)
     );
-    list.sort((a, b) =>
-      sortField === "full_name"
-        ? a.full_name.localeCompare(b.full_name)
-        : a.employee_id.localeCompare(b.employee_id)
-    );
+    list.sort((a, b) => {
+      if (sortField === "full_name") return a.full_name.localeCompare(b.full_name);
+      if (sortField === "created_desc") {
+        return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+      }
+      return a.employee_id.localeCompare(b.employee_id);
+    });
     return list;
   }, [rows, searchQuery, sortField]);
 

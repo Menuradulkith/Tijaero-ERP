@@ -68,6 +68,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "date", label: "Issue Date" },
   { value: "amount", label: "Amount" },
   { value: "balance", label: "Balance" },
+  { value: "created_at", label: "Creation Date" },
 ];
 
 const STATUS_OPTIONS = [
@@ -225,6 +226,8 @@ export default function VouchersPage() {
         return b.amount - a.amount;
       } else if (sortField === "balance") {
         return b.balance - a.balance;
+      } else if (sortField === "created_at") {
+        return (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0);
       }
       return 0;
     });

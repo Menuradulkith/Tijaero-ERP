@@ -66,6 +66,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "claim_date", label: "Claim Date" },
   { value: "total_amount", label: "Amount" },
   { value: "reimbursement_no", label: "Reimbursement No" },
+  { value: "created_desc", label: "Date (Newest)" },
 ];
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -167,6 +168,10 @@ export default function ReimbursementApprovalsPage() {
       }
       if (sortField === "reimbursement_no") {
         const diff = (b.reimbursement_no || "").localeCompare(a.reimbursement_no || "");
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
+      if (sortField === "created_desc") {
+        const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
         return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
       const timeDiff = new Date(b.claim_date || "").getTime() - new Date(a.claim_date || "").getTime();

@@ -161,6 +161,41 @@ class SupplierPaymentMethod(SupplierPaymentMethodBase, AuditSchema):
     id: int
     supplier_id: int
 
+
+class SupplierProductBase(BaseModel):
+    product_id: int
+    supplier_sku: Optional[str] = None
+    cost_price: Decimal = Field(..., ge=0)
+    lead_time_days: Optional[int] = Field(default=None, ge=0)
+    minimum_order_qty: Optional[int] = Field(default=None, ge=1)
+    is_preferred: bool = False
+    active: bool = True
+
+
+class SupplierProductCreate(SupplierProductBase):
+    pass
+
+
+class SupplierProductUpdate(BaseModel):
+    supplier_sku: Optional[str] = None
+    cost_price: Optional[Decimal] = Field(default=None, ge=0)
+    lead_time_days: Optional[int] = Field(default=None, ge=0)
+    minimum_order_qty: Optional[int] = Field(default=None, ge=1)
+    is_preferred: Optional[bool] = None
+    active: Optional[bool] = None
+
+
+class SupplierProduct(SupplierProductBase, AuditSchema):
+    id: int
+    supplier_id: int
+    # Populated by the service for display — the product's own name/code
+    # when listing from the supplier side, and the supplier's company name
+    # when listing from the product side.
+    product_name: Optional[str] = None
+    product_item_code: Optional[str] = None
+    supplier_company_name: Optional[str] = None
+
+
 class PurchasingOrderItemBase(BaseModel):
     product_id: int
     quantity: int

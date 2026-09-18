@@ -413,6 +413,73 @@ class SupplierContactPersonService:
         self.repo.delete(contact_id)
 
 
+class SupplierProductService:
+    """The "approved vendor list": which suppliers can supply a given
+    product, and on what terms (cost, lead time, MOQ, preferred flag)."""
+
+    def __init__(self, db: Session):
+        self.db = db
+        self.repo = repository.SupplierProductRepository(db)
+        self.supplier_repo = repository.SupplierRepository(db)
+
+    def _ensure_supplier(self, supplier_id: int) -> models.Supplier:
+        supplier = self.supplier_repo.get_by_id(supplier_id)
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier with id {supplier_id} not found"
+            )
+        return supplier
+
+    def _ensure_product(self, product_id: int) -> None:
+        from app.modules.products.models import Product
+
+        if not self.db.query(Product).filter(Product.id == product_id).first():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product with id {product_id} not found"
+            )
+
+    def _get_owned_mapping(self, supplier_id: int, mapping_id: int) -> models.SupplierProduct:
+        mapping = self.repo.get_by_id(mapping_id)
+        if not mapping or mapping.supplier_id != supplier_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier product with id {mapping_id} not found for this supplier"
+            )
+        return mapping
+
+    def list_by_supplier(self, supplier_id: int) -> List[models.SupplierProduct]:
+        self._ensure_supplier(supplier_id)
+        return self.repo.get_by_supplier(supplier_id)
+
+    def list_by_product(self, product_id: int) -> List[models.SupplierProduct]:
+        self._ensure_product(product_id)
+        return self.repo.get_by_product(product_id)
+
+    def create_mapping(
+        self, supplier_id: int, data: schemas.SupplierProductCreate
+    ) -> models.SupplierProduct:
+        self._ensure_supplier(supplier_id)
+        self._ensure_product(data.product_id)
+        if self.repo.find_by_pair(supplier_id, data.product_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This product is already mapped to this supplier",
+            )
+        return self.repo.create(supplier_id, data)
+
+    def update_mapping(
+        self, supplier_id: int, mapping_id: int, data: schemas.SupplierProductUpdate
+    ) -> models.SupplierProduct:
+        self._get_owned_mapping(supplier_id, mapping_id)
+        return self.repo.update(mapping_id, data)
+
+    def delete_mapping(self, supplier_id: int, mapping_id: int) -> None:
+        self._get_owned_mapping(supplier_id, mapping_id)
+        self.repo.delete(mapping_id)
+
+
 class PurchasingOrderService:
     def __init__(self, db: Session):
         self.db = db

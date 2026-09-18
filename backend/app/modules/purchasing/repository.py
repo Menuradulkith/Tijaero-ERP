@@ -231,6 +231,118 @@ class SupplierContactPersonRepository:
         return False
 
 
+class SupplierProductRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def _stamp_display_fields(self, rows: List[models.SupplierProduct]) -> List[models.SupplierProduct]:
+        """Attach product/supplier display fields as dynamic attributes, in one
+        batched query each, so the schema (from_attributes=True) can read them
+        without N+1 queries or a full ORM relationship load."""
+        from app.modules.products.models import Product
+
+        product_ids = {r.product_id for r in rows}
+        supplier_ids = {r.supplier_id for r in rows}
+
+        products_by_id = {}
+        if product_ids:
+            products_by_id = {
+                p.id: p for p in self.db.query(Product).filter(Product.id.in_(product_ids)).all()
+            }
+        suppliers_by_id = {}
+        if supplier_ids:
+            suppliers_by_id = {
+                s.id: s for s in self.db.query(models.Supplier).filter(models.Supplier.id.in_(supplier_ids)).all()
+            }
+
+        for row in rows:
+            product = products_by_id.get(row.product_id)
+            supplier = suppliers_by_id.get(row.supplier_id)
+            row.product_name = product.name if product else None
+            row.product_item_code = product.item_code if product else None
+            row.supplier_company_name = supplier.company_name if supplier else None
+        return rows
+
+    def get_by_supplier(self, supplier_id: int) -> List[models.SupplierProduct]:
+        rows = (
+            self.db.query(models.SupplierProduct)
+            .filter(models.SupplierProduct.supplier_id == supplier_id)
+            .order_by(models.SupplierProduct.is_preferred.desc(), models.SupplierProduct.id)
+            .all()
+        )
+        return self._stamp_display_fields(rows)
+
+    def get_by_product(self, product_id: int) -> List[models.SupplierProduct]:
+        rows = (
+            self.db.query(models.SupplierProduct)
+            .filter(models.SupplierProduct.product_id == product_id)
+            .order_by(models.SupplierProduct.is_preferred.desc(), models.SupplierProduct.id)
+            .all()
+        )
+        return self._stamp_display_fields(rows)
+
+    def get_by_id(self, mapping_id: int) -> Optional[models.SupplierProduct]:
+        return (
+            self.db.query(models.SupplierProduct)
+            .filter(models.SupplierProduct.id == mapping_id)
+            .first()
+        )
+
+    def find_by_pair(self, supplier_id: int, product_id: int) -> Optional[models.SupplierProduct]:
+        return (
+            self.db.query(models.SupplierProduct)
+            .filter(
+                models.SupplierProduct.supplier_id == supplier_id,
+                models.SupplierProduct.product_id == product_id,
+            )
+            .first()
+        )
+
+    def _clear_preferred(self, product_id: int, exclude_id: Optional[int] = None) -> None:
+        # "Preferred" is scoped to the product (only one preferred supplier
+        # per product), not to the supplier — unlike payment methods' default.
+        query = self.db.query(models.SupplierProduct).filter(
+            models.SupplierProduct.product_id == product_id,
+            models.SupplierProduct.is_preferred.is_(True),
+        )
+        if exclude_id is not None:
+            query = query.filter(models.SupplierProduct.id != exclude_id)
+        query.update({"is_preferred": False})
+        self.db.commit()
+
+    def create(self, supplier_id: int, data: schemas.SupplierProductCreate) -> models.SupplierProduct:
+        if data.is_preferred:
+            self._clear_preferred(data.product_id)
+        db_mapping = models.SupplierProduct(supplier_id=supplier_id, **data.model_dump())
+        self.db.add(db_mapping)
+        self.db.commit()
+        self.db.refresh(db_mapping)
+        return self._stamp_display_fields([db_mapping])[0]
+
+    def update(
+        self, mapping_id: int, data: schemas.SupplierProductUpdate
+    ) -> Optional[models.SupplierProduct]:
+        db_mapping = self.get_by_id(mapping_id)
+        if not db_mapping:
+            return None
+        update_data = data.model_dump(exclude_unset=True)
+        if update_data.get("is_preferred"):
+            self._clear_preferred(db_mapping.product_id, exclude_id=db_mapping.id)
+        for field, value in update_data.items():
+            setattr(db_mapping, field, value)
+        self.db.commit()
+        self.db.refresh(db_mapping)
+        return self._stamp_display_fields([db_mapping])[0]
+
+    def delete(self, mapping_id: int) -> bool:
+        db_mapping = self.get_by_id(mapping_id)
+        if db_mapping:
+            self.db.delete(db_mapping)
+            self.db.commit()
+            return True
+        return False
+
+
 class PurchasingOrderRepository:
     def __init__(self, db: Session):
         self.db = db

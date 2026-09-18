@@ -68,6 +68,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "cupon_code", label: "Coupon Code" },
   { value: "valid_until_date", label: "Expiry Date" },
   { value: "discount_value", label: "Discount Value" },
+  { value: "created_date", label: "Creation Date" },
 ];
 
 const STATUS_OPTIONS = [
@@ -220,6 +221,8 @@ export default function CouponsPage() {
         return new Date(a.valid_until_date).getTime() - new Date(b.valid_until_date).getTime();
       } else if (sortField === "discount_value") {
         return b.discount_value - a.discount_value;
+      } else if (sortField === "created_date") {
+        return new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
       }
       return 0;
     });
@@ -253,8 +256,9 @@ export default function CouponsPage() {
     invalidateQueryKeys: [["coupons"]],
     successMessage: "Coupon updated successfully",
     errorMessage: "Failed to update coupon",
-    onSuccess: () => {
+    onSuccess: (updatedCoupon) => {
       setIsEditing(false);
+      setSelectedCoupon(updatedCoupon);
     },
   });
 

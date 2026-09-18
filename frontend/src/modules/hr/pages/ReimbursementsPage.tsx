@@ -79,6 +79,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "claim_date", label: "Claim Date" },
   { value: "reimbursement_no", label: "Reimbursement No" },
   { value: "total_amount", label: "Amount" },
+  { value: "created_desc", label: "Date (Newest)" },
 ];
 
 interface ReimbursementFormData extends ReimbursementCreate {
@@ -499,6 +500,10 @@ export default function ReimbursementsPage() {
       }
       if (sortField === "total_amount") {
         const diff = (b.total_amount || 0) - (a.total_amount || 0);
+        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
+      }
+      if (sortField === "created_desc") {
+        const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
         return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
       }
       const fa = a[sortField as keyof Reimbursement] || "";

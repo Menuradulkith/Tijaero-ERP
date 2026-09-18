@@ -68,6 +68,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "period_number", label: "Period Number" },
   { value: "start_date", label: "Start Date" },
   { value: "fiscal_year", label: "Fiscal Year" },
+  { value: "created_at", label: "Creation Date" },
 ];
 
 const getStatusColor = (status: PeriodStatus) => {
@@ -145,6 +146,9 @@ export default function AccountingPeriodsPage() {
       if (sortField === "start_date")
         return new Date(a.start_date).getTime() - new Date(b.start_date).getTime();
       if (sortField === "fiscal_year") return b.fiscal_year - a.fiscal_year;
+      if (sortField === "created_at")
+        return (b.created_at ? new Date(b.created_at).getTime() : 0) -
+          (a.created_at ? new Date(a.created_at).getTime() : 0);
       return a.period_number - b.period_number;
     });
     return filtered;

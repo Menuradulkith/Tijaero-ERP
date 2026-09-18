@@ -72,6 +72,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "company_name", label: "Name" },
   { value: "max_credit_limit", label: "Credit Limit" },
   { value: "credit_days", label: "Credit Days" },
+  { value: "created_at", label: "Creation Date" },
 ];
 
 // Credit PO from API
@@ -224,6 +225,8 @@ export default function CreditSettlementPage() {
           return b.max_credit_limit - a.max_credit_limit;
         case "credit_days":
           return b.credit_days - a.credit_days;
+        case "created_at":
+          return (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0);
         default:
           return 0;
       }

@@ -110,6 +110,39 @@ export interface SupplierPaymentAccountUpdate {
   active?: boolean;
 }
 
+// Supplier <-> Product mapping (the "approved vendor list"): which suppliers
+// can supply a given product, and on what terms. Read from either side —
+// supplier_id + product_id are both always present, and product_name /
+// supplier_company_name are filled in by the backend for display.
+export interface SupplierProduct {
+  id: number;
+  supplier_id: number;
+  product_id: number;
+  supplier_sku?: string;
+  cost_price: number;
+  lead_time_days?: number;
+  minimum_order_qty?: number;
+  is_preferred: boolean;
+  active: boolean;
+  product_name?: string;
+  product_item_code?: string;
+  supplier_company_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplierProductCreate {
+  product_id: number;
+  supplier_sku?: string;
+  cost_price: number;
+  lead_time_days?: number;
+  minimum_order_qty?: number;
+  is_preferred?: boolean;
+  active?: boolean;
+}
+
+export type SupplierProductUpdate = Partial<SupplierProductCreate>;
+
 export interface SupplierCreate {
   company_name: string;
   company_registration_number?: string;

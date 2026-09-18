@@ -62,6 +62,7 @@ const SORT_OPTIONS: SortOption[] = [
   { value: "username", label: "Username" },
   { value: "first_name", label: "First Name" },
   { value: "email", label: "Email" },
+  { value: "created_at", label: "Creation Date" },
 ];
 
 const USER_STATUS_OPTIONS: TFilterStatusOption[] = [
@@ -316,6 +317,7 @@ export default function UsersPage() {
       if (sortField === "username") return a.username.localeCompare(b.username);
       if (sortField === "first_name") return a.first_name.localeCompare(b.first_name);
       if (sortField === "email") return (a.email || "").localeCompare(b.email || "");
+      if (sortField === "created_at") return (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0);
       return 0;
     });
 
