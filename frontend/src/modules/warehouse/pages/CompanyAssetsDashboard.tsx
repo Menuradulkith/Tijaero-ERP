@@ -679,7 +679,7 @@ export default function CompanyAssetsDashboard() {
       </Collapse>
 
       {/* Data Table */}
-      <Paper variant="outlined" sx={{ flex: 1, display: "flex", flexDirection: "column", borderRadius: 2, overflow: "hidden" }}>
+      <Paper variant="outlined" sx={{ flex: 1, display: "flex", flexDirection: "column", borderRadius: 3, overflow: "hidden" }}>
         {/* Table Header */}
         <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Typography variant="subtitle1" fontWeight={500}>

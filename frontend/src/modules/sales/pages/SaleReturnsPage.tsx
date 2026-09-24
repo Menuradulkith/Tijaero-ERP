@@ -18,9 +18,16 @@ import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import DeleteIcon from "@mui/icons-material/Delete";
 import HistoryIcon from "@mui/icons-material/History";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
     Alert,
     Autocomplete,
+    Avatar,
     Box,
     Button,
     Checkbox,
@@ -52,27 +59,25 @@ import {
     FormSection,
     MasterDetailLayout,
     RETURN_STATUS_FILTER_OPTIONS,
-    SearchableList,
-    SelectableListItem,
     showErrorToast,
     showSuccessToast,
-    SortOption,
     TBranchFilter,
     TConfirmDialog,
+    TDataGrid,
+    type TDataGridColumn,
     TPrintButton,
     TPrintPreviewDialog,
     TEmailDialog,
     TStatusChip,
     TStatusFilter,
     TSteps,
-    TTabFilterBar,
     canPrintDocument,
-    getStatusProps,
     modernTableStyles,
     useCrudMutation,
     useMasterDetailState,
     useTConfirmDialog,
     TActivityHistoryPanel,
+    SelectableListItem,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -104,13 +109,6 @@ const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: 
   }
   return `${fullPrefix}${String(maxSeq + 1).padStart(6, '0')}`;
 };
-
-const SORT_OPTIONS: SortOption[] = [
-    { value: "added_date", label: "Date" },
-    { value: "sale_return_no", label: "Return Number" },
-    { value: "total_refund", label: "Refund Amount" },
-    { value: "created_at", label: "Creation Date" },
-];
 
 // Return reason options
 const RETURN_REASON_OPTIONS = [
@@ -189,14 +187,10 @@ export default function SaleReturnsPage() {
         setTouched(prev => ({ ...prev, [fieldName]: true }));
     };
 
-    // Filter states (applied - drives the actual list filtering)
+    // Filter state - all filters apply live as the user types/selects, no
+    // separate "Search" step needed.
     const [filterBranch, setFilterBranch] = useState<string | null>(null);
     const [filterStatus, setFilterStatus] = useState<string | null>(null);
-
-    // Filter states (draft - edited via the header filter bar, only applied on Search click)
-    const [draftBranch, setDraftBranch] = useState<string | null>(null);
-    const [draftStatus, setDraftStatus] = useState<string | null>(null);
-    const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
     // Barcode input state
     const [barcodeInput, setBarcodeInput] = useState("");
@@ -212,8 +206,6 @@ export default function SaleReturnsPage() {
     const {
         searchQuery,
         setSearchQuery,
-        sortField,
-        setSortField,
         selectedItem: selectedReturn,
         isEditing,
         setIsEditing,
@@ -256,27 +248,17 @@ export default function SaleReturnsPage() {
     useEffect(() => {
       if (defaultBranchCode && filterBranch === null) {
         setFilterBranch(defaultBranchCode);
-        setDraftBranch(defaultBranchCode);
       }
     }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
     const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-    const handleApplyFilters = useCallback(() => {
-        setSearchQuery(draftSearchQuery);
-        setFilterBranch(draftBranch);
-        setFilterStatus(draftStatus);
-    }, [draftSearchQuery, draftBranch, draftStatus]);
-
     const handleClearFilters = useCallback(() => {
-        setDraftSearchQuery("");
-        setDraftBranch(null);
-        setDraftStatus(null);
         setSearchQuery("");
         setFilterBranch(null);
         setFilterStatus(null);
-    }, []);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleNewReturn = useCallback(() => {
         handleNewReturnBase();
@@ -314,14 +296,6 @@ export default function SaleReturnsPage() {
             })));
         }
     }, [handleStartEditBase, selectedReturn]);
-
-    const handleCancel = useCallback((items: SaleReturn[]) => {
-        handleCancelBase(items);
-        setLineItems([]);
-        setFormStep(0);
-        setBarcodeInput("");
-        setTouched({});
-    }, [handleCancelBase]);
 
     // Tracks the most recently requested return so a slower, stale response
     // (e.g. switching from A to B before A's request resolves) can't overwrite
@@ -397,6 +371,21 @@ export default function SaleReturnsPage() {
         }
     }, [selectedInvoice]);
 
+    // Helper functions (moved above filteredReturns, which calls getInvoiceNo
+    // while filtering — these must already be defined by then).
+    const getInvoiceNo = useCallback((ret: SaleReturn) => {
+        return ret.invoice_no || `INV-${ret.invoice_id}`;
+    }, []);
+
+    const getStatus = useCallback((ret: SaleReturn) => {
+        return ret.status || (ret.approval_id ? "approved" : "pending");
+    }, []);
+
+    const getBranchDisplay = (branchCode: string) => {
+        const branch = branches.find((b) => b.branch_code === branchCode);
+        return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
+    };
+
     const filteredReturns = useMemo(() => {
         if (!returns) return [];
 
@@ -417,27 +406,152 @@ export default function SaleReturnsPage() {
             filtered = filtered.filter(ret => ret.status === filterStatus);
         }
 
-        filtered.sort((a, b) => {
-            if (sortField === "added_date") {
-                return new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
-            }
-            if (sortField === "created_at") {
-                return (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0);
-            }
-            const fieldA = a[sortField as keyof SaleReturn] || "";
-            const fieldB = b[sortField as keyof SaleReturn] || "";
-            return String(fieldA).localeCompare(String(fieldB));
-        });
+        // Default order before the user sorts a column in the table itself
+        // (the table's own column-header sort takes over from there).
+        filtered.sort((a, b) => new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime());
 
         return filtered;
-    }, [returns, searchQuery, sortField, filterBranch, filterStatus]);
+    }, [returns, searchQuery, filterBranch, filterStatus]);
 
+    // The table sorts by whichever column the user clicks; Invoice, Branch,
+    // Reason and Status all display a looked-up or derived value rather than
+    // a raw field, so each needs its own value on the row for the grid to
+    // sort/display correctly.
+    type SaleReturnRow = SaleReturn & {
+        invoice_display: string;
+        branch_display: string;
+        reason_label: string;
+        return_status: string;
+    };
 
-    useEffect(() => {
-        if (filteredReturns.length > 0 && !selectedReturn && !isCreating) {
-            handleSelectReturnWithItems(filteredReturns[0]);
+    const saleReturnRows: SaleReturnRow[] = useMemo(
+        () =>
+            filteredReturns.map((ret) => ({
+                ...ret,
+                invoice_display: getInvoiceNo(ret),
+                branch_display: getBranchDisplay(ret.branch_code),
+                reason_label: RETURN_REASON_OPTIONS.find((r) => r.value === ret.return_reason)?.label || ret.return_reason || "-",
+                return_status: getStatus(ret),
+            })),
+        [filteredReturns] // eslint-disable-line react-hooks/exhaustive-deps
+    );
+
+    // The Favorite star column plus real-data columns — sorting is done via
+    // the grid's own column header menu, not a separate "Sort by" control.
+    const saleReturnColumns: TDataGridColumn<SaleReturnRow>[] = useMemo(
+        () => [
+            {
+                field: "favorite",
+                header: "",
+                width: 48,
+                sortable: false,
+                align: "center",
+                headerAlign: "center",
+                renderCell: (params: GridRenderCellParams<SaleReturnRow>) => (
+                    <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+                        {favorites.includes(params.row.id) ? (
+                            <StarIcon fontSize="small" color="warning" />
+                        ) : (
+                            <StarOutlineIcon fontSize="small" color="action" />
+                        )}
+                    </IconButton>
+                ),
+            },
+            {
+                field: "sale_return_no",
+                header: "Return No",
+                flex: 1,
+                minWidth: 150,
+                renderCell: (params: GridRenderCellParams<SaleReturnRow>) =>
+                    params.row.sale_return_no || `RET-${params.row.id}`,
+            },
+            { field: "invoice_display", header: "Invoice", width: 150 },
+            { field: "branch_display", header: "Branch", width: 170 },
+            {
+                field: "added_date",
+                header: "Date",
+                width: 130,
+                renderCell: (params: GridRenderCellParams<SaleReturnRow>) =>
+                    params.row.added_date ? new Date(params.row.added_date).toLocaleDateString() : "-",
+            },
+            { field: "reason_label", header: "Reason", width: 170 },
+            {
+                field: "return_status",
+                header: "Status",
+                width: 140,
+                align: "center",
+                headerAlign: "center",
+                renderCell: (params: GridRenderCellParams<SaleReturnRow>) => (
+                    <TStatusChip status={params.row.return_status} statusMap="salesReturn" size="small" />
+                ),
+            },
+            {
+                field: "total_refund",
+                header: "Total",
+                width: 140,
+                align: "right",
+                headerAlign: "right",
+                renderCell: (params: GridRenderCellParams<SaleReturnRow>) =>
+                    `Rs. ${fmtLKR(params.row.total_refund || 0)}`,
+            },
+            {
+                field: "view",
+                header: "",
+                width: 56,
+                sortable: false,
+                align: "center",
+                headerAlign: "center",
+                renderCell: (params: GridRenderCellParams<SaleReturnRow>) => (
+                    <Tooltip title="Open">
+                        <IconButton
+                            size="small"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectReturnWithItems(params.row);
+                            }}
+                        >
+                            <OpenInNewIcon fontSize="small" color="action" />
+                        </IconButton>
+                    </Tooltip>
+                ),
+            },
+        ],
+        [favorites, toggleFavorite, handleSelectReturnWithItems] // eslint-disable-line react-hooks/exhaustive-deps
+    );
+
+    // Cancelling out of "New Return" should return to the browse table, not
+    // auto-open the first return the way useMasterDetailState's generic
+    // handleCancel does (that behavior made sense for the old always-visible
+    // detail panel, but not here). Cancelling out of editing an existing
+    // return still just reverts its form, which the generic handler already
+    // does correctly.
+    const handleCancel = useCallback(() => {
+        if (isCreating) {
+            setIsCreating(false);
+            setIsEditing(false);
+            handleSelectReturn(null as any);
+        } else {
+            handleCancelBase(filteredReturns);
         }
-    }, [filteredReturns, selectedReturn, isCreating]);
+        setLineItems([]);
+        setFormStep(0);
+        setBarcodeInput("");
+        setTouched({});
+    }, [isCreating, filteredReturns, handleCancelBase, handleSelectReturn, setIsCreating, setIsEditing]);
+
+    // Whether we're showing a single sale return's detail view (selected or
+    // being created) instead of the browse table.
+    const isReturnDetailMode = !!selectedReturn || isCreating;
+
+    // Returns to the browse table from the detail view (the "Back to Sale
+    // Returns" link above the detail content's breadcrumbs).
+    const handleBackToReturns = useCallback(() => {
+        handleSelectReturn(null as any);
+        if (isCreating) {
+            setIsCreating(false);
+            setIsEditing(false);
+        }
+    }, [isCreating, handleSelectReturn, setIsCreating, setIsEditing]);
 
     const createMutation = useCrudMutation({
         mutationFn: saleReturnsApi.create,
@@ -466,20 +580,6 @@ export default function SaleReturnsPage() {
 
     // Permissions
     const canDelete = usePermission("sales_returns", "delete");
-
-    // Helper functions
-    const getInvoiceNo = useCallback((ret: SaleReturn) => {
-        return ret.invoice_no || `INV-${ret.invoice_id}`;
-    }, []);
-
-    const getStatus = useCallback((ret: SaleReturn) => {
-        return ret.status || (ret.approval_id ? "approved" : "pending");
-    }, []);
-
-    const getBranchDisplay = (branchCode: string) => {
-        const branch = branches.find((b) => b.branch_code === branchCode);
-        return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
-    };
 
     const calculateTotal = () => {
         return lineItems.reduce((sum, item) => sum + (Number(item.return_price) * (item.quantity || 1) || 0), 0);
@@ -649,78 +749,87 @@ export default function SaleReturnsPage() {
         }
     }, [formStep]);
 
-    const masterPanel = (
-        <SearchableList<SaleReturn>
-            items={filteredReturns}
-            isLoading={isLoading}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            hideSearch
-            sortOptions={SORT_OPTIONS}
-            sortField={sortField}
-            onSortChange={setSortField}
-            selectedItem={selectedReturn}
-            onSelectItem={handleSelectReturnWithItems}
-            emptyMessage="No sale returns found"
-            renderItem={(ret, isSelected) => (
+    // Browse mode: a full-width table of every sale return (shown when
+    // nothing is selected and nothing is being created). Sorting is done
+    // per-column via the grid's own column header menu, not a separate
+    // "Sort by" control.
+    const saleReturnsTablePanel = (
+        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+                <TDataGrid<SaleReturnRow>
+                    rows={saleReturnRows}
+                    columns={saleReturnColumns}
+                    loading={isLoading}
+                    onRowClick={(row) => handleSelectReturnWithItems(row)}
+                    pageSizeOptions={[10, 25, 50, 100]}
+                    pageSize={25}
+                    emptyMessage="No sale returns found"
+                    autoHeight={false}
+                    height="100%"
+                />
+            </Box>
+        </Box>
+    );
+
+    // Detail mode: a narrow left panel showing only the current sale return
+    // (or the "New Return" placeholder while creating), with a "Back to
+    // Sale Returns" link returning to the table.
+    const singleReturnPanel = (
+        <Paper
+            elevation={0}
+            sx={{
+                width: 280,
+                minWidth: 240,
+                maxWidth: 300,
+                borderRight: 1,
+                borderColor: "divider",
+                display: "flex",
+                flexDirection: "column",
+                height: "100%",
+                overflow: "hidden",
+            }}
+        >
+            <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+                <Button
+                    size="small"
+                    startIcon={<ArrowBackIcon fontSize="small" />}
+                    onClick={handleBackToReturns}
+                    sx={{ textTransform: "none" }}
+                >
+                    Back to Sale Returns
+                </Button>
+            </Box>
+            {isCreating ? (
+                <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                        <Avatar sx={{ bgcolor: "warning.main" }}>
+                            <AssignmentReturnIcon />
+                        </Avatar>
+                        <Typography variant="caption" color="text.secondary">
+                            New Return
+                        </Typography>
+                    </Box>
+                </Box>
+            ) : selectedReturn && (
                 <SelectableListItem
-                    key={ret.id}
-                    id={ret.id}
-                    isSelected={isSelected}
-                    onClick={() => handleSelectReturnWithItems(ret)}
+                    id={selectedReturn.id}
+                    isSelected
+                    onClick={() => {}}
                     primaryText={
-                        <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-                            {/* Return Number */}
-                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <span>{ret.sale_return_no || `RET-${ret.id}`}</span>
-                                {isSelected && (
-                                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                                        (Return No)
-                                    </Typography>
-                                )}
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+                            <Avatar sx={{ bgcolor: "warning.main" }}>
+                                <AssignmentReturnIcon />
+                            </Avatar>
+                            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                                <span>{selectedReturn.sale_return_no || `RET-${selectedReturn.id}`}</span>
                             </Box>
-                            {/* Additional fields when selected */}
-                            {isSelected && (
-                                <>
-                                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                        <Typography component="span" variant="caption">
-                                            {getInvoiceNo(ret)}
-                                        </Typography>
-                                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                                            (Invoice)
-                                        </Typography>
-                                    </Box>
-                                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                        <Typography component="span" variant="caption">
-                                            {getBranchDisplay(ret.branch_code)}
-                                        </Typography>
-                                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                                            (Branch)
-                                        </Typography>
-                                    </Box>
-                                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                        <Typography component="span" variant="caption">
-                                            {new Date(ret.added_date || "").toLocaleDateString()}
-                                        </Typography>
-                                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                                            (Date)
-                                        </Typography>
-                                    </Box>
-                                    {/* Status Chips */}
-                                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                                        <TStatusChip status={getStatus(ret)} statusMap="salesReturn" size="small" />
-                                    </Box>
-                                </>
-                            )}
                         </Box>
                     }
-                    secondaryText={!isSelected ? `Invoice: ${getInvoiceNo(ret)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}` : undefined}
-                    isFavorite={favorites.includes(ret.id)}
-                    onToggleFavorite={(e) => toggleFavorite(ret.id, e)}
-                    statusChip={!isSelected ? { label: getStatusProps(getStatus(ret), "salesReturn").label, color: getStatusProps(getStatus(ret), "salesReturn").color } : undefined}
+                    isFavorite={favorites.includes(selectedReturn.id)}
+                    onToggleFavorite={(e) => toggleFavorite(selectedReturn.id, e)}
                 />
             )}
-        />
+        </Paper>
     );
 
     const detailPanel = (
@@ -752,7 +861,7 @@ export default function SaleReturnsPage() {
                 canUpdate={selectedReturn?.status === 'pending'}
                 onNew={handleNewReturn}
                 onSave={handleSave}
-                onCancel={() => handleCancel(filteredReturns)}
+                onCancel={handleCancel}
                 onEdit={handleStartEdit}
                 onDelete={() => {
                     if (selectedReturn) {
@@ -1196,7 +1305,7 @@ export default function SaleReturnsPage() {
                                     </Alert>
                                 )}
 
-                                <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+                                <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
                                     <Table size="small">
                                         <TableHead>
                                             <TableRow sx={modernTableStyles.headerRow}>
@@ -1351,70 +1460,71 @@ export default function SaleReturnsPage() {
             <MasterDetailLayout
                 title="Sale Returns"
                 titleSlot={
-                    <TTabFilterBar
-                        tabs={[
-                            {
-                                key: "search",
-                                label: "Search",
-                                hasValue: !!draftSearchQuery,
-                                render: ({ close }) => (
-                                    <TextField
-                                        size="small"
-                                        autoFocus
-                                        placeholder="Search returns..."
-                                        value={draftSearchQuery}
-                                        onChange={(e) => setDraftSearchQuery(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter") {
-                                                handleApplyFilters();
-                                                close();
-                                            }
-                                        }}
-                                        fullWidth
-                                    />
-                                ),
-                            },
-                            {
-                                key: "status",
-                                label: "Status",
-                                hasValue: !!draftStatus,
-                                render: () => (
-                                    <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
-                                ),
-                            },
-                            {
-                                key: "branch",
-                                label: "Branch",
-                                hasValue: !!draftBranch,
-                                render: () => (
-                                    <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
-                                ),
-                            },
-                        ]}
-                        onSearch={handleApplyFilters}
-                        onClear={handleClearFilters}
-                        clearDisabled={!draftSearchQuery && !draftBranch && !draftStatus && !searchQuery && !filterBranch && !filterStatus}
-                    />
+                    isReturnDetailMode ? undefined : (
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+                            <TextField
+                                size="small"
+                                placeholder="Search returns..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                InputProps={{
+                                    startAdornment: (
+                                        <InputAdornment position="start">
+                                            <SearchIcon fontSize="small" color="action" />
+                                        </InputAdornment>
+                                    ),
+                                }}
+                                sx={{ width: 220, flexShrink: 0 }}
+                            />
+                            <Box sx={{ width: 150, flexShrink: 0 }}>
+                                <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Status" size="small" />
+                            </Box>
+                            <Box sx={{ width: 160, flexShrink: 0 }}>
+                                <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+                            </Box>
+                            {(searchQuery || filterStatus || filterBranch) && (
+                                <Tooltip title="Clear filters">
+                                    <IconButton size="small" onClick={handleClearFilters}>
+                                        <ClearIcon fontSize="small" />
+                                    </IconButton>
+                                </Tooltip>
+                            )}
+                        </Box>
+                    )
                 }
                 headerActions={
-                    <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<DownloadIcon />}
-                        onClick={handleExportCSV}
-                        disabled={filteredReturns.length === 0}
-                        sx={{ mr: 1 }}
-                    >
-                        Export CSV
-                    </Button>
+                    isReturnDetailMode ? undefined : (
+                        <>
+                            <Button
+                                variant="contained"
+                                size="small"
+                                startIcon={<AddIcon />}
+                                onClick={handleNewReturn}
+                                sx={{ mr: 1 }}
+                            >
+                                Add Sale Return
+                            </Button>
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                startIcon={<DownloadIcon />}
+                                onClick={handleExportCSV}
+                                disabled={filteredReturns.length === 0}
+                                sx={{ mr: 1 }}
+                            >
+                                Export CSV
+                            </Button>
+                        </>
+                    )
                 }
                 onRefresh={() => {
                     queryClient.invalidateQueries({ queryKey: ["sale-returns"] });
                     queryClient.invalidateQueries({ queryKey: ["sales"] });
                 }}
                 isLoading={isLoading}
-                masterPanel={masterPanel}
-                detailPanel={detailPanel}
+                {...(isReturnDetailMode
+                    ? { masterPanel: singleReturnPanel, detailPanel }
+                    : { children: saleReturnsTablePanel })}
             />
 
             {/* Confirm Dialogs */}

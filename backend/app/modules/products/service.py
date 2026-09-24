@@ -1,7 +1,7 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
-from app.common.audit import log_audit
+from app.common.audit import log_audit, diff_changes
 from app.modules.products import repository, schemas, models
 
 def _attach_user_names(db: Session, records: List) -> None:
@@ -29,6 +29,28 @@ def _attach_user_names(db: Session, records: List) -> None:
         r.updated_by_name = name_map.get(getattr(r, "updated_by", None))
 
 
+def _attach_minimum_prices(db: Session, products: List) -> None:
+    """Stamp each product's current (latest) minimum selling price, in one
+    batched query — same shape as _attach_user_names above."""
+    price_by_product = repository.minimum_price_repository.get_current_for_products(
+        db, [p.id for p in products]
+    )
+    for p in products:
+        p.minimum_selling_price = price_by_product.get(p.id)
+
+
+def _attach_preferred_suppliers(db: Session, products: List) -> None:
+    """Stamp each product's preferred-supplier company name, in one batched
+    query — same shape as _attach_user_names above."""
+    from app.modules.purchasing.repository import SupplierProductRepository
+
+    name_by_product = SupplierProductRepository(db).get_preferred_for_products(
+        [p.id for p in products]
+    )
+    for p in products:
+        p.preferred_supplier_name = name_by_product.get(p.id)
+
+
 class ProductService:
     def get_product(self, db: Session, product_id: int) -> schemas.Product:
         product = repository.product_repository.get_by_id(db, product_id)
@@ -38,16 +60,22 @@ class ProductService:
                 detail=f"Product with id {product_id} not found"
             )
         _attach_user_names(db, [product])
+        _attach_minimum_prices(db, [product])
+        _attach_preferred_suppliers(db, [product])
         return product
 
     def get_all_products(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = True) -> List[schemas.Product]:
         products = repository.product_repository.get_all(db, skip, limit, active_only)
         _attach_user_names(db, products)
+        _attach_minimum_prices(db, products)
+        _attach_preferred_suppliers(db, products)
         return products
 
     def search_products(self, db: Session, query: str, skip: int = 0, limit: int = 100) -> List[schemas.Product]:
         products = repository.product_repository.search(db, query, skip, limit)
         _attach_user_names(db, products)
+        _attach_minimum_prices(db, products)
+        _attach_preferred_suppliers(db, products)
         return products
 
     def create_product(self, db: Session, product: schemas.ProductCreate, user_id: int) -> schemas.Product:
@@ -128,18 +156,15 @@ class ProductService:
                 detail=f"Product with id {product_id} not found"
             )
 
-        changed_fields = {
-            field for field, new_value in submitted_fields.items()
-            if before_values.get(field) != new_value
-        }
-        if changed_fields:
+        changes = diff_changes(before_values, submitted_fields)
+        if changes:
             log_audit(
                 db,
                 user_id=user_id or 0,
                 action="update",
                 entity_type="product",
                 entity_id=updated_product.id,
-                changes={"fields": sorted(changed_fields)},
+                changes=changes,
             )
             db.commit()
 
@@ -330,18 +355,15 @@ class CategoryService:
                 detail=f"Category with id {category_id} not found"
             )
 
-        changed_fields = {
-            field for field, new_value in submitted_fields.items()
-            if before_values.get(field) != new_value
-        }
-        if changed_fields:
+        changes = diff_changes(before_values, submitted_fields)
+        if changes:
             log_audit(
                 db,
                 user_id=user_id or 0,
                 action="update",
                 entity_type="category",
                 entity_id=updated_category.id,
-                changes={"fields": sorted(changed_fields)},
+                changes=changes,
             )
             db.commit()
 
@@ -462,18 +484,15 @@ class BrandService:
                 detail=f"Brand with id {brand_id} not found"
             )
 
-        changed_fields = {
-            field for field, new_value in submitted_fields.items()
-            if before_values.get(field) != new_value
-        }
-        if changed_fields:
+        changes = diff_changes(before_values, submitted_fields)
+        if changes:
             log_audit(
                 db,
                 user_id=user_id or 0,
                 action="update",
                 entity_type="brand",
                 entity_id=updated_brand.id,
-                changes={"fields": sorted(changed_fields)},
+                changes=changes,
             )
             db.commit()
 

@@ -736,10 +736,16 @@ export default function Sidebar({
       <Box sx={{ flexGrow: 1, overflow: "auto" }}>
         <List disablePadding>
           {visibleMenuItems.map((item) => {
-            const isActive =
-              location.pathname === item.path ||
-              (!item.subItems && location.pathname.startsWith(item.path));
             const hasSubItems = item.subItems && item.subItems.length > 0;
+            // A parent with sub-items is never "active" by its own path —
+            // only a leaf item is. Several parents share their first
+            // sub-item's path (e.g. Purchasing / Purchasing > Dashboard both
+            // resolve to "/purchasing"), and without this the parent header
+            // and that sub-item would both highlight at once.
+            const isActive =
+              !hasSubItems &&
+              (location.pathname === item.path ||
+                location.pathname.startsWith(item.path));
             const isExpanded = expandedMenus.has(item.text);
             const isParentActive = item.subItems?.some(
               (sub) =>
@@ -760,6 +766,9 @@ export default function Sidebar({
                       "&.Mui-selected": {
                         bgcolor: "primary.light",
                         color: "white",
+                        borderRadius: "12px",
+                        mx: 1,
+                        width: "auto",
                         "&:hover": { bgcolor: "primary.main" },
                         "& .MuiListItemIcon-root": { color: "white" },
                       },
@@ -824,6 +833,9 @@ export default function Sidebar({
                                   "&.Mui-selected": {
                                     bgcolor: "primary.light",
                                     color: "white",
+                                    borderRadius: "12px",
+                                    mx: 1,
+                                    width: "auto",
                                     "&:hover": { bgcolor: "primary.main" },
                                     "& .MuiListItemIcon-root": {
                                       color: "white",
@@ -891,6 +903,9 @@ export default function Sidebar({
                                             "&.Mui-selected": {
                                               bgcolor: "primary.light",
                                               color: "white",
+                                              borderRadius: "12px",
+                                              mx: 1,
+                                              width: "auto",
                                               "&:hover": {
                                                 bgcolor: "primary.main",
                                               },
@@ -986,6 +1001,11 @@ export default function Sidebar({
               boxSizing: "border-box",
               width: drawerWidth,
               left: iconNavWidth,
+              // Overrides MuiPaper's theme-default rounding (all four
+              // corners) down to just the bottom-right.
+              borderRadius: 0,
+              borderBottomRightRadius: 12,
+              overflow: "hidden",
             },
           }}
         >
@@ -999,6 +1019,11 @@ export default function Sidebar({
               boxSizing: "border-box",
               width: drawerWidth,
               left: iconNavWidth,
+              // Overrides MuiPaper's theme-default rounding (all four
+              // corners) down to just the bottom-right.
+              borderRadius: 0,
+              borderBottomRightRadius: 12,
+              overflow: "hidden",
             },
           }}
           open

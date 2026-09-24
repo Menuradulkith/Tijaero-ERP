@@ -50,10 +50,10 @@ class Approval(ApprovalBase, TijaeroBaseSchema):
     next_user_to_approve: Optional[int] = None
 
 class ActivityLogEntry(BaseModel):
-    """One row of an entity's modification history (Record Information ->
-    Activity History), backed by the generic audit_logs table. Used across
-    modules — any entity_type that log_audit() has been called with can be
-    queried through GET /common/activity-log."""
+    """One row of an entity's "Activity History" modification history,
+    backed by the generic audit_logs table. Used across modules — any
+    entity_type that log_audit() has been called with can be queried
+    through GET /common/activity-log."""
     id: int
     action: str
     changes: Optional[dict] = None

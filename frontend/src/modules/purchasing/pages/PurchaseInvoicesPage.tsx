@@ -5,13 +5,23 @@
 
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import AssessmentIcon from "@mui/icons-material/Assessment";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import AddIcon from "@mui/icons-material/Add";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Alert,
   Autocomplete,
+  Avatar,
   Box,
   Button,
   Checkbox,
   Chip,
+  IconButton,
+  InputAdornment,
   MenuItem,
   Paper,
   Table,
@@ -20,8 +30,10 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -33,16 +45,15 @@ import {
   FormSection,
   MasterDetailLayout,
   modernTableStyles,
-  SearchableList,
   SelectableListItem,
   showErrorToast,
   showSuccessToast,
-  SortOption,
   TBranchFilter,
   TConfirmDialog,
+  TDataGrid,
+  type TDataGridColumn,
   TExportButton,
   TStatusChip,
-  TTabFilterBar,
   TSupplierFilter,
   useCrudMutation,
   useMasterDetailState,
@@ -63,11 +74,6 @@ import { Supplier } from "@/modules/purchasing/types";
 import { useAuthStore } from "@/state/authStore";
 import { hasPermission } from "@/auth/permissions";
 
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_at", label: "Date" },
-  { value: "invoice_no", label: "Invoice Number" },
-];
-
 interface InvoiceFormData {
   supplier_invoice_no: string;
   supplier_invoice_date: string;
@@ -85,6 +91,10 @@ const INITIAL_FORM_DATA: InvoiceFormData = {
   payment_type: "non_credit",
   remarks: "",
 };
+
+// Browse-mode table row: the raw list item plus a display-only, looked-up
+// branch name (the list only carries branch_code).
+type PurchaseInvoiceRow = PurchaseInvoiceListItem & { branch_name: string };
 
 const resetFormFromInvoice = (invoice: PurchaseInvoiceListItem): InvoiceFormData => ({
   supplier_invoice_no: invoice.supplier_invoice_no || "",
@@ -115,37 +125,18 @@ export default function PurchaseInvoicesPage() {
   const [filterPaymentType, setFilterPaymentType] = useState<string | null>(null);
   const [filterPO, setFilterPO] = useState<string>("");
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftSupplier, setDraftSupplier] = useState<number | null>(null);
-  const [draftPO, setDraftPO] = useState<string>("");
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-    setFilterSupplier(draftSupplier);
-    setFilterPO(draftPO);
-  }, [draftSearchQuery, draftBranch, draftSupplier, draftPO]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
-    setDraftSupplier(null);
-    setDraftPO("");
     setSearchQuery("");
     setFilterBranch(null);
     setFilterSupplier(null);
     setFilterPO("");
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const confirmDialog = useTConfirmDialog();
 
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedInvoice,
     setSelectedItem: setSelectedInvoice,
     isEditing,
@@ -181,15 +172,41 @@ export default function PurchaseInvoicesPage() {
   });
 
 
+  // Cancelling a brand-new invoice should return to the browse table, not
+  // auto-select the first invoice the way useMasterDetailState's generic
+  // handleCancel does (that made sense for the old always-visible detail
+  // panel, but not here). Cancelling out of editing an existing invoice
+  // still just reverts its form, which the generic handler already does.
   const handleCancel = useCallback(
     (items: PurchaseInvoiceListItem[]) => {
-      handleCancelBase(items);
+      if (isCreating) {
+        setIsCreating(false);
+        setIsEditing(false);
+        setSelectedInvoice(null);
+        setDetailedInvoice(null);
+      } else {
+        handleCancelBase(items);
+      }
       setSelectedGRNs([]);
       setInvoiceableGRNs([]);
       setCreditPeriod("");
     },
-    [handleCancelBase],
+    [handleCancelBase, isCreating, setSelectedInvoice, setIsCreating, setIsEditing],
   );
+
+  // Returns to the browse table from the detail view (the "Back to Purchase
+  // Invoices" link above the detail header).
+  const handleBackToInvoices = useCallback(() => {
+    setSelectedInvoice(null);
+    setDetailedInvoice(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedGRNs([]);
+      setInvoiceableGRNs([]);
+      setCreditPeriod("");
+    }
+  }, [isCreating, setSelectedInvoice, setIsCreating, setIsEditing]);
 
   // Ref to hold pending nav-state fill values until isCreating is confirmed true
   const pendingNavFillRef = useRef<{ supplier_id: number; branch_code: string } | null>(null);
@@ -327,30 +344,28 @@ export default function PurchaseInvoicesPage() {
         inv.supplier_name?.toLowerCase().includes(searchQuery.toLowerCase()),
     );
 
+    // Fixed default order: newest first (by created_at, falling back to id),
+    // no longer tied to removable sort-UI state. The grid's own per-column
+    // header menu lets the user re-sort in browse mode.
     filtered.sort((a, b) => {
-      if (sortField === "created_at") {
-        const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      const fieldA = a[sortField as keyof PurchaseInvoiceListItem] || "";
-      const fieldB = b[sortField as keyof PurchaseInvoiceListItem] || "";
-      const comp = String(fieldA).localeCompare(String(fieldB));
-      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
+      const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
     });
     return filtered;
-  }, [invoices, searchQuery, sortField]);
+  }, [invoices, searchQuery]);
 
-  // Auto-select first
-  useEffect(() => {
-    if (filteredInvoices.length > 0 && !selectedInvoice && !isCreating) {
-      handleSelectInvoiceWithDetail(filteredInvoices[0]);
-    }
-  }, [filteredInvoices, selectedInvoice, isCreating, handleSelectInvoiceWithDetail]);
-
-  const getSupplierName = (supplierId: number) => {
-    const supplier = suppliers?.find((s: Supplier) => s.id === supplierId);
-    return supplier ? supplier.company_name : "Unknown";
-  };
+  // The table sorts by whichever column the user clicks; Branch displays a
+  // looked-up name rather than the raw branch_code, so it needs that name as
+  // its own field for the grid to sort on correctly.
+  const invoiceRows: PurchaseInvoiceRow[] = useMemo(
+    () =>
+      filteredInvoices.map((inv) => ({
+        ...inv,
+        supplier_name: inv.supplier_name || suppliers?.find((s: Supplier) => s.id === inv.supplier_id)?.company_name || "Unknown",
+        branch_name: branches.find((b) => b.branch_code === inv.branch_code)?.branch_name || inv.branch_code,
+      })),
+    [filteredInvoices, branches, suppliers],
+  );
 
   // GRN selection toggle
   const handleToggleGRN = useCallback((grn: GRNInvoiceableItem) => {
@@ -469,91 +484,202 @@ export default function PurchaseInvoicesPage() {
 
   const canCancelInvoice = selectedInvoice?.status === "unpaid";
 
-  // Master panel
-  const masterPanel = (
-    <SearchableList<PurchaseInvoiceListItem>
-      items={filteredInvoices}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedInvoice}
-      onSelectItem={handleSelectInvoiceWithDetail}
-      emptyMessage="No purchase invoices found"
-      renderItem={(invoice, isSelected) => (
-        <SelectableListItem
-          key={invoice.id}
-          id={invoice.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectInvoiceWithDetail(invoice)}
-          primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{invoice.invoice_no}</span>
-                <Typography variant="caption" sx={{ fontWeight: "bold" }}>
-                  {fmtLKR(invoice.total_amount)}
-                </Typography>
-              </Box>
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                    <Typography variant="caption">
-                      {invoice.supplier_name || getSupplierName(invoice.supplier_id)}
-                    </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.7 }}>(Supplier)</Typography>
-                  </Box>
-                  {invoice.po_nos && (
-                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                      <Typography variant="caption">
-                        {invoice.po_nos}
-                      </Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.7 }}>(PO)</Typography>
-                    </Box>
-                  )}
-                  <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                    <Typography variant="caption">
-                      {new Date(invoice.supplier_invoice_date || "").toLocaleDateString()}
-                    </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.7 }}>(Invoice Date)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <TStatusChip status={invoice.status || "unpaid"} statusMap="purchaseOrder" size="small" />
-                    <Chip
-                      size="small"
-                      label={invoice.payment_type === "credit" ? "Credit" : "Non-Credit"}
-                      color={invoice.payment_type === "credit" ? "warning" : "default"}
-                      variant="outlined"
-                      sx={{ height: 20, fontSize: "0.7rem" }}
-                    />
-                  </Box>
-                </>
-              )}
-            </Box>
-          }
-          secondaryText={
-            !isSelected
-              ? `${invoice.supplier_name || getSupplierName(invoice.supplier_id)} - ${new Date(invoice.supplier_invoice_date || "").toLocaleDateString()}`
-              : undefined
-          }
-          isFavorite={favorites.includes(invoice.id)}
-          onToggleFavorite={(e) => toggleFavorite(invoice.id, e)}
-          statusChip={
-            !isSelected
-              ? {
-                  label: invoice.status || "unpaid",
-                  color: invoice.status === "paid" ? "success" : invoice.status === "partially_paid" ? "info" : "default",
-                }
-              : undefined
-          }
-        />
-      )}
-    />
+  // Whether we're showing a single invoice's detail view (selected or being
+  // created) instead of the browse table.
+  const isInvoiceDetailMode = !!selectedInvoice || isCreating;
+
+  // Favorite star + real-data columns for the browse table. Real-data
+  // columns are natively sortable via the grid's own column-header menu
+  // (no custom "Sort by" dropdown).
+  const invoiceColumns: TDataGridColumn<PurchaseInvoiceRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<PurchaseInvoiceRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      { field: "invoice_no", header: "Invoice No", width: 140 },
+      { field: "supplier_name", header: "Supplier", flex: 1, minWidth: 180 },
+      { field: "branch_name", header: "Branch", width: 150 },
+      {
+        field: "supplier_invoice_date",
+        header: "Invoice Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<PurchaseInvoiceRow>) =>
+          params.row.supplier_invoice_date
+            ? new Date(params.row.supplier_invoice_date).toLocaleDateString()
+            : "-",
+      },
+      {
+        field: "due_date",
+        header: "Due Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<PurchaseInvoiceRow>) =>
+          params.row.due_date ? new Date(params.row.due_date).toLocaleDateString() : "-",
+      },
+      {
+        field: "payment_type",
+        header: "Payment Type",
+        width: 120,
+        renderCell: (params: GridRenderCellParams<PurchaseInvoiceRow>) => (
+          <Chip
+            size="small"
+            label={params.row.payment_type === "credit" ? "Credit" : "Non-Credit"}
+            color={params.row.payment_type === "credit" ? "warning" : "default"}
+            variant="outlined"
+          />
+        ),
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<PurchaseInvoiceRow>) => (
+          <TStatusChip status={params.row.status || "unpaid"} statusMap="purchaseOrder" size="small" />
+        ),
+      },
+      {
+        field: "total_amount",
+        header: "Total",
+        width: 130,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<PurchaseInvoiceRow>) => fmtLKR(params.row.total_amount),
+      },
+      {
+        field: "paid_amount",
+        header: "Paid Amount",
+        width: 130,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<PurchaseInvoiceRow>) => fmtLKR(params.row.paid_amount),
+      },
+      {
+        field: "balance_due",
+        header: "Balance Due",
+        width: 130,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<PurchaseInvoiceRow>) => fmtLKR(params.row.balance_due),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<PurchaseInvoiceRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectInvoiceWithDetail(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectInvoiceWithDetail],
   );
 
-  // Detail panel
+  // Browse mode: a full-width table of every purchase invoice (shown when
+  // nothing is selected and nothing is being created).
+  const invoiceTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<PurchaseInvoiceRow>
+          rows={invoiceRows}
+          columns={invoiceColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectInvoiceWithDetail(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No purchase invoices found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current invoice (or
+  // the "New Voucher" placeholder while creating). A "Back to Purchase
+  // Invoices" link returns to the table.
+  const singleInvoicePanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToInvoices}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Purchase Invoices
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
+              <ReceiptLongIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Voucher
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedInvoice && (
+        <SelectableListItem
+          id={selectedInvoice.id}
+          isSelected
+          onClick={() => {}}
+          primaryText={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
+                <ReceiptLongIcon fontSize="small" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedInvoice.invoice_no}</span>
+              </Box>
+            </Box>
+          }
+          isFavorite={favorites.includes(selectedInvoice.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedInvoice.id, e)}
+        />
+      )}
+    </Paper>
+  );
+
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -739,7 +865,7 @@ export default function PurchaseInvoicesPage() {
                     No invoiceable GRNs found for this supplier in the selected branch.
                   </Alert>
                 ) : (
-                  <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2 }}>
+                  <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 3 }}>
                     <Table size="small">
                       <TableHead>
                         <TableRow sx={modernTableStyles.headerRow}>
@@ -812,7 +938,7 @@ export default function PurchaseInvoicesPage() {
                 <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1, mt: 2 }}>
                   Invoice Items
                 </Typography>
-                <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2 }}>
+                <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 3 }}>
                   <Table size="small">
                     <TableHead>
                       <TableRow sx={modernTableStyles.headerRow}>
@@ -861,110 +987,110 @@ export default function PurchaseInvoicesPage() {
       <MasterDetailLayout
         title="Supplier Voucher Payment"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Invoice",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search invoices..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          isInvoiceDetailMode ? undefined : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search invoices..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
-              },
-              {
-                key: "supplier",
-                label: "Supplier",
-                hasValue: !!draftSupplier,
-                render: () => <TSupplierFilter suppliers={suppliers || []} value={draftSupplier} onChange={setDraftSupplier} label="" size="small" />,
-              },
-              {
-                key: "po",
-                label: "PO",
-                hasValue: !!draftPO,
-                render: () => (
-                  <Autocomplete
-                    size="small"
-                    options={purchaseOrders}
-                    getOptionLabel={(option) => option.purchasing_order_no || ""}
-                    value={purchaseOrders.find((po) => po.purchasing_order_no === draftPO) || null}
-                    onChange={(_, newValue) => setDraftPO(newValue?.purchasing_order_no || "")}
-                    renderInput={(params) => <TextField {...params} placeholder="All POs" />}
-                    clearOnEscape
-                    fullWidth
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftBranch && !draftSupplier && !draftPO && !searchQuery && !filterBranch && !filterSupplier && !filterPO}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 160, flexShrink: 0 }}>
+              <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+            </Box>
+            <Box sx={{ width: 180, flexShrink: 0 }}>
+              <TSupplierFilter suppliers={suppliers || []} value={filterSupplier} onChange={setFilterSupplier} label="" placeholder="All Suppliers" size="small" />
+            </Box>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
+              <Autocomplete
+                size="small"
+                options={purchaseOrders}
+                getOptionLabel={(option) => option.purchasing_order_no || ""}
+                value={purchaseOrders.find((po) => po.purchasing_order_no === filterPO) || null}
+                onChange={(_, newValue) => setFilterPO(newValue?.purchasing_order_no || "")}
+                renderInput={(params) => <TextField {...params} placeholder="All POs" />}
+                clearOnEscape
+                fullWidth
+              />
+            </Box>
+            {(searchQuery || filterBranch || filterSupplier || filterPO) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+          )
         }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["purchaseInvoices"] });
         }}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
         headerActions={
-          <TExportButton
-            filename="purchase_invoices"
-            headers={[
-              "Invoice No",
-              "Supplier Invoice No",
-              "Supplier",
-              "Invoice Date",
-              "Due Date",
-              "Payment Type",
-              "Subtotal",
-              "Tax",
-              "Discount",
-              "Total",
-              "Paid",
-              "Balance Due",
-              "Status",
-              "Payment Status",
-            ]}
-            rows={() =>
-              filteredInvoices.map((inv) => [
-                inv.invoice_no || "",
-                inv.supplier_invoice_no || "",
-                inv.supplier_name || "",
-                inv.supplier_invoice_date || "",
-                inv.due_date || "",
-                inv.payment_type || "",
-                inv.subtotal ?? 0,
-                inv.tax_amount ?? 0,
-                inv.discount_amount ?? 0,
-                inv.total_amount ?? 0,
-                inv.paid_amount ?? 0,
-                inv.balance_due ?? 0,
-                inv.status || "",
-                inv.payment_status || "",
-              ])
-            }
-            disabled={filteredInvoices.length === 0}
-          />
+          isInvoiceDetailMode ? undefined : (
+            <>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleNewOrder}
+                sx={{ mr: 1 }}
+              >
+                Add Purchase Invoice
+              </Button>
+              <TExportButton
+                filename="purchase_invoices"
+                headers={[
+                  "Invoice No",
+                  "Supplier Invoice No",
+                  "Supplier",
+                  "Invoice Date",
+                  "Due Date",
+                  "Payment Type",
+                  "Subtotal",
+                  "Tax",
+                  "Discount",
+                  "Total",
+                  "Paid",
+                  "Balance Due",
+                  "Status",
+                  "Payment Status",
+                ]}
+                rows={() =>
+                  filteredInvoices.map((inv) => [
+                    inv.invoice_no || "",
+                    inv.supplier_invoice_no || "",
+                    inv.supplier_name || "",
+                    inv.supplier_invoice_date || "",
+                    inv.due_date || "",
+                    inv.payment_type || "",
+                    inv.subtotal ?? 0,
+                    inv.tax_amount ?? 0,
+                    inv.discount_amount ?? 0,
+                    inv.total_amount ?? 0,
+                    inv.paid_amount ?? 0,
+                    inv.balance_due ?? 0,
+                    inv.status || "",
+                    inv.payment_status || "",
+                  ])
+                }
+                disabled={filteredInvoices.length === 0}
+              />
+            </>
+          )
         }
+        {...(isInvoiceDetailMode
+          ? { masterPanel: singleInvoicePanel, detailPanel }
+          : { children: invoiceTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

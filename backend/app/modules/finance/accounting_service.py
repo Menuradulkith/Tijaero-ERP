@@ -403,16 +403,20 @@ class JournalEntryService:
             )
 
         changed_fields = set()
-        if data.entry_date:
+        field_values: dict = {}
+        if data.entry_date and data.entry_date != je.entry_date:
+            field_values["entry_date"] = {"old": je.entry_date.isoformat(), "new": data.entry_date.isoformat()}
             je.entry_date = data.entry_date
             fiscal_year, fiscal_period = self._get_fiscal_period(data.entry_date)
             je.fiscal_year = fiscal_year
             je.fiscal_period = fiscal_period
             changed_fields.add("entry_date")
-        if data.description:
+        if data.description and data.description != je.description:
+            field_values["description"] = {"old": je.description, "new": data.description}
             je.description = data.description
             changed_fields.add("description")
-        if data.branch_code is not None:
+        if data.branch_code is not None and data.branch_code != je.branch_code:
+            field_values["branch_code"] = {"old": je.branch_code, "new": data.branch_code}
             je.branch_code = data.branch_code
             changed_fields.add("branch_code")
 
@@ -446,7 +450,7 @@ class JournalEntryService:
             log_audit(
                 self.db, user_id=updated_by or 0, action="update",
                 entity_type="journal_entry", entity_id=je.id,
-                changes={"fields": sorted(changed_fields)},
+                changes={"fields": sorted(changed_fields), "values": field_values},
             )
 
         self.db.commit()

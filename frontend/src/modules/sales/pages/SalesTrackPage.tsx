@@ -24,12 +24,16 @@ import PersonIcon from "@mui/icons-material/Person";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import TimelineIcon from "@mui/icons-material/Timeline";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 import {
   Avatar,
   Box,
   Chip,
   Divider,
   Grid,
+  IconButton,
+  InputAdornment,
   LinearProgress,
   Paper,
   Stack,
@@ -61,7 +65,6 @@ import {
   TStatCard,
   TStatusChip,
   TStatusFilter,
-  TTabFilterBar,
   getStatusProps,
   modernTableStyles,
   showErrorToast,
@@ -209,14 +212,11 @@ export default function SalesTrackPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("created_date");
   const [selectedOrder, setSelectedOrder] = useState<InvoiceWithItems | null>(null);
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // ─── Data Queries ────────────────────────────────────────────────────────
 
@@ -228,28 +228,17 @@ export default function SalesTrackPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterBranch(draftBranch);
-    setPage(1);
-  }, [draftSearchQuery, draftStatus, draftBranch]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftBranch(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterBranch(null);
     setPage(1);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Paginated invoice list
   const {
@@ -1081,50 +1070,58 @@ export default function SalesTrackPage() {
       <MasterDetailLayout
         title="Sales Track"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search invoice number, customer..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search invoice number, customer..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TStatusFilter options={STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
-                ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => (
-                  <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TStatusFilter
+                options={STATUS_FILTER_OPTIONS}
+                value={filterStatus}
+                onChange={(value) => {
+                  setFilterStatus(value);
+                  setPage(1);
+                }}
+                label=""
+                placeholder="All Status"
+                size="small"
+              />
+            </Box>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
+              <TBranchFilter
+                branches={branches}
+                value={filterBranch}
+                onChange={(value) => {
+                  setFilterBranch(value);
+                  setPage(1);
+                }}
+                label=""
+                placeholder="All Branches"
+                size="small"
+              />
+            </Box>
+            {(searchQuery || filterStatus || filterBranch) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         }
         masterPanel={masterPanel}
         detailPanel={detailPanel}

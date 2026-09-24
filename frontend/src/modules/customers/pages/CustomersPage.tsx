@@ -3,17 +3,30 @@
  */
 
 import PersonIcon from "@mui/icons-material/Person";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import SearchIcon from "@mui/icons-material/Search";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
+    Avatar,
     Box,
+    Button,
     Chip,
     FormControlLabel,
+    IconButton,
+    InputAdornment,
     MenuItem,
+    Paper,
     Switch,
     TextField,
+    Tooltip,
     Typography,
 } from "@mui/material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 // Tijaero Components
 import {
@@ -22,11 +35,8 @@ import {
     EmptyState,
     FormSection,
     MasterDetailLayout,
-    SearchableList,
-    SelectableListItem,
     showErrorToast,
     showSuccessToast,
-    SortOption,
     TDetailSkeleton,
     TExportButton,
     TConfirmDialog,
@@ -35,19 +45,15 @@ import {
     TITLE_CHOICES,
     GENDER_CHOICES,
     CIVIL_CHOICES,
+    TDataGrid,
+    SelectableListItem,
+    type TDataGridColumn,
 } from "@/components/tijaero";
-import { formatDateTimeReadable } from "@/utils/formatters";
+import { formatDateTimeReadable, formatCurrency } from "@/utils/formatters";
 
 import { usePermission } from "@/auth/permissions";
 import { customersApi } from "../api";
 import { Customer, CustomerCreate } from "../types";
-
-// Configuration
-const SORT_OPTIONS: SortOption[] = [
-  { value: "customer_name", label: "Customer Name" },
-  { value: "company_name", label: "Company Name" },
-  { value: "created_at", label: "Creation Date" },
-];
 
 const INITIAL_FORM_DATA: CustomerCreate = {
   customer_name: "",
@@ -109,9 +115,8 @@ export default function CustomersPage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedCustomer,
+    setSelectedItem: setSelectedCustomer,
     isEditing,
     setIsEditing,
     isCreating,
@@ -149,26 +154,12 @@ export default function CustomersPage() {
         customer.company_name?.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    filtered.sort((a, b) => {
-      if (sortField === "customer_name") {
-        return a.customer_name.localeCompare(b.customer_name);
-      } else if (sortField === "company_name") {
-        return (a.company_name || "").localeCompare(b.company_name || "");
-      } else if (sortField === "created_at") {
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      }
-      return 0;
-    });
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
+    filtered.sort((a, b) => a.customer_name.localeCompare(b.customer_name));
 
     return filtered;
-  }, [customers, searchQuery, sortField]);
-
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredCustomers.length > 0 && !selectedCustomer && !isCreating) {
-      handleSelectCustomer(filteredCustomers[0]);
-    }
-  }, [filteredCustomers, selectedCustomer, isCreating]);
+  }, [customers, searchQuery]);
 
   // Mutations
   const createMutation = useMutation({
@@ -211,7 +202,7 @@ export default function CustomersPage() {
       queryClient.refetchQueries({ queryKey: ["customers-all"] });
       queryClient.refetchQueries({ queryKey: ["referenceData"] });
       showSuccessToast("Customer deleted successfully");
-      baseHandleCancel(filteredCustomers);
+      setSelectedCustomer(null);
     },
     onError: () => showErrorToast("Failed to delete customer"),
   });
@@ -255,91 +246,206 @@ export default function CustomersPage() {
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
 
-  // Master Panel
-  const masterPanel = (
-    <SearchableList<Customer>
-      items={filteredCustomers}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      placeholder="Search customers..."
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedCustomer}
-      onSelectItem={handleSelectCustomer}
-      emptyMessage="No customers found"
-      renderItem={(customer, isSelected) => (
-        <SelectableListItem
-          key={customer.id}
-          id={customer.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectCustomer(customer)}
-          primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* Customer Name */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{`${customer.title} ${customer.customer_name}`}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Name)
-                  </Typography>
-                )}
-              </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  {customer.company_name && (
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {customer.company_name}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Company)
-                      </Typography>
-                    </Box>
-                  )}
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {customer.mobile_contact_number}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Mobile)
-                    </Typography>
-                  </Box>
-                  {/* Status Chips - shown below all fields when selected */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip
-                      label={customer.active ? "Active" : "Inactive"}
-                      size="small"
-                      color={customer.active ? "success" : "default"}
-                      sx={{ height: 18, fontSize: "0.65rem" }}
-                    />
-                    {customer.is_customer_agent && (
-                      <Chip
-                        label="Agent"
-                        size="small"
-                        color="info"
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                    )}
-                  </Box>
-                </>
-              )}
-            </Box>
-          }
-          secondaryText={!isSelected ? (customer.company_name || customer.mobile_contact_number) : undefined}
-          isFavorite={favorites.includes(customer.id)}
-          onToggleFavorite={(e) => toggleFavorite(customer.id, e)}
-          statusChip={!isSelected ? (
-            customer.active
-              ? { label: "Active", color: "success" }
-              : { label: "Inactive", color: "default" }
-          ) : undefined}
-          chips={!isSelected && customer.is_customer_agent ? [{ label: "Agent", color: "info" }] : undefined}
+  // Whether we're showing a single customer's detail view (selected or
+  // being created) instead of the browse table.
+  const isCustomerDetailMode = !!selectedCustomer || isCreating;
+
+  // Returns to the browse table from the detail view.
+  const handleBackToCustomers = useCallback(() => {
+    setSelectedCustomer(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedCustomer, setIsCreating, setIsEditing]);
+
+  // Cancelling out of "New Customer" should return to the browse table, not
+  // auto-open the first customer the way useMasterDetailState's generic
+  // handleCancel does (that made sense for the old always-visible detail
+  // panel, but not here). Cancelling out of editing an existing customer
+  // still just reverts its form, which the generic handler already does
+  // correctly.
+  const handleCancelCustomer = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedCustomer(null);
+    } else {
+      baseHandleCancel(filteredCustomers);
+    }
+  }, [isCreating, filteredCustomers, baseHandleCancel, setIsCreating, setIsEditing, setSelectedCustomer]);
+
+  // Browse mode: a full-width table of every customer. Sorting is done
+  // per-column via the grid's own column header menu, not a separate
+  // "Sort by" control.
+  const customerColumns: TDataGridColumn<Customer>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Customer>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "customer_name",
+        header: "Name",
+        flex: 1,
+        minWidth: 180,
+        renderCell: (params: GridRenderCellParams<Customer>) => (
+          <Typography variant="body2" fontWeight={600}>
+            {`${params.row.title} ${params.row.customer_name}`}
+          </Typography>
+        ),
+      },
+      {
+        field: "is_customer_agent",
+        header: "Type",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Customer>) =>
+          params.row.is_customer_agent ? (
+            <Chip label="Agent" size="small" color="info" />
+          ) : (
+            <Chip label="Customer" size="small" variant="outlined" />
+          ),
+      },
+      { field: "mobile_contact_number", header: "Contact", width: 150 },
+      { field: "company_name", header: "Company", flex: 1, minWidth: 150 },
+      {
+        field: "active",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Customer>) => (
+          <Chip
+            label={params.row.active ? "Active" : "Inactive"}
+            size="small"
+            color={params.row.active ? "success" : "default"}
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Customer>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectCustomer(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectCustomer]
+  );
+
+  const customerTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<Customer>
+          rows={filteredCustomers}
+          columns={customerColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectCustomer(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No customers found"
+          autoHeight={false}
+          height="100%"
         />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current customer (or
+  // the "New Customer" placeholder while creating). A "Back to Customers"
+  // link returns to the table.
+  const singleCustomerPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToCustomers}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Customers
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main" }}>
+              <PersonIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Customer
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedCustomer && (
+        <Box>
+          <SelectableListItem
+            id={selectedCustomer.id}
+            isSelected
+            onClick={() => {}}
+            primaryText={
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+                <Avatar sx={{ bgcolor: "primary.main" }}>
+                  <PersonIcon fontSize="small" />
+                </Avatar>
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                  <span>{`${selectedCustomer.title} ${selectedCustomer.customer_name}`}</span>
+                  {selectedCustomer.company_name && (
+                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                      {selectedCustomer.company_name}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            }
+            isFavorite={favorites.includes(selectedCustomer.id)}
+            onToggleFavorite={(e) => toggleFavorite(selectedCustomer.id, e)}
+          />
+        </Box>
       )}
-    />
+    </Paper>
   );
 
   // Detail Panel
@@ -379,7 +485,7 @@ export default function CustomersPage() {
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
         onSave={handleSave}
-        onCancel={() => baseHandleCancel(filteredCustomers)}
+        onCancel={handleCancelCustomer}
         onEdit={handleStartEdit}
       />
 
@@ -587,9 +693,9 @@ export default function CustomersPage() {
               </Box>
             </FormSection>
 
-            {/* Record Information (view mode only) */}
+            {/* Activity History (view mode only) */}
             {selectedCustomer && !isCreating && !isEditing && (
-              <FormSection title="Record Information" columns={2}>
+              <FormSection title="Activity History" columns={2}>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Created</Typography>
                   <Typography variant="body2">{formatDateTimeReadable(selectedCustomer.created_at) || "-"}</Typography>
@@ -610,43 +716,77 @@ export default function CustomersPage() {
     <>
       <MasterDetailLayout
         title="Customers"
+        titleSlot={
+          isCustomerDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search customers..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+            </Box>
+          )
+        }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isCustomerDetailMode ? { masterPanel: singleCustomerPanel, detailPanel } : { children: customerTablePanel })}
         headerActions={
-          <TExportButton
-            filename="customers"
-            headers={[
-              "Customer Name",
-              "Company",
-              "Email",
-              "Mobile",
-              "Home Contact",
-              "ID Card No",
-              "Credit Days",
-              "Max Credit Limit",
-              "Credit Balance",
-              "Is Agent",
-              "Active",
-            ]}
-            rows={() =>
-              filteredCustomers.map((c) => [
-                c.customer_name || "",
-                c.company_name || "",
-                c.email || "",
-                c.mobile_contact_number || "",
-                c.home_contact_number || "",
-                c.id_card_number || "",
-                c.credit_days ?? 0,
-                c.max_credit_limit ?? 0,
-                c.left_credit_amount ?? "",
-                c.is_customer_agent ? "Yes" : "No",
-                c.active ? "Yes" : "No",
-              ])
-            }
-            disabled={filteredCustomers.length === 0}
-          />
+          isCustomerDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNewCustomer}
+                  sx={{ mr: 1 }}
+                >
+                  Add Customer
+                </Button>
+              )}
+              <TExportButton
+                filename="customers"
+                headers={[
+                  "Customer Name",
+                  "Company",
+                  "Email",
+                  "Mobile",
+                  "Home Contact",
+                  "ID Card No",
+                  "Credit Days",
+                  "Max Credit Limit",
+                  "Credit Balance",
+                  "Is Agent",
+                  "Active",
+                ]}
+                rows={() =>
+                  filteredCustomers.map((c) => [
+                    c.customer_name || "",
+                    c.company_name || "",
+                    c.email || "",
+                    c.mobile_contact_number || "",
+                    c.home_contact_number || "",
+                    c.id_card_number || "",
+                    c.credit_days ?? 0,
+                    c.max_credit_limit ?? 0,
+                    c.left_credit_amount ?? "",
+                    c.is_customer_agent ? "Yes" : "No",
+                    c.active ? "Yes" : "No",
+                  ])
+                }
+                disabled={filteredCustomers.length === 0}
+              />
+            </>
+          )
         }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

@@ -3,7 +3,7 @@ from typing import List, Optional
 import logging
 
 from app.auth import models, schemas
-from app.common.audit import log_audit
+from app.common.audit import log_audit, diff_changes
 from app.core import timezone as tz
 from app.core.exceptions import AuthenticationError
 from app.core.security import (
@@ -273,15 +273,18 @@ class AuthService:
         for field, value in update_data.items():
             setattr(user, field, value)
 
-        changed_fields = sorted(
-            field for field, before in before_values.items()
-            if field != "password" and before != getattr(user, field, None)
+        # Never surface the password itself (even hashed) in an old/new diff.
+        after_values = {
+            field: getattr(user, field, None) for field in before_values if field != "password"
+        }
+        changes = diff_changes(
+            {k: v for k, v in before_values.items() if k != "password"}, after_values
         )
-        if changed_fields:
+        if changes:
             log_audit(
                 db, user_id=updated_by or 0, action="update",
                 entity_type="user", entity_id=user.id,
-                changes={"fields": changed_fields},
+                changes=changes,
             )
 
         try:
@@ -303,7 +306,7 @@ class AuthService:
             log_audit(
                 db, user_id=updated_by or 0, action="update",
                 entity_type="user", entity_id=user.id,
-                changes={"fields": ["blocked"]},
+                changes={"fields": ["blocked"], "values": {"blocked": {"old": True, "new": False}}},
             )
             db.commit()
             db.refresh(user)
@@ -317,7 +320,7 @@ class AuthService:
             log_audit(
                 db, user_id=updated_by or 0, action="update",
                 entity_type="user", entity_id=user.id,
-                changes={"fields": ["must_change_password"]},
+                changes={"fields": ["must_change_password"], "values": {"must_change_password": {"old": False, "new": True}}},
             )
             db.commit()
             db.refresh(user)
@@ -527,6 +530,7 @@ class GroupService:
         group = self.get_group(db, group_id)
 
         changed_fields = []
+        field_values: dict = {}
 
         if group_in.name and group_in.name != group.name:
 
@@ -540,6 +544,7 @@ class GroupService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Group name already exists",
                 )
+            field_values["name"] = {"old": group.name, "new": group_in.name}
             group.name = group_in.name
             changed_fields.append("name")
 
@@ -547,19 +552,24 @@ class GroupService:
             new_permission_ids = set(group_in.permission_ids)
             current_permission_ids = {p.id for p in group.permissions}
             if new_permission_ids != current_permission_ids:
+                old_permission_names = sorted(p.name for p in group.permissions)
                 permissions = (
                     db.query(models.Permission)
                     .filter(models.Permission.id.in_(group_in.permission_ids))
                     .all()
                 )
                 group.permissions = permissions
+                field_values["permissions"] = {
+                    "old": old_permission_names,
+                    "new": sorted(p.name for p in permissions),
+                }
                 changed_fields.append("permissions")
 
         if changed_fields:
             log_audit(
                 db, user_id=updated_by or 0, action="update",
                 entity_type="group", entity_id=group.id,
-                changes={"fields": sorted(changed_fields)},
+                changes={"fields": sorted(changed_fields), "values": field_values},
             )
 
         try:

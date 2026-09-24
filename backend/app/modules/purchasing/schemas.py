@@ -11,7 +11,11 @@ class SupplierBase(BaseModel):
     company_registration_number: Optional[str] = None
     tax_registration_number: Optional[str] = None
     company_website: Optional[str] = None
-    billing_address_line1: str
+    # Address and payment terms live in their own sections of the create
+    # form and are filled in after the supplier's main details are saved, so
+    # they default rather than being required at creation time (mirrors
+    # ProductBase.selling_price, which lives in the Pricing section).
+    billing_address_line1: str = ""
     billing_address_line2: Optional[str] = None
     billing_city: Optional[str] = None
     billing_state: Optional[str] = None
@@ -23,9 +27,9 @@ class SupplierBase(BaseModel):
     shipping_postal_code: Optional[str] = None
     email: Optional[EmailStr] = None
     home_contact_number: Optional[str] = None
-    mobile_contact_number: str
-    credit_days: int
-    max_credit_limit: Decimal
+    mobile_contact_number: str = Field(..., min_length=1)
+    credit_days: int = 0
+    max_credit_limit: Decimal = Decimal("0")
     active: bool = True
     country_id: Optional[int] = None
 
@@ -72,8 +76,8 @@ class Supplier(SupplierBase, AuditSchema):
 
 
 class SupplierActivityLogEntry(BaseModel):
-    """One row of the supplier's modification history (Record Information ->
-    Activity History), backed by the generic audit_logs table."""
+    """One row of the supplier's "Activity History" modification history,
+    backed by the generic audit_logs table."""
     id: int
     action: str
     changes: Optional[dict] = None
@@ -166,7 +170,6 @@ class SupplierProductBase(BaseModel):
     product_id: int
     supplier_sku: Optional[str] = None
     cost_price: Decimal = Field(..., ge=0)
-    lead_time_days: Optional[int] = Field(default=None, ge=0)
     minimum_order_qty: Optional[int] = Field(default=None, ge=1)
     is_preferred: bool = False
     active: bool = True
@@ -179,7 +182,6 @@ class SupplierProductCreate(SupplierProductBase):
 class SupplierProductUpdate(BaseModel):
     supplier_sku: Optional[str] = None
     cost_price: Optional[Decimal] = Field(default=None, ge=0)
-    lead_time_days: Optional[int] = Field(default=None, ge=0)
     minimum_order_qty: Optional[int] = Field(default=None, ge=1)
     is_preferred: Optional[bool] = None
     active: Optional[bool] = None

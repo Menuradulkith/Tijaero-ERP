@@ -5,19 +5,20 @@ import {
     EmptyState,
     fmtLKR,
     FormSection,
+    getChoiceLabel,
     MasterDetailLayout,
     PRODUCT_ITEM_TYPE,
-    SearchableList,
+    PRODUCT_UOM,
     SelectableListItem,
     showErrorToast,
-    SortOption,
     TabConfig,
     TAutocomplete,
     TConfirmDialog,
+    TDataGrid,
+    type TDataGridColumn,
     TExportButton,
     TSectionNav,
     TStatusFilter,
-    TTabFilterBar,
     useConfirmDialog,
   useCrudMutation,
     useMasterDetailState,
@@ -26,12 +27,19 @@ import {
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import {
+    Add as AddIcon,
+    ArrowBack as ArrowBackIcon,
     AttachMoney as PricingIcon,
     Sell as BrandIcon,
     Category as CategoryIcon,
     History as HistoryIcon,
     Inventory as InventoryIcon,
     LocalShipping as SuppliersIcon,
+    Search as SearchIcon,
+    Clear as ClearIcon,
+    Star as StarIcon,
+    StarBorder as StarOutlineIcon,
+    OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import {
     Alert,
@@ -48,11 +56,13 @@ import {
     IconButton,
     InputAdornment,
     MenuItem,
+    Paper,
     Switch,
     TextField,
     Tooltip,
     Typography,
 } from "@mui/material";
+  import type { GridRenderCellParams } from "@mui/x-data-grid";
   import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { brandsApi, categoriesApi, minimumPriceApi, productImageUrl, productsApi } from "../api";
@@ -73,26 +83,6 @@ import {
     ProductCreate,
 } from "../types";
 
-// Sort options for each tab
-const productSortOptions: SortOption[] = [
-  { value: "item_code", label: "Item Code" },
-  { value: "name", label: "Name" },
-  { value: "cost_price", label: "Cost Price" },
-  { value: "created_at", label: "Creation Date" },
-];
-
-const categorySortOptions: SortOption[] = [
-  { value: "name", label: "Name" },
-  { value: "category_code", label: "Code" },
-  { value: "created_at", label: "Creation Date" },
-];
-
-const brandSortOptions: SortOption[] = [
-  { value: "brand_name", label: "Name" },
-  { value: "brand_code", label: "Code" },
-  { value: "created_at", label: "Creation Date" },
-];
-
 const PRODUCT_SECTION_NAV_ITEMS: TSectionNavItem[] = [
   { key: "pricing", label: "Pricing", icon: <PricingIcon fontSize="small" /> },
   { key: "suppliers", label: "Suppliers", icon: <SuppliersIcon fontSize="small" /> },
@@ -109,6 +99,7 @@ const emptyProductForm: ProductCreate = {
   item_code: "",
   model: "",
   item_type: "inventory",
+  unit_of_measure: "pcs",
   description: "",
   website_active: false,
   website_price: undefined,
@@ -173,6 +164,13 @@ function ProductAvatarCircle({
   );
 }
 
+// Browse-table row shapes, with display-only lookup fields attached so the
+// table's own column-header sort orders by the displayed name rather than
+// the raw category_id/items_brand_id (mirrors SuppliersPage's SupplierRow).
+type ProductRow = Product & { category_name: string; brand_name: string };
+type CategoryRow = Category;
+type BrandRow = Brand;
+
 export default function ProductsPage({
   view = "products",
   hideTabs = false,
@@ -218,25 +216,23 @@ export default function ProductsPage({
     setBrandTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
 
-  // Product filter states
+  // Product filter states - all filters apply live as the user types/selects,
+  // no separate "Search" step needed.
   const [productActiveFilter, setProductActiveFilter] = useState<string | null>(null);
   const [productSupplierFilter, setProductSupplierFilter] = useState<Supplier | null>(null);
+  const [productCategoryFilter, setProductCategoryFilter] = useState<Category | null>(null);
+  const [productBrandFilter, setProductBrandFilter] = useState<Brand | null>(null);
   const [categoryActiveFilter, setCategoryActiveFilter] = useState<string | null>(null);
   const [brandActiveFilter, setBrandActiveFilter] = useState<string | null>(null);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftProductSearchQuery, setDraftProductSearchQuery] = useState("");
-  const [draftProductActiveFilter, setDraftProductActiveFilter] = useState<string | null>(null);
-  const [draftProductSupplier, setDraftProductSupplier] = useState<Supplier | null>(null);
-  const [draftCategorySearchQuery, setDraftCategorySearchQuery] = useState("");
-  const [draftCategoryActiveFilter, setDraftCategoryActiveFilter] = useState<string | null>(null);
-  const [draftBrandSearchQuery, setDraftBrandSearchQuery] = useState("");
-  const [draftBrandActiveFilter, setDraftBrandActiveFilter] = useState<string | null>(null);
-
-  // Minimum selling price dialog state
-  const [minPriceDialogOpen, setMinPriceDialogOpen] = useState(false);
-  const [newMinPrice, setNewMinPrice] = useState<number>(0);
-  const [createMinPrice, setCreateMinPrice] = useState<number | "">("");
+  // Minimum selling price — edited inline alongside Cost/Selling/Website
+  // Price (Pricing section) and saved together with the rest of the product
+  // form on the single Save click, same as those fields. It's still backed
+  // by its own history-tracked endpoint on the backend (minimumPriceApi),
+  // so saving fires a second request under the hood when this value changed
+  // — see handleSaveProduct / createProductMutation.onSuccess /
+  // updateProductMutation.onSuccess.
+  const [minPriceInput, setMinPriceInput] = useState<number | "">("");
 
   // Detail panel section navigation (Pricing / Suppliers), shown below the
   // selected product in the master list — null shows the default "Main"
@@ -305,45 +301,24 @@ export default function ProductsPage({
   });
 
   // Activity History is opened on demand from a detail icon next to each
-  // tab's Record Information title, rather than shown inline. One shared
+  // tab's Activity History title, rather than shown inline. One shared
   // panel serves all three tabs — entityType/entityId switch per tab.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
-  const handleApplyProductFilters = useCallback(() => {
-    productState.setSearchQuery(draftProductSearchQuery);
-    setProductActiveFilter(draftProductActiveFilter);
-    setProductSupplierFilter(draftProductSupplier);
-  }, [draftProductSearchQuery, draftProductActiveFilter, draftProductSupplier, productState.setSearchQuery]);
-
   const handleClearProductFilters = useCallback(() => {
-    setDraftProductSearchQuery("");
-    setDraftProductActiveFilter(null);
-    setDraftProductSupplier(null);
     productState.setSearchQuery("");
     setProductActiveFilter(null);
     setProductSupplierFilter(null);
+    setProductCategoryFilter(null);
+    setProductBrandFilter(null);
   }, [productState.setSearchQuery]);
 
-  const handleApplyCategoryFilters = useCallback(() => {
-    categoryState.setSearchQuery(draftCategorySearchQuery);
-    setCategoryActiveFilter(draftCategoryActiveFilter);
-  }, [draftCategorySearchQuery, draftCategoryActiveFilter, categoryState.setSearchQuery]);
-
   const handleClearCategoryFilters = useCallback(() => {
-    setDraftCategorySearchQuery("");
-    setDraftCategoryActiveFilter(null);
     categoryState.setSearchQuery("");
     setCategoryActiveFilter(null);
   }, [categoryState.setSearchQuery]);
 
-  const handleApplyBrandFilters = useCallback(() => {
-    brandState.setSearchQuery(draftBrandSearchQuery);
-    setBrandActiveFilter(draftBrandActiveFilter);
-  }, [draftBrandSearchQuery, draftBrandActiveFilter, brandState.setSearchQuery]);
-
   const handleClearBrandFilters = useCallback(() => {
-    setDraftBrandSearchQuery("");
-    setDraftBrandActiveFilter(null);
     brandState.setSearchQuery("");
     setBrandActiveFilter(null);
   }, [brandState.setSearchQuery]);
@@ -403,6 +378,17 @@ export default function ProductsPage({
     refetchOnWindowFocus: false,
   });
 
+  // Keep the inline Minimum Selling Price field in sync with whichever
+  // product is selected — mirrors how the rest of the Pricing section's
+  // fields follow productState.formData on selection. Skipped while
+  // creating, since handleNewProduct resets it independently (there's no
+  // selectedItem/currentMinPrice yet for a not-yet-saved product).
+  useEffect(() => {
+    if (!productState.isCreating) {
+      setMinPriceInput(currentMinPrice?.minimum_price ?? "");
+    }
+  }, [productState.selectedItem?.id, currentMinPrice, productState.isCreating]);
+
   // Suppliers list for the product filter bar's "Supplier" picker
   const { data: suppliersForFilter = [] } = useQuery({
     queryKey: ["suppliers-for-product-filter"],
@@ -446,25 +432,26 @@ export default function ProductsPage({
       filtered = filtered.filter((p) => supplierProductIds.has(p.id));
     }
 
-    filtered.sort((a, b) => {
-      if (productState.sortField === "item_code")
-        return a.item_code.localeCompare(b.item_code);
-      if (productState.sortField === "name")
-        return a.name.localeCompare(b.name);
-      if (productState.sortField === "cost_price")
-        return b.cost_price - a.cost_price;
-      if (productState.sortField === "created_at")
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      return 0;
-    });
+    // Apply category / brand filters
+    if (productCategoryFilter) {
+      filtered = filtered.filter((p) => p.category_id === productCategoryFilter.id);
+    }
+    if (productBrandFilter) {
+      filtered = filtered.filter((p) => p.items_brand_id === productBrandFilter.id);
+    }
+
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
+    filtered.sort((a, b) => a.item_code.localeCompare(b.item_code));
     return filtered;
   }, [
     products,
     productState.searchQuery,
-    productState.sortField,
     productActiveFilter,
     productSupplierFilter,
     supplierFilterMappings,
+    productCategoryFilter,
+    productBrandFilter,
   ]);
 
   const filteredCategories = useMemo(() => {
@@ -482,17 +469,10 @@ export default function ProductsPage({
       const isActive = categoryActiveFilter === "active";
       filtered = filtered.filter((c) => c.active === isActive);
     }
-    filtered.sort((a, b) => {
-      if (categoryState.sortField === "name")
-        return a.name.localeCompare(b.name);
-      if (categoryState.sortField === "category_code")
-        return a.category_code.localeCompare(b.category_code);
-      if (categoryState.sortField === "created_at")
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      return 0;
-    });
+    // Default order before the user sorts a column in the table itself.
+    filtered.sort((a, b) => a.name.localeCompare(b.name));
     return filtered;
-  }, [categories, categoryState.searchQuery, categoryState.sortField, categoryActiveFilter]);
+  }, [categories, categoryState.searchQuery, categoryActiveFilter]);
 
   const filteredBrands = useMemo(() => {
     if (!brands) return [];
@@ -509,18 +489,300 @@ export default function ProductsPage({
       const isActive = brandActiveFilter === "active";
       filtered = filtered.filter((b) => b.active === isActive);
     }
-    filtered.sort((a, b) => {
-      if (brandState.sortField === "brand_name")
-        return a.brand_name.localeCompare(b.brand_name);
-      if (brandState.sortField === "brand_code")
-        return a.brand_code.localeCompare(b.brand_code);
-      if (brandState.sortField === "created_at")
-        return (b.created_at ? new Date(b.created_at).getTime() : 0) -
-          (a.created_at ? new Date(a.created_at).getTime() : 0);
-      return 0;
-    });
+    // Default order before the user sorts a column in the table itself.
+    filtered.sort((a, b) => a.brand_name.localeCompare(b.brand_name));
     return filtered;
-  }, [brands, brandState.searchQuery, brandState.sortField, brandActiveFilter]);
+  }, [brands, brandState.searchQuery, brandActiveFilter]);
+
+  // Browse-table rows/columns. Rows add display-only lookup fields (category
+  // name, brand name) so the grid sorts on the displayed text rather than the
+  // raw id; columns have no `sortable: false` on the real-data fields, so
+  // sorting is done per-column via the grid's own column header menu.
+  const productRows = useMemo(
+    () =>
+      filteredProducts.map((product) => ({
+        ...product,
+        category_name: categories?.find((c) => c.id === product.category_id)?.name || "-",
+        brand_name: brands?.find((b) => b.id === product.items_brand_id)?.brand_name || "-",
+      })),
+    [filteredProducts, categories, brands]
+  );
+
+  // Handler used by the browse table's row click and its "view" column icon.
+  // Declared here (rather than further down with the other product
+  // handlers) because productColumns below needs it in its dependency
+  // array, and a `const` referenced before its declaration line runs throws
+  // "Cannot access before initialization" at runtime.
+  const handleSelectProduct = useCallback(
+    async (product: Product) => {
+      if (productState.isEditing || productState.isCreating) {
+        const confirmed = await confirmDialog.confirm({
+          title: "Discard Changes",
+          message: "You have unsaved changes. Discard them?",
+          confirmText: "Discard",
+          cancelText: "Keep Editing",
+          confirmColor: "warning",
+        });
+        if (!confirmed) return;
+      }
+      selectProductInternal(product);
+    },
+    [productState.isEditing, productState.isCreating, confirmDialog],
+  );
+
+  const productColumns: TDataGridColumn<ProductRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ProductRow>) => (
+          <IconButton
+            size="small"
+            onClick={(e) => productState.toggleFavorite(params.row.id, e)}
+          >
+            {productState.favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      { field: "item_code", header: "Item Code", width: 140 },
+      {
+        field: "name",
+        header: "Name",
+        flex: 1,
+        minWidth: 200,
+        renderCell: (params: GridRenderCellParams<ProductRow>) => (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, height: "100%" }}>
+            <ProductAvatarCircle productName={params.row.name} imageUrl={params.row.image_url} size={30} />
+            <Typography variant="body2" fontWeight={600}>
+              {params.row.name}
+            </Typography>
+          </Box>
+        ),
+      },
+      { field: "category_name", header: "Category", width: 160 },
+      { field: "brand_name", header: "Brand", width: 140 },
+      {
+        field: "unit_of_measure",
+        header: "UOM",
+        width: 90,
+        renderCell: (params: GridRenderCellParams<ProductRow>) =>
+          getChoiceLabel(PRODUCT_UOM, params.row.unit_of_measure),
+      },
+      {
+        field: "preferred_supplier_name",
+        header: "Preferred Supplier",
+        flex: 1,
+        minWidth: 160,
+        renderCell: (params: GridRenderCellParams<ProductRow>) =>
+          params.row.preferred_supplier_name || "-",
+      },
+      {
+        field: "cost_price",
+        header: "Cost Price",
+        width: 130,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<ProductRow>) => `Rs. ${fmtLKR(params.row.cost_price || 0)}`,
+      },
+      {
+        field: "selling_price",
+        header: "Sell Price",
+        width: 130,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<ProductRow>) => `Rs. ${fmtLKR(params.row.selling_price || 0)}`,
+      },
+      {
+        field: "minimum_selling_price",
+        header: "Min. Sell Price",
+        width: 130,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<ProductRow>) =>
+          params.row.minimum_selling_price != null ? `Rs. ${fmtLKR(params.row.minimum_selling_price)}` : "-",
+      },
+      {
+        field: "active",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ProductRow>) => (
+          <Chip
+            label={params.row.active ? "Active" : "Inactive"}
+            size="small"
+            color={params.row.active ? "success" : "default"}
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ProductRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectProduct(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [productState.favorites, productState.toggleFavorite, handleSelectProduct]
+  );
+
+  const categoryRows: CategoryRow[] = filteredCategories;
+
+  // Handler used by the browse table's row click and its "view" column icon.
+  // Declared here (rather than further down with the other category
+  // handlers) because categoryColumns below needs it in its dependency
+  // array, and a `const` referenced before its declaration line runs throws
+  // "Cannot access before initialization" at runtime.
+  const handleSelectCategory = useCallback(
+    async (category: Category) => {
+      if (categoryState.isEditing || categoryState.isCreating) {
+        const confirmed = await confirmDialog.confirm({
+          title: "Discard Changes",
+          message: "You have unsaved changes. Discard them?",
+          confirmText: "Discard",
+          cancelText: "Keep Editing",
+          confirmColor: "warning",
+        });
+        if (!confirmed) return;
+      }
+      selectCategoryInternal(category);
+    },
+    [categoryState.isEditing, categoryState.isCreating, confirmDialog],
+  );
+
+  const categoryColumns: TDataGridColumn<CategoryRow>[] = useMemo(
+    () => [
+      { field: "category_code", header: "Code", width: 120 },
+      { field: "name", header: "Name", flex: 1, minWidth: 200 },
+      { field: "description", header: "Description", flex: 1, minWidth: 200 },
+      {
+        field: "active",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<CategoryRow>) => (
+          <Chip
+            label={params.row.active ? "Active" : "Inactive"}
+            size="small"
+            color={params.row.active ? "success" : "default"}
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<CategoryRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectCategory(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectCategory]
+  );
+
+  const brandRows: BrandRow[] = filteredBrands;
+
+  // Handler used by the browse table's row click and its "view" column icon.
+  // Declared here (rather than further down with the other brand handlers)
+  // because brandColumns below needs it in its dependency array, and a
+  // `const` referenced before its declaration line runs throws "Cannot
+  // access before initialization" at runtime.
+  const handleSelectBrand = useCallback(
+    async (brand: Brand) => {
+      if (brandState.isEditing || brandState.isCreating) {
+        const confirmed = await confirmDialog.confirm({
+          title: "Discard Changes",
+          message: "You have unsaved changes. Discard them?",
+          confirmText: "Discard",
+          cancelText: "Keep Editing",
+          confirmColor: "warning",
+        });
+        if (!confirmed) return;
+      }
+      selectBrandInternal(brand);
+    },
+    [brandState.isEditing, brandState.isCreating, confirmDialog],
+  );
+
+  const brandColumns: TDataGridColumn<BrandRow>[] = useMemo(
+    () => [
+      { field: "brand_code", header: "Code", width: 120 },
+      { field: "brand_name", header: "Name", flex: 1, minWidth: 200 },
+      { field: "description", header: "Description", flex: 1, minWidth: 200 },
+      {
+        field: "active",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<BrandRow>) => (
+          <Chip
+            label={params.row.active ? "Active" : "Inactive"}
+            size="small"
+            color={params.row.active ? "success" : "default"}
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<BrandRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectBrand(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectBrand]
+  );
 
   // Mutations
   const createProductMutation = useCrudMutation({
@@ -536,14 +798,14 @@ export default function ProductsPage({
       productState.setSelectedItem(newProduct);
 
       const priceToSet =
-        typeof createMinPrice === "number" ? createMinPrice : 0;
+        typeof minPriceInput === "number" ? minPriceInput : 0;
       if (priceToSet > 0 && canUpdate) {
         setMinimumPriceForProductMutation.mutate({
           productId: newProduct.id,
           price: priceToSet,
         });
       }
-      setCreateMinPrice("");
+      setMinPriceInput("");
 
       if (draftImageFile) {
         const fileToUpload = draftImageFile;
@@ -572,7 +834,6 @@ export default function ProductsPage({
               product_id: newProduct.id,
               supplier_sku: m.supplier_sku || undefined,
               cost_price: m.cost_price,
-              lead_time_days: m.lead_time_days,
               minimum_order_qty: m.minimum_order_qty,
               is_preferred: m.is_preferred,
               active: m.active,
@@ -602,6 +863,21 @@ export default function ProductsPage({
     onSuccess: (updatedProduct) => {
       productState.setIsEditing(false);
       productState.setSelectedItem(updatedProduct);
+
+      // Minimum price lives in its own history-tracked table, so it's only
+      // saved (a new history row created) when the user actually changed it
+      // — re-submitting the same value on every edit would pollute the
+      // price history with no-op entries.
+      if (
+        typeof minPriceInput === "number" &&
+        minPriceInput !== (currentMinPrice?.minimum_price ?? -1) &&
+        canUpdate
+      ) {
+        setMinimumPriceForProductMutation.mutate({
+          productId: updatedProduct.id,
+          price: minPriceInput,
+        });
+      }
     },
   });
 
@@ -696,38 +972,8 @@ export default function ProductsPage({
     errorMessage: "Failed to set minimum selling price",
   });
 
-  const setMinimumPriceMutation = useCrudMutation({
-    mutationFn: (price: number) =>
-      minimumPriceApi.set(productState.selectedItem!.id, {
-        minimum_price: price,
-      }),
-    invalidateQueryKeys: [["minimum-price", productState.selectedItem?.id]],
-    successMessage: "Minimum selling price set successfully",
-    errorMessage: "Failed to set minimum selling price",
-    onSuccess: () => {
-      setMinPriceDialogOpen(false);
-      setNewMinPrice(0);
-    },
-  });
 
   // Product handlers
-  const handleSelectProduct = useCallback(
-    async (product: Product) => {
-      if (productState.isEditing || productState.isCreating) {
-        const confirmed = await confirmDialog.confirm({
-          title: "Discard Changes",
-          message: "You have unsaved changes. Discard them?",
-          confirmText: "Discard",
-          cancelText: "Keep Editing",
-          confirmColor: "warning",
-        });
-        if (!confirmed) return;
-      }
-      selectProductInternal(product);
-    },
-    [productState.isEditing, productState.isCreating, confirmDialog],
-  );
-
   const selectProductInternal = (product: Product) => {
     productState.setSelectedItem(product);
     productState.setFormData({
@@ -735,6 +981,7 @@ export default function ProductsPage({
       item_code: product.item_code,
       model: product.model || "",
       item_type: product.item_type,
+      unit_of_measure: product.unit_of_measure || "pcs",
       description: product.description || "",
       website_active: product.website_active,
       website_price: product.website_price || 0,
@@ -750,17 +997,11 @@ export default function ProductsPage({
   };
 
   const handleNewProduct = () => {
-    // Only allow selecting active categories and brands
-    const defaultCategory = activeCategories?.[0]?.id || 0;
-    const defaultBrand = activeBrands?.[0]?.id || 0;
-
+    // Category/Brand start unselected — the user must explicitly choose,
+    // not have the first active one picked for them.
     productState.setSelectedItem(null);
-    productState.setFormData({
-      ...emptyProductForm,
-      category_id: defaultCategory,
-      items_brand_id: defaultBrand,
-    });
-    setCreateMinPrice("");
+    productState.setFormData(emptyProductForm);
+    setMinPriceInput("");
     setProductTouched({});
     setPendingSupplierMappings([]);
     setDraftImageFile(null);
@@ -775,7 +1016,7 @@ export default function ProductsPage({
         item_code: `${productState.selectedItem.item_code}-COPY`,
         name: `${productState.selectedItem.name} (Copy)`,
       });
-      setCreateMinPrice("");
+      setMinPriceInput("");
       setPendingSupplierMappings([]);
       setDraftImageFile(null);
       productState.setIsCreating(true);
@@ -791,7 +1032,9 @@ export default function ProductsPage({
       productState.formData.cost_price === undefined ||
       productState.formData.cost_price === null ||
       productState.formData.selling_price === undefined ||
-      productState.formData.selling_price === null
+      productState.formData.selling_price === null ||
+      !productState.formData.category_id ||
+      !productState.formData.items_brand_id
     ) {
       showErrorToast("Please fill in all required fields");
       setProductTouched({
@@ -824,7 +1067,7 @@ export default function ProductsPage({
       showErrorToast("Website price cannot be less than cost price");
       return;
     }
-    if (productState.isCreating && typeof createMinPrice === "number" && createMinPrice < productState.formData.cost_price) {
+    if (typeof minPriceInput === "number" && minPriceInput < productState.formData.cost_price) {
       showErrorToast("Minimum selling price cannot be less than cost price");
       return;
     }
@@ -845,22 +1088,36 @@ export default function ProductsPage({
     }
   };
 
+  // Cancelling out of "New Product" returns to the browse table, not the old
+  // always-visible detail panel's auto-selected first item (mirrors
+  // SuppliersPage's handleCancelSupplier). Cancelling an edit of an existing
+  // product still just reverts its form and keeps it selected.
   const handleCancelProduct = () => {
     if (productState.isCreating) {
       productState.setIsCreating(false);
       productState.setIsEditing(false);
-      setCreateMinPrice("");
+      productState.setSelectedItem(null);
+      setMinPriceInput("");
       setProductTouched({});
       setPendingSupplierMappings([]);
       setDraftImageFile(null);
-      if (filteredProducts.length > 0)
-        selectProductInternal(filteredProducts[0]);
     } else if (productState.selectedItem) {
       selectProductInternal(productState.selectedItem);
       productState.setIsEditing(false);
+      setMinPriceInput(currentMinPrice?.minimum_price ?? "");
       setProductTouched({});
     }
   };
+
+  // Returns to the browse table from the detail view (the "Back to
+  // Products" link in the mini left panel).
+  const handleBackToProducts = useCallback(() => {
+    productState.setSelectedItem(null);
+    if (productState.isCreating) {
+      productState.setIsCreating(false);
+      productState.setIsEditing(false);
+    }
+  }, [productState]);
 
   const handleDeleteProduct = async () => {
     if (productState.selectedItem) {
@@ -879,23 +1136,6 @@ export default function ProductsPage({
   };
 
   // Category handlers
-  const handleSelectCategory = useCallback(
-    async (category: Category) => {
-      if (categoryState.isEditing || categoryState.isCreating) {
-        const confirmed = await confirmDialog.confirm({
-          title: "Discard Changes",
-          message: "You have unsaved changes. Discard them?",
-          confirmText: "Discard",
-          cancelText: "Keep Editing",
-          confirmColor: "warning",
-        });
-        if (!confirmed) return;
-      }
-      selectCategoryInternal(category);
-    },
-    [categoryState.isEditing, categoryState.isCreating, confirmDialog],
-  );
-
   const selectCategoryInternal = (category: Category) => {
     categoryState.setSelectedItem(category);
     categoryState.setFormData({
@@ -964,13 +1204,14 @@ export default function ProductsPage({
     }
   };
 
+  // Cancelling out of "New Category" returns to the browse table rather than
+  // auto-selecting the first item (mirrors handleCancelProduct above).
   const handleCancelCategory = () => {
     if (categoryState.isCreating) {
       categoryState.setIsCreating(false);
       categoryState.setIsEditing(false);
+      categoryState.setSelectedItem(null);
       setCategoryTouched({});
-      if (filteredCategories.length > 0)
-        selectCategoryInternal(filteredCategories[0]);
     } else if (categoryState.selectedItem) {
       selectCategoryInternal(categoryState.selectedItem);
       categoryState.setIsEditing(false);
@@ -978,24 +1219,16 @@ export default function ProductsPage({
     }
   };
 
-  // Brand handlers
-  const handleSelectBrand = useCallback(
-    async (brand: Brand) => {
-      if (brandState.isEditing || brandState.isCreating) {
-        const confirmed = await confirmDialog.confirm({
-          title: "Discard Changes",
-          message: "You have unsaved changes. Discard them?",
-          confirmText: "Discard",
-          cancelText: "Keep Editing",
-          confirmColor: "warning",
-        });
-        if (!confirmed) return;
-      }
-      selectBrandInternal(brand);
-    },
-    [brandState.isEditing, brandState.isCreating, confirmDialog],
-  );
+  // Returns to the browse table from the detail view.
+  const handleBackToCategories = useCallback(() => {
+    categoryState.setSelectedItem(null);
+    if (categoryState.isCreating) {
+      categoryState.setIsCreating(false);
+      categoryState.setIsEditing(false);
+    }
+  }, [categoryState]);
 
+  // Brand handlers
   const selectBrandInternal = (brand: Brand) => {
     brandState.setSelectedItem(brand);
     brandState.setFormData({
@@ -1015,55 +1248,6 @@ export default function ProductsPage({
   useEffect(() => {
     setActiveProductSection(null);
   }, [productState.selectedItem?.id, productState.isCreating]);
-
-  // Auto-select first item when data loads for each tab
-  useEffect(() => {
-    if (
-      activeTab === 0 &&
-      filteredProducts.length > 0 &&
-      !productState.selectedItem &&
-      !productState.isCreating
-    ) {
-      selectProductInternal(filteredProducts[0]);
-    }
-  }, [
-    filteredProducts,
-    productState.selectedItem,
-    productState.isCreating,
-    activeTab,
-  ]);
-
-  useEffect(() => {
-    if (
-      activeTab === 1 &&
-      filteredCategories.length > 0 &&
-      !categoryState.selectedItem &&
-      !categoryState.isCreating
-    ) {
-      selectCategoryInternal(filteredCategories[0]);
-    }
-  }, [
-    filteredCategories,
-    categoryState.selectedItem,
-    categoryState.isCreating,
-    activeTab,
-  ]);
-
-  useEffect(() => {
-    if (
-      activeTab === 2 &&
-      filteredBrands.length > 0 &&
-      !brandState.selectedItem &&
-      !brandState.isCreating
-    ) {
-      selectBrandInternal(filteredBrands[0]);
-    }
-  }, [
-    filteredBrands,
-    brandState.selectedItem,
-    brandState.isCreating,
-    activeTab,
-  ]);
 
   const handleNewBrand = () => {
     brandState.setSelectedItem(null);
@@ -1125,18 +1309,29 @@ export default function ProductsPage({
     }
   };
 
+  // Cancelling out of "New Brand" returns to the browse table rather than
+  // auto-selecting the first item (mirrors handleCancelProduct above).
   const handleCancelBrand = () => {
     if (brandState.isCreating) {
       brandState.setIsCreating(false);
       brandState.setIsEditing(false);
+      brandState.setSelectedItem(null);
       setBrandTouched({});
-      if (filteredBrands.length > 0) selectBrandInternal(filteredBrands[0]);
     } else if (brandState.selectedItem) {
       selectBrandInternal(brandState.selectedItem);
       brandState.setIsEditing(false);
       setBrandTouched({});
     }
   };
+
+  // Returns to the browse table from the detail view.
+  const handleBackToBrands = useCallback(() => {
+    brandState.setSelectedItem(null);
+    if (brandState.isCreating) {
+      brandState.setIsCreating(false);
+      brandState.setIsEditing(false);
+    }
+  }, [brandState]);
 
   const handleRefresh = async () => {
     // MasterDetailLayout awaits this to drive its refresh spinner — without
@@ -1155,37 +1350,128 @@ export default function ProductsPage({
   const pageTitle =
     activeTab === 0 ? "Products" : activeTab === 1 ? "Categories" : "Brands";
 
-  // Render Products Tab
-  const renderProductsTab = () => (
-    <Box
+  // Whether we're showing a single product's / category's / brand's detail
+  // view (selected or being created) instead of that tab's browse table.
+  const isProductDetailMode = !!productState.selectedItem || productState.isCreating;
+  const isCategoryDetailMode = !!categoryState.selectedItem || categoryState.isCreating;
+  const isBrandDetailMode = !!brandState.selectedItem || brandState.isCreating;
+
+  // Browse mode: a full-width table of every product (shown when nothing is
+  // selected and nothing is being created). Sorting is done per-column via
+  // the grid's own column header menu, not a separate "Sort by" control
+  // (mirrors SuppliersPage's supplierTablePanel).
+  const productTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<ProductRow>
+          rows={productRows}
+          columns={productColumns}
+          loading={productsLoading}
+          onRowClick={(row) => handleSelectProduct(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No products found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current product (or
+  // the "New Product" placeholder while creating) plus the Pricing/Suppliers
+  // section nav — the same card+nav the old list panel showed for whichever
+  // row was selected, just without the rest of the list beside it. A "Back
+  // to Products" link returns to the table.
+  const singleProductPanel = (
+    <Paper
+      elevation={0}
       sx={{
-        flex: 1,
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
         display: "flex",
-        flexDirection: { xs: "column", md: "row" },
+        flexDirection: "column",
+        height: "100%",
         overflow: "hidden",
       }}
     >
-      <SearchableList
-        searchValue={productState.searchQuery}
-        onSearchChange={productState.setSearchQuery}
-        hideSearch
-        sortOptions={productSortOptions}
-        currentSort={productState.sortField}
-        onSortChange={productState.setSortField}
-        isLoading={productsLoading}
-        emptyMessage="No products found"
-        virtualize
-        estimatedItemHeight={90}
-        overscanCount={8}
-        listHeader={
-          productState.isCreating ? (
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToProducts}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Products
+        </Button>
+      </Box>
+      {productState.isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box
+            onClick={() => setActiveProductSection(null)}
+            sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1, cursor: "pointer" }}
+          >
+            <ProductAvatarCircle productName={productState.formData.name} size={40} />
+            <Typography variant="caption" color="text.secondary">
+              New Product
+            </Typography>
+          </Box>
+          <TSectionNav
+            items={PRODUCT_SECTION_NAV_ITEMS}
+            activeKey={activeProductSection}
+            onChange={handleProductSectionNavChange}
+            variant="inline"
+          />
+        </Box>
+      ) : (
+        productState.selectedItem && (
+          <Box>
+            <SelectableListItem
+              id={productState.selectedItem.id}
+              isSelected
+              onClick={() => setActiveProductSection(null)}
+              primaryText={
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+                  <ProductAvatarCircle
+                    productName={productState.selectedItem.name}
+                    imageUrl={productState.selectedItem.image_url}
+                  />
+                  <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span>{productState.selectedItem.item_code}</span>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Item Code)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {productState.selectedItem.name}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Name)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                      <Chip
+                        label={productState.selectedItem.active ? "Active" : "Inactive"}
+                        size="small"
+                        color={productState.selectedItem.active ? "success" : "default"}
+                        sx={{ height: 18, fontSize: "0.65rem" }}
+                      />
+                      {productState.selectedItem.website_active && (
+                        <Chip label="Web" size="small" color="info" sx={{ height: 18, fontSize: "0.65rem" }} />
+                      )}
+                    </Box>
+                  </Box>
+                </Box>
+              }
+              isFavorite={productState.favorites.includes(productState.selectedItem.id)}
+              onToggleFavorite={(e) => productState.toggleFavorite(productState.selectedItem!.id, e)}
+            />
             <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
-                <ProductAvatarCircle productName={productState.formData.name} size={40} />
-                <Typography variant="caption" color="text.secondary">
-                  New Product
-                </Typography>
-              </Box>
               <TSectionNav
                 items={PRODUCT_SECTION_NAV_ITEMS}
                 activeKey={activeProductSection}
@@ -1193,163 +1479,15 @@ export default function ProductsPage({
                 variant="inline"
               />
             </Box>
-          ) : undefined
-        }
-      >
-        {filteredProducts.map((product) => {
-          const isSelected = productState.selectedItem?.id === product.id;
-          return (
-            <Box key={product.id}>
-            <SelectableListItem
-              isSelected={isSelected}
-              onClick={() => {
-                // Re-clicking the already-selected product doesn't change its
-                // id, so the effect that resets the detail panel to "Main" on
-                // selection change won't fire on its own — reset it here too
-                // so the section nav always returns to Main.
-                if (isSelected) {
-                  setActiveProductSection(null);
-                } else {
-                  handleSelectProduct(product);
-                }
-              }}
-              primaryText={
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-                  <ProductAvatarCircle productName={product.name} imageUrl={product.image_url} />
-                  <Box
-                    sx={{
-                      display: "flex",
-                      flexDirection: "column",
-                      width: "100%",
-                      gap: 0.5,
-                      minWidth: 0,
-                    }}
-                  >
-                  {/* Item Code */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <span>{product.item_code}</span>
-                    {isSelected && (
-                      <Typography
-                        component="span"
-                        variant="caption"
-                        sx={{ color: "inherit", opacity: 0.7 }}
-                      >
-                        (Item Code)
-                      </Typography>
-                    )}
-                  </Box>
-                  {/* Additional fields when selected */}
-                  {isSelected && (
-                    <>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <Typography component="span" variant="caption">
-                          {product.name}
-                        </Typography>
-                        <Typography
-                          component="span"
-                          variant="caption"
-                          sx={{ color: "inherit", opacity: 0.7 }}
-                        >
-                          (Name)
-                        </Typography>
-                      </Box>
-                      {product.selling_price && (
-                        <Box
-                          sx={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                          }}
-                        >
-                          <Typography
-                            component="span"
-                            variant="caption"
-                            fontWeight={600}
-                            sx={{ color: "inherit" }}
-                          >
-                            Rs. {fmtLKR(product.selling_price)}
-                          </Typography>
-                          <Typography
-                            component="span"
-                            variant="caption"
-                            sx={{ color: "inherit", opacity: 0.7 }}
-                          >
-                            (Selling Price)
-                          </Typography>
-                        </Box>
-                      )}
-                      {/* Status Chips - shown below all fields when selected */}
-                      <Box
-                        sx={{
-                          display: "flex",
-                          gap: 0.5,
-                          mt: 0.5,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <Chip
-                          label={product.active ? "Active" : "Inactive"}
-                          size="small"
-                          color={product.active ? "success" : "default"}
-                          sx={{ height: 18, fontSize: "0.65rem" }}
-                        />
-                        {product.website_active && (
-                          <Chip
-                            label="Web"
-                            size="small"
-                            color="info"
-                            sx={{ height: 18, fontSize: "0.65rem" }}
-                          />
-                        )}
-                      </Box>
-                    </>
-                  )}
-                  </Box>
-                </Box>
-              }
-              secondaryText={!isSelected ? product.name : undefined}
-              isFavorite={productState.favorites.includes(product.id)}
-              onToggleFavorite={() => productState.toggleFavorite(product.id)}
-              chips={
-                !isSelected
-                  ? [
-                      ...(product.active
-                        ? [{ label: "Active", color: "success" as const }]
-                        : []),
-                      ...(product.website_active
-                        ? [{ label: "Web", color: "info" as const }]
-                        : []),
-                    ]
-                  : undefined
-              }
-            />
-            {isSelected && (
-              <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-                <TSectionNav
-                  items={PRODUCT_SECTION_NAV_ITEMS}
-                  activeKey={activeProductSection}
-                  onChange={handleProductSectionNavChange}
-                  variant="inline"
-                />
-              </Box>
-            )}
-            </Box>
-          );
-        })}
-      </SearchableList>
+          </Box>
+        )
+      )}
+    </Paper>
+  );
 
+  // Detail panel content is unchanged from before the redesign — same
+  // header, ActionToolbar, FormSections, mutations, validation.
+  const productDetailPanel = (
       <Box
         sx={{
           flex: 1,
@@ -1402,7 +1540,10 @@ export default function ProductsPage({
           onDelete={handleDeleteProduct}
           onSave={handleSaveProduct}
           onCancel={handleCancelProduct}
-          onEdit={() => productState.setIsEditing(true)}
+          onEdit={() => {
+            setMinPriceInput(currentMinPrice?.minimum_price ?? "");
+            productState.setIsEditing(true);
+          }}
           isSaving={
             createProductMutation.isPending || updateProductMutation.isPending
           }
@@ -1412,7 +1553,9 @@ export default function ProductsPage({
             productState.formData.cost_price === undefined ||
             productState.formData.cost_price === null ||
             productState.formData.selling_price === undefined ||
-            productState.formData.selling_price === null
+            productState.formData.selling_price === null ||
+            !productState.formData.category_id ||
+            !productState.formData.items_brand_id
           }
         />
 
@@ -1509,6 +1652,25 @@ export default function ProductsPage({
                       ))}
                     </TextField>
                     <TextField
+                      label="Unit of Measure"
+                      size="small"
+                      select
+                      value={productState.formData.unit_of_measure || "pcs"}
+                      onChange={(e) =>
+                        productState.setFormData({
+                          ...productState.formData,
+                          unit_of_measure: e.target.value,
+                        })
+                      }
+                      disabled={!productState.isEditing && !productState.isCreating}
+                    >
+                      {PRODUCT_UOM.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                    <TextField
                       label="Description"
                       size="small"
                       value={productState.formData.description}
@@ -1550,6 +1712,7 @@ export default function ProductsPage({
                         <TextField
                           {...params}
                           label="Category"
+                          required
                           helperText={
                             productState.isEditing || productState.isCreating
                               ? "Only active categories can be selected"
@@ -1585,6 +1748,7 @@ export default function ProductsPage({
                         <TextField
                           {...params}
                           label="Brand"
+                          required
                           helperText={
                             productState.isEditing || productState.isCreating
                               ? "Only active brands can be selected"
@@ -1690,12 +1854,12 @@ export default function ProductsPage({
                     </Box>
                   </FormSection>
 
-                  {/* Record Information (view mode only) */}
+                  {/* Activity History (view mode only) */}
                   {productState.selectedItem &&
                     !productState.isCreating &&
                     !productState.isEditing && (
                       <FormSection
-                        title="Record Information"
+                        title="Activity History"
                         columns={2}
                         titleAction={
                           <Tooltip title="View activity history">
@@ -1843,71 +2007,31 @@ export default function ProductsPage({
                       ),
                     }}
                   />
-                  {/* Minimum Selling Price */}
-                  {productState.isCreating ? (
-                    <TextField
-                      label="Minimum Selling Price"
-                      size="small"
-                      type="number"
-                      value={createMinPrice}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        if (raw.trim() === "") {
-                          setCreateMinPrice("");
-                          return;
-                        }
-                        const parsed = Number(raw);
-                        setCreateMinPrice(
-                          Number.isFinite(parsed) ? Math.max(0, parsed) : "",
-                        );
-                      }}
-                      error={typeof createMinPrice === "number" && createMinPrice < (productState.formData.cost_price || 0)}
-                      helperText={typeof createMinPrice === "number" && createMinPrice < (productState.formData.cost_price || 0) ? `Cannot be less than cost price (Rs. ${productState.formData.cost_price || 0})` : ""}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">Rs.</InputAdornment>
-                        ),
-                      }}
-                    />
-                  ) : (
-                    productState.selectedItem && (
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 2,
-                          gridColumn: { sm: "1 / -1" },
-                        }}
-                      >
-                        <Typography variant="body2" color="text.secondary">
-                          Minimum Selling Price:
-                        </Typography>
-                        {currentMinPrice ? (
-                          <Chip
-                            label={`Rs. ${fmtLKR(currentMinPrice.minimum_price)}`}
-                            color="primary"
-                            size="small"
-                          />
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">
-                            Not set
-                          </Typography>
-                        )}
-                        {canUpdate && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => {
-                              setNewMinPrice(currentMinPrice?.minimum_price || 0);
-                              setMinPriceDialogOpen(true);
-                            }}
-                          >
-                            {currentMinPrice ? "Update" : "Set"} Min Price
-                          </Button>
-                        )}
-                      </Box>
-                    )
-                  )}
+                  <TextField
+                    label="Minimum Selling Price"
+                    size="small"
+                    type="number"
+                    value={minPriceInput}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw.trim() === "") {
+                        setMinPriceInput("");
+                        return;
+                      }
+                      const parsed = Number(raw);
+                      setMinPriceInput(
+                        Number.isFinite(parsed) ? Math.max(0, parsed) : "",
+                      );
+                    }}
+                    disabled={!productState.isEditing && !productState.isCreating}
+                    error={typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0)}
+                    helperText={typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0) ? `Cannot be less than cost price (Rs. ${productState.formData.cost_price || 0})` : ""}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">Rs.</InputAdornment>
+                      ),
+                    }}
+                  />
                 </FormSection>
               )}
 
@@ -1936,131 +2060,103 @@ export default function ProductsPage({
           )}
         </Box>
       </Box>
+  );
+
+  // Browse mode: a full-width table of every category.
+  const categoryTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<CategoryRow>
+          rows={categoryRows}
+          columns={categoryColumns}
+          loading={categoriesLoading}
+          onRowClick={(row) => handleSelectCategory(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No categories found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
     </Box>
   );
 
-  // Render Categories Tab
-  const renderCategoriesTab = () => (
+  // Detail mode: a narrow left panel showing only the current category (or
+  // the "New Category" placeholder while creating). No section-nav for now
+  // (sub sections may be added later). A "Back to Categories" link returns
+  // to the table.
+  const singleCategoryPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToCategories}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Categories
+        </Button>
+      </Box>
+      {categoryState.isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main" }}>
+              <CategoryIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Category
+            </Typography>
+          </Box>
+        </Box>
+      ) : categoryState.selectedItem && (
+        <Box>
+          <SelectableListItem
+            id={categoryState.selectedItem.id}
+            isSelected
+            onClick={() => {}}
+            primaryText={
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+                <Avatar sx={{ bgcolor: "primary.main" }}>
+                  <CategoryIcon fontSize="small" />
+                </Avatar>
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                  <span>{categoryState.selectedItem.name}</span>
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    {categoryState.selectedItem.category_code}
+                  </Typography>
+                </Box>
+              </Box>
+            }
+          />
+        </Box>
+      )}
+    </Paper>
+  );
+
+  // Detail mode: Categories have no section-nav, so there's nothing beyond
+  // the mini panel above — just the unchanged detail content full-width.
+  const categoryDetailPanel = (
     <Box
       sx={{
         flex: 1,
         display: "flex",
-        flexDirection: { xs: "column", md: "row" },
+        flexDirection: "column",
         overflow: "hidden",
       }}
     >
-      <SearchableList
-        searchValue={categoryState.searchQuery}
-        onSearchChange={categoryState.setSearchQuery}
-        hideSearch
-        sortOptions={categorySortOptions}
-        currentSort={categoryState.sortField}
-        onSortChange={categoryState.setSortField}
-        isLoading={categoriesLoading}
-        emptyMessage="No categories found"
-      >
-        {filteredCategories.map((category) => {
-          const isSelected = categoryState.selectedItem?.id === category.id;
-          return (
-            <SelectableListItem
-              key={category.id}
-              isSelected={isSelected}
-              onClick={() => handleSelectCategory(category)}
-              primaryText={
-                <Box
-                  sx={{
-                    display: "flex",
-                    flexDirection: "column",
-                    width: "100%",
-                    gap: 0.5,
-                  }}
-                >
-                  {/* Category Name */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <span>{category.name}</span>
-                    {isSelected && (
-                      <Typography
-                        component="span"
-                        variant="caption"
-                        sx={{ color: "inherit", opacity: 0.7 }}
-                      >
-                        (Name)
-                      </Typography>
-                    )}
-                  </Box>
-                  {/* Additional fields when selected */}
-                  {isSelected && (
-                    <>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <Typography component="span" variant="caption">
-                          {category.category_code}
-                        </Typography>
-                        <Typography
-                          component="span"
-                          variant="caption"
-                          sx={{ color: "inherit", opacity: 0.7 }}
-                        >
-                          (Code)
-                        </Typography>
-                      </Box>
-                      {/* Status Chips - shown below all fields when selected */}
-                      <Box
-                        sx={{
-                          display: "flex",
-                          gap: 0.5,
-                          mt: 0.5,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <Chip
-                          label={category.active ? "Active" : "Inactive"}
-                          size="small"
-                          color={category.active ? "success" : "default"}
-                          sx={{ height: 18, fontSize: "0.65rem" }}
-                        />
-                      </Box>
-                    </>
-                  )}
-                </Box>
-              }
-              secondaryText={!isSelected ? category.category_code : undefined}
-              isFavorite={categoryState.favorites.includes(category.id)}
-              onToggleFavorite={() => categoryState.toggleFavorite(category.id)}
-              chips={
-                !isSelected
-                  ? [
-                      {
-                        label: category.active ? "Active" : "Inactive",
-                        color: category.active ? "success" : "default",
-                      },
-                    ]
-                  : undefined
-              }
-            />
-          );
-        })}
-      </SearchableList>
-
-      <Box
-        sx={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-        }}
-      >
         <DetailPanelHeader
           icon={<CategoryIcon color="primary" />}
           breadcrumbs={[
@@ -2233,12 +2329,12 @@ export default function ProductsPage({
                 />
               </FormSection>
 
-              {/* Record Information (view mode only) */}
+              {/* Activity History (view mode only) */}
               {categoryState.selectedItem &&
                 !categoryState.isCreating &&
                 !categoryState.isEditing && (
                   <FormSection
-                    title="Record Information"
+                    title="Activity History"
                     columns={2}
                     isLast
                     titleAction={
@@ -2277,131 +2373,103 @@ export default function ProductsPage({
           )}
         </Box>
       </Box>
+  );
+
+  // Browse mode: a full-width table of every brand.
+  const brandTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<BrandRow>
+          rows={brandRows}
+          columns={brandColumns}
+          loading={brandsLoading}
+          onRowClick={(row) => handleSelectBrand(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No brands found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
     </Box>
   );
 
-  // Render Brands Tab
-  const renderBrandsTab = () => (
+  // Detail mode: a narrow left panel showing only the current brand (or the
+  // "New Brand" placeholder while creating). No section-nav for now (sub
+  // sections may be added later). A "Back to Brands" link returns to the
+  // table.
+  const singleBrandPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToBrands}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Brands
+        </Button>
+      </Box>
+      {brandState.isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main" }}>
+              <BrandIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Brand
+            </Typography>
+          </Box>
+        </Box>
+      ) : brandState.selectedItem && (
+        <Box>
+          <SelectableListItem
+            id={brandState.selectedItem.id}
+            isSelected
+            onClick={() => {}}
+            primaryText={
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+                <Avatar sx={{ bgcolor: "primary.main" }}>
+                  <BrandIcon fontSize="small" />
+                </Avatar>
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                  <span>{brandState.selectedItem.brand_name}</span>
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    {brandState.selectedItem.brand_code}
+                  </Typography>
+                </Box>
+              </Box>
+            }
+          />
+        </Box>
+      )}
+    </Paper>
+  );
+
+  // Detail mode: Brands have no section-nav, so there's nothing beyond the
+  // mini panel above — just the unchanged detail content full-width.
+  const brandDetailPanel = (
     <Box
       sx={{
         flex: 1,
         display: "flex",
-        flexDirection: { xs: "column", md: "row" },
+        flexDirection: "column",
         overflow: "hidden",
       }}
     >
-      <SearchableList
-        searchValue={brandState.searchQuery}
-        onSearchChange={brandState.setSearchQuery}
-        hideSearch
-        sortOptions={brandSortOptions}
-        currentSort={brandState.sortField}
-        onSortChange={brandState.setSortField}
-        isLoading={brandsLoading}
-        emptyMessage="No brands found"
-      >
-        {filteredBrands.map((brand) => {
-          const isSelected = brandState.selectedItem?.id === brand.id;
-          return (
-            <SelectableListItem
-              key={brand.id}
-              isSelected={isSelected}
-              onClick={() => handleSelectBrand(brand)}
-              primaryText={
-                <Box
-                  sx={{
-                    display: "flex",
-                    flexDirection: "column",
-                    width: "100%",
-                    gap: 0.5,
-                  }}
-                >
-                  {/* Brand Name */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <span>{brand.brand_name}</span>
-                    {isSelected && (
-                      <Typography
-                        component="span"
-                        variant="caption"
-                        sx={{ color: "inherit", opacity: 0.7 }}
-                      >
-                        (Name)
-                      </Typography>
-                    )}
-                  </Box>
-                  {/* Additional fields when selected */}
-                  {isSelected && (
-                    <>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <Typography component="span" variant="caption">
-                          {brand.brand_code}
-                        </Typography>
-                        <Typography
-                          component="span"
-                          variant="caption"
-                          sx={{ color: "inherit", opacity: 0.7 }}
-                        >
-                          (Code)
-                        </Typography>
-                      </Box>
-                      {/* Status Chips - shown below all fields when selected */}
-                      <Box
-                        sx={{
-                          display: "flex",
-                          gap: 0.5,
-                          mt: 0.5,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <Chip
-                          label={brand.active ? "Active" : "Inactive"}
-                          size="small"
-                          color={brand.active ? "success" : "default"}
-                          sx={{ height: 18, fontSize: "0.65rem" }}
-                        />
-                      </Box>
-                    </>
-                  )}
-                </Box>
-              }
-              secondaryText={!isSelected ? brand.brand_code : undefined}
-              isFavorite={brandState.favorites.includes(brand.id)}
-              onToggleFavorite={() => brandState.toggleFavorite(brand.id)}
-              chips={
-                !isSelected
-                  ? [
-                      {
-                        label: brand.active ? "Active" : "Inactive",
-                        color: brand.active ? "success" : "default",
-                      },
-                    ]
-                  : undefined
-              }
-            />
-          );
-        })}
-      </SearchableList>
-
-      <Box
-        sx={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-        }}
-      >
         <DetailPanelHeader
           icon={<BrandIcon color="primary" />}
           breadcrumbs={[
@@ -2558,12 +2626,12 @@ export default function ProductsPage({
               />
             </FormSection>
 
-              {/* Record Information (view mode only) */}
+              {/* Activity History (view mode only) */}
               {brandState.selectedItem &&
                 !brandState.isCreating &&
                 !brandState.isEditing && (
                   <FormSection
-                    title="Record Information"
+                    title="Activity History"
                     columns={2}
                     isLast
                     titleAction={
@@ -2602,7 +2670,6 @@ export default function ProductsPage({
           )}
         </Box>
       </Box>
-    </Box>
   );
 
   return (
@@ -2611,163 +2678,164 @@ export default function ProductsPage({
         title={pageTitle}
         titleSlot={
           activeTab === 0 ? (
-            <TTabFilterBar
-              tabs={[
-                {
-                  key: "search",
-                  label: "Product",
-                  hasValue: !!draftProductSearchQuery,
-                  render: ({ close }) => (
-                    <TextField
-                      size="small"
-                      autoFocus
-                      placeholder="Search product..."
-                      value={draftProductSearchQuery}
-                      onChange={(e) => setDraftProductSearchQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          handleApplyProductFilters();
-                          close();
-                        }
-                      }}
-                      fullWidth
-                    />
+            isProductDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search product..."
+                value={productState.searchQuery}
+                onChange={(e) => productState.setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
                   ),
-                },
-                {
-                  key: "status",
-                  label: "Status",
-                  hasValue: !!draftProductActiveFilter,
-                  render: () => (
-                    <TStatusFilter
-                      options={PRODUCT_ACTIVE_FILTER_OPTIONS}
-                      value={draftProductActiveFilter}
-                      onChange={setDraftProductActiveFilter}
-                      label=""
-                      size="small"
-                    />
-                  ),
-                },
-                {
-                  key: "supplier",
-                  label: "Supplier",
-                  hasValue: !!draftProductSupplier,
-                  render: () => (
-                    <TAutocomplete<Supplier>
-                      label="Supplier"
-                      options={suppliersForFilter}
-                      value={draftProductSupplier}
-                      onChange={(value) => setDraftProductSupplier(value as Supplier | null)}
-                      getOptionLabel={(s) => s.company_name}
-                      size="small"
-                    />
-                  ),
-                },
-              ]}
-              onSearch={handleApplyProductFilters}
-              onClear={handleClearProductFilters}
-              clearDisabled={
-                !draftProductSearchQuery && !draftProductActiveFilter && !draftProductSupplier &&
-                !productState.searchQuery && !productActiveFilter && !productSupplierFilter
-              }
-            />
+                }}
+                sx={{ width: 160, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 110, flexShrink: 0 }}>
+                <TStatusFilter
+                  options={PRODUCT_ACTIVE_FILTER_OPTIONS}
+                  value={productActiveFilter}
+                  onChange={setProductActiveFilter}
+                  label=""
+                  placeholder="All Status"
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 130, flexShrink: 0 }}>
+                <TAutocomplete<Supplier>
+                  label=""
+                  placeholder="All Suppliers"
+                  options={suppliersForFilter}
+                  value={productSupplierFilter}
+                  onChange={(value) => setProductSupplierFilter(value as Supplier | null)}
+                  getOptionLabel={(s) => s.company_name}
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 130, flexShrink: 0 }}>
+                <TAutocomplete<Category>
+                  label=""
+                  placeholder="All Categories"
+                  options={categories || []}
+                  value={productCategoryFilter}
+                  onChange={(value) => setProductCategoryFilter(value as Category | null)}
+                  getOptionLabel={(c) => c.name}
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 130, flexShrink: 0 }}>
+                <TAutocomplete<Brand>
+                  label=""
+                  placeholder="All Brands"
+                  options={brands || []}
+                  value={productBrandFilter}
+                  onChange={(value) => setProductBrandFilter(value as Brand | null)}
+                  getOptionLabel={(b) => b.brand_name}
+                  size="small"
+                />
+              </Box>
+              {(productState.searchQuery || productActiveFilter || productSupplierFilter || productCategoryFilter || productBrandFilter) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearProductFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+            )
           ) : activeTab === 1 ? (
-            <TTabFilterBar
-              tabs={[
-                {
-                  key: "search",
-                  label: "Category",
-                  hasValue: !!draftCategorySearchQuery,
-                  render: ({ close }) => (
-                    <TextField
-                      size="small"
-                      autoFocus
-                      placeholder="Search category..."
-                      value={draftCategorySearchQuery}
-                      onChange={(e) => setDraftCategorySearchQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          handleApplyCategoryFilters();
-                          close();
-                        }
-                      }}
-                      fullWidth
-                    />
+            isCategoryDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search category..."
+                value={categoryState.searchQuery}
+                onChange={(e) => categoryState.setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
                   ),
-                },
-                {
-                  key: "status",
-                  label: "Status",
-                  hasValue: !!draftCategoryActiveFilter,
-                  render: () => (
-                    <TStatusFilter
-                      options={PRODUCT_ACTIVE_FILTER_OPTIONS}
-                      value={draftCategoryActiveFilter}
-                      onChange={setDraftCategoryActiveFilter}
-                      label=""
-                      size="small"
-                    />
-                  ),
-                },
-              ]}
-              onSearch={handleApplyCategoryFilters}
-              onClear={handleClearCategoryFilters}
-              clearDisabled={
-                !draftCategorySearchQuery && !draftCategoryActiveFilter &&
-                !categoryState.searchQuery && !categoryActiveFilter
-              }
-            />
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TStatusFilter
+                  options={PRODUCT_ACTIVE_FILTER_OPTIONS}
+                  value={categoryActiveFilter}
+                  onChange={setCategoryActiveFilter}
+                  label=""
+                  placeholder="All Status"
+                  size="small"
+                />
+              </Box>
+              {(categoryState.searchQuery || categoryActiveFilter) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearCategoryFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+            )
           ) : (
-            <TTabFilterBar
-              tabs={[
-                {
-                  key: "search",
-                  label: "Brand",
-                  hasValue: !!draftBrandSearchQuery,
-                  render: ({ close }) => (
-                    <TextField
-                      size="small"
-                      autoFocus
-                      placeholder="Search brand..."
-                      value={draftBrandSearchQuery}
-                      onChange={(e) => setDraftBrandSearchQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          handleApplyBrandFilters();
-                          close();
-                        }
-                      }}
-                      fullWidth
-                    />
+            isBrandDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search brand..."
+                value={brandState.searchQuery}
+                onChange={(e) => brandState.setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
                   ),
-                },
-                {
-                  key: "status",
-                  label: "Status",
-                  hasValue: !!draftBrandActiveFilter,
-                  render: () => (
-                    <TStatusFilter
-                      options={PRODUCT_ACTIVE_FILTER_OPTIONS}
-                      value={draftBrandActiveFilter}
-                      onChange={setDraftBrandActiveFilter}
-                      label=""
-                      size="small"
-                    />
-                  ),
-                },
-              ]}
-              onSearch={handleApplyBrandFilters}
-              onClear={handleClearBrandFilters}
-              clearDisabled={
-                !draftBrandSearchQuery && !draftBrandActiveFilter &&
-                !brandState.searchQuery && !brandActiveFilter
-              }
-            />
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TStatusFilter
+                  options={PRODUCT_ACTIVE_FILTER_OPTIONS}
+                  value={brandActiveFilter}
+                  onChange={setBrandActiveFilter}
+                  label=""
+                  placeholder="All Status"
+                  size="small"
+                />
+              </Box>
+              {(brandState.searchQuery || brandActiveFilter) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearBrandFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+            )
           )
         }
         onRefresh={handleRefresh}
         headerActions={
           activeTab === 0 ? (
+            isProductDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNewProduct}
+                  sx={{ mr: 1 }}
+                >
+                  Add Product
+                </Button>
+              )}
             <TExportButton
               filename="products"
               headers={[
@@ -2804,7 +2872,22 @@ export default function ProductsPage({
               }
               disabled={filteredProducts.length === 0}
             />
+            </>
+            )
           ) : activeTab === 1 ? (
+            isCategoryDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNewCategory}
+                  sx={{ mr: 1 }}
+                >
+                  Add Category
+                </Button>
+              )}
             <TExportButton
               filename="categories"
               headers={["Category Code", "Name", "Description", "Active"]}
@@ -2818,7 +2901,22 @@ export default function ProductsPage({
               }
               disabled={filteredCategories.length === 0}
             />
+            </>
+            )
           ) : activeTab === 2 ? (
+            isBrandDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNewBrand}
+                  sx={{ mr: 1 }}
+                >
+                  Add Brand
+                </Button>
+              )}
             <TExportButton
               filename="brands"
               headers={["Brand Code", "Brand Name", "Description"]}
@@ -2831,6 +2929,8 @@ export default function ProductsPage({
               }
               disabled={filteredBrands.length === 0}
             />
+            </>
+            )
           ) : undefined
         }
         {...(!hideTabs
@@ -2841,56 +2941,21 @@ export default function ProductsPage({
                 setActiveTab(tab as number),
             }
           : {})}
-      >
-        {activeTab === 0 && renderProductsTab()}
-        {activeTab === 1 && renderCategoriesTab()}
-        {activeTab === 2 && renderBrandsTab()}
-      </MasterDetailLayout>
+        {...(activeTab === 0
+          ? isProductDetailMode
+            ? { masterPanel: singleProductPanel, detailPanel: productDetailPanel }
+            : { children: productTablePanel }
+          : activeTab === 1
+            ? isCategoryDetailMode
+              ? { masterPanel: singleCategoryPanel, detailPanel: categoryDetailPanel }
+              : { children: categoryTablePanel }
+            : isBrandDetailMode
+              ? { masterPanel: singleBrandPanel, detailPanel: brandDetailPanel }
+              : { children: brandTablePanel })}
+      />
 
       {/* Single unified confirm dialog */}
       <TConfirmDialog {...confirmDialog.dialogProps} />
-
-      {/* Minimum Selling Price Dialog */}
-      <Dialog
-        open={minPriceDialogOpen}
-        onClose={() => setMinPriceDialogOpen(false)}
-      >
-        <DialogTitle>Set Minimum Selling Price</DialogTitle>
-        <DialogContent>
-          <TextField
-            label="Minimum Selling Price"
-            type="number"
-            fullWidth
-            value={newMinPrice}
-            onChange={(e) => setNewMinPrice(parseFloat(e.target.value) || 0)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">Rs.</InputAdornment>
-              ),
-            }}
-            sx={{ mt: 2 }}
-            error={productState.selectedItem ? newMinPrice < productState.selectedItem.cost_price : false}
-            helperText={
-              productState.selectedItem && newMinPrice < productState.selectedItem.cost_price
-                ? `Minimum price cannot be less than cost price (Rs. ${productState.selectedItem.cost_price})`
-                : ""
-            }
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setMinPriceDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={() => setMinimumPriceMutation.mutate(newMinPrice)}
-            disabled={
-              setMinimumPriceMutation.isPending || 
-              (productState.selectedItem ? newMinPrice < productState.selectedItem.cost_price : false)
-            }
-          >
-            Save
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       <TActivityHistoryPanel
         open={activityHistoryOpen}

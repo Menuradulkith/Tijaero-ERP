@@ -175,7 +175,7 @@ export const createAppTheme = (mode: PaletteMode) => {
           root: {
             textTransform: "none",
             fontWeight: 500,
-            borderRadius: 4,
+            borderRadius: 12,
             padding: "8px 16px",
             "@media (max-width:600px)": {
               padding: "6px 12px",
@@ -198,7 +198,7 @@ export const createAppTheme = (mode: PaletteMode) => {
         styleOverrides: {
           root: {
             boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.08)",
-            borderRadius: 8,
+            borderRadius: 12,
           },
         },
       },
@@ -206,6 +206,7 @@ export const createAppTheme = (mode: PaletteMode) => {
         styleOverrides: {
           root: {
             backgroundImage: "none",
+            borderRadius: 12,
           },
           elevation1: {
             boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.08)",
@@ -298,12 +299,19 @@ export const createAppTheme = (mode: PaletteMode) => {
                 borderColor: isLight ? "#E0E0E0" : "#333333",
               },
             },
-            // Light red background for required fields
+            // Light red background for required fields — applied to the
+            // input container (.MuiInputBase-root, which inherits the
+            // rounded corners), not the inner <input>/<textarea> itself,
+            // which doesn't inherit border-radius and would show a
+            // square-cornered patch poking out past the rounded outline.
             "& .MuiInputBase-root.Mui-required, &.Mui-required .MuiInputBase-root": {
               backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
             },
-            "& input[required], & textarea[required]": {
-              backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
+            // Disabled + required (e.g. a view-mode form) reads as neutral
+            // grey instead of the attention-grabbing red — more specific
+            // than the rule above so it wins.
+            "& .MuiInputBase-root.Mui-required.Mui-disabled, &.Mui-required .MuiInputBase-root.Mui-disabled": {
+              backgroundColor: isLight ? "rgba(0, 0, 0, 0.06)" : "rgba(255, 255, 255, 0.09)",
             },
           },
         },
@@ -311,46 +319,56 @@ export const createAppTheme = (mode: PaletteMode) => {
       MuiOutlinedInput: {
         styleOverrides: {
           root: {
-            // Apply light red background when required attribute is present
+            // Search boxes and filter dropdowns (Autocomplete/Select all
+            // render through this) should read as solid white fields against
+            // the app's grey page background, not blend into it.
+            backgroundColor: isLight ? "#FFFFFF" : "#1E1E1E",
+            // Softer, more rounded corners than the app's default 4px
+            // (shape.borderRadius) — scoped to inputs only, not buttons/
+            // cards/dialogs, which keep their own separate radii.
+            borderRadius: 12,
+            // Apply light red background when required attribute is present.
+            // Only on the root (which properly inherits the rounded corners
+            // above) — not on the inner <input> element, which doesn't
+            // inherit border-radius and would show a square-cornered patch
+            // poking out past the rounded outline.
             "&.Mui-required": {
               backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
             },
-          },
-          input: {
-            "&[required]": {
-              backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
+            // A required field that's also disabled (e.g. a form shown in
+            // read-only/view mode) shouldn't keep the attention-grabbing red
+            // tint — a plain neutral grey reads as "disabled", not "needs
+            // attention". More specific than the red rule above so it wins.
+            "&.Mui-required.Mui-disabled": {
+              backgroundColor: isLight ? "rgba(0, 0, 0, 0.06)" : "rgba(255, 255, 255, 0.09)",
             },
           },
         },
       },
       MuiFilledInput: {
         styleOverrides: {
+          // Root only (inherits border-radius) — not the inner <input>,
+          // which would show a square-cornered patch past the rounded edge.
           root: {
             "&.Mui-required": {
               backgroundColor: isLight ? "rgba(255, 235, 238, 0.5)" : "rgba(211, 47, 47, 0.12)",
             },
           },
-          input: {
-            "&[required]": {
-              backgroundColor: isLight ? "rgba(255, 235, 238, 0.5)" : "rgba(211, 47, 47, 0.12)",
-            },
-          },
         },
       },
-      MuiSelect: {
-        styleOverrides: {
-          select: {
-            "&[required]": {
-              backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
-            },
-          },
-        },
-      },
+      // No MuiSelect required-background override — a `TextField select`
+      // renders its select through MuiOutlinedInput-root (fixed above),
+      // which already gets the tint with correctly-rounded corners. A
+      // select-level background here would sit on an element whose own
+      // border-radius doesn't match the outer rounded outline.
       MuiAutocomplete: {
         styleOverrides: {
           inputRoot: {
             "&.Mui-required": {
               backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
+            },
+            "&.Mui-required.Mui-disabled": {
+              backgroundColor: isLight ? "rgba(0, 0, 0, 0.06)" : "rgba(255, 255, 255, 0.09)",
             },
           },
         },

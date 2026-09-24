@@ -10,14 +10,22 @@
 
 import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
+  Avatar,
   Box,
   Button,
   FormControlLabel,
+  IconButton,
   InputAdornment,
   MenuItem,
   Switch,
   TextField,
+  Tooltip,
   Typography,
   Table,
   TableBody,
@@ -28,8 +36,11 @@ import {
   Autocomplete,
   Chip,
 } from "@mui/material";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 
 import {
@@ -40,19 +51,18 @@ import {
   FormSection,
   handleApiError,
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
   showErrorToast,
   showSuccessToast,
-  SortOption,
   TDetailSkeleton,
   TConfirmDialog,
   TSearchableSelect,
-  TTabFilterBar,
   useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
   modernTableStyles,
+  TDataGrid,
+  type TDataGridColumn,
+  SelectableListItem,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { exportToCSV } from "@/utils/csvExport";
@@ -62,14 +72,6 @@ import { usePermission } from "@/auth/permissions";
 import { couponsApi } from "@/modules/customers/api";
 import { CustomerCuponCodes, CustomerCuponCodesCreate } from "@/modules/customers/types";
 import { productsApi } from "@/modules/inventory/api";
-
-// Configuration
-const SORT_OPTIONS: SortOption[] = [
-  { value: "cupon_code", label: "Coupon Code" },
-  { value: "valid_until_date", label: "Expiry Date" },
-  { value: "discount_value", label: "Discount Value" },
-  { value: "created_date", label: "Creation Date" },
-];
 
 const STATUS_OPTIONS = [
   { value: "active", label: "Active" },
@@ -133,19 +135,14 @@ export default function CouponsPage() {
   const canUpdate = usePermission("customers", "update");
   const canDelete = usePermission("customers", "delete");
 
-  // Filter states (applied - drives the actual list filtering)
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
-
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Use reusable state hook
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedCoupon,
     setSelectedItem: setSelectedCoupon,
     isEditing,
@@ -167,17 +164,10 @@ export default function CouponsPage() {
     defaultSortField: "cupon_code",
   });
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-  }, [draftSearchQuery, draftStatus]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
     setSearchQuery("");
     setFilterStatus(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Data fetching
   const { data: coupons, isLoading, refetch } = useQuery({
@@ -214,28 +204,12 @@ export default function CouponsPage() {
       filtered = filtered.filter((coupon) => getCouponStatus(coupon) === filterStatus);
     }
 
-    filtered.sort((a, b) => {
-      if (sortField === "cupon_code") {
-        return a.cupon_code.localeCompare(b.cupon_code);
-      } else if (sortField === "valid_until_date") {
-        return new Date(a.valid_until_date).getTime() - new Date(b.valid_until_date).getTime();
-      } else if (sortField === "discount_value") {
-        return b.discount_value - a.discount_value;
-      } else if (sortField === "created_date") {
-        return new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
-      }
-      return 0;
-    });
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
+    filtered.sort((a, b) => a.cupon_code.localeCompare(b.cupon_code));
 
     return filtered;
-  }, [coupons, searchQuery, sortField, filterStatus]);
-
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredCoupons.length > 0 && !selectedCoupon && !isCreating) {
-      handleSelectCoupon(filteredCoupons[0]);
-    }
-  }, [filteredCoupons, selectedCoupon, isCreating]);
+  }, [coupons, searchQuery, filterStatus]);
 
   // Mutations
   const createMutation = useCrudMutation({
@@ -367,103 +341,231 @@ export default function CouponsPage() {
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
 
-  // Master Panel
-  const masterPanel = (
-    <SearchableList<CustomerCuponCodes>
-      items={filteredCoupons}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedCoupon}
-      onSelectItem={handleSelectCoupon}
-      emptyMessage="No coupons found"
-      renderItem={(coupon: CustomerCuponCodes, isSelected: boolean) => {
-        const status = getCouponStatus(coupon);
-        const discountText = coupon.discount_type === "PERCENT"
-          ? `${coupon.discount_value}% Discount`
-          : `Rs. ${coupon.discount_value.toLocaleString()} Discount`;
-        
-        return (
-          <SelectableListItem
-            key={coupon.id}
-            isSelected={isSelected}
-            onClick={() => handleSelectCoupon(coupon)}
-            isFavorite={favorites.includes(coupon.id)}
-            onToggleFavorite={() => toggleFavorite(coupon.id)}
-            primaryText={
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-                {/* Coupon Code */}
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{coupon.cupon_code}</span>
-                  {isSelected && (
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Coupon Code)
-                    </Typography>
-                  )}
-                </Box>
-                {/* Discount */}
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <Typography
-                    component="span"
-                    variant="caption"
-                    fontWeight={600}
-                    sx={{ color: isSelected ? "common.white" : "text.primary" }}
-                  >
-                    {discountText}
-                  </Typography>
-                  {isSelected && (
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Discount)
-                    </Typography>
-                  )}
-                </Box>
-                {/* Additional details - only when selected */}
-                {isSelected && (
-                  <>
-                    {coupon.description && (
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <Typography component="span" variant="caption">
-                          {coupon.description}
-                        </Typography>
-                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                          (Description)
-                        </Typography>
-                      </Box>
-                    )}
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {format(new Date(coupon.valid_until_date), "dd/MM/yyyy")}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Expires)
-                      </Typography>
-                    </Box>
-                    {/* Status Chip - shown below all fields when selected */}
-                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                      <Chip
-                        label={status === "expiring_soon" ? "Expiring Soon" : status.charAt(0).toUpperCase() + status.slice(1)}
-                        size="small"
-                        color={
-                          status === "active" ? "success" :
-                          status === "expiring_soon" ? "warning" :
-                          status === "expired" || status === "exhausted" ? "error" : "default"
-                        }
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                    </Box>
-                  </>
-                )}
-              </Box>
-            }
-            secondaryText={!isSelected ? `${format(new Date(coupon.valid_until_date), "dd/MM/yyyy")}${coupon.description ? ` • ${coupon.description}` : ''}` : undefined}
-          />
-        );
+  // Whether we're showing a single coupon's detail view (selected or being
+  // created) instead of the browse table.
+  const isCouponDetailMode = !!selectedCoupon || isCreating;
+
+  // Returns to the browse table from the detail view.
+  const handleBackToCoupons = useCallback(() => {
+    setSelectedCoupon(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedCoupon, setIsCreating, setIsEditing]);
+
+  // Cancelling out of "New Coupon" should return to the browse table, not
+  // auto-open the first coupon the way useMasterDetailState's generic
+  // handleCancel does (that made sense for the old always-visible detail
+  // panel, but not here). Cancelling out of editing an existing coupon
+  // still just reverts its form, which the generic handler already does
+  // correctly.
+  const handleCancelCoupon = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedCoupon(null);
+    } else {
+      baseHandleCancel(filteredCoupons);
+    }
+  }, [isCreating, filteredCoupons, baseHandleCancel, setIsCreating, setIsEditing, setSelectedCoupon]);
+
+  // The table sorts by whichever column the user clicks; the Status column
+  // displays a computed value (not stored on the record), so it needs that
+  // value as its own field for the grid to sort on correctly.
+  const couponRows = useMemo(
+    () =>
+      filteredCoupons.map((coupon) => ({
+        ...coupon,
+        computed_status: getCouponStatus(coupon),
+      })),
+    [filteredCoupons]
+  );
+
+  // Browse mode: a full-width table of every coupon. Sorting is done
+  // per-column via the grid's own column header menu, not a separate
+  // "Sort by" control.
+  const couponColumns: TDataGridColumn<(typeof couponRows)[number]>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<(typeof couponRows)[number]>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "cupon_code",
+        header: "Coupon Code",
+        flex: 1,
+        minWidth: 160,
+        renderCell: (params: GridRenderCellParams<(typeof couponRows)[number]>) => (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, height: "100%" }}>
+            <LocalOfferIcon fontSize="small" color="action" />
+            <Typography variant="body2" fontWeight={600}>
+              {params.row.cupon_code}
+            </Typography>
+          </Box>
+        ),
+      },
+      {
+        field: "discount_value",
+        header: "Discount",
+        width: 150,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<(typeof couponRows)[number]>) =>
+          params.row.discount_type === "PERCENT"
+            ? `${params.row.discount_value}%`
+            : `Rs. ${params.row.discount_value.toLocaleString()}`,
+      },
+      {
+        field: "created_date",
+        header: "Issue Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<(typeof couponRows)[number]>) =>
+          params.row.created_date ? format(new Date(params.row.created_date), "dd/MM/yyyy") : "-",
+      },
+      {
+        field: "valid_until_date",
+        header: "Expiry",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<(typeof couponRows)[number]>) =>
+          format(new Date(params.row.valid_until_date), "dd/MM/yyyy"),
+      },
+      {
+        field: "computed_status",
+        header: "Status",
+        width: 130,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<(typeof couponRows)[number]>) => {
+          const status = params.row.computed_status;
+          return (
+            <Chip
+              label={status === "expiring_soon" ? "Expiring Soon" : status.charAt(0).toUpperCase() + status.slice(1)}
+              size="small"
+              color={
+                status === "active" ? "success" :
+                status === "expiring_soon" ? "warning" :
+                status === "expired" || status === "exhausted" ? "error" : "default"
+              }
+            />
+          );
+        },
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<(typeof couponRows)[number]>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectCoupon(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectCoupon]
+  );
+
+  const couponTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid
+          rows={couponRows}
+          columns={couponColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectCoupon(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No coupons found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current coupon (or
+  // the "New Coupon" placeholder while creating), with a "Back to
+  // Coupons" link returning to the table.
+  const singleCouponPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
       }}
-    />
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToCoupons}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Coupons
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main" }}>
+              <LocalOfferIcon />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Coupon
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedCoupon && (
+        <SelectableListItem
+          id={selectedCoupon.id}
+          isSelected
+          onClick={() => {}}
+          primaryText={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "primary.main" }}>
+                <LocalOfferIcon />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedCoupon.cupon_code}</span>
+              </Box>
+            </Box>
+          }
+          isFavorite={favorites.includes(selectedCoupon.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedCoupon.id, e)}
+        />
+      )}
+    </Paper>
   );
 
   // Detail Panel
@@ -499,7 +601,7 @@ export default function CouponsPage() {
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
         onSave={handleSave}
-        onCancel={() => baseHandleCancel(filteredCoupons)}
+        onCancel={handleCancelCoupon}
         onEdit={handleStartEdit}
       />
 
@@ -762,9 +864,9 @@ export default function CouponsPage() {
               </Paper>
             )}
 
-            {/* Record Information (view mode only) */}
+            {/* Activity History (view mode only) */}
             {selectedCoupon && !isCreating && !isEditing && (
-              <FormSection title="Record Information" columns={2}>
+              <FormSection title="Activity History" columns={2}>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Created</Typography>
                   <Typography variant="body2">{formatDateTimeReadable(selectedCoupon.created_date) || "-"}</Typography>
@@ -782,72 +884,80 @@ export default function CouponsPage() {
       <MasterDetailLayout
         title="Coupons"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Coupon",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search coupons..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftStatus}
-                    onChange={(val) => setDraftStatus(val as string | null)}
-                    options={STATUS_OPTIONS.map((opt) => ({
-                      value: opt.value,
-                      label: opt.label,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Statuses"
-                    placeholder="Search status..."
-                    size="small"
-                    fullWidth
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !searchQuery && !filterStatus}
-          />
+          isCouponDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search coupons..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TSearchableSelect
+                  label=""
+                  value={filterStatus}
+                  onChange={(val) => setFilterStatus(val as string | null)}
+                  options={STATUS_OPTIONS.map((opt) => ({
+                    value: opt.value,
+                    label: opt.label,
+                  }))}
+                  showAllOption
+                  allOptionLabel="All Statuses"
+                  placeholder="All Statuses"
+                  size="small"
+                  fullWidth
+                />
+              </Box>
+              {(searchQuery || filterStatus) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         headerActions={
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={handleExportCSV}
-            disabled={filteredCoupons.length === 0}
-            sx={{ mr: 1 }}
-          >
-            Export CSV
-          </Button>
+          isCouponDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNewCoupon}
+                  sx={{ mr: 1 }}
+                >
+                  Add Coupon
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={handleExportCSV}
+                disabled={filteredCoupons.length === 0}
+                sx={{ mr: 1 }}
+              >
+                Export CSV
+              </Button>
+            </>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isCouponDetailMode
+          ? { masterPanel: singleCouponPanel, detailPanel }
+          : { children: couponTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

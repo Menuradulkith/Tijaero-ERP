@@ -1,15 +1,22 @@
 /**
- * AttendancePage — Master/Detail layout matching Customers / Sales Orders pattern.
- * Left: searchable list of attendance records with status & branch filters.
- * Right: details + check-in/check-out actions and editable times.
+ * AttendancePage — Browse table + single-record detail toggle.
+ * Browse mode: a full-width table of every attendance record.
+ * Detail mode: the record's detail form (unchanged), full-width, with a
+ * "Back to Attendance" link returning to the table.
  */
 import { useCallback, useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Button, Chip, MenuItem, TextField, Typography } from "@mui/material";
+import { Avatar, Box, Button, Chip, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
 import DownloadIcon from "@mui/icons-material/FileDownload";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { format } from "date-fns";
 import { exportToCSV } from "@/utils/csvExport";
 
@@ -19,16 +26,15 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
-  SortOption,
   TButton,
   TConfirmDialog,
   TDetailSkeleton,
   TBranchFilter,
   TStatusFilter,
-  TTabFilterBar,
   type TFilterStatusOption,
+  TDataGrid,
+  type TDataGridColumn,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -40,12 +46,6 @@ import { attendanceApi, employeesApi } from "@/modules/hr/api";
 import { branchApi } from "@/modules/branches/api";
 import type { Attendance, AttendanceCreate } from "@/modules/hr/types";
 import { useState } from "react";
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "date_desc", label: "Date (Newest)" },
-  { value: "date_asc", label: "Date (Oldest)" },
-  { value: "employee_id", label: "Employee ID" },
-];
 
 const STATUS_OPTIONS: TFilterStatusOption[] = [
   { value: "present", label: "Present" },
@@ -86,11 +86,6 @@ export default function AttendancePage() {
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
-  // Filter state (draft - edited via the header filter bar, only applied on Search click)
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-
   const [dateFrom] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -101,9 +96,8 @@ export default function AttendancePage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedAttendance,
+    setSelectedItem,
     isEditing,
     isCreating,
     setIsCreating,
@@ -132,16 +126,7 @@ export default function AttendancePage() {
     defaultSortField: "date_desc",
   });
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterBranch(draftBranch);
-  }, [draftSearchQuery, draftStatus, draftBranch, setSearchQuery]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftBranch(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterBranch(null);
@@ -179,19 +164,11 @@ export default function AttendancePage() {
         a.date.includes(q)
       );
     });
-    list.sort((a, b) => {
-      if (sortField === "date_asc") return a.date.localeCompare(b.date);
-      if (sortField === "employee_id") return a.employee_id.localeCompare(b.employee_id);
-      return b.date.localeCompare(a.date);
-    });
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
+    list.sort((a, b) => b.date.localeCompare(a.date));
     return list;
-  }, [attendances, searchQuery, sortField, filterStatus, filterBranch]);
-
-  useEffect(() => {
-    if (filtered.length > 0 && !selectedAttendance && !isCreating) {
-      handleSelectItem(filtered[0]);
-    }
-  }, [filtered, selectedAttendance, isCreating, handleSelectItem]);
+  }, [attendances, searchQuery, filterStatus, filterBranch]);
 
   const createMutation = useMutation({
     mutationFn: (d: AttendanceCreate) => attendanceApi.create(d),
@@ -221,7 +198,7 @@ export default function AttendancePage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hr-attendance"] });
       showSuccessToast("Attendance deleted");
-      baseCancel(filtered);
+      setSelectedItem(null);
     },
     onError: (e) => showErrorToast(handleApiError(e, "Failed to delete attendance")),
   });
@@ -306,53 +283,198 @@ export default function AttendancePage() {
     if (ok) deleteMutation.mutate(selectedAttendance.id);
   }, [selectedAttendance, deleteMutation, confirmDialog]);
 
+  // Cancelling out of "New Attendance" should return to the browse table,
+  // not auto-open the first record the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing
+  // record still just reverts its form, which the generic handler already
+  // does correctly.
+  const handleCancelAttendance = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedItem(null);
+    } else {
+      baseCancel(filtered);
+    }
+  }, [isCreating, filtered, baseCancel, setIsCreating, setIsEditing, setSelectedItem]);
+
+  // Returns to the browse table from the detail view.
+  const handleBackToAttendance = useCallback(() => {
+    setSelectedItem(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedItem, setIsCreating, setIsEditing]);
+
   const isFormValid = !!formData.employee_id && !!formData.branch_code && !!formData.date;
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
 
-  const masterPanel = (
-    <SearchableList<Attendance>
-      items={filtered}
-      isLoading={isLoading}
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      currentSort={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedAttendance}
-      onSelectItem={handleSelectItem}
-      emptyMessage="No attendance records found"
-      renderItem={(att, isSelected) => (
+  // Whether we're showing a single attendance record's detail view
+  // (selected or being created) instead of the browse table.
+  const isAttendanceDetailMode = !!selectedAttendance || isCreating;
+
+  // The table sorts by whichever column the user clicks via the grid's own
+  // column-header menu, not a separate "Sort by" control.
+  const attendanceColumns: TDataGridColumn<Attendance>[] = useMemo(
+    () => [
+      {
+        field: "employee_name",
+        header: "Employee",
+        flex: 1,
+        minWidth: 160,
+        renderCell: (params: GridRenderCellParams<Attendance>) =>
+          params.row.employee_name || params.row.employee_id,
+      },
+      {
+        field: "date",
+        header: "Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<Attendance>) =>
+          format(new Date(params.row.date), "MMM dd, yyyy"),
+      },
+      {
+        field: "check_in",
+        header: "Check-in",
+        width: 110,
+        renderCell: (params: GridRenderCellParams<Attendance>) =>
+          params.row.check_in ? format(new Date(params.row.check_in), "HH:mm") : "—",
+      },
+      {
+        field: "check_out",
+        header: "Check-out",
+        width: 110,
+        renderCell: (params: GridRenderCellParams<Attendance>) =>
+          params.row.check_out ? format(new Date(params.row.check_out), "HH:mm") : "—",
+      },
+      {
+        field: "work_mins",
+        header: "Hours",
+        width: 100,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<Attendance>) => minutesToHours(params.row.work_mins),
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 120,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Attendance>) => (
+          <Chip
+            label={params.row.status || "—"}
+            size="small"
+            color={statusColor(params.row.status) as any}
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Attendance>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectItem(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectItem]
+  );
+
+  // Browse mode: a full-width table of every attendance record.
+  const attendanceTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<Attendance>
+          rows={filtered}
+          columns={attendanceColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectItem(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No attendance records found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current attendance
+  // record (or the "New Attendance" placeholder while creating) plus a
+  // "Back to Attendance" link that returns to the table.
+  const singleAttendancePanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToAttendance}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Attendance
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+              <AccessTimeIcon color="primary" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Attendance
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedAttendance && (
         <SelectableListItem
-          key={att.id}
-          id={att.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectItem(att)}
+          id={selectedAttendance.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{att.employee_name || att.employee_id}</span>
-                <Chip
-                  label={att.status || "—"}
-                  size="small"
-                  color={statusColor(att.status) as any}
-                  sx={{ height: 18, fontSize: "0.65rem" }}
-                />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+                <AccessTimeIcon color="primary" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>
+                  {selectedAttendance.employee_name || selectedAttendance.employee_id} •{" "}
+                  {format(new Date(selectedAttendance.date), "MMM dd, yyyy")}
+                </span>
               </Box>
-              <Typography component="span" variant="caption" sx={{ color: isSelected ? "inherit" : "text.secondary" }}>
-                {format(new Date(att.date), "MMM dd, yyyy")} • {att.employee_id}
-              </Typography>
             </Box>
-          }
-          secondaryText={
-            !isSelected
-              ? `In: ${att.check_in ? format(new Date(att.check_in), "HH:mm") : "—"} • Out: ${att.check_out ? format(new Date(att.check_out), "HH:mm") : "—"}`
-              : undefined
           }
         />
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -393,7 +515,7 @@ export default function AttendancePage() {
         onNew={handleNew}
         onDelete={handleDelete}
         onSave={handleSave}
-        onCancel={() => baseCancel(filtered)}
+        onCancel={handleCancelAttendance}
         onEdit={handleStartEdit}
         endActions={
           isCreating ? (
@@ -534,79 +656,84 @@ export default function AttendancePage() {
       <MasterDetailLayout
         title="Attendance"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search by employee, date..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TStatusFilter
-                    options={STATUS_OPTIONS}
-                    value={draftStatus}
-                    onChange={setDraftStatus}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => (
-                  <TBranchFilter
-                    branches={branchOptions}
-                    value={draftBranch}
-                    onChange={setDraftBranch}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
-          />
+          isAttendanceDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search by employee, date..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TStatusFilter
+                  options={STATUS_OPTIONS}
+                  value={filterStatus}
+                  onChange={setFilterStatus}
+                  label=""
+                  placeholder="All Status"
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TBranchFilter
+                  branches={branchOptions}
+                  value={filterBranch}
+                  onChange={setFilterBranch}
+                  label=""
+                  placeholder="All Branches"
+                  size="small"
+                />
+              </Box>
+              {(searchQuery || filterStatus || filterBranch) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         headerActions={
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={handleExportCSV}
-            disabled={filtered.length === 0}
-            sx={{ mr: 1 }}
-          >
-            Export CSV
-          </Button>
+          isAttendanceDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNew}
+                  sx={{ mr: 1 }}
+                >
+                  Add Attendance
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={handleExportCSV}
+                disabled={filtered.length === 0}
+                sx={{ mr: 1 }}
+              >
+                Export CSV
+              </Button>
+            </>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isAttendanceDetailMode
+          ? { masterPanel: singleAttendancePanel, detailPanel }
+          : { children: attendanceTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

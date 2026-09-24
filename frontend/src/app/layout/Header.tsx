@@ -80,6 +80,10 @@ export default function Header({
         ml: { md: `${totalLeftOffset}px` },
         bgcolor: "background.paper",
         color: "text.primary",
+        // Square off the top corners only — inherits MuiPaper's theme
+        // default (12px) on the bottom corners.
+        borderTopLeftRadius: 0,
+        borderTopRightRadius: 0,
       }}
     >
       <Toolbar sx={{ minHeight: "var(--header-height)", py: 0 }}>

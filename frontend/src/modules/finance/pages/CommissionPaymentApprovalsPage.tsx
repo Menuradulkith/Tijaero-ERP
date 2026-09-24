@@ -14,10 +14,13 @@ import FactCheckIcon from "@mui/icons-material/FactCheck";
 import HistoryIcon from "@mui/icons-material/History";
 import PersonIcon from "@mui/icons-material/Person";
 import VerifiedIcon from "@mui/icons-material/Verified";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 import {
   Box,
   Button,
   IconButton,
+  InputAdornment,
   Paper,
   Table,
   TableBody,
@@ -46,7 +49,6 @@ import {
   TConfirmDialog,
   TDetailSkeleton,
   TSearchableSelect,
-  TTabFilterBar,
   TStatusChip,
   modernTableStyles,
   showErrorToast,
@@ -91,14 +93,10 @@ export default function CommissionPaymentApprovalsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("created_at");
 
-  // Filter states (applied - drives the actual list filtering)
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterStatus, setFilterStatus] = useState<string | null>("pending");
   const [filterAgentId, setFilterAgentId] = useState<number | null>(null);
-
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftStatus, setDraftStatus] = useState<string | null>("pending");
-  const [draftAgentId, setDraftAgentId] = useState<number | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithAgent | null>(null);
 
@@ -142,20 +140,11 @@ export default function CommissionPaymentApprovalsPage() {
     return map;
   }, [allCustomers]);
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterAgentId(draftAgentId);
-  }, [draftSearchQuery, draftStatus, draftAgentId]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftAgentId(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterAgentId(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch payment details when selected
   const { data: paymentDetails, isLoading: isDetailLoading } = useQuery({
@@ -704,75 +693,60 @@ export default function CommissionPaymentApprovalsPage() {
         title="Commission Payment Approvals"
         icon={<FactCheckIcon color="primary" />}
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search by payment no, agent..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search by payment no, agent..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftStatus}
-                    onChange={(val) => setDraftStatus(val as string | null)}
-                    options={STATUS_FILTER_OPTIONS.map((opt) => ({
-                      value: opt.value,
-                      label: opt.label,
-                      color: opt.color,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Statuses"
-                    placeholder="Search status..."
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "agent",
-                label: "Agent",
-                hasValue: !!draftAgentId,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftAgentId}
-                    onChange={(val) => setDraftAgentId(val ? Number(val) : null)}
-                    options={agents.map((agent) => ({
-                      value: agent.id,
-                      label: agent.customer_name,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Agents"
-                    placeholder="Search agents..."
-                    size="small"
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !draftAgentId && !searchQuery && !filterStatus && !filterAgentId}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TSearchableSelect
+                label=""
+                value={filterStatus}
+                onChange={(val) => setFilterStatus(val as string | null)}
+                options={STATUS_FILTER_OPTIONS.map((opt) => ({
+                  value: opt.value,
+                  label: opt.label,
+                  color: opt.color,
+                }))}
+                showAllOption
+                allOptionLabel="All Statuses"
+                placeholder="All Statuses"
+                size="small"
+              />
+            </Box>
+            <Box sx={{ width: 180, flexShrink: 0 }}>
+              <TSearchableSelect
+                label=""
+                value={filterAgentId}
+                onChange={(val) => setFilterAgentId(val ? Number(val) : null)}
+                options={agents.map((agent) => ({
+                  value: agent.id,
+                  label: agent.customer_name,
+                }))}
+                showAllOption
+                allOptionLabel="All Agents"
+                placeholder="All Agents"
+                size="small"
+              />
+            </Box>
+            {(searchQuery || filterStatus || filterAgentId) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         }
         onRefresh={refetch}
         isLoading={isLoading}

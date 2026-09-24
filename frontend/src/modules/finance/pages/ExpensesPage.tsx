@@ -7,10 +7,18 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import SendIcon from "@mui/icons-material/Send";
 import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import ReceiptIcon from "@mui/icons-material/Receipt";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { exportToCSV } from "@/utils/csvExport";
 import {
   Alert,
   Autocomplete,
+  Avatar,
   Box,
   Button,
   Dialog,
@@ -18,7 +26,9 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  InputAdornment,
   MenuItem,
+  Paper,
   Step,
   StepLabel,
   Stepper,
@@ -26,6 +36,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -42,21 +53,19 @@ import {
   EXPENSES_METHOD,
   fmtLKR,
   FormSection,
-  getStatusProps,
   handleApiError,
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
   showErrorToast,
   showSuccessToast,
-  type SortOption,
   TBranchFilter,
   TConfirmDialog,
+  TDataGrid,
+  type TDataGridColumn,
   TPrintButton,
   TPrintPreviewDialog,
   TSearchableSelect,
   TStatusChip,
-  TTabFilterBar,
   useConfirmDialog,
   useTConfirmDialog,
   useMasterDetailState,
@@ -69,6 +78,11 @@ import { useReferenceData } from "@/hooks";
 import { expensesApi } from "@/modules/finance/api";
 import type { Expense, ExpenseCreate, ExpensePaymentData } from "@/modules/finance/types";
 
+// An expense row as shown in the browse table, with display-only lookup
+// fields precomputed so the grid's own column-header sort orders by the
+// displayed label rather than a raw code.
+type ExpenseRow = Expense & { branch_name: string; category_label: string };
+
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const STATUS_FILTER_OPTIONS = [
@@ -78,12 +92,6 @@ const STATUS_FILTER_OPTIONS = [
   { value: "rejected", label: "Rejected", color: "error" as const },
   { value: "paid", label: "Paid", color: "primary" as const },
   { value: "recorded", label: "Recorded", color: "secondary" as const },
-];
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_date", label: "Date Created" },
-  { value: "expense_amount", label: "Amount" },
-  { value: "expenses_no", label: "Expense No" },
 ];
 
 const FORM_STEPS = ["Expense Information", "Payment Details"];
@@ -127,12 +135,6 @@ export default function ExpensesPage() {
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
   const [formStep, setFormStep] = useState(0);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftCategory, setDraftCategory] = useState<string | null>(null);
-
   // Workflow dialogs (kept for submit, approve, reject, payment, record actions)
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
@@ -153,7 +155,6 @@ export default function ExpensesPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -163,8 +164,6 @@ export default function ExpensesPage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedExpense,
     setSelectedItem: setSelectedExpense,
     isEditing,
@@ -220,23 +219,12 @@ export default function ExpensesPage() {
     setFormStep(0);
   }, [handleNewExpenseBase, defaultBranchCode, setFormData]);
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterBranch(draftBranch);
-    setFilterCategory(draftCategory);
-  }, [draftSearchQuery, draftStatus, draftBranch, draftCategory]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftBranch(null);
-    setDraftCategory(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterBranch(null);
     setFilterCategory(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
@@ -291,24 +279,17 @@ export default function ExpensesPage() {
           e.receipt_number?.toLowerCase().includes(q)
       );
     }
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there) — most recently
+    // created first, same as the removed "Date Created" sort option's default.
     filtered.sort((a, b) => {
-      if (sortField === "expense_amount")
-        return Number(b.expense_amount) - Number(a.expense_amount);
-      if (sortField === "expenses_no")
-        return (b.expenses_no || "").localeCompare(a.expenses_no || "");
       const timeA = a.created_at ? new Date(a.created_at).getTime() : (a.created_date ? new Date(a.created_date).getTime() : 0);
       const timeB = b.created_at ? new Date(b.created_at).getTime() : (b.created_date ? new Date(b.created_date).getTime() : 0);
       if (timeB !== timeA) return timeB - timeA;
       return b.id - a.id;
     });
     return filtered;
-  }, [expenses, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filteredExpenses.length > 0 && !selectedExpense) {
-      setSelectedExpense(filteredExpenses[0]);
-    }
-  }, [filteredExpenses, selectedExpense]);
+  }, [expenses, searchQuery]);
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
@@ -463,6 +444,38 @@ export default function ExpensesPage() {
     );
   }, [selectedExpense, deleteDialog, deleteMutation]);
 
+  // Cancelling out of "New Expense" should return to the browse table, not
+  // auto-open the first expense the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing
+  // expense still just reverts its form, which the generic handler already
+  // does correctly.
+  const handleCancelExpense = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedExpense(null);
+      setFormStep(0);
+    } else {
+      handleCancel(filteredExpenses);
+    }
+  }, [isCreating, filteredExpenses, handleCancel, setIsCreating, setIsEditing, setSelectedExpense]);
+
+  // Returns to the browse table from the detail view (the "Back to Expenses"
+  // link above the detail header).
+  const handleBackToExpenses = useCallback(() => {
+    setSelectedExpense(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+    setFormStep(0);
+  }, [isCreating, setSelectedExpense, setIsCreating, setIsEditing]);
+
+  // Whether we're showing a single expense's detail view (selected or being
+  // created) instead of the browse table.
+  const isExpenseDetailMode = !!selectedExpense || isCreating;
+
   const getCategoryLabel = (val: string) =>
     EXPENSE_CATEGORIES.find((c) => c.value === val)?.label || val;
 
@@ -480,86 +493,94 @@ export default function ExpensesPage() {
     defaultValues: { account_code: "", cost_center: "" },
   });
 
-  // ─── Master Panel ──────────────────────────────────────────────────────────
+  // ─── Browse Table ──────────────────────────────────────────────────────────
 
-  const masterPanel = (
-    <SearchableList
-      items={filteredExpenses}
-      isLoading={isLoading}
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      renderItem={(expense: Expense, isSelected: boolean) => {
-        return (
-          <SelectableListItem
-            key={expense.id}
-            id={expense.id}
-            isSelected={isSelected}
-            onClick={() => handleSelectExpense(expense)}
-            primaryText={
-              <Box
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 0.5,
-                  width: "100%",
-                }}
-              >
-                <Box
-                  sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <Typography variant="body2" fontWeight={600}>
-                    {expense.expenses_no}
-                  </Typography>
-                  <Typography variant="body2" fontWeight={600} color="primary">
-                    {fmtLKR(expense.expense_amount)}
-                  </Typography>
-                </Box>
-                {isSelected && (
-                  <>
-                    <Typography variant="caption" color="text.secondary">
-                      {getCategoryLabel(expense.expense_category)} • {expense.vendor_name || "No vendor"}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {format(new Date(expense.created_date), "dd/MM/yyyy")}
-                    </Typography>
-                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                      <TStatusChip
-                        status={expense.status}
-                        statusMap="expenseStatus"
-                        size="small"
-                      />
-                    </Box>
-                  </>
-                )}
-              </Box>
-            }
-            secondaryText={
-              !isSelected
-                ? `${getCategoryLabel(expense.expense_category)} - ${expense.vendor_name || "No vendor"} - ${format(new Date(expense.created_date), "dd/MM/yyyy")}`
-                : undefined
-            }
-            isFavorite={favorites.includes(expense.id)}
-            onToggleFavorite={(e) => toggleFavorite(expense.id, e)}
-            statusChip={
-              !isSelected
-                ? {
-                    label: expense.status.charAt(0).toUpperCase() + expense.status.slice(1),
-                    color: getStatusProps(expense.status, "expenseStatus").color,
-                  }
-                : undefined
-            }
-          />
-        );
-      }}
-    />
+  // The table sorts by whichever column the user clicks; the Branch and
+  // Category columns display a looked-up label rather than the raw code, so
+  // they need that label as their own field for the grid to sort on correctly.
+  const expenseRows: ExpenseRow[] = useMemo(
+    () =>
+      filteredExpenses.map((expense) => ({
+        ...expense,
+        branch_name: branches.find((b) => b.branch_code === expense.branch_code)?.branch_name || expense.branch_code || "-",
+        category_label: getCategoryLabel(expense.expense_category),
+      })),
+    [filteredExpenses, branches] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const expenseColumns: TDataGridColumn<ExpenseRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ExpenseRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      { field: "expenses_no", header: "Expense No", width: 150 },
+      { field: "category_label", header: "Category", flex: 1, minWidth: 150 },
+      { field: "branch_name", header: "Branch", width: 150 },
+      {
+        field: "expense_date",
+        header: "Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<ExpenseRow>) => {
+          const d = params.row.expense_date || params.row.created_date;
+          return d ? format(new Date(d), "dd/MM/yyyy") : "-";
+        },
+      },
+      {
+        field: "expense_amount",
+        header: "Amount",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<ExpenseRow>) => fmtLKR(params.row.expense_amount),
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 130,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ExpenseRow>) => (
+          <TStatusChip status={params.row.status} statusMap="expenseStatus" size="small" />
+        ),
+      },
+      { field: "vendor_name", header: "Vendor", flex: 1, minWidth: 150 },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ExpenseRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectExpense(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectExpense]
   );
 
   // ─── Detail Panel ──────────────────────────────────────────────────────────
@@ -663,6 +684,67 @@ export default function ExpensesPage() {
   const canEdit = selectedExpense && (selectedExpense.status === "pending" || selectedExpense.status === "rejected");
   const canDelete = selectedExpense && selectedExpense.status === "pending" ? true : false;
 
+  // Detail mode: a narrow left panel showing only the current expense (or the
+  // "New Expense" placeholder while creating). A "Back to Expenses" link
+  // returns to the table.
+  const singleExpensePanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToExpenses}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Expenses
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
+              <ReceiptLongIcon />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Expense
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedExpense && (
+        <SelectableListItem
+          id={selectedExpense.id}
+          isSelected
+          onClick={() => {}}
+          primaryText={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
+                <ReceiptLongIcon />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedExpense.expenses_no || `EXP-${selectedExpense.id}`}</span>
+              </Box>
+            </Box>
+          }
+          isFavorite={favorites.includes(selectedExpense.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedExpense.id, e)}
+        />
+      )}
+    </Paper>
+  );
+
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -690,7 +772,7 @@ export default function ExpensesPage() {
         isFormValid={isFormValid}
         onNew={handleNewExpense}
         onSave={handleSave}
-        onCancel={() => handleCancel(filteredExpenses)}
+        onCancel={handleCancelExpense}
         onEdit={canEdit ? handleStartEdit : undefined}
         onDelete={canDelete ? handleDelete : undefined}
         canDelete={canDelete}
@@ -994,6 +1076,27 @@ export default function ExpensesPage() {
     </Box>
   );
 
+  // Browse mode: a full-width table of every expense (shown when nothing is
+  // selected and nothing is being created). Sorting is done per-column via
+  // the grid's own column header menu, not a separate "Sort by" control.
+  const expenseTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<ExpenseRow>
+          rows={expenseRows}
+          columns={expenseColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectExpense(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No expenses found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -1001,106 +1104,93 @@ export default function ExpensesPage() {
       <MasterDetailLayout
         title="Expenses"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search expenses..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => (
-                  <TBranchFilter
-                    branches={branches}
-                    value={draftBranch}
-                    onChange={setDraftBranch}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftStatus}
-                    onChange={(val) => setDraftStatus(val as string | null)}
-                    options={STATUS_FILTER_OPTIONS.map((s) => ({
-                      value: s.value,
-                      label: s.label,
-                      color: s.color,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Statuses"
-                    placeholder="Search status..."
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "category",
-                label: "Category",
-                hasValue: !!draftCategory,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftCategory}
-                    onChange={(val) => setDraftCategory(val as string | null)}
-                    options={EXPENSE_CATEGORIES.map((c) => ({
-                      value: c.value,
-                      label: c.label,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Categories"
-                    placeholder="Search category..."
-                    size="small"
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={
-              !draftSearchQuery &&
-              !draftStatus &&
-              !draftBranch &&
-              !draftCategory &&
-              !searchQuery &&
-              !filterStatus &&
-              !filterBranch &&
-              !filterCategory
-            }
-          />
+          isExpenseDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search expenses..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TBranchFilter
+                  branches={branches}
+                  value={filterBranch}
+                  onChange={setFilterBranch}
+                  label=""
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TSearchableSelect
+                  label=""
+                  value={filterStatus}
+                  onChange={(val) => setFilterStatus(val as string | null)}
+                  options={STATUS_FILTER_OPTIONS.map((s) => ({
+                    value: s.value,
+                    label: s.label,
+                    color: s.color,
+                  }))}
+                  showAllOption
+                  allOptionLabel="All Statuses"
+                  placeholder="Search status..."
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TSearchableSelect
+                  label=""
+                  value={filterCategory}
+                  onChange={(val) => setFilterCategory(val as string | null)}
+                  options={EXPENSE_CATEGORIES.map((c) => ({
+                    value: c.value,
+                    label: c.label,
+                  }))}
+                  showAllOption
+                  allOptionLabel="All Categories"
+                  placeholder="Search category..."
+                  size="small"
+                />
+              </Box>
+              {(searchQuery || filterStatus || filterBranch || filterCategory) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
+        }
+        headerActions={
+          isExpenseDetailMode ? undefined : (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleNewExpense}
+              sx={{ mr: 1 }}
+            >
+              Add Expense
+            </Button>
+          )
         }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["expenses"] });
           queryClient.invalidateQueries({ queryKey: ["expense-detail"] });
         }}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isExpenseDetailMode
+          ? { masterPanel: singleExpensePanel, detailPanel }
+          : { children: expenseTablePanel })}
       />
 
       {/* Reject Dialog */}

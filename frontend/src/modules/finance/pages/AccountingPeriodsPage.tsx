@@ -22,11 +22,14 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  InputAdornment,
   MenuItem,
   TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -43,7 +46,6 @@ import {
   showErrorToast,
   showSuccessToast,
   TSearchableSelect,
-  TTabFilterBar,
   TExportButton,
   type SortOption,
   TDetailSkeleton,
@@ -96,21 +98,7 @@ export default function AccountingPeriodsPage() {
   // Audit section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
-  // Filter state (draft - edited via the filter bar, only applied on Search click)
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftYear, setDraftYear] = useState<number | "">(new Date().getFullYear());
-
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterYear(draftYear);
-  }, [draftSearchQuery, draftStatus, draftYear]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftYear("");
     setSearchQuery("");
     setFilterStatus(null);
     setFilterYear("");
@@ -531,70 +519,53 @@ export default function AccountingPeriodsPage() {
         title="Accounting Periods"
         icon={<CalendarMonthIcon color="primary" />}
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Period",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search periods..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search periods..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftStatus}
-                    onChange={(val) => setDraftStatus(val as string | null)}
-                    options={STATUS_FILTER_OPTIONS.map((s) => ({
-                      value: s.value,
-                      label: s.label,
-                      color: s.color,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Statuses"
-                    size="small"
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "year",
-                label: "Fiscal Year",
-                hasValue: !!draftYear,
-                render: () => (
-                  <TextField
-                    label=""
-                    type="number"
-                    size="small"
-                    value={draftYear}
-                    onChange={(e) => setDraftYear(e.target.value ? Number(e.target.value) : "")}
-                    fullWidth
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !draftYear && !searchQuery && !filterStatus && !filterYear}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TSearchableSelect
+                label=""
+                value={filterStatus}
+                onChange={(val) => setFilterStatus(val as string | null)}
+                options={STATUS_FILTER_OPTIONS.map((s) => ({
+                  value: s.value,
+                  label: s.label,
+                  color: s.color,
+                }))}
+                showAllOption
+                allOptionLabel="All Statuses"
+                size="small"
+                fullWidth
+              />
+            </Box>
+            <TextField
+              label="Fiscal Year"
+              type="number"
+              size="small"
+              value={filterYear}
+              onChange={(e) => setFilterYear(e.target.value ? Number(e.target.value) : "")}
+              sx={{ width: 140, flexShrink: 0 }}
+            />
+            {(searchQuery || filterStatus || filterYear !== "") && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         }
         onRefresh={refetch}
         isLoading={isLoading}

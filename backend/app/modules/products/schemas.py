@@ -61,6 +61,7 @@ class ProductBase(BaseModel):
     item_code: str = Field(..., max_length=255)
     model: Optional[str] = Field(None, max_length=255)
     item_type: str = Field(..., max_length=30)
+    unit_of_measure: str = Field(default="pcs", max_length=20)
     description: Optional[str] = None
     website_active: bool = False
     website_price: Optional[float] = None
@@ -78,6 +79,7 @@ class ProductUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=255)
     model: Optional[str] = Field(None, max_length=255)
     item_type: Optional[str] = Field(None, max_length=30)
+    unit_of_measure: Optional[str] = Field(None, max_length=20)
     description: Optional[str] = None
     website_active: Optional[bool] = None
     website_price: Optional[float] = None
@@ -99,6 +101,12 @@ class Product(ProductBase, TijaeroBaseSchema):
     created_by_name: Optional[str] = None
     updated_by_name: Optional[str] = None
     price_tiers: List[PriceTierOut] = []
+    # Bulk-attached by the service (see _attach_minimum_prices /
+    # _attach_preferred_suppliers in service.py) — not real DB columns on
+    # Product, so both default to None for any code path that doesn't call
+    # those (e.g. create/update responses).
+    minimum_selling_price: Optional[float] = None
+    preferred_supplier_name: Optional[str] = None
 
 class ProductWithDetails(Product):
     category: Optional[Category] = None

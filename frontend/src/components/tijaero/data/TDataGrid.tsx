@@ -220,9 +220,11 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
   return (
     <Paper 
       elevation={0} 
-      sx={{ 
+      sx={{
         width: "100%",
-        borderRadius: 2,
+        // No explicit borderRadius here — inherits the theme's MuiPaper
+        // default (theme.shape.borderRadius, 12px), same as every other
+        // rounded surface in the app.
         overflow: "hidden",
         border: "1px solid",
         borderColor: "divider",

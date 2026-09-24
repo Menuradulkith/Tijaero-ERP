@@ -9,11 +9,14 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
+  Avatar,
   Box,
+  Button,
   Chip,
   IconButton,
   InputAdornment,
   MenuItem,
+  Paper,
   TextField,
   Tooltip,
   Typography,
@@ -21,31 +24,38 @@ import {
 import {
   AccountBalanceWallet as WalletIcon,
   History as HistoryIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
+  Star as StarIcon,
+  StarBorder as StarOutlineIcon,
+  ArrowBack as ArrowBackIcon,
+  Add as AddIcon,
+  OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
   DetailPanelHeader,
   ActionToolbar,
   FormSection,
   EmptyState,
   handleApiError,
+  SelectableListItem,
   useMasterDetailState,
   showErrorToast,
   showSuccessToast,
-  SortOption,
   TDetailSkeleton,
   TExportButton,
   TBranchFilter,
-  TTabFilterBar,
   GENERIC_PAYMENT_METHOD,
   TConfirmDialog,
   useConfirmDialog,
   useCrudMutation,
   fmtLKR,
   TActivityHistoryPanel,
+  TDataGrid,
+  type TDataGridColumn,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
@@ -65,12 +75,6 @@ interface Customer {
   customer_name: string;
   company_name?: string;
 }
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_date", label: "Date" },
-  { value: "advance_payments_no", label: "Payment No" },
-  { value: "payment_amount", label: "Amount" },
-];
 
 const INITIAL_FORM_DATA: Partial<CustomerAdvancePaymentCreate> = {
   advance_payments_no: "",
@@ -104,19 +108,15 @@ export default function CustomerAdvancePaymentsPage() {
     setTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
 
-  // Filter states (applied - drives the actual list filtering)
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
-
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem,
+    setSelectedItem,
     isEditing,
     setIsEditing,
     isCreating,
@@ -127,7 +127,7 @@ export default function CustomerAdvancePaymentsPage() {
     setFormData,
     handleSelectItem,
     handleNew,
-    handleCancel,
+    handleCancel: handleCancelBase,
   } = useMasterDetailState<CustomerAdvancePayment, Partial<CustomerAdvancePaymentCreate>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromItem,
@@ -155,21 +155,13 @@ export default function CustomerAdvancePaymentsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-  }, [draftSearchQuery, draftBranch]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
     setSearchQuery("");
     setFilterBranch(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -205,30 +197,15 @@ export default function CustomerAdvancePaymentsPage() {
         String(adv.id).includes(searchQuery)
     );
 
-    // Sort
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there).
     filtered.sort((a, b) => {
-      if (sortField === "created_date") {
-        const diff = new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      if (sortField === "payment_amount") {
-        return Number(b.payment_amount || 0) - Number(a.payment_amount || 0);
-      }
-      const fieldA = a[sortField as keyof CustomerAdvancePayment] || "";
-      const fieldB = b[sortField as keyof CustomerAdvancePayment] || "";
-      const comp = String(fieldA).localeCompare(String(fieldB));
-      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
+      const diff = new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
+      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;
-  }, [advances, searchQuery, sortField]);
-
-  // Auto-select first item
-  useEffect(() => {
-    if (filteredAdvances.length > 0 && !selectedItem && !isCreating) {
-      handleSelectItem(filteredAdvances[0]);
-    }
-  }, [filteredAdvances, selectedItem, isCreating]);
+  }, [advances, searchQuery]);
 
   // Mutations
   const createMutation = useCrudMutation({
@@ -312,94 +289,208 @@ export default function CustomerAdvancePaymentsPage() {
     [handleSelectItem]
   );
 
-  // Master panel
-  const masterPanel = (
-    <SearchableList<CustomerAdvancePayment>
-      items={filteredAdvances}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedItem}
-      onSelectItem={handleSelectWithCheck}
-      emptyMessage="No customer advance payments found"
-      renderItem={(adv, isSelected) => (
+  // Cancelling out of "New Advance" should return to the browse table, not
+  // auto-open the first advance the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here).
+  const handleCancelAdvance = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedItem(null);
+    } else {
+      handleCancelBase(filteredAdvances);
+    }
+  }, [isCreating, filteredAdvances, handleCancelBase, setIsCreating, setIsEditing, setSelectedItem]);
+
+  // Returns to the browse table from the detail view.
+  const handleBackToAdvances = useCallback(() => {
+    setSelectedItem(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedItem, setIsCreating, setIsEditing]);
+
+  // Whether we're showing a single advance's detail view (selected or being
+  // created) instead of the browse table.
+  const isAdvanceDetailMode = !!selectedItem || isCreating;
+
+  // ─── Browse Table ───────────────────────────────────────────────────────
+
+  type AdvanceRow = CustomerAdvancePayment & { customer_name: string };
+
+  const advanceRows: AdvanceRow[] = useMemo(
+    () =>
+      filteredAdvances.map((adv) => ({
+        ...adv,
+        customer_name: getCustomerName(adv.customer_id),
+      })),
+    [filteredAdvances, getCustomerName]
+  );
+
+  const advanceColumns: TDataGridColumn<AdvanceRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<AdvanceRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "advance_payments_no",
+        header: "Ref No",
+        flex: 1,
+        minWidth: 150,
+        renderCell: (params: GridRenderCellParams<AdvanceRow>) =>
+          params.row.advance_payments_no || `ADV-${params.row.id}`,
+      },
+      { field: "customer_name", header: "Customer", flex: 1, minWidth: 170 },
+      { field: "branch_code", header: "Branch", width: 120 },
+      {
+        field: "cheque_date",
+        header: "Date",
+        width: 140,
+        renderCell: (params: GridRenderCellParams<AdvanceRow>) =>
+          params.row.cheque_date ? new Date(params.row.cheque_date).toLocaleDateString() : "-",
+      },
+      {
+        field: "payment_amount",
+        header: "Amount",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<AdvanceRow>) => `Rs. ${fmtLKR(Number(params.row.payment_amount || 0))}`,
+      },
+      {
+        field: "active",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<AdvanceRow>) => (
+          <Chip
+            label={params.row.active ? "Active" : "Inactive"}
+            size="small"
+            color={params.row.active ? "success" : "default"}
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<AdvanceRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectWithCheck(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectWithCheck]
+  );
+
+  const advanceTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<AdvanceRow>
+          rows={advanceRows}
+          columns={advanceColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectWithCheck(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No customer advance payments found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current advance payment
+  // (or the "New Advance" placeholder while creating) plus a "Back to
+  // Customer Advance Payments" link that returns to the table.
+  const singleAdvancePanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToAdvances}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Customer Advance Payments
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ width: 40, height: 40 }}>
+              <WalletIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Customer Advance Payment
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedItem && (
         <SelectableListItem
-          key={adv.id}
-          id={adv.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectWithCheck(adv)}
+          id={selectedItem.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* Payment No */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{adv.advance_payments_no || `ADV-${adv.id}`}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Payment No)
-                  </Typography>
-                )}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ width: 36, height: 36 }}>
+                <WalletIcon fontSize="small" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{selectedItem.advance_payments_no || `ADV-${selectedItem.id}`}</span>
+                </Box>
               </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {getCustomerName(adv.customer_id)}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Customer)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      Rs. {fmtLKR(Number(adv.payment_amount || 0))}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Amount)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {adv.cheque_date ? new Date(adv.cheque_date).toLocaleDateString() : "-"}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Date)
-                    </Typography>
-                  </Box>
-                  {/* Status Chip */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip
-                      label={adv.active ? "Active" : "Inactive"}
-                      size="small"
-                      color={adv.active ? "success" : "default"}
-                      sx={{ height: 18, fontSize: "0.65rem" }}
-                    />
-                  </Box>
-                </>
-              )}
             </Box>
           }
-          secondaryText={
-            !isSelected
-              ? `${getCustomerName(adv.customer_id)} - Rs. ${fmtLKR(Number(adv.payment_amount || 0))}`
-              : undefined
-          }
-          isFavorite={favorites.includes(adv.id)}
-          onToggleFavorite={(e) => toggleFavorite(adv.id, e)}
-          statusChip={
-            !isSelected
-              ? adv.active
-                ? { label: "Active", color: "success" }
-                : { label: "Inactive", color: "default" }
-              : undefined
-          }
+          isFavorite={favorites.includes(selectedItem.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
-    />
+    </Paper>
   );
 
   // Detail panel
@@ -431,7 +522,7 @@ export default function CustomerAdvancePaymentsPage() {
         isFormValid={isFormValid}
         onNew={handleNewAdvance}
         onSave={handleSave}
-        onCancel={() => handleCancel(filteredAdvances)}
+        onCancel={handleCancelAdvance}
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -605,73 +696,75 @@ export default function CustomerAdvancePaymentsPage() {
       <MasterDetailLayout
         title="Customer Advance Payments"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Payment No",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search advances..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftBranch && !searchQuery && !filterBranch}
-          />
+          isAdvanceDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search advances..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+              </Box>
+              {(searchQuery || filterBranch) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
         headerActions={
-          <TExportButton
-            filename="customer_advance_payments"
-            headers={[
-              "Payment No",
-              "Customer",
-              "Amount",
-              "Method",
-              "Created Date",
-              "Cheque Date",
-              "Proforma Invoice ID",
-              "Remarks",
-            ]}
-            rows={() =>
-              filteredAdvances.map((adv) => [
-                adv.advance_payments_no || "",
-                getCustomerName(adv.customer_id),
-                adv.payment_amount ?? 0,
-                adv.payment_method || "",
-                adv.created_date || "",
-                adv.cheque_date || "",
-                adv.proforma_invoice_id ?? "",
-                adv.remarks || "",
-              ])
-            }
-            disabled={filteredAdvances.length === 0}
-          />
+          isAdvanceDetailMode ? undefined : (
+            <>
+              <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={handleNewAdvance} sx={{ mr: 1 }}>
+                Add Advance Payment
+              </Button>
+              <TExportButton
+                filename="customer_advance_payments"
+                headers={[
+                  "Payment No",
+                  "Customer",
+                  "Amount",
+                  "Method",
+                  "Created Date",
+                  "Cheque Date",
+                  "Proforma Invoice ID",
+                  "Remarks",
+                ]}
+                rows={() =>
+                  filteredAdvances.map((adv) => [
+                    adv.advance_payments_no || "",
+                    getCustomerName(adv.customer_id),
+                    adv.payment_amount ?? 0,
+                    adv.payment_method || "",
+                    adv.created_date || "",
+                    adv.cheque_date || "",
+                    adv.proforma_invoice_id ?? "",
+                    adv.remarks || "",
+                  ])
+                }
+                disabled={filteredAdvances.length === 0}
+              />
+            </>
+          )
         }
+        {...(isAdvanceDetailMode
+          ? { masterPanel: singleAdvancePanel, detailPanel }
+          : { children: advanceTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 

@@ -1,10 +1,15 @@
 /**
- * DeductionsPage — Master/Detail layout for salary deductions.
+ * DeductionsPage — Browse table + single-record detail toggle for salary deductions.
  */
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, TextField, Typography } from "@mui/material";
+import { Avatar, Box, Button, IconButton, InputAdornment, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import MoneyOffIcon from "@mui/icons-material/MoneyOff";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import SearchIcon from "@mui/icons-material/Search";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
   ActionToolbar,
@@ -12,10 +17,10 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
-  SortOption,
   TConfirmDialog,
+  TDataGrid,
+  type TDataGridColumn,
   TDetailSkeleton,
   TExportButton,
   fmtLKR,
@@ -29,12 +34,6 @@ import { usePermission } from "@/auth/permissions";
 import { salaryDeductionsApi } from "@/modules/hr/api";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import type { SalaryDeduction, SalaryDeductionCreate } from "@/modules/hr/types";
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_desc", label: "Date (Newest)" },
-  { value: "employee_id", label: "Employee ID" },
-  { value: "amount_desc", label: "Amount (Highest)" },
-];
 
 const INITIAL_FORM: SalaryDeductionCreate = {
   employee_id: 0,
@@ -50,8 +49,7 @@ export default function DeductionsPage() {
 
   const {
     searchQuery, setSearchQuery,
-    sortField, setSortField,
-    selectedItem, isEditing, isCreating,
+    selectedItem, setSelectedItem, isEditing, isCreating,
     setIsCreating, setIsEditing,
     formData, setFormData,
     handleSelectItem, handleNew, handleCancel: baseCancel, handleStartEdit,
@@ -77,17 +75,11 @@ export default function DeductionsPage() {
     let list = (deductions || []).filter(
       (d) => !q || String(d.employee_id).includes(q) || d.reason.toLowerCase().includes(q)
     );
-    list.sort((a, b) => {
-      if (sortField === "employee_id") return String(a.employee_id).localeCompare(String(b.employee_id));
-      if (sortField === "amount_desc") return b.amount - a.amount;
-      return (b.created_date || b.created_at || "").localeCompare(a.created_date || a.created_at || "");
-    });
+    // Fixed default order (newest first) — the browse table's own
+    // column-header sort takes over from here.
+    list.sort((a, b) => (b.created_date || b.created_at || "").localeCompare(a.created_date || a.created_at || ""));
     return list;
-  }, [deductions, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filtered.length > 0 && !selectedItem && !isCreating) handleSelectItem(filtered[0]);
-  }, [filtered, selectedItem, isCreating, handleSelectItem]);
+  }, [deductions, searchQuery]);
 
   const createMut = useMutation({
     mutationFn: (d: SalaryDeductionCreate) => salaryDeductionsApi.create(d),
@@ -115,7 +107,9 @@ export default function DeductionsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["salary-deductions"] });
       showSuccessToast("Deduction deleted");
-      baseCancel(filtered);
+      // Return to the browse table rather than the hook's default handleCancel,
+      // which would try to re-select an item from the (now stale) filtered list.
+      setSelectedItem(null);
     },
     onError: (e) => showErrorToast(handleApiError(e, "Failed to delete deduction")),
   });
@@ -137,33 +131,164 @@ export default function DeductionsPage() {
   const isSaving = createMut.isPending || updateMut.isPending;
   const isDisabled = !isEditing && !isCreating;
 
-  const masterPanel = (
-    <SearchableList<SalaryDeduction>
-      items={filtered}
-      isLoading={isLoading}
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      searchPlaceholder="Search deductions..."
-      sortOptions={SORT_OPTIONS}
-      currentSort={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedItem}
-      onSelectItem={handleSelectItem}
-      emptyMessage="No deductions found"
-      renderItem={(d, isSelected) => (
-        <SelectableListItem
-          key={d.id}
-          id={d.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectItem(d)}
-          primaryText={`Employee #${d.employee_id}`}
-          secondaryText={`${fmtLKR(d.amount)} • ${d.reason.substring(0, 40)}${d.reason.length > 40 ? "..." : ""}`}
-        />
-      )}
-    />
+  // Cancelling a brand-new record returns to the browse table (the hook's
+  // default handleCancel would instead auto-select the first item, which made
+  // sense for the old always-visible detail panel but not here). Cancelling
+  // an edit of an existing record still just reverts its form.
+  const handleCancelDeduction = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedItem(null);
+    } else {
+      baseCancel(filtered);
+    }
+  }, [isCreating, filtered, baseCancel, setIsCreating, setIsEditing, setSelectedItem]);
+
+  // Returns to the browse table from the detail view.
+  const handleBackToDeductions = useCallback(() => {
+    setSelectedItem(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedItem, setIsCreating, setIsEditing]);
+
+  // Whether we're showing a single deduction's detail view (selected or
+  // being created) instead of the browse table.
+  const isDetailMode = !!selectedItem || isCreating;
+
+  const columns: TDataGridColumn<SalaryDeduction>[] = useMemo(
+    () => [
+      {
+        field: "employee_id",
+        header: "Employee",
+        width: 140,
+        renderCell: (params: GridRenderCellParams<SalaryDeduction>) => `Employee #${params.row.employee_id}`,
+      },
+      { field: "reason", header: "Reason", flex: 1, minWidth: 220 },
+      {
+        field: "amount",
+        header: "Amount",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<SalaryDeduction>) => fmtLKR(params.row.amount),
+      },
+      {
+        field: "deduction_period",
+        header: "Period",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<SalaryDeduction>) => params.row.deduction_period || "-",
+      },
+      {
+        field: "created_date",
+        header: "Created",
+        width: 170,
+        renderCell: (params: GridRenderCellParams<SalaryDeduction>) =>
+          formatDateTimeReadable(params.row.created_date || params.row.created_at) || "-",
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<SalaryDeduction>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectItem(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectItem]
   );
 
-  const detailPanel = (
+  // Browse mode: a full-width table of every deduction. Sorting is done
+  // per-column via the grid's own column header menu.
+  const tablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<SalaryDeduction>
+          rows={filtered}
+          columns={columns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectItem(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No deductions found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current deduction
+  // (or the "New Deduction" placeholder while creating) plus a
+  // "Back to Deductions" link that returns to the table.
+  const singleDeductionPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={handleBackToDeductions} sx={{ textTransform: "none" }}>
+          Back to Deductions
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+              <MoneyOffIcon color="primary" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Deduction
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedItem && (
+        <SelectableListItem
+          id={selectedItem.id}
+          isSelected
+          onClick={() => {}}
+          primaryText={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+                <MoneyOffIcon color="primary" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>Deduction #{selectedItem.id} • Employee #{selectedItem.employee_id}</span>
+              </Box>
+            </Box>
+          }
+        />
+      )}
+    </Paper>
+  );
+
+  // Detail mode: the existing detail content, unchanged, shown full-width.
+  const detailContent = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[{ label: "HR", href: "/hr" }, { label: "Deductions", href: "/hr/deductions" },
@@ -174,7 +299,7 @@ export default function DeductionsPage() {
       />
       <ActionToolbar canCreate={canCreate} canUpdate={canUpdate} canDelete={canDelete} hasSelectedItem={!!selectedItem}
         isCreating={isCreating} isEditing={isEditing} isSaving={isSaving} isFormValid={isFormValid}
-        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={() => baseCancel(filtered)} onEdit={handleStartEdit}
+        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={handleCancelDeduction} onEdit={handleStartEdit}
       />
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedItem && !isCreating ? (
@@ -206,23 +331,58 @@ export default function DeductionsPage() {
 
   return (
     <>
-      <MasterDetailLayout title="Salary Deductions" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel}
-        headerActions={
-          <TExportButton
-            filename="salary_deductions"
-            headers={["Employee ID", "Reason", "Amount", "Remarks", "Created"]}
-            rows={() =>
-              filtered.map((d) => [
-                d.employee_id ?? "",
-                d.reason || "",
-                d.amount ?? 0,
-                d.remarks || "",
-                d.created_date || d.created_at || "",
-              ])
-            }
-            disabled={filtered.length === 0}
-          />
+      <MasterDetailLayout
+        title="Salary Deductions"
+        titleSlot={
+          isDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search deductions..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 260 }}
+              />
+            </Box>
+          )
         }
+        headerActions={
+          isDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
+                  Add Deduction
+                </Button>
+              )}
+              <TExportButton
+                filename="salary_deductions"
+                headers={["Employee ID", "Reason", "Amount", "Remarks", "Created"]}
+                rows={() =>
+                  filtered.map((d) => [
+                    d.employee_id ?? "",
+                    d.reason || "",
+                    d.amount ?? 0,
+                    d.remarks || "",
+                    d.created_date || d.created_at || "",
+                  ])
+                }
+                disabled={filtered.length === 0}
+              />
+            </>
+          )
+        }
+        onRefresh={refetch}
+        isLoading={isLoading}
+        {...(isDetailMode
+          ? { masterPanel: singleDeductionPanel, detailPanel: detailContent }
+          : { children: tablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

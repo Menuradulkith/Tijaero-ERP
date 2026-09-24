@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from app.auth.models import Branch
-from app.common.audit import log_audit
+from app.common.audit import log_audit, diff_changes
 from app.modules.branches import schemas
 from typing import List, Optional
 from fastapi import HTTPException, status
@@ -60,15 +60,12 @@ class BranchRepository:
         for field, value in update_data.items():
             setattr(db_branch, field, value)
 
-        changed_fields = sorted(
-            field for field, before in before_values.items()
-            if before != getattr(db_branch, field, None)
-        )
-        if changed_fields:
+        changes = diff_changes(before_values, update_data)
+        if changes:
             log_audit(
                 db, user_id=updated_by or 0, action="update",
                 entity_type="branch", entity_id=db_branch.id,
-                changes={"fields": changed_fields},
+                changes=changes,
             )
 
         try:

@@ -23,6 +23,7 @@ import {
   DialogContent,
   DialogActions,
   IconButton,
+  InputAdornment,
   Tooltip,
   Chip,
 } from "@mui/material";
@@ -32,6 +33,8 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import PaymentIcon from "@mui/icons-material/Payment";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 
 // Import tijaero components
 import {
@@ -41,7 +44,6 @@ import {
   DetailPanelHeader,
   FormSection,
   EmptyState,
-  TTabFilterBar,
   TBranchFilter,
   TStatusFilter,
   SortOption,
@@ -129,11 +131,6 @@ export default function PaymentApprovalsPage() {
   const [filterStatus, setFilterStatus] = useState<string | null>("pending");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftStatus, setDraftStatus] = useState<string | null>("pending");
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -180,20 +177,10 @@ export default function PaymentApprovalsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterBranch(draftBranch);
-  }, [draftSearchQuery, draftStatus, draftBranch]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftBranch(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterBranch(null);
@@ -623,7 +610,7 @@ export default function PaymentApprovalsPage() {
 
             {/* Payment Details */}
             <FormSection title="Payment Details" columns={1}>
-              <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+              <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
@@ -809,46 +796,35 @@ export default function PaymentApprovalsPage() {
         title="Payment Approvals"
         icon={<FactCheckIcon color="primary" />}
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Payment No",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search payments..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search payments..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => <TStatusFilter options={PAYMENT_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />,
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TStatusFilter options={PAYMENT_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" size="small" />
+            </Box>
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" size="small" />
+            </Box>
+            {(searchQuery || filterStatus || filterBranch) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["supplier-payments"] });

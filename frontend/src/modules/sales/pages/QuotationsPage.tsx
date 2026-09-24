@@ -16,11 +16,8 @@ import {
   modernTableStyles,
   PROFORMA_STATUS_FILTER_OPTIONS,
   QUOTATION_STATUS_FILTER_OPTIONS,
-  SearchableList,
-  SelectableListItem,
   showErrorToast,
   showSuccessToast,
-  SortOption,
   TBranchFilter,
   TConfirmDialog,
   TCurrency,
@@ -30,12 +27,14 @@ import {
   TStatusChip,
   TStatusFilter,
   TSteps,
-  TTabFilterBar,
   useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
   TEmailDialog,
   TActivityHistoryPanel,
+  TDataGrid,
+  type TDataGridColumn,
+  SelectableListItem,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { minimumPriceApi } from "@/modules/inventory/api";
@@ -60,10 +59,16 @@ import {
   Warehouse as WarehouseIcon,
   Email as EmailIcon,
   History as HistoryIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
+  Star as StarIcon,
+  StarBorder as StarOutlineIcon,
+  OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import {
   Alert,
   Autocomplete,
+  Avatar,
   Box,
   Button,
   Chip,
@@ -90,6 +95,7 @@ import {
   Tooltip,
   Typography
 } from "@mui/material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { addDays, format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -104,14 +110,6 @@ import {
   StockAvailabilityItem,
   ToggleProformaResponse
 } from "../quotation-types";
-
-// Configuration
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_date", label: "Date (Newest)" },
-  { value: "quote_no", label: "Quote No" },
-  { value: "total_amount", label: "Total Amount" },
-  { value: "valid_until", label: "Validity" },
-];
 
 // Form steps for stepper workflow
 const FORM_STEPS = ["Quote Information", "Quote Items"];
@@ -169,14 +167,10 @@ export default function QuotationsPage() {
   // Form step state for stepper workflow
   const [formStep, setFormStep] = useState(0);
 
-  // Filter states (applied - drives the actual list filtering)
+  // Filter states - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
-
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Print Dialog State
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -239,8 +233,6 @@ export default function QuotationsPage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedQuote,
     setSelectedItem: setSelectedQuote,
     isEditing,
@@ -308,27 +300,17 @@ export default function QuotationsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterBranch(draftBranch);
-  }, [draftSearchQuery, draftStatus, draftBranch]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftBranch(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterBranch(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Data fetching — filtered by page type
   const { data: quotesData, isLoading } = useQuery({
@@ -422,33 +404,20 @@ export default function QuotationsPage() {
       filtered = filtered.filter(quote => quote.status === filterStatus);
     }
 
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there) — newest
+    // created first, matching the old default "Date (Newest)" sort option.
     filtered.sort((a, b) => {
-      if (sortField === "quote_no") {
-        return a.quote_no.localeCompare(b.quote_no);
-      } else if (sortField === "created_date") {
-        const timeA = a.created_date_time ? new Date(a.created_date_time).getTime() : new Date(a.created_date).getTime();
-        const timeB = b.created_date_time ? new Date(b.created_date_time).getTime() : new Date(b.created_date).getTime();
-        if (timeB !== timeA) {
-          return timeB - timeA;
-        }
-        return b.id - a.id;
-      } else if (sortField === "total_amount") {
-        return b.total_amount - a.total_amount;
-      } else if (sortField === "valid_until") {
-        return new Date(b.valid_until).getTime() - new Date(a.valid_until).getTime();
+      const timeA = a.created_date_time ? new Date(a.created_date_time).getTime() : new Date(a.created_date).getTime();
+      const timeB = b.created_date_time ? new Date(b.created_date_time).getTime() : new Date(b.created_date).getTime();
+      if (timeB !== timeA) {
+        return timeB - timeA;
       }
-      return 0;
+      return b.id - a.id;
     });
 
     return filtered;
-  }, [quotesData?.items, searchQuery, sortField, filterBranch, filterStatus]);
-
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredQuotes.length > 0 && !selectedQuote && !isCreating) {
-      handleSelectQuote(filteredQuotes[0]);
-    }
-  }, [filteredQuotes, selectedQuote, isCreating]);
+  }, [quotesData?.items, searchQuery, filterBranch, filterStatus]);
 
   // Handle navigation state: auto-select a specific quote (e.g. after converting to proforma)
   const navStateHandled = useRef(false);
@@ -1013,12 +982,37 @@ export default function QuotationsPage() {
       if (!confirmed) return;
     }
 
-    baseHandleCancel(filteredQuotes);
+    // Cancelling out of "New Quote" should return to the browse table, not
+    // auto-open the first quote the way useMasterDetailState's generic
+    // handleCancel does (that made sense for the old always-visible detail
+    // panel, but not here). Cancelling out of editing an existing quote
+    // still just reverts its form, which the generic handler already does
+    // correctly.
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedQuote(null);
+    } else {
+      baseHandleCancel(filteredQuotes);
+    }
     setLineItems([]);
     setFormStep(0);
     setTaxMode("none");
     setTaxRate(0);
-  }, [baseHandleCancel, filteredQuotes, isEditing, isCreating, hasChanges, confirmDialog]);
+  }, [baseHandleCancel, filteredQuotes, isEditing, isCreating, hasChanges, confirmDialog, setIsCreating, setIsEditing, setSelectedQuote]);
+
+  // Returns to the browse table from the detail view.
+  const handleBackToQuotes = useCallback(() => {
+    setSelectedQuote(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+    setLineItems([]);
+    setFormStep(0);
+    setTaxMode("none");
+    setTaxRate(0);
+  }, [isCreating, setSelectedQuote, setIsCreating, setIsEditing]);
 
   // Step navigation handlers
   const handleNextStep = useCallback(() => {
@@ -1245,84 +1239,193 @@ export default function QuotationsPage() {
   const canEditQuote = !["converted", "cancelled"].includes(selectedQuote?.status || "");
   const canDeleteQuoteStatus = !["converted", "cancelled"].includes(selectedQuote?.status || "");
 
-  // Render list item
-  const renderQuoteItem = (quote: SalesQuote, isSelected: boolean) => (
-    <SelectableListItem
-      key={quote.id}
-      id={quote.id}
-      isSelected={isSelected}
-      onClick={() => handleSelectQuote(quote)}
-      primaryText={
-        <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-          {/* Quote Number */}
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>{quote.quote_no}</span>
-            {isSelected && (
-              <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                ({QUOTE_TYPE_LABELS[quote.quote_type]})
-              </Typography>
-            )}
-          </Box>
-          {/* Additional fields when selected */}
-          {isSelected && (
-            <>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Typography component="span" variant="caption">
-                  {getCustomerName(quote.customer_id)}
-                </Typography>
-                <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                  (Customer)
-                </Typography>
-              </Box>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Typography component="span" variant="caption">
-                  <TDate value={quote.valid_until} format="short" />
-                </Typography>
-                <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                  (Valid Until)
-                </Typography>
-              </Box>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Typography component="span" variant="caption" fontWeight="medium">
-                  <TCurrency value={quote.total_amount} />
-                </Typography>
-                <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                  (Total)
-                </Typography>
-              </Box>
-              {/* Status Chips - shown below all fields when selected */}
-              <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                <TStatusChip
-                  status={quote.status}
-                  statusMap="quoteStatus"
-                  size="small"
-                />
-              </Box>
-            </>
-          )}
-        </Box>
-      }
-      secondaryText={!isSelected ? `${getCustomerName(quote.customer_id)} - ${new Date(quote.valid_until || "").toLocaleDateString()}` : undefined}
-      statusChip={!isSelected ? { label: quote.status, color: "default" } : undefined}
-      isFavorite={favorites.includes(quote.id)}
-      onToggleFavorite={(e) => toggleFavorite(quote.id, e)}
-      endAction={
-        !isSelected ? (
-          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
-            <Typography variant="body2" fontWeight="medium">
-              <TCurrency value={quote.total_amount} />
-            </Typography>
-            {quote.valid_until && (() => {
-              const daysLeft = Math.ceil((new Date(quote.valid_until).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-              return daysLeft <= 7 && daysLeft >= 0 ? (
-                <Chip label={daysLeft === 0 ? "Expires Today" : `${daysLeft}d left`} size="small" color="warning" sx={{ height: 16, fontSize: "0.6rem" }} />
-              ) : null;
-            })()}
-          </Box>
-        ) : undefined
-      }
-    />
+  // Whether we're showing a single quote's detail view (selected or being
+  // created) instead of the browse table.
+  const isQuoteDetailMode = !!selectedQuote || isCreating;
+
+  // The table sorts by whichever column the user clicks; the Customer
+  // column displays a looked-up name rather than the raw customer_id, so it
+  // needs that name as its own field for the grid to sort on correctly.
+  const quoteRows = useMemo(
+    () =>
+      filteredQuotes.map((quote) => ({
+        ...quote,
+        customer_display_name: getCustomerName(quote.customer_id),
+      })),
+    [filteredQuotes, customers] // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // Browse mode: a full-width table of every quote. Sorting is done
+  // per-column via the grid's own column header menu, not a separate
+  // "Sort by" control.
+  const quoteColumns: TDataGridColumn<(typeof quoteRows)[number]>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<(typeof quoteRows)[number]>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      { field: "quote_no", header: "Quote No", width: 150 },
+      { field: "customer_display_name", header: "Customer", flex: 1, minWidth: 180 },
+      {
+        field: "quote_type",
+        header: "Type",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<(typeof quoteRows)[number]>) => (
+          <Chip
+            label={QUOTE_TYPE_LABELS[params.row.quote_type]}
+            size="small"
+            variant="outlined"
+            color={params.row.quote_type === "proforma" ? "secondary" : "default"}
+          />
+        ),
+      },
+      {
+        field: "created_date",
+        header: "Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<(typeof quoteRows)[number]>) => (
+          <TDate value={params.row.created_date_time || params.row.created_date} format="short" />
+        ),
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 150,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<(typeof quoteRows)[number]>) => (
+          <TStatusChip status={params.row.status} statusMap="quoteStatus" size="small" />
+        ),
+      },
+      {
+        field: "total_amount",
+        header: "Total",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<(typeof quoteRows)[number]>) => (
+          <TCurrency value={params.row.total_amount} />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<(typeof quoteRows)[number]>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectQuote(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectQuote]
+  );
+
+  const quoteTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid
+          rows={quoteRows}
+          columns={quoteColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectQuote(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No quotes found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current quote (or the
+  // "New Quote" placeholder while creating), with a "Back to
+  // Quotations"/"Back to Proforma Invoices" link returning to the table.
+  const renderSingleQuotePanel = () => {
+    const backLabel = pageQuoteType === 'proforma' ? "Back to Proforma Invoices" : "Back to Quotations";
+    return (
+      <Paper
+        elevation={0}
+        sx={{
+          width: 280,
+          minWidth: 240,
+          maxWidth: 300,
+          borderRight: 1,
+          borderColor: "divider",
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          overflow: "hidden",
+        }}
+      >
+        <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToQuotes}
+            sx={{ textTransform: "none" }}
+          >
+            {backLabel}
+          </Button>
+        </Box>
+        {isCreating ? (
+          <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+              <Avatar sx={{ bgcolor: "primary.main" }}>
+                <QuoteIcon />
+              </Avatar>
+              <Typography variant="caption" color="text.secondary">
+                New {pageQuoteType === 'proforma' ? "Proforma Invoice" : "Quote"}
+              </Typography>
+            </Box>
+          </Box>
+        ) : selectedQuote && (
+          <SelectableListItem
+            id={selectedQuote.id}
+            isSelected
+            onClick={() => {}}
+            primaryText={
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+                <Avatar sx={{ bgcolor: "primary.main" }}>
+                  <QuoteIcon />
+                </Avatar>
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                  <span>{selectedQuote.quote_no}</span>
+                </Box>
+              </Box>
+            }
+            isFavorite={favorites.includes(selectedQuote.id)}
+            onToggleFavorite={(e) => toggleFavorite(selectedQuote.id, e)}
+          />
+        )}
+      </Paper>
+    );
+  };
 
   // Render detail panel
   const renderDetailPanel = () => {
@@ -1628,7 +1731,7 @@ export default function QuotationsPage() {
           <Typography variant="subtitle1" fontWeight="bold">Quote Items</Typography>
         </Box>
 
-        <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+        <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
           <Table size="small">
             <TableHead>
               <TableRow sx={modernTableStyles.headerRow}>
@@ -2266,100 +2369,82 @@ export default function QuotationsPage() {
       {/* Section for Quotation or Proforma Invoice based on route */}
 
       <MasterDetailLayout
-        title=""
+        title={pageTitle}
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search quotes..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TStatusFilter
-                    options={pageQuoteType === 'proforma' ? PROFORMA_STATUS_FILTER_OPTIONS : QUOTATION_STATUS_FILTER_OPTIONS}
-                    value={draftStatus}
-                    onChange={setDraftStatus}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => (
-                  <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
-          />
+          isQuoteDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search quotes..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TStatusFilter
+                  options={pageQuoteType === 'proforma' ? PROFORMA_STATUS_FILTER_OPTIONS : QUOTATION_STATUS_FILTER_OPTIONS}
+                  value={filterStatus}
+                  onChange={setFilterStatus}
+                  label=""
+                  placeholder="All Status"
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+              </Box>
+              {(searchQuery || filterStatus || filterBranch) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         headerActions={
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={handleExportCSV}
-            disabled={filteredQuotes.length === 0}
-            sx={{ mr: 1 }}
-          >
-            Export CSV
-          </Button>
+          isQuoteDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNewQuote}
+                  sx={{ mr: 1 }}
+                >
+                  {pageQuoteType === 'proforma' ? "New Proforma Invoice" : "New Quotation"}
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={handleExportCSV}
+                disabled={filteredQuotes.length === 0}
+                sx={{ mr: 1 }}
+              >
+                Export CSV
+              </Button>
+            </>
+          )
         }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["sales-quotes", pageQuoteType] });
           queryClient.invalidateQueries({ queryKey: ["sales-quote-details"] });
         }}
-        masterPanel={
-          <SearchableList
-            searchValue={searchQuery}
-            onSearchChange={setSearchQuery}
-            hideSearch
-            sortOptions={SORT_OPTIONS}
-            currentSort={sortField}
-            onSortChange={(value) => setSortField(value as string)}
-            isLoading={isLoading}
-          >
-            {filteredQuotes.length === 0 ? (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <QuoteIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
-                <Typography variant="body2" color="text.secondary">
-                  {searchQuery
-                    ? "No results found. Try adjusting your search."
-                    : "No quotes yet. Create your first one!"}
-                </Typography>
-              </Box>
-            ) : (
-              filteredQuotes.map((quote) => renderQuoteItem(quote, selectedQuote?.id === quote.id))
-            )}
-          </SearchableList>
-        }
-        detailPanel={renderDetailPanel()}
+        isLoading={isLoading}
+        {...(isQuoteDetailMode
+          ? { masterPanel: renderSingleQuotePanel(), detailPanel: renderDetailPanel() }
+          : { children: quoteTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 

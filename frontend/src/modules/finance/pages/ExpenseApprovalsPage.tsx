@@ -9,6 +9,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import HistoryIcon from "@mui/icons-material/History";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 import {
   Alert,
   Box,
@@ -18,6 +20,7 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  InputAdornment,
   TextField,
   Tooltip,
   Typography,
@@ -46,7 +49,6 @@ import {
   TConfirmDialog,
   TDetailSkeleton,
   TSearchableSelect,
-  TTabFilterBar,
   TStatusChip,
   useCrudMutation,
   useTConfirmDialog,
@@ -87,11 +89,6 @@ export default function ExpenseApprovalsPage() {
   // Submission Info section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-  const [draftStatus, setDraftStatus] = useState<string | null>("submitted");
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -105,20 +102,10 @@ export default function ExpenseApprovalsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterBranch(draftBranch);
-  }, [draftSearchQuery, draftStatus, draftBranch]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftBranch(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterBranch(null);
@@ -574,76 +561,54 @@ export default function ExpenseApprovalsPage() {
         title="Expense Approvals"
         icon={<ReceiptLongIcon color="primary" />}
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search expenses..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search expenses..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => (
-                  <TBranchFilter
-                    branches={branches}
-                    value={draftBranch}
-                    onChange={setDraftBranch}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftStatus}
-                    onChange={(val) => setDraftStatus(val as string | null)}
-                    options={STATUS_FILTER_OPTIONS.map((s) => ({
-                      value: s.value,
-                      label: s.label,
-                      color: s.color,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Statuses"
-                    placeholder="Search status..."
-                    size="small"
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={
-              !draftSearchQuery &&
-              !draftStatus &&
-              !draftBranch &&
-              !searchQuery &&
-              !filterStatus &&
-              !filterBranch
-            }
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TBranchFilter
+                branches={branches}
+                value={filterBranch}
+                onChange={setFilterBranch}
+                label=""
+                size="small"
+              />
+            </Box>
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TSearchableSelect
+                label=""
+                value={filterStatus}
+                onChange={(val) => setFilterStatus(val as string | null)}
+                options={STATUS_FILTER_OPTIONS.map((s) => ({
+                  value: s.value,
+                  label: s.label,
+                  color: s.color,
+                }))}
+                showAllOption
+                allOptionLabel="All Statuses"
+                placeholder="Search status..."
+                size="small"
+              />
+            </Box>
+            {(searchQuery || filterStatus || filterBranch) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["expense-approvals"] });

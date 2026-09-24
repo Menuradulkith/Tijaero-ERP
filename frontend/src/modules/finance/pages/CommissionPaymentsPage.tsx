@@ -18,20 +18,34 @@ import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
 import PendingActionsIcon from "@mui/icons-material/PendingActions";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ReceiptIcon from "@mui/icons-material/Receipt";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Autocomplete,
+  Avatar,
   Box,
+  Button,
   Checkbox,
   Grid,
+  IconButton,
+  InputAdornment,
   MenuItem,
+  Paper,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
@@ -44,11 +58,9 @@ import {
   getStatusProps,
   handleApiError,
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
   showErrorToast,
   showSuccessToast,
-  SortOption,
   TCurrency,
   TDetailSkeleton,
   TExportButton,
@@ -56,10 +68,11 @@ import {
   TStatCard,
   TStatusChip,
   TStatusFilter,
-  TTabFilterBar,
   modernTableStyles,
   useCrudMutation,
   useMasterDetailState,
+  TDataGrid,
+  type TDataGridColumn,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
@@ -74,13 +87,6 @@ import {
   PAYMENT_METHOD_OPTIONS,
   PAYMENT_STATUS_OPTIONS,
 } from "@/modules/sales/commission-types";
-
-// Configuration
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_at", label: "Date Created" },
-  { value: "payment_amount", label: "Payment Amount" },
-  { value: "payment_date", label: "Payment Date" },
-];
 
 type PaymentWithAgent = CustomerAgentCommissionPayment & { agent_name?: string };
 
@@ -116,14 +122,10 @@ export default function CommissionPaymentsPage() {
   const canUpdate = usePermission("commission_payments", "update");
   const canViewCustomers = usePermission("customers", "view");
 
-  // Filter states (applied - drives the actual list filtering)
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterAgentId, setFilterAgentId] = useState<number | null>(null);
-
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftAgentId, setDraftAgentId] = useState<number | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Pending commissions for payment creation
   const [pendingCommissions, setPendingCommissions] = useState<CustomerAgentCommission[]>([]);
@@ -134,9 +136,8 @@ export default function CommissionPaymentsPage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedPayment,
+    setSelectedItem: setSelectedPayment,
     isEditing,
     setIsEditing,
     isCreating,
@@ -155,20 +156,11 @@ export default function CommissionPaymentsPage() {
     defaultSortField: "created_at",
   });
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterAgentId(draftAgentId);
-    setFilterStatus(draftStatus);
-  }, [draftSearchQuery, draftAgentId, draftStatus]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftAgentId(null);
-    setDraftStatus(null);
     setSearchQuery("");
     setFilterAgentId(null);
     setFilterStatus(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Data fetching
   const { data: paymentsData, isLoading, refetch } = useQuery({
@@ -262,28 +254,15 @@ export default function CommissionPaymentsPage() {
       );
     }
 
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there) — newest first.
     filtered.sort((a, b) => {
-      if (sortField === "created_at") {
-        const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      } else if (sortField === "payment_amount") {
-        return b.payment_amount - a.payment_amount;
-      } else if (sortField === "payment_date") {
-        const diff = new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      return (b.id || 0) - (a.id || 0);
+      const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;
-  }, [payments, searchQuery, sortField]);
-
-  // Auto-select first item
-  useEffect(() => {
-    if (filteredPayments.length > 0 && !selectedPayment && !isCreating) {
-      handleSelectPayment(filteredPayments[0]);
-    }
-  }, [filteredPayments, selectedPayment, isCreating]);
+  }, [payments, searchQuery]);
 
   // Mutations
   const createMutation = useCrudMutation({
@@ -355,78 +334,234 @@ export default function CommissionPaymentsPage() {
   );
   const isSaving = createMutation.isPending;
 
-  // Master Panel
-  const masterPanel = (
-    <SearchableList<PaymentWithAgent>
-      items={filteredPayments}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedPayment}
-      onSelectItem={handleSelectPayment}
-      emptyMessage="No payments found"
-      renderItem={(payment, isSelected) => (
+  // Cancelling out of "New Payment" should return to the browse table, not
+  // auto-open the first payment the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here).
+  const handleCancelPayment = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedPayment(null);
+      setSelectedCommissionIds(new Set());
+      setPaymentItemAmounts({});
+    } else {
+      baseHandleCancel(filteredPayments);
+    }
+  }, [isCreating, filteredPayments, baseHandleCancel, setIsCreating, setIsEditing, setSelectedPayment]);
+
+  // Returns to the browse table from the detail view.
+  const handleBackToPayments = useCallback(() => {
+    setSelectedPayment(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedCommissionIds(new Set());
+      setPaymentItemAmounts({});
+    }
+  }, [isCreating, setSelectedPayment, setIsCreating, setIsEditing]);
+
+  // The table sorts by whichever column the user clicks via the grid's own
+  // column header menu, not a separate "Sort by" control.
+  const paymentColumns: TDataGridColumn<PaymentWithAgent>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<PaymentWithAgent>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      { field: "payment_no", header: "Payment No", flex: 1, minWidth: 150 },
+      { field: "agent_name", header: "Agent", flex: 1, minWidth: 160 },
+      {
+        field: "payment_date",
+        header: "Date",
+        width: 120,
+        renderCell: (params: GridRenderCellParams<PaymentWithAgent>) =>
+          params.row.payment_date ? format(new Date(params.row.payment_date), "dd/MM/yyyy") : "-",
+      },
+      {
+        field: "payment_amount",
+        header: "Amount",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<PaymentWithAgent>) => (
+          <TCurrency value={params.row.payment_amount} variant="body2" fontWeight={600} />
+        ),
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 130,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<PaymentWithAgent>) => (
+          <TStatusChip status={params.row.status} statusMap="commissionPaymentStatus" size="small" />
+        ),
+      },
+      { field: "reference_number", header: "Reference", width: 150 },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<PaymentWithAgent>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectPayment(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectPayment]
+  );
+
+  // Whether we're showing a single payment's detail view (selected or being
+  // created) instead of the browse table.
+  const isPaymentDetailMode = !!selectedPayment || isCreating;
+
+  // Browse mode: summary stat cards plus a full-width table of every payment.
+  const paymentsTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ p: 1.5, pb: 0 }}>
+        <Grid container spacing={2} sx={{ mb: 1.5 }}>
+          <Grid item xs={12} sm={6} md={3}>
+            <TStatCard
+              title="Total Payments"
+              value={summaryStats.total}
+              icon={<MonetizationOnIcon />}
+              color="primary"
+              isCurrency
+              subtitle={`${summaryStats.totalCount} payments`}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TStatCard
+              title="Pending Verification"
+              value={summaryStats.pendingAmount}
+              icon={<PendingActionsIcon />}
+              color="warning"
+              isCurrency
+              badge={summaryStats.pendingCount}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TStatCard
+              title="Verified Payments"
+              value={summaryStats.verifiedAmount}
+              icon={<CheckCircleIcon />}
+              color="success"
+              isCurrency
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TStatCard
+              title="Active Agents"
+              value={agents.length}
+              icon={<ReceiptIcon />}
+              color="info"
+            />
+          </Grid>
+        </Grid>
+      </Box>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<PaymentWithAgent>
+          rows={filteredPayments}
+          columns={paymentColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectPayment(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No payments found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current payment (or the
+  // "New Payment" placeholder while creating) plus a "Back to Commission
+  // Payments" link that returns to the table.
+  const singlePaymentPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToPayments}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Commission Payments
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ width: 40, height: 40 }}>
+              <PaymentIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Commission Payment
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedPayment && (
         <SelectableListItem
-          key={payment.id}
-          id={payment.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectPayment(payment)}
+          id={selectedPayment.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{payment.payment_no}</span>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ width: 36, height: 36 }}>
+                <PaymentIcon fontSize="small" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{selectedPayment.payment_no}</span>
+                </Box>
               </Box>
-              {isSelected && (
-                <>
-                  <Typography component="span" variant="caption">
-                    Agent: {payment.agent_name}
-                  </Typography>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                    <TCurrency value={payment.payment_amount} variant="caption" fontWeight={600} />
-                  </Box>
-                  <Typography component="span" variant="caption">
-                    {format(new Date(payment.payment_date), "dd/MM/yyyy")}
-                  </Typography>
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                    <TStatusChip
-                      status={payment.status}
-                      statusMap="commissionPaymentStatus"
-                      size="small"
-                    />
-                    <TStatusChip
-                      status={payment.payment_method}
-                      statusMap="paymentMethod"
-                      fallbackLabel={payment.payment_method}
-                      size="small"
-                      variant="outlined"
-                    />
-                  </Box>
-                </>
-              )}
             </Box>
           }
-          secondaryText={
-            !isSelected
-              ? `${payment.agent_name}`
-              : undefined
-          }
-          statusChip={
-            !isSelected
-              ? {
-                  label: payment.status.charAt(0).toUpperCase() + payment.status.slice(1),
-                  color: getStatusProps(payment.status, "commissionPaymentStatus").color,
-                }
-              : undefined
-          }
-          isFavorite={favorites.includes(payment.id)}
-          onToggleFavorite={(e) => toggleFavorite(payment.id, e)}
+          isFavorite={favorites.includes(selectedPayment.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedPayment.id, e)}
         />
       )}
-    />
+    </Paper>
   );
 
   // Detail Panel
@@ -470,7 +605,7 @@ export default function CommissionPaymentsPage() {
         isFormValid={isFormValid}
         onNew={handleNewPayment}
         onSave={handleSave}
-        onCancel={() => baseHandleCancel(filteredPayments)}
+        onCancel={handleCancelPayment}
         onEdit={() => {}} // Payments are not editable
       />
 
@@ -810,103 +945,107 @@ export default function CommissionPaymentsPage() {
       <MasterDetailLayout
         title="Commission Payments"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Payment",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search payments..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          isPaymentDetailMode ? undefined : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search payments..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "agent",
-                label: "Agent",
-                hasValue: !!draftAgentId,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftAgentId}
-                    onChange={(val) => setDraftAgentId(val ? Number(val) : null)}
-                    options={agents.map((agent) => ({
-                      value: agent.id,
-                      label: agent.customer_name,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Agents"
-                    placeholder="Search agents..."
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TStatusFilter
-                    options={PAYMENT_STATUS_OPTIONS}
-                    value={draftStatus}
-                    onChange={setDraftStatus}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftAgentId && !draftStatus && !searchQuery && !filterAgentId && !filterStatus}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 180, flexShrink: 0 }}>
+              <TSearchableSelect
+                label=""
+                value={filterAgentId}
+                onChange={(val) => setFilterAgentId(val ? Number(val) : null)}
+                options={agents.map((agent) => ({
+                  value: agent.id,
+                  label: agent.customer_name,
+                }))}
+                showAllOption
+                allOptionLabel="All Agents"
+                placeholder="All Agents"
+                size="small"
+              />
+            </Box>
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TStatusFilter
+                options={PAYMENT_STATUS_OPTIONS}
+                value={filterStatus}
+                onChange={setFilterStatus}
+                label=""
+                placeholder="All Status"
+                size="small"
+              />
+            </Box>
+            {(searchQuery || filterAgentId || filterStatus) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
         headerActions={
-          <TExportButton
-            filename="commission_payments"
-            headers={[
-              "Payment No",
-              "Agent",
-              "Amount",
-              "Payment Date",
-              "Method",
-              "Reference",
-              "Bank",
-              "Status",
-              "Created",
-            ]}
-            rows={() =>
-              filteredPayments.map((p) => [
-                p.payment_no || "",
-                p.agent_name || "",
-                p.payment_amount ?? 0,
-                p.payment_date || "",
-                p.payment_method || "",
-                p.reference_number || "",
-                p.bank_name || "",
-                p.status || "",
-                p.created_at || "",
-              ])
-            }
-            disabled={filteredPayments.length === 0}
-          />
+          isPaymentDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNewPayment}
+                  sx={{ mr: 1 }}
+                >
+                  Add Commission Payment
+                </Button>
+              )}
+              <TExportButton
+                filename="commission_payments"
+                headers={[
+                  "Payment No",
+                  "Agent",
+                  "Amount",
+                  "Payment Date",
+                  "Method",
+                  "Reference",
+                  "Bank",
+                  "Status",
+                  "Created",
+                ]}
+                rows={() =>
+                  filteredPayments.map((p) => [
+                    p.payment_no || "",
+                    p.agent_name || "",
+                    p.payment_amount ?? 0,
+                    p.payment_date || "",
+                    p.payment_method || "",
+                    p.reference_number || "",
+                    p.bank_name || "",
+                    p.status || "",
+                    p.created_at || "",
+                  ])
+                }
+                disabled={filteredPayments.length === 0}
+              />
+            </>
+          )
         }
+        {...(isPaymentDetailMode
+          ? { masterPanel: singlePaymentPanel, detailPanel }
+          : { children: paymentsTablePanel })}
       />
     </>
   );

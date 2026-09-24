@@ -79,8 +79,6 @@ export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
         sx={{
           px: 1.5,
           py: 1,
-          borderBottom: 1,
-          borderColor: "divider",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",

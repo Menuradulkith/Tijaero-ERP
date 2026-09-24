@@ -26,9 +26,16 @@ import PaymentIcon from "@mui/icons-material/Payment";
 import HistoryIcon from "@mui/icons-material/History";
 import SaveIcon from "@mui/icons-material/Save";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
   Alert,
   Autocomplete,
+  Avatar,
   Box,
   Button,
   Card,
@@ -77,20 +84,19 @@ import {
   handleApiError,
   MasterDetailLayout,
   modernTableStyles,
-  SearchableList,
   SelectableListItem,
   showErrorToast,
   showSuccessToast,
-  SortOption,
   TBranchFilter,
   TConfirmDialog,
   TPrintButton,
-  TTabFilterBar,
   TPrintPreviewDialog,
   useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
   TActivityHistoryPanel,
+  TDataGrid,
+  type TDataGridColumn,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -106,12 +112,6 @@ import {
 } from "@/modules/purchasing/types";
 // Currency formatting uses fmtLKR from tijaero
 import { formatDateTimeReadable } from "@/utils/formatters";
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "good_received_date", label: "Date" },
-  { value: "good_received_no", label: "GRN Number" },
-  { value: "added_date", label: "Creation Date" },
-];
 
 const FORM_STEPS = ["GRN Information", "Received Items"];
 
@@ -183,6 +183,15 @@ interface POFilterOption {
   purchasing_order_no: string;
 }
 
+// A GRN row as shown in the browse table, with the PO/supplier/branch
+// display strings looked up and attached directly so the table's own
+// column-header sort orders by the displayed text rather than raw ids.
+type GRNRow = GoodReceivedNote & {
+  po_display: string;
+  supplier_display: string;
+  branch_display: string;
+};
+
 const resetFormFromGRN = (grn: GoodReceivedNote): GoodReceivedNoteCreate => ({
   good_received_no: grn.good_received_no,
   good_received_date: grn.good_received_date?.split("T")[0] || "",
@@ -249,19 +258,11 @@ export default function GoodReceivedNotesPage() {
   const [filterCreatedByUser, setFilterCreatedByUser] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftSupplier, setDraftSupplier] = useState<number | null>(null);
-  const [draftPOId, setDraftPOId] = useState<number | null>(null);
-  const [draftCreatedByUser, setDraftCreatedByUser] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedGRN,
+    setSelectedItem: setSelectedGRN,
     isEditing,
     setIsEditing,
     isCreating,
@@ -291,7 +292,7 @@ export default function GoodReceivedNotesPage() {
   });
 
   // Activity History is opened on demand from a detail icon next to the
-  // Record Information section title, rather than shown inline.
+  // Activity History section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   // OPTIMIZED: Fetch locations and branches in a single call
@@ -301,30 +302,16 @@ export default function GoodReceivedNotesPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-    setFilterSupplier(draftSupplier);
-    setFilterPOId(draftPOId);
-    setFilterCreatedByUser(draftCreatedByUser);
-  }, [draftSearchQuery, draftBranch, draftSupplier, draftPOId, draftCreatedByUser]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
-    setDraftSupplier(null);
-    setDraftPOId(null);
-    setDraftCreatedByUser(null);
     setSearchQuery("");
     setFilterBranch(null);
     setFilterSupplier(null);
     setFilterPOId(null);
     setFilterCreatedByUser(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-focus the barcode input whenever the active scan item changes.
   // Using useEffect is more reliable than a one-shot setTimeout inside
@@ -422,12 +409,36 @@ export default function GoodReceivedNotesPage() {
 
   // handleStartEdit removed - GRNs are not editable after creation
 
+  // Cancelling out of "New GRN" should return to the browse table, not
+  // auto-open the first GRN the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing GRN
+  // still just reverts its form via the generic handler.
   const handleCancel = useCallback((items: GoodReceivedNote[]) => {
-    handleCancelBase(items);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedGRN(null);
+    } else {
+      handleCancelBase(items);
+    }
     setLineItems([]);
     setFormStep(0);
     setTouched({}); // Reset validation state
-  }, [handleCancelBase]);
+  }, [isCreating, handleCancelBase, setIsCreating, setIsEditing, setSelectedGRN]);
+
+  // Returns to the browse table from the detail view (the "Back to Good
+  // Received Notes" link above the detail panel header).
+  const handleBackToGRNs = useCallback(() => {
+    setSelectedGRN(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+    setLineItems([]);
+    setFormStep(0);
+    setTouched({});
+  }, [isCreating, setSelectedGRN, setIsCreating, setIsEditing]);
 
   // Handler that wraps hook's handler (which already handles unsaved changes confirm)
   const handleSelectGRNWithItems = useCallback(async (grn: GoodReceivedNote) => {
@@ -538,26 +549,18 @@ export default function GoodReceivedNotesPage() {
       });
     }
 
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there) — newest
+    // received date first, same field the old sort-by menu defaulted to.
     filtered.sort((a, b) => {
-      if (sortField === "good_received_date") {
-        const diff = new Date(b.good_received_date || "").getTime() - new Date(a.good_received_date || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      if (sortField === "added_date") {
-        const diff = new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      const fieldA = a[sortField as keyof GoodReceivedNote] || "";
-      const fieldB = b[sortField as keyof GoodReceivedNote] || "";
-      const comp = String(fieldA).localeCompare(String(fieldB));
-      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
+      const diff = new Date(b.good_received_date || "").getTime() - new Date(a.good_received_date || "").getTime();
+      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;
   }, [
     grns,
     searchQuery,
-    sortField,
     filterBranch,
     filterSupplier,
     filterPOId,
@@ -565,13 +568,6 @@ export default function GoodReceivedNotesPage() {
     purchaseOrders,
     purchaseOrderMap,
   ]);
-
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredGRNs.length > 0 && !selectedGRN && !isCreating) {
-      handleSelectGRNWithItems(filteredGRNs[0]);
-    }
-  }, [filteredGRNs, selectedGRN, isCreating]);
 
   const createMutation = useCrudMutation({
     mutationFn: async ({ data, allowCreditOverride = false }: { data: GoodReceivedNoteCreate; allowCreditOverride?: boolean }) => {
@@ -1364,83 +1360,180 @@ export default function GoodReceivedNotesPage() {
 
   const isSaving = createMutation.isPending; // updateMutation removed - GRNs not editable
 
-  const masterPanel = (
-    <SearchableList<GoodReceivedNote>
-      items={filteredGRNs}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedGRN}
-      onSelectItem={handleSelectGRNWithItems}
-      emptyMessage="No GRNs found"
-      renderItem={(grn, isSelected) => (
+  // The table sorts by whichever column the user clicks; the PO/Supplier/
+  // Branch columns display looked-up text rather than raw ids, so they need
+  // that text as their own fields for the grid to sort on correctly.
+  const grnRows: GRNRow[] = useMemo(
+    () =>
+      filteredGRNs.map((grn) => ({
+        ...grn,
+        po_display: grn.po_no || getOrderNumber(grn),
+        supplier_display: grn.supplier_name || getSupplierName(grn.purchasingorders_id),
+        branch_display: getBranchDisplay(grn.branch_code),
+      })),
+    [filteredGRNs, purchaseOrders, suppliers, branchesData] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const grnColumns: TDataGridColumn<GRNRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<GRNRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "good_received_no",
+        header: "GRN No",
+        flex: 1,
+        minWidth: 160,
+        renderCell: (params: GridRenderCellParams<GRNRow>) => (
+          <Typography variant="body2" fontWeight={600}>
+            {params.row.good_received_no || `GRN-${params.row.id}`}
+          </Typography>
+        ),
+      },
+      { field: "po_display", header: "PO No", width: 150 },
+      { field: "supplier_display", header: "Supplier", flex: 1, minWidth: 170 },
+      { field: "branch_display", header: "Branch", width: 170 },
+      {
+        field: "good_received_date",
+        header: "Received Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<GRNRow>) =>
+          params.row.good_received_date ? new Date(params.row.good_received_date).toLocaleDateString() : "-",
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        sortable: false,
+        renderCell: () => (
+          <Chip label="Received" size="small" color="success" sx={{ height: 20, fontSize: "0.65rem" }} />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<GRNRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectGRNWithItems(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectGRNWithItems]
+  );
+
+  // Whether we're showing a single GRN's detail view (selected or being
+  // created) instead of the browse table.
+  const isGRNDetailMode = !!selectedGRN || isCreating;
+
+  // Browse mode: a full-width table of every GRN (shown when nothing is
+  // selected and nothing is being created). Sorting is done per-column via
+  // the grid's own column header menu, not a separate "Sort by" control.
+  const grnTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<GRNRow>
+          rows={grnRows}
+          columns={grnColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectGRNWithItems(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No GRNs found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current GRN (or the
+  // "New GRN" placeholder while creating). A "Back to Good Received Notes"
+  // link returns to the table.
+  const singleGRNPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToGRNs}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Good Received Notes
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
+              <ReceiptLongIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New GRN
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedGRN && (
         <SelectableListItem
-          key={grn.id}
-          id={grn.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectGRNWithItems(grn)}
+          id={selectedGRN.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* GRN Number */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{grn.good_received_no || `GRN-${grn.id}`}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (GRN No)
-                  </Typography>
-                )}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
+                <ReceiptLongIcon fontSize="small" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedGRN.good_received_no || `GRN-${selectedGRN.id}`}</span>
               </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {getOrderNumber(grn)}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (PO)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {getLocationName(grn.good_received_locations_id)}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Location)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {new Date(grn.supplier_invoice_date || grn.good_received_date || "").toLocaleDateString()}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Invoice Date)
-                    </Typography>
-                  </Box>
-                  {/* Status Chips - shown below all fields when selected */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip
-                      label="Received"
-                      size="small"
-                      color="success"
-                      sx={{ height: 18, fontSize: "0.65rem" }}
-                    />
-                  </Box>
-                </>
-              )}
             </Box>
           }
-          secondaryText={!isSelected ? `PO: ${getOrderNumber(grn)} • ${getLocationName(grn.good_received_locations_id)} • ${new Date(grn.supplier_invoice_date || grn.good_received_date || "").toLocaleDateString()}` : undefined}
-          isFavorite={favorites.includes(grn.id)}
-          onToggleFavorite={(e) => toggleFavorite(grn.id, e)}
-          statusChip={!isSelected ? { label: "Received", color: "success" } : undefined}
+          isFavorite={favorites.includes(selectedGRN.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedGRN.id, e)}
         />
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -1963,7 +2056,7 @@ export default function GoodReceivedNotesPage() {
                 ) : (
                   /* View/Edit mode - Table layout */
                   <Box>
-                    <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+                    <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
                       <Table size="small">
                         <TableHead>
                           <TableRow sx={modernTableStyles.headerRow}>
@@ -2089,10 +2182,10 @@ export default function GoodReceivedNotesPage() {
           </>
         )}
 
-        {/* Record Information (view mode only) */}
+        {/* Activity History (view mode only) */}
         {selectedGRN && !isCreating && !isEditing && (
           <FormSection
-            title="Record Information"
+            title="Activity History"
             columns={2}
             titleAction={
               <Tooltip title="View activity history">
@@ -2117,113 +2210,103 @@ export default function GoodReceivedNotesPage() {
       <MasterDetailLayout
         title="Good Received Notes"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "GRN / PO No",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search GRN or PO No"
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          isGRNDetailMode ? undefined : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search GRN or PO No"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
-              },
-              {
-                key: "supplier",
-                label: "Supplier",
-                hasValue: !!draftSupplier,
-                render: () => (
-                  <Autocomplete
-                    size="small"
-                    options={suppliers}
-                    getOptionLabel={(option) => option.company_name || ""}
-                    value={suppliers.find((s) => s.id === draftSupplier) || null}
-                    onChange={(_, newValue) => setDraftSupplier(newValue?.id || null)}
-                    renderInput={(params) => <TextField {...params} placeholder="All Suppliers" />}
-                    isOptionEqualToValue={(option, value) => option.id === value.id}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "po",
-                label: "PO",
-                hasValue: !!draftPOId,
-                render: () => (
-                  <Autocomplete
-                    size="small"
-                    options={poFilterOptions}
-                    getOptionLabel={(option: POFilterOption) => option.purchasing_order_no || `PO-${option.id}`}
-                    value={poFilterOptions.find((po: POFilterOption) => po.id === draftPOId) || null}
-                    onChange={(_, newValue) => setDraftPOId(newValue?.id || null)}
-                    renderInput={(params) => <TextField {...params} placeholder="All POs" />}
-                    isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "createdBy",
-                label: "Created By",
-                hasValue: !!draftCreatedByUser,
-                render: () => (
-                  <Autocomplete
-                    size="small"
-                    options={createdByUserOptions}
-                    value={draftCreatedByUser}
-                    onChange={(_, newValue) => setDraftCreatedByUser(newValue || null)}
-                    renderInput={(params) => <TextField {...params} placeholder="All Users" />}
-                    isOptionEqualToValue={(option, value) => option === value}
-                    fullWidth
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={
-              !draftSearchQuery && !draftBranch && !draftSupplier && !draftPOId && !draftCreatedByUser &&
-              !searchQuery && !filterBranch && !filterSupplier && !filterPOId && !filterCreatedByUser
-            }
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+            </Box>
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <Autocomplete
+                size="small"
+                options={suppliers}
+                getOptionLabel={(option) => option.company_name || ""}
+                value={suppliers.find((s) => s.id === filterSupplier) || null}
+                onChange={(_, newValue) => setFilterSupplier(newValue?.id || null)}
+                renderInput={(params) => <TextField {...params} placeholder="All Suppliers" />}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                fullWidth
+              />
+            </Box>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
+              <Autocomplete
+                size="small"
+                options={poFilterOptions}
+                getOptionLabel={(option: POFilterOption) => option.purchasing_order_no || `PO-${option.id}`}
+                value={poFilterOptions.find((po: POFilterOption) => po.id === filterPOId) || null}
+                onChange={(_, newValue) => setFilterPOId(newValue?.id || null)}
+                renderInput={(params) => <TextField {...params} placeholder="All POs" />}
+                isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
+                fullWidth
+              />
+            </Box>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
+              <Autocomplete
+                size="small"
+                options={createdByUserOptions}
+                value={filterCreatedByUser}
+                onChange={(_, newValue) => setFilterCreatedByUser(newValue || null)}
+                renderInput={(params) => <TextField {...params} placeholder="All Users" />}
+                isOptionEqualToValue={(option, value) => option === value}
+                fullWidth
+              />
+            </Box>
+            {(searchQuery || filterBranch || filterSupplier || filterPOId || filterCreatedByUser) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+          )
         }
         headerActions={
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={handleExportCSV}
-            disabled={filteredGRNs.length === 0}
-            sx={{ mr: 1 }}
-          >
-            Export CSV
-          </Button>
+          isGRNDetailMode ? undefined : (
+            <>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleNewGRN}
+                sx={{ mr: 1 }}
+              >
+                Add GRN
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={handleExportCSV}
+                disabled={filteredGRNs.length === 0}
+                sx={{ mr: 1 }}
+              >
+                Export CSV
+              </Button>
+            </>
+          )
         }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
           queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
         }}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isGRNDetailMode
+          ? { masterPanel: singleGRNPanel, detailPanel }
+          : { children: grnTablePanel })}
       />
 
       {/* Confirm Dialog */}

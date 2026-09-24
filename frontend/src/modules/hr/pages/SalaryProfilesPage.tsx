@@ -1,10 +1,15 @@
 /**
- * SalaryProfilesPage — Master/Detail layout for employee salary profiles.
+ * SalaryProfilesPage — Browse table + single-record detail toggle for employee salary profiles.
  */
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, TextField, Typography } from "@mui/material";
+import { Avatar, Box, Button, IconButton, InputAdornment, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import SearchIcon from "@mui/icons-material/Search";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
   ActionToolbar,
@@ -12,10 +17,10 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
-  SortOption,
   TConfirmDialog,
+  TDataGrid,
+  type TDataGridColumn,
   TDetailSkeleton,
   TExportButton,
   fmtLKR,
@@ -29,12 +34,6 @@ import { usePermission } from "@/auth/permissions";
 import { salaryProfilesApi } from "@/modules/hr/api";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import type { EmployeeSalaryProfile, EmployeeSalaryProfileCreate } from "@/modules/hr/types";
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_desc", label: "Date (Newest)" },
-  { value: "employee_id", label: "Employee ID" },
-  { value: "salary_desc", label: "Salary (Highest)" },
-];
 
 const INITIAL_FORM: EmployeeSalaryProfileCreate = {
   employee_id: "",
@@ -57,8 +56,7 @@ export default function SalaryProfilesPage() {
 
   const {
     searchQuery, setSearchQuery,
-    sortField, setSortField,
-    selectedItem, isEditing, isCreating,
+    selectedItem, setSelectedItem, isEditing, isCreating,
     setIsCreating, setIsEditing,
     formData, setFormData,
     handleSelectItem, handleNew, handleCancel: baseCancel, handleStartEdit,
@@ -89,17 +87,11 @@ export default function SalaryProfilesPage() {
     let list = (profiles || []).filter(
       (p) => !q || p.employee_id.toLowerCase().includes(q) || (p.designation || "").toLowerCase().includes(q) || (p.department || "").toLowerCase().includes(q)
     );
-    list.sort((a, b) => {
-      if (sortField === "employee_id") return a.employee_id.localeCompare(b.employee_id);
-      if (sortField === "salary_desc") return b.basic_salary - a.basic_salary;
-      return (b.created_at || "").localeCompare(a.created_at || "");
-    });
+    // Fixed default order (newest first) — the browse table's own
+    // column-header sort takes over from here.
+    list.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     return list;
-  }, [profiles, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filtered.length > 0 && !selectedItem && !isCreating) handleSelectItem(filtered[0]);
-  }, [filtered, selectedItem, isCreating, handleSelectItem]);
+  }, [profiles, searchQuery]);
 
   const createMut = useMutation({
     mutationFn: (d: EmployeeSalaryProfileCreate) => salaryProfilesApi.create(d),
@@ -127,7 +119,9 @@ export default function SalaryProfilesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["salary-profiles"] });
       showSuccessToast("Salary profile deleted");
-      baseCancel(filtered);
+      // Return to the browse table rather than the hook's default handleCancel,
+      // which would try to re-select an item from the (now stale) filtered list.
+      setSelectedItem(null);
     },
     onError: (e) => showErrorToast(handleApiError(e, "Failed to delete profile")),
   });
@@ -151,48 +145,178 @@ export default function SalaryProfilesPage() {
 
   const totalSalary = formData.basic_salary + (formData.add_1_value || 0) + (formData.add_2_value || 0);
 
-  const masterPanel = (
-    <SearchableList<EmployeeSalaryProfile>
-      items={filtered}
-      isLoading={isLoading}
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      searchPlaceholder="Search profiles..."
-      sortOptions={SORT_OPTIONS}
-      currentSort={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedItem}
-      onSelectItem={handleSelectItem}
-      emptyMessage="No salary profiles found"
-      renderItem={(p, isSelected) => (
-        <SelectableListItem
-          key={p.id}
-          id={p.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectItem(p)}
-          primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{p.employee_id}</span>
-                <Typography component="span" variant="caption" fontWeight={600}
-                  sx={{ color: isSelected ? "inherit" : "success.main" }}>
-                  {fmtLKR(p.basic_salary)}
-                </Typography>
-              </Box>
-              {p.designation && (
-                <Typography component="span" variant="caption" sx={{ color: isSelected ? "inherit" : "text.secondary" }}>
-                  {p.designation}{p.department ? ` • ${p.department}` : ""}
-                </Typography>
-              )}
-            </Box>
-          }
-          secondaryText={!isSelected && p.employee_name ? p.employee_name : undefined}
-        />
-      )}
-    />
+  // Cancelling a brand-new record returns to the browse table (the hook's
+  // default handleCancel would instead auto-select the first item, which made
+  // sense for the old always-visible detail panel but not here). Cancelling
+  // an edit of an existing record still just reverts its form.
+  const handleCancelProfile = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedItem(null);
+    } else {
+      baseCancel(filtered);
+    }
+  }, [isCreating, filtered, baseCancel, setIsCreating, setIsEditing, setSelectedItem]);
+
+  // Returns to the browse table from the detail view.
+  const handleBackToProfiles = useCallback(() => {
+    setSelectedItem(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedItem, setIsCreating, setIsEditing]);
+
+  // Whether we're showing a single profile's detail view (selected or being
+  // created) instead of the browse table.
+  const isDetailMode = !!selectedItem || isCreating;
+
+  const columns: TDataGridColumn<EmployeeSalaryProfile>[] = useMemo(
+    () => [
+      {
+        field: "employee_id",
+        header: "Employee",
+        flex: 1,
+        minWidth: 160,
+        renderCell: (params: GridRenderCellParams<EmployeeSalaryProfile>) => params.row.employee_name || params.row.employee_id,
+      },
+      {
+        field: "basic_salary",
+        header: "Basic Salary",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<EmployeeSalaryProfile>) => fmtLKR(params.row.basic_salary),
+      },
+      {
+        field: "add_1_value",
+        header: "Allowances",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<EmployeeSalaryProfile>) =>
+          fmtLKR((params.row.add_1_value || 0) + (params.row.add_2_value || 0)),
+      },
+      {
+        field: "effective_from_date",
+        header: "Effective Date",
+        width: 140,
+        renderCell: (params: GridRenderCellParams<EmployeeSalaryProfile>) =>
+          params.row.effective_from_date ? formatDateTimeReadable(params.row.effective_from_date) : "-",
+      },
+      {
+        field: "designation",
+        header: "Designation",
+        flex: 1,
+        minWidth: 150,
+        renderCell: (params: GridRenderCellParams<EmployeeSalaryProfile>) =>
+          [params.row.designation, params.row.department].filter(Boolean).join(" • ") || "-",
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<EmployeeSalaryProfile>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectItem(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectItem]
   );
 
-  const detailPanel = (
+  // Browse mode: a full-width table of every salary profile. Sorting is
+  // done per-column via the grid's own column header menu.
+  const tablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<EmployeeSalaryProfile>
+          rows={filtered}
+          columns={columns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectItem(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No salary profiles found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current salary
+  // profile (or the "New Profile" placeholder while creating) plus a
+  // "Back to Salary Profiles" link that returns to the table.
+  const singleProfilePanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={handleBackToProfiles} sx={{ textTransform: "none" }}>
+          Back to Salary Profiles
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+              <PersonIcon color="primary" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Salary Profile
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedItem && (
+        <SelectableListItem
+          id={selectedItem.id}
+          isSelected
+          onClick={() => {}}
+          primaryText={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+                <PersonIcon color="primary" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>
+                  {selectedItem.employee_id}
+                  {selectedItem.designation ? ` • ${selectedItem.designation}` : ""}
+                </span>
+              </Box>
+            </Box>
+          }
+        />
+      )}
+    </Paper>
+  );
+
+  // Detail mode: the existing detail content, unchanged, shown full-width.
+  const detailContent = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[{ label: "HR", href: "/hr" }, { label: "Salary Profiles", href: "/hr/salary-profiles" },
@@ -203,7 +327,7 @@ export default function SalaryProfilesPage() {
       />
       <ActionToolbar canCreate={canCreate} canUpdate={canUpdate} canDelete={canDelete} hasSelectedItem={!!selectedItem}
         isCreating={isCreating} isEditing={isEditing} isSaving={isSaving} isFormValid={isFormValid}
-        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={() => baseCancel(filtered)} onEdit={handleStartEdit}
+        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={handleCancelProfile} onEdit={handleStartEdit}
       />
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedItem && !isCreating ? (
@@ -254,39 +378,74 @@ export default function SalaryProfilesPage() {
 
   return (
     <>
-      <MasterDetailLayout title="Salary Profiles" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel}
-        headerActions={
-          <TExportButton
-            filename="salary_profiles"
-            headers={[
-              "Employee ID",
-              "Designation",
-              "Department",
-              "Basic Salary",
-              "Addition 1",
-              "Add 1 Value",
-              "Addition 2",
-              "Add 2 Value",
-              "Effective From",
-              "Benefits",
-            ]}
-            rows={() =>
-              filtered.map((p) => [
-                p.employee_id || "",
-                p.designation || "",
-                p.department || "",
-                p.basic_salary ?? 0,
-                p.add_1_name || "",
-                p.add_1_value ?? 0,
-                p.add_2_name || "",
-                p.add_2_value ?? 0,
-                p.effective_from_date || "",
-                p.benefits || "",
-              ])
-            }
-            disabled={filtered.length === 0}
-          />
+      <MasterDetailLayout
+        title="Salary Profiles"
+        titleSlot={
+          isDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search profiles..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 260 }}
+              />
+            </Box>
+          )
         }
+        headerActions={
+          isDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
+                  Add Salary Profile
+                </Button>
+              )}
+              <TExportButton
+                filename="salary_profiles"
+                headers={[
+                  "Employee ID",
+                  "Designation",
+                  "Department",
+                  "Basic Salary",
+                  "Addition 1",
+                  "Add 1 Value",
+                  "Addition 2",
+                  "Add 2 Value",
+                  "Effective From",
+                  "Benefits",
+                ]}
+                rows={() =>
+                  filtered.map((p) => [
+                    p.employee_id || "",
+                    p.designation || "",
+                    p.department || "",
+                    p.basic_salary ?? 0,
+                    p.add_1_name || "",
+                    p.add_1_value ?? 0,
+                    p.add_2_name || "",
+                    p.add_2_value ?? 0,
+                    p.effective_from_date || "",
+                    p.benefits || "",
+                  ])
+                }
+                disabled={filtered.length === 0}
+              />
+            </>
+          )
+        }
+        onRefresh={refetch}
+        isLoading={isLoading}
+        {...(isDetailMode
+          ? { masterPanel: singleProfilePanel, detailPanel: detailContent }
+          : { children: tablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

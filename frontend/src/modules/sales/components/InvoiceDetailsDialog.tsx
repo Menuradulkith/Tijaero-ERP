@@ -207,7 +207,7 @@ export default function InvoiceDetailsDialog({
             <Typography variant="subtitle2" color="text.secondary" gutterBottom>
               Order Items
             </Typography>
-            <Paper variant="outlined" sx={{ mb: 3, borderRadius: 2, border: "1px solid", borderColor: "divider", overflow: "hidden" }}>
+            <Paper variant="outlined" sx={{ mb: 3, borderRadius: 3, border: "1px solid", borderColor: "divider", overflow: "hidden" }}>
               <Table size="small">
                 <TableHead>
                   <TableRow sx={modernTableStyles.headerRow}>

@@ -8,11 +8,13 @@ import { exportToCSV } from "@/utils/csvExport";
 import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
+  Avatar,
   Box,
   Button,
   Chip,
   IconButton,
   InputAdornment,
+  Paper,
   TextField,
   Tooltip,
   Typography,
@@ -21,21 +23,27 @@ import { Download as DownloadIcon } from "@mui/icons-material";
 import {
   AccountBalance as BankIcon,
   History as HistoryIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
+  ArrowBack as ArrowBackIcon,
+  Star as StarIcon,
+  StarBorder as StarOutlineIcon,
+  OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
   DetailPanelHeader,
   FormSection,
   EmptyState,
+  SelectableListItem,
   useMasterDetailState,
-  SortOption,
   TDetailSkeleton,
   TBranchFilter,
   TStatusFilter,
-  TTabFilterBar,
+  TDataGrid,
+  type TDataGridColumn,
   fmtLKR,
   TActivityHistoryPanel,
 } from "@/components/tijaero";
@@ -49,11 +57,10 @@ interface Branch {
   branch_name: string;
 }
 
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_date", label: "Date" },
-  { value: "deposits_amount", label: "Amount" },
-  { value: "bank_name", label: "Bank" },
-];
+// A bank deposit row as shown in the browse table, with the branch name
+// looked up and attached directly so the table's own column-header sort
+// orders by the displayed name rather than the raw branch_code.
+type BankDepositRow = BankDeposit & { branch_name: string };
 
 const INITIAL_FORM_DATA: Partial<BankDepositCreate> = {
   deposits_amount: 0,
@@ -74,20 +81,16 @@ const resetFormFromItem = (item: BankDeposit): Partial<BankDepositCreate> => ({
 });
 
 export default function BankDepositsPage() {
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterVerified, setFilterVerified] = useState<string | null>(null);
-
-  // Filter state (draft - edited via the filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftVerified, setDraftVerified] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem,
+    setSelectedItem,
     isCreating,
     favorites,
     toggleFavorite,
@@ -111,24 +114,14 @@ export default function BankDepositsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-    setFilterVerified(draftVerified);
-  }, [draftSearchQuery, draftBranch, draftVerified]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
-    setDraftVerified(null);
     setSearchQuery("");
     setFilterBranch(null);
     setFilterVerified(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -152,25 +145,15 @@ export default function BankDepositsPage() {
         (d.payment_for || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         String(d.id).includes(searchQuery)
     );
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there).
     filtered.sort((a, b) => {
-      if (sortField === "created_date") {
-        const timeDiff = new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
-        if (timeDiff !== 0) return timeDiff;
-        return b.id - a.id;
-      }
-      if (sortField === "deposits_amount") return Number(b.deposits_amount || 0) - Number(a.deposits_amount || 0);
-      const fA = a[sortField as keyof BankDeposit] || "";
-      const fB = b[sortField as keyof BankDeposit] || "";
-      return String(fA).localeCompare(String(fB));
+      const timeDiff = new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return b.id - a.id;
     });
     return filtered;
-  }, [deposits, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filteredDeposits.length > 0 && !selectedItem && !isCreating) {
-      handleSelectItem(filteredDeposits[0]);
-    }
-  }, [filteredDeposits, selectedItem, isCreating]);
+  }, [deposits, searchQuery]);
 
   const handleSelectWithCheck = useCallback(
     async (item: BankDeposit) => {
@@ -179,67 +162,183 @@ export default function BankDepositsPage() {
     [handleSelectItem]
   );
 
-  const masterPanel = (
-    <SearchableList<BankDeposit>
-      items={filteredDeposits}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedItem}
-      onSelectItem={handleSelectWithCheck}
-      emptyMessage="No bank deposits found"
-      renderItem={(dep, isSelected) => (
+  // Whether we're showing a single bank deposit's detail view instead of the
+  // browse table. This page is read-only, so there's no "creating" state to
+  // account for beyond what the hook exposes.
+  const isDepositDetailMode = !!selectedItem || isCreating;
+
+  // Returns to the browse table from the detail view.
+  const handleBackToDeposits = useCallback(() => {
+    setSelectedItem(null);
+  }, [setSelectedItem]);
+
+  // The table sorts by whichever column the user clicks; the Branch column
+  // displays a looked-up name rather than the raw branch_code, so it needs
+  // that name as its own field for the grid to sort on correctly.
+  const depositRows: BankDepositRow[] = useMemo(
+    () =>
+      filteredDeposits.map((dep) => ({
+        ...dep,
+        branch_name: branches.find((b) => b.branch_code === dep.branch_code)?.branch_name || dep.branch_code || "-",
+      })),
+    [filteredDeposits, branches]
+  );
+
+  const depositColumns: TDataGridColumn<BankDepositRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<BankDepositRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "id",
+        header: "Deposit No",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<BankDepositRow>) => `#${params.row.id}`,
+      },
+      { field: "bank_name", header: "Bank", flex: 1, minWidth: 150 },
+      { field: "branch_name", header: "Branch", width: 150 },
+      {
+        field: "created_date",
+        header: "Date",
+        width: 140,
+        renderCell: (params: GridRenderCellParams<BankDepositRow>) =>
+          params.row.created_date ? new Date(params.row.created_date).toLocaleDateString() : "-",
+      },
+      {
+        field: "deposits_amount",
+        header: "Amount",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<BankDepositRow>) => `Rs. ${fmtLKR(Number(params.row.deposits_amount || 0))}`,
+      },
+      {
+        field: "invoice_no",
+        header: "Reference",
+        width: 150,
+        renderCell: (params: GridRenderCellParams<BankDepositRow>) => params.row.invoice_no || "-",
+      },
+      {
+        field: "verified",
+        header: "Status",
+        width: 120,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<BankDepositRow>) => (
+          <Chip
+            label={params.row.verified ? "Verified" : "Pending"}
+            size="small"
+            color={params.row.verified ? "success" : "warning"}
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<BankDepositRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectWithCheck(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectWithCheck]
+  );
+
+  // Browse mode: a full-width table of every bank deposit (shown when
+  // nothing is selected). Sorting is done per-column via the grid's own
+  // column header menu, not a separate "Sort by" control.
+  const depositTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<BankDepositRow>
+          rows={depositRows}
+          columns={depositColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectWithCheck(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No bank deposits found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current bank deposit.
+  // A "Back to Bank Deposits" link returns to the table.
+  const singleDepositPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToDeposits}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Bank Deposits
+        </Button>
+      </Box>
+      {selectedItem && (
         <SelectableListItem
-          key={dep.id}
-          id={dep.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectWithCheck(dep)}
+          id={selectedItem.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{dep.bank_name || `Deposit #${dep.id}`}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Bank)
-                  </Typography>
-                )}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
+                <BankIcon />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedItem.bank_name || `Deposit #${selectedItem.id}`}</span>
               </Box>
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      Rs. {fmtLKR(Number(dep.deposits_amount || 0))}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Amount)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">{dep.branch_code || "-"}</Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Branch)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {dep.created_date ? new Date(dep.created_date).toLocaleDateString() : "-"}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Date)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip label={dep.verified ? "Verified" : "Pending"} size="small" color={dep.verified ? "success" : "warning"} sx={{ height: 18, fontSize: "0.65rem" }} />
-                  </Box>
-                </>
-              )}
             </Box>
           }
-          secondaryText={!isSelected ? `Rs. ${fmtLKR(Number(dep.deposits_amount || 0))} - ${dep.branch_code || ""}` : undefined}
-          isFavorite={favorites.includes(dep.id)}
-          onToggleFavorite={(e) => toggleFavorite(dep.id, e)}
-          statusChip={!isSelected ? (dep.verified ? { label: "Verified", color: "success" } : { label: "Pending", color: "warning" }) : undefined}
+          isFavorite={favorites.includes(selectedItem.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -369,86 +468,77 @@ export default function BankDepositsPage() {
     <MasterDetailLayout
       title="Bank Deposits"
       titleSlot={
-        <TTabFilterBar
-          tabs={[
-            {
-              key: "search",
-              label: "Search",
-              hasValue: !!draftSearchQuery,
-              render: ({ close }) => (
-                <TextField
-                  size="small"
-                  autoFocus
-                  placeholder="Search deposits..."
-                  value={draftSearchQuery}
-                  onChange={(e) => setDraftSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleApplyFilters();
-                      close();
-                    }
-                  }}
-                  fullWidth
-                />
-              ),
-            },
-            {
-              key: "branch",
-              label: "Branch",
-              hasValue: !!draftBranch,
-              render: () => (
-                <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
-              ),
-            },
-            {
-              key: "status",
-              label: "Status",
-              hasValue: !!draftVerified,
-              render: () => (
-                <TStatusFilter
-                  options={[
-                    { value: null, label: "All" },
-                    { value: "verified", label: "Verified" },
-                    { value: "pending", label: "Pending" },
-                  ]}
-                  value={draftVerified}
-                  onChange={setDraftVerified}
-                  label=""
-                  size="small"
-                />
-              ),
-            },
-          ]}
-          onSearch={handleApplyFilters}
-          onClear={handleClearFilters}
-          clearDisabled={!draftSearchQuery && !draftBranch && !draftVerified && !searchQuery && !filterBranch && !filterVerified}
-        />
+        isDepositDetailMode ? undefined : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search deposits..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+            </Box>
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TStatusFilter
+                options={[
+                  { value: null, label: "All" },
+                  { value: "verified", label: "Verified" },
+                  { value: "pending", label: "Pending" },
+                ]}
+                value={filterVerified}
+                onChange={setFilterVerified}
+                label=""
+                placeholder="All"
+                size="small"
+              />
+            </Box>
+            {(searchQuery || filterBranch || filterVerified) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+        )
       }
       headerActions={
-        <Button
-          size="small"
-          startIcon={<DownloadIcon />}
-          onClick={() => {
-            if (!filteredDeposits.length) return;
-            const headers = ["Date", "Bank", "Branch", "Amount", "Status", "Remarks"];
-            const rows = filteredDeposits.map((d: BankDeposit) => [
-              d.created_date ?? "",
-              d.bank_name ?? "",
-              d.branch_code ?? "",
-              d.deposits_amount ?? "",
-              d.verified ? "Verified" : "Pending",
-              d.remarks ?? "",
-            ]);
-            exportToCSV({ filename: "bank_deposits", headers, rows });
-          }}
-        >
-          Export CSV
-        </Button>
+        isDepositDetailMode ? undefined : (
+          <Button
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={() => {
+              if (!filteredDeposits.length) return;
+              const headers = ["Date", "Bank", "Branch", "Amount", "Status", "Remarks"];
+              const rows = filteredDeposits.map((d: BankDeposit) => [
+                d.created_date ?? "",
+                d.bank_name ?? "",
+                d.branch_code ?? "",
+                d.deposits_amount ?? "",
+                d.verified ? "Verified" : "Pending",
+                d.remarks ?? "",
+              ]);
+              exportToCSV({ filename: "bank_deposits", headers, rows });
+            }}
+          >
+            Export CSV
+          </Button>
+        )
       }
       onRefresh={refetch}
       isLoading={isLoading}
-      masterPanel={masterPanel}
-      detailPanel={detailPanel}
+      {...(isDepositDetailMode
+        ? { masterPanel: singleDepositPanel, detailPanel }
+        : { children: depositTablePanel })}
     />
 
     <TActivityHistoryPanel

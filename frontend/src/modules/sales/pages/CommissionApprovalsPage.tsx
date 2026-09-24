@@ -10,16 +10,21 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import PersonIcon from "@mui/icons-material/Person";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 import {
   Box,
   Button,
   Chip,
+  IconButton,
+  InputAdornment,
   Paper,
   Table,
   TableBody,
   TableCell,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
@@ -41,7 +46,6 @@ import {
   TConfirmDialog,
   TSearchableSelect,
   TStatusChip,
-  TTabFilterBar,
   modernTableStyles,
   useCrudMutation,
   useTConfirmDialog,
@@ -80,21 +84,7 @@ export default function CommissionApprovalsPage() {
   const [filterAgentId, setFilterAgentId] = useState<number | null>(null);
   const [selectedCommission, setSelectedCommission] = useState<CustomerAgentCommissionWithDetails | null>(null);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftStatus, setDraftStatus] = useState<string | null>("pending");
-  const [draftAgentId, setDraftAgentId] = useState<number | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterAgentId(draftAgentId);
-  }, [draftSearchQuery, draftStatus, draftAgentId]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftAgentId(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterAgentId(null);
@@ -613,75 +603,60 @@ export default function CommissionApprovalsPage() {
         title="Commission Approvals"
         icon={<FactCheckIcon color="primary" />}
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search by invoice, agent..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search by invoice, agent..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftStatus}
-                    onChange={(val) => setDraftStatus(val as string | null)}
-                    options={STATUS_FILTER_OPTIONS.map((opt) => ({
-                      value: opt.value,
-                      label: opt.label,
-                      color: opt.color,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Statuses"
-                    placeholder="Search status..."
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "agent",
-                label: "Agent",
-                hasValue: !!draftAgentId,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftAgentId}
-                    onChange={(val) => setDraftAgentId(val ? Number(val) : null)}
-                    options={agents.map((agent) => ({
-                      value: agent.id,
-                      label: agent.customer_name,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Agents"
-                    placeholder="Search agents..."
-                    fullWidth
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !draftAgentId && !searchQuery && !filterStatus && !filterAgentId}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TSearchableSelect
+                label=""
+                value={filterStatus}
+                onChange={(val) => setFilterStatus(val as string | null)}
+                options={STATUS_FILTER_OPTIONS.map((opt) => ({
+                  value: opt.value,
+                  label: opt.label,
+                  color: opt.color,
+                }))}
+                showAllOption
+                allOptionLabel="All Statuses"
+                placeholder="Search status..."
+                fullWidth
+              />
+            </Box>
+            <Box sx={{ width: 180, flexShrink: 0 }}>
+              <TSearchableSelect
+                label=""
+                value={filterAgentId}
+                onChange={(val) => setFilterAgentId(val ? Number(val) : null)}
+                options={agents.map((agent) => ({
+                  value: agent.id,
+                  label: agent.customer_name,
+                }))}
+                showAllOption
+                allOptionLabel="All Agents"
+                placeholder="Search agents..."
+                fullWidth
+              />
+            </Box>
+            {(searchQuery || filterStatus || filterAgentId) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         }
         onRefresh={refetch}
         isLoading={isLoading}

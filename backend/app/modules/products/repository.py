@@ -194,7 +194,22 @@ class MinimumPriceRepository:
     
     def get_current_for_product(self, db: Session, product_id: int) -> Optional[MinimumPrice]:
         return db.query(MinimumPrice).filter(MinimumPrice.product_id == product_id).order_by(MinimumPrice.created_date.desc()).first()
-    
+
+    def get_current_for_products(self, db: Session, product_ids: List[int]) -> dict:
+        """Latest minimum-price row per product, in one query — the bulk
+        equivalent of get_current_for_product, for list endpoints. Mirrors
+        SupplierRepository.get_average_lead_times' one-query-many-ids shape."""
+        if not product_ids:
+            return {}
+        rows = (
+            db.query(MinimumPrice)
+            .filter(MinimumPrice.product_id.in_(product_ids))
+            .order_by(MinimumPrice.product_id, MinimumPrice.created_date.desc())
+            .distinct(MinimumPrice.product_id)
+            .all()
+        )
+        return {row.product_id: row.minimum_price for row in rows}
+
     def create(self, db: Session, product_id: int, minimum_price: float) -> MinimumPrice:
         db_price = MinimumPrice(
             product_id=product_id,

@@ -14,9 +14,15 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
 import HistoryIcon from "@mui/icons-material/History";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Alert,
   Autocomplete,
+  Avatar,
   Box,
   Button,
   Chip,
@@ -36,6 +42,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
@@ -50,19 +57,17 @@ import {
   handleApiError,
   MasterDetailLayout,
   RETURN_STATUS_FILTER_OPTIONS,
-  SearchableList,
   SelectableListItem,
-  SortOption,
   TBranchFilter,
   TConfirmDialog,
+  TDataGrid,
+  type TDataGridColumn,
   TExportButton,
   TPrintButton,
-  TTabFilterBar,
   TPrintPreviewDialog,
   TStatusChip,
   TStatusFilter,
   canPrintDocument,
-  getStatusProps,
   modernTableStyles,
   showErrorToast,
   showSuccessToast,
@@ -84,11 +89,6 @@ import {
   PurchasingReturnWithItems,
   Supplier,
 } from "@/modules/purchasing/types";
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "added_date", label: "Date" },
-  { value: "purchasing_return_no", label: "Return Number" },
-];
 
 /** Preview next sequential number using same format as backend */
 const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
@@ -142,6 +142,11 @@ const resetFormFromReturn = (ret: PurchasingReturn | PurchasingReturnWithItems):
   require_approval: true,
 });
 
+// A browse-table row, with the branch's display name looked up and attached
+// directly so the table's own column-header sort orders by the displayed
+// branch rather than the raw branch_code.
+type PurchaseReturnRow = PurchasingReturn & { branch_display: string };
+
 interface ValidatedItem {
   barcode: string;
   sales_stock_id: number;
@@ -187,12 +192,6 @@ export default function PurchaseReturnsPage() {
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftSupplier, setDraftSupplier] = useState<number | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-
   // Barcode scanning states
   const [barcodeInput, setBarcodeInput] = useState("");
   const [isValidating, setIsValidating] = useState(false);
@@ -203,9 +202,8 @@ export default function PurchaseReturnsPage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedReturn,
+    setSelectedItem: setSelectedReturn,
     isEditing,
     setIsEditing,
     isCreating,
@@ -235,7 +233,7 @@ export default function PurchaseReturnsPage() {
   });
 
   // Activity History is opened on demand from a detail icon next to the
-  // Record Information section title, rather than shown inline.
+  // Activity History section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   // OPTIMIZED: Use aggregated endpoint for branches (placed before handlers that need defaultBranchCode)
@@ -246,27 +244,15 @@ export default function PurchaseReturnsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-    setFilterStatus(draftStatus);
-    setFilterSupplier(draftSupplier);
-  }, [draftSearchQuery, draftBranch, draftStatus, draftSupplier]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
-    setDraftStatus(null);
-    setDraftSupplier(null);
     setSearchQuery("");
     setFilterBranch(null);
     setFilterStatus(null);
     setFilterSupplier(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
@@ -306,15 +292,37 @@ export default function PurchaseReturnsPage() {
     }
   }, [handleStartEditBase, selectedReturn]);
 
+  // Cancelling out of "New Return" should return to the browse table, not
+  // auto-open the first return the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing
+  // return still just reverts its form, which the generic handler already
+  // does correctly.
   const handleCancel = useCallback((items: PurchasingReturn[]) => {
-    handleCancelBase(items);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedReturn(null);
+    } else {
+      handleCancelBase(items);
+    }
     setLineItems([]);
     setFormStep(0);
     setBarcodeInput("");
     setValidationError(null);
     setValidatedItems([]);
     setTouched({}); // Reset validation state
-  }, [handleCancelBase]);
+  }, [isCreating, handleCancelBase, setIsCreating, setIsEditing, setSelectedReturn]);
+
+  // Returns to the browse table from the detail view (the "Back to Purchase
+  // Returns" link above the detail header).
+  const handleBackToReturns = useCallback(() => {
+    setSelectedReturn(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedReturn, setIsCreating, setIsEditing]);
 
   // Handler that wraps hook's handler (which already handles unsaved changes confirm)
   // Tracks the most recently requested return so a slower, stale response
@@ -419,26 +427,16 @@ export default function PurchaseReturnsPage() {
       }
     }
 
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there) — most recent
+    // return first, same as the old default "Date" sort.
     filtered.sort((a, b) => {
-      if (sortField === "added_date") {
-        const diff = new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      const fieldA = a[sortField as keyof PurchasingReturn] || "";
-      const fieldB = b[sortField as keyof PurchasingReturn] || "";
-      const comp = String(fieldA).localeCompare(String(fieldB));
-      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
+      const diff = new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
+      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;
-  }, [returns, searchQuery, sortField, filterBranch, filterStatus, filterSupplier, suppliers]);
-
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredReturns.length > 0 && !selectedReturn && !isCreating) {
-      handleSelectReturnWithItems(filteredReturns[0]);
-    }
-  }, [filteredReturns, selectedReturn, isCreating]);
+  }, [returns, searchQuery, filterBranch, filterStatus, filterSupplier, suppliers]);
 
   const createMutation = useCrudMutation({
     mutationFn: purchaseReturnsApi.create,
@@ -718,78 +716,191 @@ export default function PurchaseReturnsPage() {
     }
   }, [formStep]);
 
-  const masterPanel = (
-    <SearchableList<PurchasingReturn>
-      items={filteredReturns}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedReturn}
-      onSelectItem={handleSelectReturnWithItems}
-      emptyMessage="No purchase returns found"
-      renderItem={(ret, isSelected) => (
+  // Whether we're showing a single return's detail view (selected or being
+  // created) instead of the browse table.
+  const isReturnDetailMode = !!selectedReturn || isCreating;
+
+  const returnRows: PurchaseReturnRow[] = useMemo(
+    () =>
+      filteredReturns.map((ret) => ({
+        ...ret,
+        branch_display: getBranchDisplay(ret.branch_code),
+      })),
+    [filteredReturns, branches] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const returnColumns: TDataGridColumn<PurchaseReturnRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<PurchaseReturnRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "purchasing_return_no",
+        header: "Return No",
+        flex: 1,
+        minWidth: 160,
+        renderCell: (params: GridRenderCellParams<PurchaseReturnRow>) => (
+          <Typography variant="body2" fontWeight={600}>
+            {params.row.purchasing_return_no || `RET-${params.row.id}`}
+          </Typography>
+        ),
+      },
+      {
+        field: "grn_no",
+        header: "GRN No",
+        width: 150,
+        renderCell: (params: GridRenderCellParams<PurchaseReturnRow>) =>
+          params.row.grn_no || getGRNNumber(params.row),
+      },
+      {
+        field: "supplier_name",
+        header: "Supplier",
+        flex: 1,
+        minWidth: 170,
+        renderCell: (params: GridRenderCellParams<PurchaseReturnRow>) =>
+          params.row.supplier_name || getSupplierName(params.row),
+      },
+      {
+        field: "branch_display",
+        header: "Branch",
+        width: 170,
+      },
+      {
+        field: "added_date",
+        header: "Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<PurchaseReturnRow>) =>
+          params.row.added_date ? new Date(params.row.added_date).toLocaleDateString() : "-",
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 130,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<PurchaseReturnRow>) => (
+          <TStatusChip status={params.row.status || "pending"} statusMap="purchaseReturn" size="small" />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<PurchaseReturnRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectReturnWithItems(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, getGRNNumber, getSupplierName, handleSelectReturnWithItems]
+  );
+
+  // Browse mode: a full-width table of every return (shown when nothing is
+  // selected and nothing is being created). Sorting is done per-column via
+  // the grid's own column header menu, not a separate "Sort by" control.
+  const returnTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<PurchaseReturnRow>
+          rows={returnRows}
+          columns={returnColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectReturnWithItems(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No purchase returns found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current return (or
+  // the "New Return" placeholder while creating). A "Back to Purchase
+  // Returns" link returns to the table.
+  const singleReturnPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToReturns}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Purchase Returns
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
+              <AssignmentReturnIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Return
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedReturn && (
         <SelectableListItem
-          key={ret.id}
-          id={ret.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectReturnWithItems(ret)}
+          id={selectedReturn.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* Return Number */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{ret.purchasing_return_no || `RET-${ret.id}`}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Return No)
-                  </Typography>
-                )}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
+                <AssignmentReturnIcon fontSize="small" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedReturn.purchasing_return_no || `RET-${selectedReturn.id}`}</span>
               </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {getGRNNumber(ret)}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (GRN)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {getBranchDisplay(ret.branch_code)}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Branch)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {new Date(ret.added_date || "").toLocaleDateString()}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Date)
-                    </Typography>
-                  </Box>
-                  {/* Status Chips - shown below all fields when selected */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <TStatusChip status={ret.status || "pending"} statusMap="purchaseReturn" size="small" />
-                  </Box>
-                </>
-              )}
             </Box>
           }
-          secondaryText={!isSelected ? `GRN: ${getGRNNumber(ret)} • ${getBranchDisplay(ret.branch_code)} • ${new Date(ret.added_date || "").toLocaleDateString()}` : undefined}
-          isFavorite={favorites.includes(ret.id)}
-          onToggleFavorite={(e) => toggleFavorite(ret.id, e)}
-          statusChip={!isSelected ? { label: getStatusProps(ret.status || "pending", "purchaseReturn").label, color: getStatusProps(ret.status || "pending", "purchaseReturn").color } : undefined}
+          isFavorite={favorites.includes(selectedReturn.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedReturn.id, e)}
         />
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -1069,7 +1180,7 @@ export default function PurchaseReturnsPage() {
                 )}
 
                 <Box>
-                  <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+                  <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
                     <Table size="small">
                       <TableHead>
                         <TableRow sx={modernTableStyles.headerRow}>
@@ -1187,10 +1298,10 @@ export default function PurchaseReturnsPage() {
           </>
         )}
 
-        {/* Record Information (view mode only) */}
+        {/* Activity History (view mode only) */}
         {selectedReturn && !isCreating && !isEditing && (
           <FormSection
-            title="Record Information"
+            title="Activity History"
             columns={2}
             titleAction={
               <Tooltip title="View activity history">
@@ -1215,66 +1326,49 @@ export default function PurchaseReturnsPage() {
       <MasterDetailLayout
         title="Purchase Returns"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Return No",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search returns..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />,
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
-              },
-              {
-                key: "supplier",
-                label: "Supplier",
-                hasValue: !!draftSupplier,
-                render: () => (
-                  <Autocomplete
-                    size="small"
-                    options={suppliers}
-                    getOptionLabel={(option) => option.company_name || ""}
-                    value={suppliers.find((s) => s.id === draftSupplier) || null}
-                    onChange={(_, newValue) => setDraftSupplier(newValue?.id || null)}
-                    renderInput={(params) => <TextField {...params} placeholder="All Suppliers" />}
-                    isOptionEqualToValue={(option, value) => option.id === value.id}
-                    fullWidth
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={
-              !draftSearchQuery && !draftBranch && !draftStatus && !draftSupplier &&
-              !searchQuery && !filterBranch && !filterStatus && !filterSupplier
-            }
-          />
+          isReturnDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search returns..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 160, flexShrink: 0 }}>
+                <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
+              </Box>
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+              </Box>
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <Autocomplete
+                  size="small"
+                  options={suppliers}
+                  getOptionLabel={(option) => option.company_name || ""}
+                  value={suppliers.find((s) => s.id === filterSupplier) || null}
+                  onChange={(_, newValue) => setFilterSupplier(newValue?.id || null)}
+                  renderInput={(params) => <TextField {...params} placeholder="All Suppliers" />}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  fullWidth
+                />
+              </Box>
+              {(searchQuery || filterBranch || filterStatus || filterSupplier) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["purchaseReturns"] });
@@ -1282,37 +1376,51 @@ export default function PurchaseReturnsPage() {
           queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
         }}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isReturnDetailMode
+          ? { masterPanel: singleReturnPanel, detailPanel }
+          : { children: returnTablePanel })}
         headerActions={
-          <TExportButton
-            filename="purchase_returns"
-            headers={[
-              "Return No",
-              "GRN No",
-              "PO No",
-              "Supplier",
-              "Branch",
-              "Added Date",
-              "Approved Date",
-              "Status",
-              "Remark",
-            ]}
-            rows={() =>
-              filteredReturns.map((ret) => [
-                ret.purchasing_return_no || "",
-                ret.grn_no || "",
-                ret.po_no || "",
-                ret.supplier_name || "",
-                ret.branch_code || "",
-                ret.added_date || "",
-                ret.approved_date || "",
-                ret.status || "",
-                ret.remark || "",
-              ])
-            }
-            disabled={filteredReturns.length === 0}
-          />
+          isReturnDetailMode ? undefined : (
+            <>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleNewReturn}
+                sx={{ mr: 1 }}
+              >
+                Add Purchase Return
+              </Button>
+              <TExportButton
+                filename="purchase_returns"
+                headers={[
+                  "Return No",
+                  "GRN No",
+                  "PO No",
+                  "Supplier",
+                  "Branch",
+                  "Added Date",
+                  "Approved Date",
+                  "Status",
+                  "Remark",
+                ]}
+                rows={() =>
+                  filteredReturns.map((ret) => [
+                    ret.purchasing_return_no || "",
+                    ret.grn_no || "",
+                    ret.po_no || "",
+                    ret.supplier_name || "",
+                    ret.branch_code || "",
+                    ret.added_date || "",
+                    ret.approved_date || "",
+                    ret.status || "",
+                    ret.remark || "",
+                  ])
+                }
+                disabled={filteredReturns.length === 0}
+              />
+            </>
+          )
         }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

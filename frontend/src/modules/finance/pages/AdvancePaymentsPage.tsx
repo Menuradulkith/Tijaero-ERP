@@ -26,6 +26,8 @@ import {
   Person as PersonIcon,
   Store as SupplierIcon,
   CheckCircle as CheckCircleIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
 } from "@mui/icons-material";
 import { advancePaymentsApi } from "@/modules/finance/api";
 import { customersApi } from "@/modules/customers/api";
@@ -54,7 +56,6 @@ import {
   TExportButton,
   TBranchFilter,
   TSupplierFilter,
-  TTabFilterBar,
   GENERIC_PAYMENT_METHOD,
   TConfirmDialog,
   useConfirmDialog,
@@ -127,14 +128,10 @@ export default function AdvancePaymentsPage() {
     setTouched((prev) => ({ ...prev, [fieldName]: true }));
   };
 
-  // Filter states (applied - drives the actual list filtering)
+  // Filter states - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterEntity, setFilterEntity] = useState<number | null>(null);
-
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftEntity, setDraftEntity] = useState<number | null>(null);
 
   // Master-detail state (generic)
   const [searchQuery, setSearchQuery] = useState("");
@@ -161,24 +158,14 @@ export default function AdvancePaymentsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-    setFilterEntity(draftEntity);
-  }, [draftSearchQuery, draftBranch, draftEntity]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
-    setDraftEntity(null);
     setSearchQuery("");
     setFilterBranch(null);
     setFilterEntity(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -374,9 +361,6 @@ export default function AdvancePaymentsPage() {
       setFilterBranch(null);
       setFilterEntity(null);
       setSearchQuery("");
-      setDraftBranch(null);
-      setDraftEntity(null);
-      setDraftSearchQuery("");
       setTouched({});
     },
     []
@@ -1105,68 +1089,48 @@ export default function AdvancePaymentsPage() {
                 </ToggleButton>
               </ToggleButtonGroup>
             </Box>
-            <TTabFilterBar
-              tabs={[
-                {
-                  key: "search",
-                  label: "Search",
-                  hasValue: !!draftSearchQuery,
-                  render: ({ close }) => (
-                    <TextField
-                      size="small"
-                      autoFocus
-                      placeholder={`Search ${advanceType} advances...`}
-                      value={draftSearchQuery}
-                      onChange={(e) => setDraftSearchQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          handleApplyFilters();
-                          close();
-                        }
-                      }}
-                      fullWidth
-                    />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder={`Search ${advanceType} advances...`}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
                   ),
-                },
-                {
-                  key: "branch",
-                  label: "Branch",
-                  hasValue: !!draftBranch,
-                  render: () => (
-                    <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
-                  ),
-                },
-                advanceType === "supplier"
-                  ? {
-                      key: "entity",
-                      label: "Supplier",
-                      hasValue: !!draftEntity,
-                      render: () => (
-                        <TSupplierFilter suppliers={suppliers || []} value={draftEntity} onChange={setDraftEntity} label="" size="small" />
-                      ),
-                    }
-                  : {
-                      key: "entity",
-                      label: "Customer",
-                      hasValue: !!draftEntity,
-                      render: () => (
-                        <Autocomplete
-                          size="small"
-                          options={customers}
-                          getOptionLabel={(option: Customer) => option.customer_name || ""}
-                          value={customers.find((c: Customer) => c.id === draftEntity) || null}
-                          onChange={(_, newVal) => setDraftEntity((newVal as Customer)?.id || null)}
-                          isOptionEqualToValue={(option, value) => option.id === value.id}
-                          renderInput={(params) => <TextField {...params} placeholder="All Customers" />}
-                          fullWidth
-                        />
-                      ),
-                    },
-              ]}
-              onSearch={handleApplyFilters}
-              onClear={handleClearFilters}
-              clearDisabled={!draftSearchQuery && !draftBranch && !draftEntity && !searchQuery && !filterBranch && !filterEntity}
-            />
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+              </Box>
+              <Box sx={{ width: 190, flexShrink: 0 }}>
+                {advanceType === "supplier" ? (
+                  <TSupplierFilter suppliers={suppliers || []} value={filterEntity} onChange={setFilterEntity} label="" placeholder="All Suppliers" size="small" />
+                ) : (
+                  <Autocomplete
+                    size="small"
+                    options={customers}
+                    getOptionLabel={(option: Customer) => option.customer_name || ""}
+                    value={customers.find((c: Customer) => c.id === filterEntity) || null}
+                    onChange={(_, newVal) => setFilterEntity((newVal as Customer)?.id || null)}
+                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                    renderInput={(params) => <TextField {...params} placeholder="All Customers" />}
+                    fullWidth
+                  />
+                )}
+              </Box>
+              {(searchQuery || filterBranch || filterEntity !== null) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
           </Box>
         }
         onRefresh={refetchData}

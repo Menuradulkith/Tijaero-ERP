@@ -19,6 +19,8 @@ import {
   Switch,
   FormControlLabel,
   MenuItem,
+  IconButton,
+  Tooltip,
 } from "@mui/material";
 import {
   QrCodeScanner as ScanIcon,
@@ -26,6 +28,8 @@ import {
   ArrowForward as ArrowForwardIcon,
   Save as SaveIcon,
   CheckCircle as CheckCircleIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
 } from "@mui/icons-material";
 import { format } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -46,7 +50,6 @@ import {
   TLoadingSkeleton,
   TStatusChip,
   TAlert,
-  TTabFilterBar,
   modernTableStyles,
   getStatusProps,
 } from "@/components/tijaero";
@@ -110,11 +113,6 @@ export default function ReceiveNotesPage() {
   const [branchFilter, setBranchFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Filter state (draft - edited via the header filter bar, only applied on Search click)
-  const [draftStatusFilter, setDraftStatusFilter] = useState("");
-  const [draftBranchFilter, setDraftBranchFilter] = useState<string>("");
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-
   // Create Mode State
   const [selectedITN, setSelectedITN] = useState<ItemTransferNoteWithItems | null>(null);
   const [receivedItems, setReceivedItems] = useState<ReceivedItem[]>([]);
@@ -131,16 +129,7 @@ export default function ReceiveNotesPage() {
     setActiveStep(0);
   }, [branchFilter, isCreating]);
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setStatusFilter(draftStatusFilter);
-    setBranchFilter(draftBranchFilter);
-  }, [draftSearchQuery, draftStatusFilter, draftBranchFilter]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatusFilter("");
-    setDraftBranchFilter("");
     setSearchQuery("");
     setStatusFilter("");
     setBranchFilter("");
@@ -1147,82 +1136,63 @@ export default function ReceiveNotesPage() {
     <MasterDetailLayout
       title="Item Receive Notes"
       titleSlot={
-        <TTabFilterBar
-          tabs={[
-            {
-              key: "search",
-              label: "Search",
-              hasValue: !!draftSearchQuery,
-              render: ({ close }) => (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+          <TextField
+            size="small"
+            placeholder="Search receive notes..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" color="action" />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ width: 220, flexShrink: 0 }}
+          />
+          <Box sx={{ width: 150, flexShrink: 0 }}>
+            <TextField
+              select
+              size="small"
+              label="Status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              fullWidth
+            >
+              {STATUS_OPTIONS.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
+          <Box sx={{ width: 190, flexShrink: 0 }}>
+            <Autocomplete
+              size="small"
+              options={branches}
+              value={branches.find((b) => b.branch_code === branchFilter) || null}
+              isOptionEqualToValue={(option, value) => option.branch_code === value.branch_code}
+              getOptionLabel={(option) => `${option.branch_name} (${option.branch_code})`}
+              onChange={(_, value) => setBranchFilter(value?.branch_code || "")}
+              renderInput={(params) => (
                 <TextField
-                  size="small"
-                  autoFocus
-                  placeholder="Search receive notes..."
-                  value={draftSearchQuery}
-                  onChange={(e) => setDraftSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleApplyFilters();
-                      close();
-                    }
-                  }}
-                  fullWidth
+                  {...params}
+                  label="Receiving Branch"
+                  placeholder="Search branch"
                 />
-              ),
-            },
-            {
-              key: "status",
-              label: "Status",
-              hasValue: !!draftStatusFilter,
-              render: () => (
-                <TextField
-                  select
-                  size="small"
-                  label="Status"
-                  value={draftStatusFilter}
-                  onChange={(e) => setDraftStatusFilter(e.target.value)}
-                  fullWidth
-                >
-                  {STATUS_OPTIONS.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              ),
-            },
-            {
-              key: "branch",
-              label: "Branch",
-              hasValue: !!draftBranchFilter,
-              render: () => (
-                <Autocomplete
-                  size="small"
-                  options={branches}
-                  value={branches.find((b) => b.branch_code === draftBranchFilter) || null}
-                  isOptionEqualToValue={(option, value) => option.branch_code === value.branch_code}
-                  getOptionLabel={(option) => `${option.branch_name} (${option.branch_code})`}
-                  onChange={(_, value) => setDraftBranchFilter(value?.branch_code || "")}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Receiving Branch"
-                      placeholder="Search branch"
-                      sx={{ minWidth: 220 }}
-                    />
-                  )}
-                  fullWidth
-                />
-              ),
-            },
-          ]}
-          onSearch={handleApplyFilters}
-          onClear={handleClearFilters}
-          clearDisabled={
-            !draftSearchQuery && !draftStatusFilter && !draftBranchFilter &&
-            !searchQuery && !statusFilter && !branchFilter
-          }
-        />
+              )}
+              fullWidth
+            />
+          </Box>
+          {(searchQuery || statusFilter || branchFilter) && (
+            <Tooltip title="Clear filters">
+              <IconButton size="small" onClick={handleClearFilters}>
+                <ClearIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
       }
       masterPanel={masterPanel}
       detailPanel={detailPanel}

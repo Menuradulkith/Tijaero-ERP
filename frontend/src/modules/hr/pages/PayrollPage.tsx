@@ -1,10 +1,15 @@
 /**
- * PayrollPage — Master/Detail layout for employee payroll records.
+ * PayrollPage — Browse table + single-record detail toggle for employee payroll records.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Chip, TextField, Typography } from "@mui/material";
+import { Avatar, Box, Button, Chip, IconButton, InputAdornment, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import SearchIcon from "@mui/icons-material/Search";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
   ActionToolbar,
@@ -12,10 +17,10 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
-  SortOption,
   TConfirmDialog,
+  TDataGrid,
+  type TDataGridColumn,
   TDetailSkeleton,
   TExportButton,
   TPrintButton,
@@ -31,12 +36,6 @@ import { usePermission } from "@/auth/permissions";
 import { payrollApi } from "@/modules/hr/api";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import type { EmployeePayroll, EmployeePayrollCreate } from "@/modules/hr/types";
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_desc", label: "Date (Newest)" },
-  { value: "employee_id", label: "Employee ID" },
-  { value: "net_salary_desc", label: "Net Salary (Highest)" },
-];
 
 const INITIAL_FORM: EmployeePayrollCreate = {
   employee_id: "",
@@ -62,8 +61,7 @@ export default function PayrollPage() {
 
   const {
     searchQuery, setSearchQuery,
-    sortField, setSortField,
-    selectedItem, isEditing, isCreating,
+    selectedItem, setSelectedItem, isEditing, isCreating,
     setIsCreating, setIsEditing,
     formData, setFormData,
     handleSelectItem, handleNew, handleCancel: baseCancel, handleStartEdit,
@@ -96,17 +94,11 @@ export default function PayrollPage() {
     let list = (payrolls || []).filter(
       (p) => !q || p.employee_id.toLowerCase().includes(q) || (p.employee_name || "").toLowerCase().includes(q) || (p.payroll_batch_no || "").toLowerCase().includes(q)
     );
-    list.sort((a, b) => {
-      if (sortField === "employee_id") return a.employee_id.localeCompare(b.employee_id);
-      if (sortField === "net_salary_desc") return (b.net_salary || 0) - (a.net_salary || 0);
-      return (b.created_at || "").localeCompare(a.created_at || "");
-    });
+    // Fixed default order (newest first) — the browse table's own
+    // column-header sort takes over from here.
+    list.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     return list;
-  }, [payrolls, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filtered.length > 0 && !selectedItem && !isCreating) handleSelectItem(filtered[0]);
-  }, [filtered, selectedItem, isCreating, handleSelectItem]);
+  }, [payrolls, searchQuery]);
 
   const createMut = useMutation({
     mutationFn: (d: EmployeePayrollCreate) => payrollApi.create(d),
@@ -134,7 +126,9 @@ export default function PayrollPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["payroll"] });
       showSuccessToast("Payroll record deleted");
-      baseCancel(filtered);
+      // Return to the browse table rather than the hook's default handleCancel,
+      // which would try to re-select an item from the (now stale) filtered list.
+      setSelectedItem(null);
     },
     onError: (e) => showErrorToast(handleApiError(e, "Failed to delete payroll record")),
   });
@@ -165,49 +159,192 @@ export default function PayrollPage() {
     }
   };
 
-  const masterPanel = (
-    <SearchableList<EmployeePayroll>
-      items={filtered}
-      isLoading={isLoading}
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      searchPlaceholder="Search payroll records..."
-      sortOptions={SORT_OPTIONS}
-      currentSort={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedItem}
-      onSelectItem={handleSelectItem}
-      emptyMessage="No payroll records found"
-      renderItem={(p, isSelected) => (
+  // Cancelling a brand-new record returns to the browse table (the hook's
+  // default handleCancel would instead auto-select the first item, which made
+  // sense for the old always-visible detail panel but not here). Cancelling
+  // an edit of an existing record still just reverts its form.
+  const handleCancelPayroll = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedItem(null);
+    } else {
+      baseCancel(filtered);
+    }
+  }, [isCreating, filtered, baseCancel, setIsCreating, setIsEditing, setSelectedItem]);
+
+  // Returns to the browse table from the detail view.
+  const handleBackToPayroll = useCallback(() => {
+    setSelectedItem(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedItem, setIsCreating, setIsEditing]);
+
+  // Whether we're showing a single payroll record's detail view (selected or
+  // being created) instead of the browse table.
+  const isDetailMode = !!selectedItem || isCreating;
+
+  const columns: TDataGridColumn<EmployeePayroll>[] = useMemo(
+    () => [
+      {
+        field: "employee_name",
+        header: "Employee",
+        flex: 1,
+        minWidth: 160,
+        renderCell: (params: GridRenderCellParams<EmployeePayroll>) => params.row.employee_name || params.row.employee_id,
+      },
+      {
+        field: "payroll_month",
+        header: "Pay Period",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<EmployeePayroll>) =>
+          params.row.payroll_month && params.row.payroll_year ? `${params.row.payroll_month}/${params.row.payroll_year}` : "-",
+      },
+      {
+        field: "gross_salary",
+        header: "Gross Pay",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<EmployeePayroll>) => fmtLKR(params.row.gross_salary || 0),
+      },
+      {
+        field: "total_deductions",
+        header: "Deductions",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<EmployeePayroll>) => fmtLKR(params.row.total_deductions || 0),
+      },
+      {
+        field: "net_salary",
+        header: "Net Pay",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<EmployeePayroll>) => fmtLKR(params.row.net_salary || params.row.basic_salary),
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 140,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<EmployeePayroll>) =>
+          params.row.status ? (
+            <Chip
+              label={params.row.status.replace("_", " ")}
+              size="small"
+              color={statusColor(params.row.status)}
+              sx={{ height: 20, fontSize: "0.65rem", textTransform: "capitalize" }}
+            />
+          ) : (
+            "-"
+          ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<EmployeePayroll>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectItem(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectItem]
+  );
+
+  // Browse mode: a full-width table of every payroll record. Sorting is done
+  // per-column via the grid's own column header menu.
+  const tablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<EmployeePayroll>
+          rows={filtered}
+          columns={columns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectItem(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No payroll records found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current payroll
+  // record (or the "New Payroll Record" placeholder while creating) plus a
+  // "Back to Payroll" link that returns to the table.
+  const singlePayrollPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={handleBackToPayroll} sx={{ textTransform: "none" }}>
+          Back to Payroll
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+              <AccountBalanceIcon color="primary" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Payroll Record
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedItem && (
         <SelectableListItem
-          key={p.id}
-          id={p.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectItem(p)}
+          id={selectedItem.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{p.employee_name || p.employee_id}</span>
-                {p.status && (
-                  <Chip label={p.status.replace("_", " ")} size="small" color={statusColor(p.status) as any} sx={{ height: 18, fontSize: "0.65rem", textTransform: "capitalize" }} />
-                )}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+                <AccountBalanceIcon color="primary" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedItem.employee_name || selectedItem.employee_id}</span>
               </Box>
-              <Typography component="span" variant="caption" fontWeight={600} sx={{ color: isSelected ? "inherit" : "success.main" }}>
-                Net: {fmtLKR(p.net_salary || p.basic_salary)}
-              </Typography>
             </Box>
-          }
-          secondaryText={
-            !isSelected
-              ? `${p.payroll_batch_no || p.employee_id}${p.payroll_month ? ` • ${p.payroll_month}/${p.payroll_year}` : ""}`
-              : undefined
           }
         />
       )}
-    />
+    </Paper>
   );
 
-  const detailPanel = (
+  // Detail mode: the existing detail content, unchanged, shown full-width.
+  const detailContent = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[{ label: "HR", href: "/hr" }, { label: "Payroll", href: "/hr/payroll" },
@@ -224,7 +361,7 @@ export default function PayrollPage() {
       />
       <ActionToolbar canCreate={canCreate} canUpdate={canUpdate} canDelete={canDelete} hasSelectedItem={!!selectedItem}
         isCreating={isCreating} isEditing={isEditing} isSaving={isSaving} isFormValid={isFormValid}
-        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={() => baseCancel(filtered)} onEdit={handleStartEdit}
+        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={handleCancelPayroll} onEdit={handleStartEdit}
       />
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedItem && !isCreating ? (
@@ -283,44 +420,77 @@ export default function PayrollPage() {
 
   return (
     <>
-      <MasterDetailLayout title="Employee Payroll" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel}
-        headerActions={
-          <>
-            <TExportButton
-              filename="payroll"
-              headers={[
-                "Batch No",
-                "Employee ID",
-                "Employee",
-                "Month",
-                "Year",
-                "Basic Salary",
-                "Gross Salary",
-                "Total Deductions",
-                "Net Salary",
-                "Status",
-                "Payment Status",
-              ]}
-              rows={() =>
-                filtered.map((p) => [
-                  p.payroll_batch_no || "",
-                  p.employee_id || "",
-                  p.employee_name || "",
-                  p.payroll_month ?? "",
-                  p.payroll_year ?? "",
-                  p.basic_salary ?? 0,
-                  p.gross_salary ?? "",
-                  p.total_deductions ?? "",
-                  p.net_salary ?? "",
-                  p.status || "",
-                  p.payment_status || "",
-                ])
-              }
-              disabled={filtered.length === 0}
-            />
-            <TPrintButton documentType="payroll" documentId={0} tooltip="Print Payroll Report" onClick={() => setPrintDialogOpen(true)} />
-          </>
+      <MasterDetailLayout
+        title="Employee Payroll"
+        titleSlot={
+          isDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search payroll records..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 260 }}
+              />
+            </Box>
+          )
         }
+        headerActions={
+          isDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
+                  Add Payroll Record
+                </Button>
+              )}
+              <TExportButton
+                filename="payroll"
+                headers={[
+                  "Batch No",
+                  "Employee ID",
+                  "Employee",
+                  "Month",
+                  "Year",
+                  "Basic Salary",
+                  "Gross Salary",
+                  "Total Deductions",
+                  "Net Salary",
+                  "Status",
+                  "Payment Status",
+                ]}
+                rows={() =>
+                  filtered.map((p) => [
+                    p.payroll_batch_no || "",
+                    p.employee_id || "",
+                    p.employee_name || "",
+                    p.payroll_month ?? "",
+                    p.payroll_year ?? "",
+                    p.basic_salary ?? 0,
+                    p.gross_salary ?? "",
+                    p.total_deductions ?? "",
+                    p.net_salary ?? "",
+                    p.status || "",
+                    p.payment_status || "",
+                  ])
+                }
+                disabled={filtered.length === 0}
+              />
+              <TPrintButton documentType="payroll" documentId={0} tooltip="Print Payroll Report" onClick={() => setPrintDialogOpen(true)} />
+            </>
+          )
+        }
+        onRefresh={refetch}
+        isLoading={isLoading}
+        {...(isDetailMode
+          ? { masterPanel: singlePayrollPanel, detailPanel: detailContent }
+          : { children: tablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

@@ -27,6 +27,8 @@ import {
   Chip,
   Alert,
   InputAdornment,
+  Tooltip,
+  Avatar,
 } from "@mui/material";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -36,32 +38,37 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import SaveIcon from "@mui/icons-material/Save";
 import DeleteIcon from "@mui/icons-material/Delete";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import AddIcon from "@mui/icons-material/Add";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 // Import tijaero components
 import {
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
   DetailPanelHeader,
   ActionToolbar,
   FormSection,
   EmptyState,
   fmtLKR,
   TExportButton,
-  TTabFilterBar,
   TBranchFilter,
   TPrintButton,
   TPrintPreviewDialog,
   canPrintDocument,
   useMasterDetailState,
-  SortOption,
   modernTableStyles,
-  getStatusProps,
   handleApiError,
   TConfirmDialog,
   useTConfirmDialog,
   showSuccessToast,
   showErrorToast,
+  TDataGrid,
+  SelectableListItem,
+  type TDataGridColumn,
 } from "@/components/tijaero";
 
 
@@ -93,11 +100,6 @@ const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: 
   }
   return `${fullPrefix}${String(maxSeq + 1).padStart(6, '0')}`;
 };
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_date", label: "Date" },
-  { value: "item_transfer_note", label: "ITN Number" },
-];
 
 const FORM_STEPS = ["Transfer Information", "Scan & Transfer Items"];
 
@@ -170,19 +172,15 @@ export default function ItemTransferNotesPage() {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
   };
   
-  // Filter states (applied - drives the actual list filtering)
+  // Filter states - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
-
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedITN,
+    setSelectedItem: setSelectedITN,
     isEditing,
     setIsEditing,
     isCreating,
@@ -226,24 +224,16 @@ export default function ItemTransferNotesPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-  }, [draftSearchQuery, draftBranch]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
     setSearchQuery("");
     setFilterBranch(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNewITN = useCallback(() => {
     handleNewITNBase();
@@ -316,15 +306,43 @@ export default function ItemTransferNotesPage() {
     setFormStep(0);
   }, [handleStartEditBase]);
 
+  // Cancelling out of "New Transfer Note" should return to the browse
+  // table, not auto-open the first ITN the way useMasterDetailState's
+  // generic handleCancel does (that behavior made sense for the old
+  // always-visible detail panel, but not here). Cancelling out of editing
+  // an existing ITN still just reverts its form, which the generic handler
+  // already does correctly.
   const handleCancel = useCallback((items: ItemTransferNote[]) => {
-    handleCancelBase(items);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedITN(null);
+    } else {
+      handleCancelBase(items);
+    }
     setLineItems([]);
     setValidatedItems([]);
     setBarcodeInput('');
     setValidationError(null);
     setFormStep(0);
     setTouched({});
-  }, [handleCancelBase]);
+  }, [isCreating, handleCancelBase, setIsCreating, setIsEditing, setSelectedITN]);
+
+  // Returns to the browse table from the detail view (the "Back to Item
+  // Transfer Notes" link above the detail header).
+  const handleBackToITNs = useCallback(() => {
+    setSelectedITN(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setLineItems([]);
+      setValidatedItems([]);
+      setBarcodeInput('');
+      setValidationError(null);
+      setFormStep(0);
+      setTouched({});
+    }
+  }, [isCreating, setSelectedITN, setIsCreating, setIsEditing]);
 
   // Barcode validation handler (using new workflow API)
   const handleValidateBarcode = useCallback(async (barcode: string) => {
@@ -447,26 +465,15 @@ export default function ItemTransferNotesPage() {
       filtered = filtered.filter(itn => itn.branch_code === filterBranch);
     }
 
+    // Default order before the user sorts a column in the browse table
+    // itself (the table's own column-header sort takes over from there).
     filtered.sort((a, b) => {
-      if (sortField === "created_date") {
-        const diff = new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      const fieldA = a[sortField as keyof ItemTransferNote] || "";
-      const fieldB = b[sortField as keyof ItemTransferNote] || "";
-      const comp = String(fieldA).localeCompare(String(fieldB));
-      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
+      const diff = new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
+      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;
-  }, [transferNotes, searchQuery, sortField, filterBranch]);
-
-  // Auto-select first item
-  useEffect(() => {
-    if (filteredITNs.length > 0 && !selectedITN && !isCreating) {
-      handleSelectITNWithItems(filteredITNs[0]);
-    }
-  }, [filteredITNs, selectedITN, isCreating]);
+  }, [transferNotes, searchQuery, filterBranch]);
 
   const createMutation = useMutation({
     mutationFn: async (data: ItemTransferNoteCreate) => {
@@ -548,85 +555,156 @@ export default function ItemTransferNotesPage() {
 
   const isSaving = createMutation.isPending;
 
-  // Master Panel
-  const masterPanel = (
-    <SearchableList
-      items={filteredITNs}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedITN}
-      onSelectItem={handleSelectITNWithItems}
-      emptyMessage="No transfer notes found"
-      renderItem={(itn, isSelected) => {
-        const status = getITNStatus(itn);
-        const statusProps = getStatusProps(status, "orderStatus");
-        return (
+  // Whether we're showing a single transfer note's detail view (selected or
+  // being created) instead of the browse table.
+  const isITNDetailMode = !!selectedITN || isCreating;
+
+  // Browse mode: a full-width table of every transfer note. Sorting is done
+  // per-column via the grid's own column header menu, not a separate
+  // "Sort by" control.
+  const itnColumns: TDataGridColumn<ItemTransferNote>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ItemTransferNote>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      { field: "item_transfer_note", header: "ITN No", flex: 1, minWidth: 160 },
+      {
+        field: "from_location_name",
+        header: "From Location",
+        flex: 1,
+        minWidth: 150,
+        renderCell: (params: GridRenderCellParams<ItemTransferNote>) =>
+          params.row.from_location_name || getLocationName(params.row.from_location_id),
+      },
+      {
+        field: "to_location_name",
+        header: "To Location",
+        flex: 1,
+        minWidth: 150,
+        renderCell: (params: GridRenderCellParams<ItemTransferNote>) =>
+          params.row.to_location_name || getLocationName(params.row.to_location_id),
+      },
+      { field: "branch_code", header: "Branch", width: 110 },
+      { field: "created_date", header: "Date", width: 130, type: "date" },
+      { field: "status", header: "Status", width: 140, align: "center", headerAlign: "center", type: "status", statusMap: "orderStatus" },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ItemTransferNote>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectITNWithItems(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectITNWithItems] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const itnTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<ItemTransferNote>
+          rows={filteredITNs}
+          columns={itnColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectITNWithItems(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No transfer notes found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current transfer note
+  // (or the "New Transfer Note" placeholder while creating). A "Back to Item
+  // Transfer Notes" link returns to the table.
+  const singleITNPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToITNs}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Item Transfer Notes
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main" }}>
+              <SwapHorizIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Transfer Note
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedITN && (
+        <Box>
           <SelectableListItem
-            key={itn.id}
-            id={itn.id}
-            isSelected={isSelected}
-            onClick={() => handleSelectITNWithItems(itn)}
+            id={selectedITN.id}
+            isSelected
+            onClick={() => {}}
             primaryText={
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{itn.item_transfer_note}</span>
-                  {isSelected && (
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (ITN No)
-                    </Typography>
-                  )}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+                <Avatar sx={{ bgcolor: "primary.main" }}>
+                  <SwapHorizIcon fontSize="small" />
+                </Avatar>
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                  <span>{selectedITN.item_transfer_note || `ITN-${selectedITN.id}`}</span>
                 </Box>
-                {isSelected && (
-                  <>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {getLocationName(itn.from_location_id)}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (From)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {getLocationName(itn.to_location_id)}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (To)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {new Date(itn.created_date).toLocaleDateString()}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Date)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                      <Chip
-                        label={statusProps.label}
-                        size="small"
-                        color={statusProps.color}
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                    </Box>
-                  </>
-                )}
               </Box>
             }
-            secondaryText={!isSelected ? `${getLocationName(itn.from_location_id)} → ${getLocationName(itn.to_location_id)} • ${new Date(itn.created_date).toLocaleDateString()}` : undefined}
-            isFavorite={favorites.includes(itn.id)}
-            onToggleFavorite={(e) => toggleFavorite(itn.id, e)}
-            statusChip={!isSelected ? statusProps : undefined}
+            isFavorite={favorites.includes(selectedITN.id)}
+            onToggleFavorite={(e) => toggleFavorite(selectedITN.id, e)}
           />
-        );
-      }}
-    />
+        </Box>
+      )}
+    </Paper>
   );
 
   // Detail Panel
@@ -1081,75 +1159,86 @@ export default function ItemTransferNotesPage() {
       <MasterDetailLayout
         title="Item Transfer Notes"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search transfer notes..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => (
-                  <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftBranch && !searchQuery && !filterBranch}
-          />
+          isITNDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search transfer notes..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TBranchFilter
+                  branches={branches}
+                  value={filterBranch}
+                  onChange={setFilterBranch}
+                  label=""
+                  placeholder="All Branches"
+                  size="small"
+                />
+              </Box>
+              {(searchQuery || filterBranch) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
           queryClient.invalidateQueries({ queryKey: ["locations"] });
         }}
         headerActions={
-          <TExportButton
-            filename="item_transfer_notes"
-            headers={[
-              "Transfer Note",
-              "From Location",
-              "To Location",
-              "Branch",
-              "Created Date",
-              "Status",
-              "Remark",
-            ]}
-            rows={() =>
-              filteredITNs.map((itn) => [
-                itn.item_transfer_note || "",
-                itn.from_location_name || "",
-                itn.to_location_name || "",
-                itn.branch_code || "",
-                itn.created_date || "",
-                itn.status || "",
-                itn.remark || "",
-              ])
-            }
-            disabled={filteredITNs.length === 0}
-          />
+          isITNDetailMode ? undefined : (
+            <>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleNewITN}
+                sx={{ mr: 1 }}
+              >
+                Add Transfer Note
+              </Button>
+              <TExportButton
+                filename="item_transfer_notes"
+                headers={[
+                  "Transfer Note",
+                  "From Location",
+                  "To Location",
+                  "Branch",
+                  "Created Date",
+                  "Status",
+                  "Remark",
+                ]}
+                rows={() =>
+                  filteredITNs.map((itn) => [
+                    itn.item_transfer_note || "",
+                    itn.from_location_name || "",
+                    itn.to_location_name || "",
+                    itn.branch_code || "",
+                    itn.created_date || "",
+                    itn.status || "",
+                    itn.remark || "",
+                  ])
+                }
+                disabled={filteredITNs.length === 0}
+              />
+            </>
+          )
         }
+        {...(isITNDetailMode ? { masterPanel: singleITNPanel, detailPanel } : { children: itnTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 
