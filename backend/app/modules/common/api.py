@@ -172,9 +172,9 @@ def get_reference_data(
 
 # entity_type values that may be queried through the generic activity-log
 # endpoint below — anything log_audit() has actually been called with across
-# the app. Extend this list as more entities grow a "Record Information ->
-# Activity History" panel; it exists to stop the endpoint being used as an
-# open-ended probe of the audit_logs table for unrelated entity types.
+# the app. Extend this list as more entities grow an "Activity History"
+# panel; it exists to stop the endpoint being used as an open-ended probe of
+# the audit_logs table for unrelated entity types.
 ACTIVITY_LOG_ENTITY_TYPES = {
     "supplier",
     "customer",
@@ -220,7 +220,7 @@ def get_activity_log(
 ):
     """Generic modification-history lookup for any entity that log_audit()
     has been recording against — powers the "Activity History" detail panel
-    shown from a Record Information section, across modules."""
+    shown across modules."""
     from app.common.audit import AuditLog
 
     if entity_type not in ACTIVITY_LOG_ENTITY_TYPES:

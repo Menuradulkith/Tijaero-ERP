@@ -1,12 +1,19 @@
 /**
- * LeavesPage — Master/Detail layout for leave applications.
- * Left: searchable list of leaves with status filter.
- * Right: leave details + apply form with live balance preview.
+ * LeavesPage — Browse table + single-record detail toggle.
+ * Browse mode: a full-width table of every leave application.
+ * Detail mode: the record's detail form (unchanged), full-width, with a
+ * "Back to Leaves" link returning to the table.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Chip, MenuItem, TextField, Typography } from "@mui/material";
+import { Avatar, Box, Button, Chip, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { format } from "date-fns";
 
 import {
@@ -15,15 +22,14 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
-  SortOption,
   TConfirmDialog,
   TDetailSkeleton,
   TExportButton,
   TStatusFilter,
-  TTabFilterBar,
   type TFilterStatusOption,
+  TDataGrid,
+  type TDataGridColumn,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -33,12 +39,6 @@ import {
 import { usePermission } from "@/auth/permissions";
 import { leavesApi, employeesApi } from "@/modules/hr/api";
 import type { Leave, LeaveCreate } from "@/modules/hr/types";
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_desc", label: "Date Applied (Newest)" },
-  { value: "from_date", label: "From Date" },
-  { value: "employee_id", label: "Employee ID" },
-];
 
 const STATUS_OPTIONS: TFilterStatusOption[] = [
   { value: "pending", label: "Pending" },
@@ -95,28 +95,16 @@ export default function LeavesPage() {
   // Filter state (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
-  // Filter state (draft - edited via the header filter bar, only applied on Search click)
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-  }, [draftSearchQuery, draftStatus]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
     setSearchQuery("");
     setFilterStatus(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedLeave,
+    setSelectedItem,
     isEditing,
     isCreating,
     setIsCreating,
@@ -180,19 +168,11 @@ export default function LeavesPage() {
         l.leave_reason.toLowerCase().includes(q)
       );
     });
-    list.sort((a, b) => {
-      if (sortField === "from_date") return b.from_date.localeCompare(a.from_date);
-      if (sortField === "employee_id") return a.employee_id.localeCompare(b.employee_id);
-      return (b.created_at || "").localeCompare(a.created_at || "");
-    });
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
+    list.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     return list;
-  }, [leaves, searchQuery, sortField, filterStatus]);
-
-  useEffect(() => {
-    if (filtered.length > 0 && !selectedLeave && !isCreating) {
-      handleSelectItem(filtered[0]);
-    }
-  }, [filtered, selectedLeave, isCreating, handleSelectItem]);
+  }, [leaves, searchQuery, filterStatus]);
 
   const createMutation = useMutation({
     mutationFn: (d: LeaveCreate) => leavesApi.create(d),
@@ -222,7 +202,7 @@ export default function LeavesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hr-leaves"] });
       showSuccessToast("Leave application cancelled");
-      baseCancel(filtered);
+      setSelectedItem(null);
     },
     onError: (e) => showErrorToast(handleApiError(e, "Failed to cancel leave")),
   });
@@ -245,55 +225,199 @@ export default function LeavesPage() {
     if (ok) deleteMutation.mutate(selectedLeave.id);
   }, [selectedLeave, deleteMutation, confirmDialog]);
 
+  // Cancelling out of "Apply for Leave" should return to the browse table,
+  // not auto-open the first record the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing
+  // record still just reverts its form, which the generic handler already
+  // does correctly.
+  const handleCancelLeave = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedItem(null);
+    } else {
+      baseCancel(filtered);
+    }
+  }, [isCreating, filtered, baseCancel, setIsCreating, setIsEditing, setSelectedItem]);
+
+  // Returns to the browse table from the detail view.
+  const handleBackToLeaves = useCallback(() => {
+    setSelectedItem(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedItem, setIsCreating, setIsEditing]);
+
   const isFormValid =
     !!formData.employee_id && !!formData.from_date && !!formData.to_date && !!formData.leave_reason;
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
   const canEditSelected = selectedLeave?.status === "pending";
 
-  const masterPanel = (
-    <SearchableList<Leave>
-      items={filtered}
-      isLoading={isLoading}
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      currentSort={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedLeave}
-      onSelectItem={handleSelectItem}
-      emptyMessage="No leave applications found"
-      renderItem={(leave, isSelected) => (
+  // Whether we're showing a single leave's detail view (selected or being
+  // created) instead of the browse table.
+  const isLeaveDetailMode = !!selectedLeave || isCreating;
+
+  // The table sorts by whichever column the user clicks via the grid's own
+  // column-header menu, not a separate "Sort by" control.
+  const leaveColumns: TDataGridColumn<Leave>[] = useMemo(
+    () => [
+      {
+        field: "employee_name",
+        header: "Employee",
+        flex: 1,
+        minWidth: 160,
+        renderCell: (params: GridRenderCellParams<Leave>) =>
+          params.row.employee_name || params.row.employee_id,
+      },
+      {
+        field: "leave_type",
+        header: "Leave Type",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<Leave>) => params.row.leave_type.toUpperCase(),
+      },
+      {
+        field: "from_date",
+        header: "From",
+        width: 120,
+        renderCell: (params: GridRenderCellParams<Leave>) =>
+          format(new Date(params.row.from_date), "MMM dd, yyyy"),
+      },
+      {
+        field: "to_date",
+        header: "To",
+        width: 120,
+        renderCell: (params: GridRenderCellParams<Leave>) =>
+          format(new Date(params.row.to_date), "MMM dd, yyyy"),
+      },
+      {
+        field: "leave_duration",
+        header: "Days",
+        width: 90,
+        align: "right",
+        headerAlign: "right",
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 120,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Leave>) => (
+          <Chip
+            label={params.row.status}
+            size="small"
+            color={statusColor(params.row.status) as any}
+            sx={{ textTransform: "capitalize" }}
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Leave>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectItem(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectItem]
+  );
+
+  // Browse mode: a full-width table of every leave application.
+  const leaveTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<Leave>
+          rows={filtered}
+          columns={leaveColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectItem(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No leave applications found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current leave
+  // application (or the "Apply for Leave" placeholder while creating) plus a
+  // "Back to Leaves" link that returns to the table.
+  const singleLeavePanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToLeaves}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Leaves
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+              <EventAvailableIcon color="primary" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              Apply for Leave
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedLeave && (
         <SelectableListItem
-          key={leave.id}
-          id={leave.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectItem(leave)}
+          id={selectedLeave.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{leave.employee_name || leave.employee_id}</span>
-                <Chip
-                  label={leave.status}
-                  size="small"
-                  color={statusColor(leave.status) as any}
-                  sx={{ height: 18, fontSize: "0.65rem", textTransform: "capitalize" }}
-                />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+                <EventAvailableIcon color="primary" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>
+                  {selectedLeave.leave_type.toUpperCase()} •{" "}
+                  {selectedLeave.employee_name || selectedLeave.employee_id}
+                </span>
               </Box>
-              <Typography component="span" variant="caption" sx={{ color: isSelected ? "inherit" : "text.secondary" }}>
-                {leave.leave_type.toUpperCase()} • {leave.leave_duration} day(s)
-              </Typography>
             </Box>
-          }
-          secondaryText={
-            !isSelected
-              ? `${format(new Date(leave.from_date), "MMM dd")} → ${format(new Date(leave.to_date), "MMM dd, yyyy")}`
-              : undefined
           }
         />
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -334,7 +458,7 @@ export default function LeavesPage() {
         onNew={handleNew}
         onDelete={handleDelete}
         onSave={handleSave}
-        onCancel={() => baseCancel(filtered)}
+        onCancel={handleCancelLeave}
         onEdit={handleStartEdit}
       />
 
@@ -471,82 +595,91 @@ export default function LeavesPage() {
       <MasterDetailLayout
         title="Leaves"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search by employee, type, reason..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TStatusFilter
-                    options={STATUS_OPTIONS}
-                    value={draftStatus}
-                    onChange={setDraftStatus}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !searchQuery && !filterStatus}
-          />
+          isLeaveDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search by employee, type, reason..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TStatusFilter
+                  options={STATUS_OPTIONS}
+                  value={filterStatus}
+                  onChange={setFilterStatus}
+                  label=""
+                  placeholder="All Status"
+                  size="small"
+                />
+              </Box>
+              {(searchQuery || filterStatus) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isLeaveDetailMode
+          ? { masterPanel: singleLeavePanel, detailPanel }
+          : { children: leaveTablePanel })}
         headerActions={
-          <TExportButton
-            filename="leaves"
-            headers={[
-              "Employee ID",
-              "Employee",
-              "Leave Type",
-              "From Date",
-              "To Date",
-              "Duration",
-              "Time",
-              "Status",
-              "Reason",
-            ]}
-            rows={() =>
-              filtered.map((l) => [
-                l.employee_id || "",
-                l.employee_name || "",
-                l.leave_type || "",
-                l.from_date || "",
-                l.to_date || "",
-                l.leave_duration ?? "",
-                l.leave_time || "",
-                l.status || "",
-                l.leave_reason || "",
-              ])
-            }
-            disabled={filtered.length === 0}
-          />
+          isLeaveDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNew}
+                  sx={{ mr: 1 }}
+                >
+                  Apply for Leave
+                </Button>
+              )}
+              <TExportButton
+                filename="leaves"
+                headers={[
+                  "Employee ID",
+                  "Employee",
+                  "Leave Type",
+                  "From Date",
+                  "To Date",
+                  "Duration",
+                  "Time",
+                  "Status",
+                  "Reason",
+                ]}
+                rows={() =>
+                  filtered.map((l) => [
+                    l.employee_id || "",
+                    l.employee_name || "",
+                    l.leave_type || "",
+                    l.from_date || "",
+                    l.to_date || "",
+                    l.leave_duration ?? "",
+                    l.leave_time || "",
+                    l.status || "",
+                    l.leave_reason || "",
+                  ])
+                }
+                disabled={filtered.length === 0}
+              />
+            </>
+          )
         }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

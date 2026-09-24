@@ -1,12 +1,19 @@
 /**
- * EmployeesPage — Master/Detail layout matching Customers / Sales Orders pattern.
- * Left: searchable list of HR-linked employees.
- * Right: employee details (system user + employee ID).
+ * EmployeesPage — Browse table + single-record detail toggle.
+ * Browse mode: a full-width table of every HR-linked employee.
+ * Detail mode: the record's detail form (unchanged), full-width, with a
+ * "Back to Employees" link returning to the table.
  */
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Button, MenuItem, TextField, Typography } from "@mui/material";
+import { Avatar, Box, Button, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
   ActionToolbar,
@@ -14,11 +21,11 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
-  SortOption,
   TConfirmDialog,
   TDetailSkeleton,
+  TDataGrid,
+  type TDataGridColumn,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -32,12 +39,6 @@ import type { Employee, EmployeeCreate } from "@/modules/hr/types";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { exportToCSV } from "@/utils/csvExport";
 import DownloadIcon from "@mui/icons-material/FileDownload";
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "employee_id", label: "Employee ID" },
-  { value: "full_name", label: "Full Name" },
-  { value: "created_desc", label: "Date (Newest)" },
-];
 
 interface EmployeeRow extends Employee {
   full_name: string;
@@ -55,9 +56,8 @@ export default function EmployeesPage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedEmployee,
+    setSelectedItem,
     isEditing,
     isCreating,
     setIsCreating,
@@ -115,21 +115,11 @@ export default function EmployeesPage() {
         (r.email || "").toLowerCase().includes(q) ||
         r.username.toLowerCase().includes(q)
     );
-    list.sort((a, b) => {
-      if (sortField === "full_name") return a.full_name.localeCompare(b.full_name);
-      if (sortField === "created_desc") {
-        return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
-      }
-      return a.employee_id.localeCompare(b.employee_id);
-    });
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
+    list.sort((a, b) => a.employee_id.localeCompare(b.employee_id));
     return list;
-  }, [rows, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filtered.length > 0 && !selectedEmployee && !isCreating) {
-      handleSelectItem(filtered[0]);
-    }
-  }, [filtered, selectedEmployee, isCreating, handleSelectItem]);
+  }, [rows, searchQuery]);
 
   const linkedIds = useMemo(() => new Set(rows.map((r) => r.user_id)), [rows]);
   const availableUsers = useMemo(
@@ -172,7 +162,7 @@ export default function EmployeesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hr-employees"] });
       showSuccessToast("Employee unlinked");
-      baseCancel(filtered);
+      setSelectedItem(null);
     },
     onError: (e) => showErrorToast(handleApiError(e, "Failed to unlink employee")),
   });
@@ -221,35 +211,162 @@ export default function EmployeesPage() {
     if (ok) deleteMutation.mutate(selectedEmployee.id);
   }, [selectedEmployee, deleteMutation, confirmDialog]);
 
+  // Cancelling out of "Link New Employee" should return to the browse
+  // table, not auto-open the first employee the way
+  // useMasterDetailState's generic handleCancel does (that behavior made
+  // sense for the old always-visible detail panel, but not here).
+  // Cancelling out of editing an existing employee still just reverts its
+  // form, which the generic handler already does correctly.
+  const handleCancelEmployee = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedItem(null);
+    } else {
+      baseCancel(filtered);
+    }
+  }, [isCreating, filtered, baseCancel, setIsCreating, setIsEditing, setSelectedItem]);
+
+  // Returns to the browse table from the detail view.
+  const handleBackToEmployees = useCallback(() => {
+    setSelectedItem(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedItem, setIsCreating, setIsEditing]);
+
   const isFormValid =
     !!formData.employee_id && (isCreating ? !!formData.user_id : true);
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
 
-  const masterPanel = (
-    <SearchableList<EmployeeRow>
-      items={filtered}
-      isLoading={isLoading}
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      searchPlaceholder="Search employees..."
-      sortOptions={SORT_OPTIONS}
-      currentSort={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedEmployee}
-      onSelectItem={handleSelectItem}
-      emptyMessage="No employees found"
-      renderItem={(emp, isSelected) => (
+  // Whether we're showing a single employee's detail view (selected or
+  // being created) instead of the browse table.
+  const isEmployeeDetailMode = !!selectedEmployee || isCreating;
+
+  // The table sorts by whichever column the user clicks via the grid's own
+  // column-header menu, not a separate "Sort by" control.
+  //
+  // NOTE: the underlying Employee record only links a system user to an
+  // employee_id — it doesn't carry department/designation/branch/status
+  // fields, so those suggested columns aren't available; Username, Email
+  // and "Linked On" (from the linked user profile / record metadata) are
+  // shown instead.
+  const employeeColumns: TDataGridColumn<EmployeeRow>[] = useMemo(
+    () => [
+      { field: "employee_id", header: "Employee Code", width: 150 },
+      { field: "full_name", header: "Name", flex: 1, minWidth: 180 },
+      { field: "username", header: "Username", width: 150 },
+      { field: "email", header: "Email", flex: 1, minWidth: 180 },
+      {
+        field: "created_at",
+        header: "Linked On",
+        width: 140,
+        renderCell: (params: GridRenderCellParams<EmployeeRow>) =>
+          params.row.created_at ? new Date(params.row.created_at).toLocaleDateString() : "-",
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<EmployeeRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectItem(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectItem]
+  );
+
+  // Browse mode: a full-width table of every HR-linked employee.
+  const employeeTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<EmployeeRow>
+          rows={filtered}
+          columns={employeeColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectItem(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No employees found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current employee
+  // (or the "New Employee" placeholder while creating) plus a
+  // "Back to Employees" link that returns to the table.
+  const singleEmployeePanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToEmployees}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Employees
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+              <PersonIcon color="primary" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Employee
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedEmployee && (
         <SelectableListItem
-          key={emp.id}
-          id={emp.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectItem(emp)}
-          primaryText={emp.full_name}
-          secondaryText={`${emp.employee_id}${emp.email ? " • " + emp.email : ""}`}
+          id={selectedEmployee.id}
+          isSelected
+          onClick={() => {}}
+          primaryText={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+                <PersonIcon color="primary" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedEmployee.full_name}</span>
+              </Box>
+            </Box>
+          }
         />
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -281,7 +398,7 @@ export default function EmployeesPage() {
         onNew={handleNew}
         onDelete={handleDelete}
         onSave={handleSave}
-        onCancel={() => baseCancel(filtered)}
+        onCancel={handleCancelEmployee}
         onEdit={handleStartEdit}
       />
 
@@ -351,22 +468,65 @@ export default function EmployeesPage() {
     <>
       <MasterDetailLayout
         title="Employees"
+        titleSlot={
+          isEmployeeDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search employees..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              {searchQuery && (
+                <Tooltip title="Clear search">
+                  <IconButton size="small" onClick={() => setSearchQuery("")}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
+        }
         headerActions={
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={handleExportCSV}
-            disabled={filtered.length === 0}
-            sx={{ mr: 1 }}
-          >
-            Export CSV
-          </Button>
+          isEmployeeDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNew}
+                  sx={{ mr: 1 }}
+                >
+                  Add Employee
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={handleExportCSV}
+                disabled={filtered.length === 0}
+                sx={{ mr: 1 }}
+              >
+                Export CSV
+              </Button>
+            </>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isEmployeeDetailMode
+          ? { masterPanel: singleEmployeePanel, detailPanel }
+          : { children: employeeTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

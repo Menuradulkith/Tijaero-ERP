@@ -36,6 +36,7 @@ class Product(Base, AuditMixin):
     item_code = Column(String(255), unique=True, nullable=False)
     model = Column(String(255))
     item_type = Column(String(30), nullable=False)
+    unit_of_measure = Column(String(20), nullable=False, server_default="pcs")
     description = Column(Text)
     website_active = Column(Boolean, nullable=False)
     website_price = Column(Numeric(60, 2))

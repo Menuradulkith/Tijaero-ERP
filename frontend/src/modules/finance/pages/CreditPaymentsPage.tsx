@@ -6,9 +6,13 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Avatar,
   Box,
+  Button,
   Chip,
   IconButton,
+  InputAdornment,
+  Paper,
   TextField,
   Tooltip,
   Typography,
@@ -16,23 +20,29 @@ import {
 import {
   CreditScore as CreditIcon,
   History as HistoryIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
+  Star as StarIcon,
+  StarBorder as StarOutlineIcon,
+  ArrowBack as ArrowBackIcon,
+  OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
   DetailPanelHeader,
   FormSection,
   EmptyState,
+  SelectableListItem,
   useMasterDetailState,
-  SortOption,
   TDetailSkeleton,
   TBranchFilter,
   TExportButton,
-  TTabFilterBar,
   fmtLKR,
   TActivityHistoryPanel,
+  TDataGrid,
+  type TDataGridColumn,
 } from "@/components/tijaero";
 
 import { creditPaymentsApi } from "@/modules/finance/api";
@@ -43,12 +53,6 @@ interface Branch {
   branch_code: string;
   branch_name: string;
 }
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_date", label: "Date Created" },
-  { value: "amount", label: "Amount" },
-  { value: "due_date", label: "Due Date" },
-];
 
 const INITIAL_FORM_DATA: Partial<CreditPayment> = {
   customer_name: "",
@@ -81,19 +85,15 @@ const getStatusColor = (status: string): "warning" | "success" | "error" | "defa
 };
 
 export default function CreditPaymentsPage() {
-  // Filter state (applied - drives the actual list filtering)
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
-
-  // Filter state (draft - edited via the header filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem,
+    setSelectedItem,
     isCreating,
     favorites,
     toggleFavorite,
@@ -117,21 +117,13 @@ export default function CreditPaymentsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-  }, [draftSearchQuery, draftBranch]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
     setSearchQuery("");
     setFilterBranch(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -154,29 +146,14 @@ export default function CreditPaymentsPage() {
         (p.status || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         String(p.id).includes(searchQuery)
     );
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there).
     filtered.sort((a, b) => {
-      if (sortField === "created_date") {
-        const diff = new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      if (sortField === "due_date") {
-        const diff = new Date(a.due_date || "").getTime() - new Date(b.due_date || "").getTime();
-        return diff !== 0 ? diff : (a.id || 0) - (b.id || 0);
-      }
-      if (sortField === "amount") return Number(b.amount || 0) - Number(a.amount || 0);
-      const fA = a[sortField as keyof CreditPayment] || "";
-      const fB = b[sortField as keyof CreditPayment] || "";
-      const comp = String(fA).localeCompare(String(fB));
-      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
+      const diff = new Date(b.created_date || "").getTime() - new Date(a.created_date || "").getTime();
+      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
     });
     return filtered;
-  }, [payments, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filteredPayments.length > 0 && !selectedItem && !isCreating) {
-      handleSelectItem(filteredPayments[0]);
-    }
-  }, [filteredPayments, selectedItem, isCreating]);
+  }, [payments, searchQuery]);
 
   const handleSelectWithCheck = useCallback(
     async (item: CreditPayment) => {
@@ -185,70 +162,176 @@ export default function CreditPaymentsPage() {
     [handleSelectItem]
   );
 
-  const masterPanel = (
-    <SearchableList<CreditPayment>
-      items={filteredPayments}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedItem}
-      onSelectItem={handleSelectWithCheck}
-      emptyMessage="No credit payments found"
-      renderItem={(pmt, isSelected) => (
+  // Returns to the browse table from the detail view.
+  const handleBackToPayments = useCallback(() => {
+    setSelectedItem(null);
+  }, [setSelectedItem]);
+
+  // Whether we're showing a single payment's detail view instead of the
+  // browse table. This page has no creation flow (read-only), so isCreating
+  // is always false here, but the check is kept for consistency.
+  const isPaymentDetailMode = !!selectedItem || isCreating;
+
+  // ─── Browse Table ──────────────────────────────────────────────────────────
+
+  type CreditPaymentRow = CreditPayment;
+
+  const paymentColumns: TDataGridColumn<CreditPaymentRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<CreditPaymentRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "id",
+        header: "Payment No",
+        width: 140,
+        renderCell: (params: GridRenderCellParams<CreditPaymentRow>) => `Payment #${params.row.id}`,
+      },
+      {
+        field: "customer_name",
+        header: "Payee",
+        flex: 1,
+        minWidth: 170,
+        renderCell: (params: GridRenderCellParams<CreditPaymentRow>) =>
+          params.row.customer_name || `Customer #${params.row.customer_id}`,
+      },
+      {
+        field: "created_date",
+        header: "Date",
+        width: 150,
+        renderCell: (params: GridRenderCellParams<CreditPaymentRow>) =>
+          params.row.created_date ? new Date(params.row.created_date).toLocaleDateString() : "-",
+      },
+      {
+        field: "amount",
+        header: "Amount",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<CreditPaymentRow>) => `Rs. ${fmtLKR(Number(params.row.amount || 0))}`,
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 120,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<CreditPaymentRow>) => (
+          <Chip label={params.row.status || "pending"} size="small" color={getStatusColor(params.row.status)} />
+        ),
+      },
+      {
+        field: "invoice_no",
+        header: "Reference",
+        width: 140,
+        renderCell: (params: GridRenderCellParams<CreditPaymentRow>) => params.row.invoice_no || "-",
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<CreditPaymentRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectWithCheck(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectWithCheck]
+  );
+
+  const paymentTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<CreditPaymentRow>
+          rows={filteredPayments}
+          columns={paymentColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectWithCheck(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No credit payments found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current credit payment,
+  // plus a "Back to Credit Payments" link that returns to the table.
+  const singlePaymentPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToPayments}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Credit Payments
+        </Button>
+      </Box>
+      {selectedItem && (
         <SelectableListItem
-          key={pmt.id}
-          id={pmt.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectWithCheck(pmt)}
+          id={selectedItem.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontWeight: "bold" }}>{pmt.customer_name || `Customer #${pmt.customer_id}`}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Customer)
-                  </Typography>
-                )}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ width: 36, height: 36 }}>
+                <CreditIcon fontSize="small" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{selectedItem.customer_name || `Payment #${selectedItem.id}`}</span>
+                </Box>
               </Box>
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      Rs. {fmtLKR(Number(pmt.amount || 0))}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Amount)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {pmt.invoice_no || "-"}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Invoice No)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {pmt.due_date ? new Date(pmt.due_date).toLocaleDateString() : "-"}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Due Date)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip label={pmt.status || "pending"} size="small" color={getStatusColor(pmt.status)} sx={{ height: 18, fontSize: "0.65rem" }} />
-                    <Chip label={pmt.credit_terms || "N/A"} size="small" sx={{ height: 18, fontSize: "0.65rem" }} />
-                  </Box>
-                </>
-              )}
             </Box>
           }
-          secondaryText={!isSelected ? `Rs. ${fmtLKR(Number(pmt.amount || 0))} - ${pmt.invoice_no || "No Invoice"}` : undefined}
-          isFavorite={favorites.includes(pmt.id)}
-          onToggleFavorite={(e) => toggleFavorite(pmt.id, e)}
-          statusChip={!isSelected ? { label: pmt.status || "pending", color: getStatusColor(pmt.status) } : undefined}
+          isFavorite={favorites.includes(selectedItem.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -367,64 +450,61 @@ export default function CreditPaymentsPage() {
     <MasterDetailLayout
       title="Credit Payments"
       titleSlot={
-        <TTabFilterBar
-          tabs={[
-            {
-              key: "search",
-              label: "Payment",
-              hasValue: !!draftSearchQuery,
-              render: ({ close }) => (
-                <TextField
-                  size="small"
-                  autoFocus
-                  placeholder="Search credit payments..."
-                  value={draftSearchQuery}
-                  onChange={(e) => setDraftSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleApplyFilters();
-                      close();
-                    }
-                  }}
-                  fullWidth
-                />
-              ),
-            },
-            {
-              key: "branch",
-              label: "Branch",
-              hasValue: !!draftBranch,
-              render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
-            },
-          ]}
-          onSearch={handleApplyFilters}
-          onClear={handleClearFilters}
-          clearDisabled={!draftSearchQuery && !draftBranch && !searchQuery && !filterBranch}
-        />
+        isPaymentDetailMode ? undefined : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search credit payments..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+            </Box>
+            {(searchQuery || filterBranch) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+        )
       }
       onRefresh={refetch}
       isLoading={isLoading}
       headerActions={
-        <TExportButton
-          filename={`credit_payments_${new Date().toISOString().split("T")[0]}`}
-          headers={["ID", "Customer", "Invoice No", "Amount", "Credit Terms", "Due Date", "Status", "Created Date"]}
-          rows={() =>
-            filteredPayments.map((p) => [
-              p.id,
-              p.customer_name || `Customer #${p.customer_id ?? ""}`,
-              p.invoice_no || "",
-              Number(p.amount || 0),
-              p.credit_terms || "",
-              p.due_date || "",
-              p.status || "",
-              p.created_date || "",
-            ])
-          }
-          disabled={filteredPayments.length === 0}
-        />
+        isPaymentDetailMode ? undefined : (
+          <TExportButton
+            filename={`credit_payments_${new Date().toISOString().split("T")[0]}`}
+            headers={["ID", "Customer", "Invoice No", "Amount", "Credit Terms", "Due Date", "Status", "Created Date"]}
+            rows={() =>
+              filteredPayments.map((p) => [
+                p.id,
+                p.customer_name || `Customer #${p.customer_id ?? ""}`,
+                p.invoice_no || "",
+                Number(p.amount || 0),
+                p.credit_terms || "",
+                p.due_date || "",
+                p.status || "",
+                p.created_date || "",
+              ])
+            }
+            disabled={filteredPayments.length === 0}
+          />
+        )
       }
-      masterPanel={masterPanel}
-      detailPanel={detailPanel}
+      {...(isPaymentDetailMode
+        ? { masterPanel: singlePaymentPanel, detailPanel }
+        : { children: paymentTablePanel })}
     />
 
     <TActivityHistoryPanel

@@ -9,10 +9,13 @@
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import HistoryIcon from "@mui/icons-material/History";
 import {
+  Avatar,
   Box,
+  Button,
   Chip,
   FormControlLabel,
   IconButton,
+  InputAdornment,
   MenuItem,
   Paper,
   Switch,
@@ -25,8 +28,16 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import AddIcon from "@mui/icons-material/Add";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   ActionToolbar,
@@ -35,20 +46,19 @@ import {
   FormSection,
   handleApiError,
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
   showErrorToast,
   showSuccessToast,
   TSearchableSelect,
-  TTabFilterBar,
   TExportButton,
-  type SortOption,
   TDetailSkeleton,
   useMasterDetailState,
   TConfirmDialog,
   useConfirmDialog,
   useCrudMutation,
   TActivityHistoryPanel,
+  TDataGrid,
+  type TDataGridColumn,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -67,13 +77,6 @@ const ACCOUNT_TYPES: { value: AccountType; label: string; color: "success" | "er
   { value: "Equity", label: "Equity", color: "info" },
   { value: "Revenue", label: "Revenue", color: "primary" },
   { value: "Expense", label: "Expense", color: "warning" },
-];
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "account_code", label: "Account Code" },
-  { value: "account_name", label: "Account Name" },
-  { value: "account_type", label: "Account Type" },
-  { value: "created_at", label: "Creation Date" },
 ];
 
 const STATUS_FILTER_OPTIONS = [
@@ -127,24 +130,19 @@ export default function ChartOfAccountsPage() {
   const [filterType, setFilterType] = useState<string | null>(null);
   const [filterActive, setFilterActive] = useState<string | null>("active");
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftType, setDraftType] = useState<string | null>(null);
-  const [draftActive, setDraftActive] = useState<string | null>("active");
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-
   // ─── Master-Detail State ───────────────────────────────────────────────────
 
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedAccount,
     setSelectedItem: setSelectedAccount,
     isEditing,
     setIsEditing,
     isCreating,
     setIsCreating,
+    favorites,
+    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectAccount,
@@ -167,7 +165,7 @@ export default function ChartOfAccountsPage() {
   });
 
   // Activity History is opened on demand from a detail icon next to the
-  // Record Information section title, rather than shown inline.
+  // Activity History section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
@@ -188,20 +186,11 @@ export default function ChartOfAccountsPage() {
     queryFn: () => chartOfAccountsApi.getAll({ limit: 1000 }),
   });
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterType(draftType);
-    setFilterActive(draftActive);
-  }, [draftSearchQuery, draftType, draftActive]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftType(null);
-    setDraftActive(null);
     setSearchQuery("");
     setFilterType(null);
     setFilterActive(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Filter & Sort ─────────────────────────────────────────────────────────
 
@@ -216,31 +205,37 @@ export default function ChartOfAccountsPage() {
           a.account_category?.toLowerCase().includes(q)
       );
     }
-    filtered.sort((a, b) => {
-      if (sortField === "account_name")
-        return a.account_name.localeCompare(b.account_name);
-      if (sortField === "account_type")
-        return a.account_type.localeCompare(b.account_type);
-      if (sortField === "created_at")
-        return (b.created_at ? new Date(b.created_at).getTime() : 0) -
-          (a.created_at ? new Date(a.created_at).getTime() : 0);
-      return a.account_code.localeCompare(b.account_code);
-    });
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there).
+    filtered.sort((a, b) => a.account_code.localeCompare(b.account_code));
     return filtered;
-  }, [accounts, searchQuery, sortField]);
+  }, [accounts, searchQuery]);
 
-  useEffect(() => {
-    if (filteredAccounts.length > 0 && !selectedAccount && !isCreating) {
-      handleSelectAccount(filteredAccounts[0]);
+  // Cancelling out of "New Account" should return to the browse table, not
+  // auto-open the first account the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing
+  // account still just reverts its form, which the generic handler already
+  // does correctly.
+  const handleCancelAccount = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedAccount(null);
+    } else {
+      handleCancelBase(filteredAccounts);
     }
-  }, [filteredAccounts, selectedAccount, isCreating]);
+  }, [isCreating, filteredAccounts, handleCancelBase, setIsCreating, setIsEditing, setSelectedAccount]);
 
-  const handleCancel = useCallback(
-    (items: ChartOfAccount[]) => {
-      handleCancelBase(items);
-    },
-    [handleCancelBase]
-  );
+  // Returns to the browse table from the detail view (the "Back to Chart of
+  // Accounts" link above the detail header).
+  const handleBackToAccounts = useCallback(() => {
+    setSelectedAccount(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedAccount, setIsCreating, setIsEditing]);
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
@@ -336,85 +331,186 @@ export default function ChartOfAccountsPage() {
     ? allAccounts.filter((a) => a.parent_account_id === selectedAccount.id)
     : [];
 
-  // ─── Master Panel ──────────────────────────────────────────────────────────
+  // Whether we're showing a single account's detail view (selected or being
+  // created) instead of the browse table.
+  const isAccountDetailMode = !!selectedAccount || isCreating;
 
-  const masterPanel = (
-    <SearchableList<ChartOfAccount>
-      items={filteredAccounts}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedAccount}
-      onSelectItem={handleSelectAccount}
-      emptyMessage="No accounts found"
-      renderItem={(account: ChartOfAccount, isSelected: boolean) => {
-        const typeColor = getTypeColor(account.account_type);
-        return (
-          <SelectableListItem
-            key={account.id}
-            id={account.id}
-            isSelected={isSelected}
-            onClick={() => handleSelectAccount(account)}
-            primaryText={
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{account.account_code}</span>
-                  {isSelected && (
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Account Code)
-                    </Typography>
-                  )}
-                </Box>
-                {isSelected && (
-                  <>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {account.account_name}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Name)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {account.account_category || "N/A"}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Category)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                      <Chip
-                        label={account.account_type}
-                        size="small"
-                        color={typeColor}
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                      <Chip
-                        label={account.is_active ? "Active" : "Inactive"}
-                        size="small"
-                        color={account.is_active ? "success" : "default"}
-                        variant="outlined"
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                    </Box>
-                  </>
-                )}
-              </Box>
-            }
-            secondaryText={!isSelected ? account.account_name : undefined}
-            statusChip={!isSelected ? { label: account.account_type, color: typeColor } : undefined}
+  // ─── Browse Table ──────────────────────────────────────────────────────────
+
+  // The table sorts by whichever column the user clicks; the Parent Account
+  // column displays a looked-up name rather than the raw parent_account_id,
+  // so it needs that name as its own field for the grid to sort on correctly.
+  type AccountRow = ChartOfAccount & { parent_account_name: string };
+
+  const accountRows: AccountRow[] = useMemo(
+    () =>
+      filteredAccounts.map((account) => ({
+        ...account,
+        parent_account_name: account.parent_account_id
+          ? (() => {
+              const parent = allAccounts.find((a) => a.id === account.parent_account_id);
+              return parent ? `${parent.account_code} - ${parent.account_name}` : "-";
+            })()
+          : "-",
+      })),
+    [filteredAccounts, allAccounts]
+  );
+
+  const accountColumns: TDataGridColumn<AccountRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<AccountRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      { field: "account_code", header: "Account Code", width: 140 },
+      { field: "account_name", header: "Account Name", flex: 1, minWidth: 200 },
+      {
+        field: "account_type",
+        header: "Type",
+        width: 120,
+        renderCell: (params: GridRenderCellParams<AccountRow>) => (
+          <Chip label={params.row.account_type} size="small" color={getTypeColor(params.row.account_type)} />
+        ),
+      },
+      { field: "account_category", header: "Category", width: 160 },
+      { field: "parent_account_name", header: "Parent Account", width: 200 },
+      {
+        field: "is_active",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<AccountRow>) => (
+          <Chip
+            label={params.row.is_active ? "Active" : "Inactive"}
+            size="small"
+            color={params.row.is_active ? "success" : "default"}
           />
-        );
-      }}
-    />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<AccountRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectAccount(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectAccount]
+  );
+
+  // Browse mode: a full-width table of every account (shown when nothing is
+  // selected and nothing is being created). Sorting is done per-column via
+  // the grid's own column header menu, not a separate "Sort by" control.
+  const accountTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<AccountRow>
+          rows={accountRows}
+          columns={accountColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectAccount(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No accounts found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
   );
 
   // ─── Detail Panel ──────────────────────────────────────────────────────────
+
+  // Detail mode: a narrow left panel showing only the current account (or the
+  // "New Account" placeholder while creating) plus a "Back to Chart of
+  // Accounts" link that returns to the table.
+  const singleAccountPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToAccounts}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Chart of Accounts
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ width: 40, height: 40 }}>
+              <AccountTreeIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Account
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedAccount && (
+        <SelectableListItem
+          id={selectedAccount.id}
+          isSelected
+          onClick={() => {}}
+          primaryText={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ width: 36, height: 36 }}>
+                <AccountTreeIcon fontSize="small" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{`${selectedAccount.account_code} - ${selectedAccount.account_name}`}</span>
+                </Box>
+              </Box>
+            </Box>
+          }
+          isFavorite={favorites.includes(selectedAccount.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedAccount.id, e)}
+        />
+      )}
+    </Paper>
+  );
 
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -449,7 +545,7 @@ export default function ChartOfAccountsPage() {
         isFormValid={isFormValid}
         onNew={handleNew}
         onSave={handleSave}
-        onCancel={() => handleCancel(filteredAccounts)}
+        onCancel={handleCancelAccount}
         onEdit={canEdit ? handleStartEdit : undefined}
         onDelete={canDelete ? handleDelete : undefined}
         canDelete={canDelete || false}
@@ -586,7 +682,7 @@ export default function ChartOfAccountsPage() {
             {/* Child Accounts (view mode only) */}
             {!isEditing && !isCreating && childAccounts.length > 0 && (
               <FormSection title={`Sub-Accounts (${childAccounts.length})`} columns={1}>
-                <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+                <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
                   <Table size="small">
                     <TableHead>
                       <TableRow sx={{ bgcolor: "action.hover" }}>
@@ -624,10 +720,10 @@ export default function ChartOfAccountsPage() {
               </FormSection>
             )}
 
-            {/* Record Information (view mode only) */}
+            {/* Activity History (view mode only) */}
             {selectedAccount && !isCreating && !isEditing && (
               <FormSection
-                title="Record Information"
+                title="Activity History"
                 columns={2}
                 titleAction={
                   <Tooltip title="View activity history">
@@ -667,127 +763,120 @@ export default function ChartOfAccountsPage() {
         title="Chart of Accounts"
         icon={<AccountTreeIcon color="primary" />}
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search accounts..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "type",
-                label: "Account Type",
-                hasValue: !!draftType,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftType}
-                    onChange={(val) => setDraftType(val as string | null)}
-                    options={ACCOUNT_TYPES.map((t) => ({
-                      value: t.value,
-                      label: t.label,
-                      color: t.color,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Types"
-                    placeholder="Search types..."
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftActive,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftActive}
-                    onChange={(val) => setDraftActive(val as string | null)}
-                    options={STATUS_FILTER_OPTIONS.map((s) => ({
-                      value: s.value,
-                      label: s.label,
-                      color: s.color,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Statuses"
-                    placeholder="Search status..."
-                    size="small"
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftType && !draftActive && !searchQuery && !filterType && !filterActive}
-          />
+          isAccountDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search accounts..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TSearchableSelect
+                  label=""
+                  value={filterType}
+                  onChange={(val) => setFilterType(val as string | null)}
+                  options={ACCOUNT_TYPES.map((t) => ({
+                    value: t.value,
+                    label: t.label,
+                    color: t.color,
+                  }))}
+                  showAllOption
+                  allOptionLabel="All Types"
+                  placeholder="Search types..."
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TSearchableSelect
+                  label=""
+                  value={filterActive}
+                  onChange={(val) => setFilterActive(val as string | null)}
+                  options={STATUS_FILTER_OPTIONS.map((s) => ({
+                    value: s.value,
+                    label: s.label,
+                    color: s.color,
+                  }))}
+                  showAllOption
+                  allOptionLabel="All Statuses"
+                  placeholder="Search status..."
+                  size="small"
+                />
+              </Box>
+              {(searchQuery || filterType || filterActive) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
         headerActions={
-          <>
-            {accounts.length === 0 && (
-              <button
-                onClick={() => seedMutation.mutate()}
-                disabled={seedMutation.isPending}
-                style={{
-                  padding: "6px 12px",
-                  background: "#9c27b0",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  fontSize: "0.8125rem",
-                  marginRight: 8,
-                }}
-              >
-                {seedMutation.isPending ? "Seeding..." : "Seed Standard COA"}
-              </button>
-            )}
-            <TExportButton
-              filename="chart_of_accounts"
-              headers={[
-                "Account Code",
-                "Account Name",
-                "Type",
-                "Category",
-                "Normal Balance",
-                "System Account",
-                "Active",
-              ]}
-              rows={() =>
-                filteredAccounts.map((a) => [
-                  a.account_code || "",
-                  a.account_name || "",
-                  a.account_type || "",
-                  a.account_category || "",
-                  a.normal_balance || "",
-                  a.is_system_account ? "Yes" : "No",
-                  a.is_active ? "Yes" : "No",
-                ])
-              }
-              disabled={filteredAccounts.length === 0}
-            />
-          </>
+          isAccountDetailMode ? undefined : (
+            <>
+              <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
+                Add Account
+              </Button>
+              {accounts.length === 0 && (
+                <button
+                  onClick={() => seedMutation.mutate()}
+                  disabled={seedMutation.isPending}
+                  style={{
+                    padding: "6px 12px",
+                    background: "#9c27b0",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontSize: "0.8125rem",
+                    marginRight: 8,
+                  }}
+                >
+                  {seedMutation.isPending ? "Seeding..." : "Seed Standard COA"}
+                </button>
+              )}
+              <TExportButton
+                filename="chart_of_accounts"
+                headers={[
+                  "Account Code",
+                  "Account Name",
+                  "Type",
+                  "Category",
+                  "Normal Balance",
+                  "System Account",
+                  "Active",
+                ]}
+                rows={() =>
+                  filteredAccounts.map((a) => [
+                    a.account_code || "",
+                    a.account_name || "",
+                    a.account_type || "",
+                    a.account_category || "",
+                    a.normal_balance || "",
+                    a.is_system_account ? "Yes" : "No",
+                    a.is_active ? "Yes" : "No",
+                  ])
+                }
+                disabled={filteredAccounts.length === 0}
+              />
+            </>
+          )
         }
+        {...(isAccountDetailMode
+          ? { masterPanel: singleAccountPanel, detailPanel }
+          : { children: accountTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
       <TActivityHistoryPanel

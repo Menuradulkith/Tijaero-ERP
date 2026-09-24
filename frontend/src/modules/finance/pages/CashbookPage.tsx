@@ -523,7 +523,7 @@ export default function CashbookPage() {
         </Card>
       </Box>
 
-      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+      <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
         <Box
           sx={{
             px: 2,

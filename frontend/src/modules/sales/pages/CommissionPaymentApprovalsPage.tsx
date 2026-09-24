@@ -12,10 +12,14 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import PersonIcon from "@mui/icons-material/Person";
 import VerifiedIcon from "@mui/icons-material/Verified";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 import {
   Box,
   Button,
   Chip,
+  IconButton,
+  InputAdornment,
   MenuItem,
   Paper,
   Table,
@@ -24,6 +28,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
@@ -44,7 +49,6 @@ import {
   TConfirmDialog,
   TDetailSkeleton,
   TStatusChip,
-  TTabFilterBar,
   modernTableStyles,
   useCrudMutation,
   useTConfirmDialog,
@@ -88,29 +92,15 @@ export default function CommissionPaymentApprovalsPage() {
   const [filterAgentId, setFilterAgentId] = useState<number | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithAgent | null>(null);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftStatus, setDraftStatus] = useState<string | null>("pending");
-  const [draftAgentId, setDraftAgentId] = useState<number | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-
   // Confirm dialogs
   const verifyDialog = useTConfirmDialog();
   const cancelDialog = useTConfirmDialog();
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterAgentId(draftAgentId);
-  }, [draftSearchQuery, draftStatus, draftAgentId]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftAgentId(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterAgentId(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
@@ -679,80 +669,61 @@ export default function CommissionPaymentApprovalsPage() {
         title="Commission Approvals"
         icon={<FactCheckIcon color="primary" />}
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search by payment no, agent..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search by payment no, agent..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TextField
-                    select
-                    size="small"
-                    fullWidth
-                    label="Status"
-                    value={draftStatus || ""}
-                    onChange={(e) => setDraftStatus(e.target.value || null)}
-                  >
-                    <MenuItem value="">All Statuses</MenuItem>
-                    {STATUS_FILTER_OPTIONS.map((opt) => (
-                      <MenuItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                ),
-              },
-              {
-                key: "agent",
-                label: "Agent",
-                hasValue: !!draftAgentId,
-                render: () => (
-                  <TextField
-                    select
-                    size="small"
-                    fullWidth
-                    label="Filter by Agent"
-                    value={draftAgentId || ""}
-                    onChange={(e) =>
-                      setDraftAgentId(e.target.value ? Number(e.target.value) : null)
-                    }
-                  >
-                    <MenuItem value="">All Agents</MenuItem>
-                    {agents.map((agent: any) => (
-                      <MenuItem key={agent.id} value={agent.id}>
-                        {agent.customer_name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !draftAgentId && !searchQuery && !filterStatus && !filterAgentId}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <TextField
+              select
+              size="small"
+              label="Status"
+              value={filterStatus || ""}
+              onChange={(e) => setFilterStatus(e.target.value || null)}
+              sx={{ width: 150, flexShrink: 0 }}
+            >
+              <MenuItem value="">All Statuses</MenuItem>
+              {STATUS_FILTER_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="Filter by Agent"
+              value={filterAgentId || ""}
+              onChange={(e) =>
+                setFilterAgentId(e.target.value ? Number(e.target.value) : null)
+              }
+              sx={{ width: 180, flexShrink: 0 }}
+            >
+              <MenuItem value="">All Agents</MenuItem>
+              {agents.map((agent: any) => (
+                <MenuItem key={agent.id} value={agent.id}>
+                  {agent.customer_name}
+                </MenuItem>
+              ))}
+            </TextField>
+            {(searchQuery || filterStatus || filterAgentId) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         }
         onRefresh={refetch}
         isLoading={isLoading}

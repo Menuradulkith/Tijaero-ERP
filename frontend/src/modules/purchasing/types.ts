@@ -120,7 +120,6 @@ export interface SupplierProduct {
   product_id: number;
   supplier_sku?: string;
   cost_price: number;
-  lead_time_days?: number;
   minimum_order_qty?: number;
   is_preferred: boolean;
   active: boolean;
@@ -135,7 +134,6 @@ export interface SupplierProductCreate {
   product_id: number;
   supplier_sku?: string;
   cost_price: number;
-  lead_time_days?: number;
   minimum_order_qty?: number;
   is_preferred?: boolean;
   active?: boolean;

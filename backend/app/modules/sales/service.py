@@ -10,7 +10,7 @@ from app.modules.finance.gl_posting_service import record_gl_commit_failure
 from app.modules.customers.credit_service import CustomerCreditService
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.core import timezone as tz
-from app.common.audit import log_audit
+from app.common.audit import log_audit, diff_changes
 from app.common.enums import DocumentStatus, PaymentStatus, StockStatus
 from decimal import Decimal
 from datetime import datetime, date, timedelta
@@ -1761,6 +1761,7 @@ class SalesService:
         
         # Block manual approval via update_invoice - must use Approval Dashboard
         update_data = invoice_data.model_dump(exclude_unset=True, exclude={'items'})
+        before_header_values = {field: getattr(invoice, field, None) for field in update_data}
         if update_data.get('approval_status') == DocumentStatus.COMPLETED and invoice.approval_status == DocumentStatus.PENDING_APPROVAL:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1876,13 +1877,17 @@ class SalesService:
             db.flush()
             self._recompute_invoice_totals(db, invoice)
 
+        changes = diff_changes(before_header_values, update_data)
+        if invoice_data.items is not None:
+            changes.setdefault("fields", [])
+            changes["fields"] = sorted(set(changes["fields"]) | {"items"})
         log_audit(
             db,
             user_id=user_id or 0,
             action="update",
             entity_type="sales_order",
             entity_id=invoice.id,
-            changes={"fields": sorted(changed_header_fields)},
+            changes=changes or {"fields": sorted(changed_header_fields)},
         )
 
         db.commit()

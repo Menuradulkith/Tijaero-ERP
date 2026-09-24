@@ -10,12 +10,23 @@
 
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
+  Avatar,
   Box,
   Button,
+  IconButton,
   InputAdornment,
   MenuItem,
   TextField,
+  Tooltip,
   Typography,
   Table,
   TableBody,
@@ -37,20 +48,19 @@ import {
   FormSection,
   handleApiError,
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
   showErrorToast,
   showSuccessToast,
-  SortOption,
+  TDataGrid,
+  type TDataGridColumn,
   TDetailSkeleton,
   TConfirmDialog,
   TPrintButton,
   TPrintPreviewDialog,
-  TTabFilterBar,
   useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
   modernTableStyles,
+  SelectableListItem,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { exportToCSV } from "@/utils/csvExport";
@@ -63,14 +73,6 @@ import { vouchersApi } from "@/modules/customers/api";
 import { CustomerGiftVoucher, CustomerGiftVoucherCreate, VoucherUsage } from "@/modules/customers/types";
 
 // Configuration
-const SORT_OPTIONS: SortOption[] = [
-  { value: "barcode_no", label: "Voucher Code" },
-  { value: "date", label: "Issue Date" },
-  { value: "amount", label: "Amount" },
-  { value: "balance", label: "Balance" },
-  { value: "created_at", label: "Creation Date" },
-];
-
 const STATUS_OPTIONS = [
   { value: "", label: "All Statuses" },
   { value: "active", label: "Active" },
@@ -133,19 +135,14 @@ export default function VouchersPage() {
   const canUpdate = usePermission("customers", "update");
   const canDelete = usePermission("customers", "delete");
 
-  // Filter states (applied - drives the actual list filtering)
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterStatus, setFilterStatus] = useState<string>("");
-
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftStatus, setDraftStatus] = useState<string>("");
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Use reusable state hook
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedVoucher,
     setSelectedItem: setSelectedVoucher,
     isEditing,
@@ -167,17 +164,10 @@ export default function VouchersPage() {
     defaultSortField: "barcode_no",
   });
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-  }, [draftSearchQuery, draftStatus]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus("");
     setSearchQuery("");
     setFilterStatus("");
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Data fetching
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
@@ -217,30 +207,30 @@ export default function VouchersPage() {
       filtered = filtered.filter((voucher) => getVoucherStatus(voucher) === filterStatus);
     }
 
-    filtered.sort((a, b) => {
-      if (sortField === "barcode_no") {
-        return a.barcode_no.localeCompare(b.barcode_no);
-      } else if (sortField === "date") {
-        return new Date(b.date).getTime() - new Date(a.date).getTime();
-      } else if (sortField === "amount") {
-        return b.amount - a.amount;
-      } else if (sortField === "balance") {
-        return b.balance - a.balance;
-      } else if (sortField === "created_at") {
-        return (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0);
-      }
-      return 0;
-    });
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
+    filtered.sort((a, b) => a.barcode_no.localeCompare(b.barcode_no));
 
     return filtered;
-  }, [vouchers, searchQuery, sortField, filterStatus]);
+  }, [vouchers, searchQuery, filterStatus]);
 
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredVouchers.length > 0 && !selectedVoucher && !isCreating) {
-      handleSelectVoucher(filteredVouchers[0]);
-    }
-  }, [filteredVouchers, selectedVoucher, isCreating]);
+  // The table sorts by whichever column the user clicks; Expiry and Status
+  // are computed rather than raw fields, so they need their own values on
+  // the row for the grid to sort/display correctly.
+  type VoucherRow = CustomerGiftVoucher & {
+    voucher_status: string;
+    expiry_date: string;
+  };
+
+  const voucherRows: VoucherRow[] = useMemo(
+    () =>
+      filteredVouchers.map((voucher) => ({
+        ...voucher,
+        voucher_status: getVoucherStatus(voucher),
+        expiry_date: calculateExpiryDate(voucher.date, voucher.valid_period_in_months).toISOString(),
+      })),
+    [filteredVouchers]
+  );
 
   // Mutations
   const createMutation = useCrudMutation({
@@ -401,87 +391,218 @@ export default function VouchersPage() {
     (!isCreating || (formData.branch_code && formData.branch_code.trim() !== ""));
   const isDisabled = !isEditing && !isCreating;
 
-  // Master Panel
-  const masterPanel = (
-    <SearchableList<CustomerGiftVoucher>
-      items={filteredVouchers}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedVoucher}
-      onSelectItem={handleSelectVoucher}
-      emptyMessage="No vouchers found"
-      renderItem={(voucher: CustomerGiftVoucher, isSelected: boolean) => {
-        const status = getVoucherStatus(voucher);
-        const expiryDate = calculateExpiryDate(voucher.date, voucher.valid_period_in_months);
-        
-        return (
-          <SelectableListItem
-            key={voucher.id}
-            isSelected={isSelected}
-            onClick={() => handleSelectVoucher(voucher)}
-            isFavorite={favorites.includes(voucher.id)}
-            onToggleFavorite={() => toggleFavorite(voucher.id)}
-            primaryText={
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-                {/* Voucher Code */}
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{voucher.barcode_no}</span>
-                  {isSelected && (
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Voucher Code)
-                    </Typography>
-                  )}
-                </Box>
-                {/* Amount */}
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <Typography
-                    component="span"
-                    variant="caption"
-                    fontWeight={600}
-                    sx={{ color: isSelected ? "common.white" : "text.primary" }}
-                  >
-                    Rs. {fmtLKR(voucher.amount)}
-                  </Typography>
-                  {isSelected && (
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Discount)
-                    </Typography>
-                  )}
-                </Box>
-                {/* Additional details - only when selected */}
-                {isSelected && (
-                  <>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {format(expiryDate, "dd/MM/yyyy")}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Expires)
-                      </Typography>
-                    </Box>
-                    {/* Status Chip - shown below all fields when selected */}
-                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                      <Chip
-                        label={status === "expiring_soon" ? "Expiring Soon" : status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ")}
-                        size="small"
-                        color={getStatusColor(status)}
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                    </Box>
-                  </>
-                )}
-              </Box>
-            }
-            secondaryText={!isSelected ? `${format(expiryDate, "dd/MM/yyyy")}${voucher.purchased_invoice_no ? ` • ${voucher.purchased_invoice_no}` : ''}` : undefined}
-          />
-        );
+  // The Favorite star column plus real-data columns — sorting is done via
+  // the grid's own column header menu, not a separate "Sort by" control.
+  const voucherColumns: TDataGridColumn<VoucherRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<VoucherRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      { field: "barcode_no", header: "Voucher Code", flex: 1, minWidth: 160 },
+      {
+        field: "purchased_invoice_no",
+        header: "Linked Invoice",
+        width: 150,
+        renderCell: (params: GridRenderCellParams<VoucherRow>) =>
+          params.row.purchased_invoice_no || "-",
+      },
+      {
+        field: "amount",
+        header: "Value",
+        width: 130,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<VoucherRow>) =>
+          `Rs. ${fmtLKR(params.row.amount)}`,
+      },
+      {
+        field: "balance",
+        header: "Balance",
+        width: 130,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<VoucherRow>) =>
+          `Rs. ${fmtLKR(params.row.balance)}`,
+      },
+      {
+        field: "date",
+        header: "Issue Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<VoucherRow>) =>
+          format(new Date(params.row.date), "dd/MM/yyyy"),
+      },
+      {
+        field: "expiry_date",
+        header: "Expiry",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<VoucherRow>) =>
+          format(new Date(params.row.expiry_date), "dd/MM/yyyy"),
+      },
+      {
+        field: "voucher_status",
+        header: "Status",
+        width: 140,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<VoucherRow>) => {
+          const status = params.row.voucher_status;
+          return (
+            <Chip
+              label={status === "expiring_soon" ? "Expiring Soon" : status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ")}
+              size="small"
+              color={getStatusColor(status)}
+            />
+          );
+        },
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<VoucherRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectVoucher(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectVoucher] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // Whether we're showing a single voucher's detail view (selected or being
+  // created) instead of the browse table.
+  const isVoucherDetailMode = !!selectedVoucher || isCreating;
+
+  // Returns to the browse table from the detail view (the "Back to
+  // Vouchers" link above the detail content's breadcrumbs).
+  const handleBackToVouchers = useCallback(() => {
+    setSelectedVoucher(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedVoucher, setIsCreating, setIsEditing]);
+
+  // Cancelling out of "New Voucher" should return to the browse table, not
+  // auto-open the first voucher the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing
+  // voucher still just reverts its form, which the generic handler already
+  // does correctly.
+  const handleCancelVoucher = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedVoucher(null);
+    } else {
+      baseHandleCancel(filteredVouchers);
+    }
+  }, [isCreating, filteredVouchers, baseHandleCancel, setIsCreating, setIsEditing, setSelectedVoucher]);
+
+  // Browse mode: a full-width table of every voucher (shown when nothing is
+  // selected and nothing is being created).
+  const vouchersTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<VoucherRow>
+          rows={voucherRows}
+          columns={voucherColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectVoucher(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No vouchers found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current voucher (or
+  // the "New Voucher" placeholder while creating), with a "Back to
+  // Vouchers" link returning to the table.
+  const singleVoucherPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
       }}
-    />
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToVouchers}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Vouchers
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main" }}>
+              <ReceiptIcon />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Voucher
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedVoucher && (
+        <SelectableListItem
+          id={selectedVoucher.id}
+          isSelected
+          onClick={() => {}}
+          primaryText={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "primary.main" }}>
+                <ReceiptIcon />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedVoucher.barcode_no}</span>
+              </Box>
+            </Box>
+          }
+          isFavorite={favorites.includes(selectedVoucher.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedVoucher.id, e)}
+        />
+      )}
+    </Paper>
   );
 
   // Detail Panel
@@ -517,7 +638,7 @@ export default function VouchersPage() {
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
         onSave={handleSave}
-        onCancel={() => baseHandleCancel(filteredVouchers)}
+        onCancel={handleCancelVoucher}
         onEdit={handleStartEdit}
         endActions={
           selectedVoucher && !isCreating && !isEditing ? (
@@ -732,9 +853,9 @@ export default function VouchersPage() {
               </Paper>
             )}
 
-            {/* Record Information (view mode only) */}
+            {/* Activity History (view mode only) */}
             {selectedVoucher && !isCreating && !isEditing && (
-              <FormSection title="Record Information" columns={2}>
+              <FormSection title="Activity History" columns={2}>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Created</Typography>
                   <Typography variant="body2">{formatDateTimeReadable(selectedVoucher.created_at) || "-"}</Typography>
@@ -752,71 +873,77 @@ export default function VouchersPage() {
       <MasterDetailLayout
         title="Gift Vouchers"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search by voucher code or invoice..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TextField
-                    select
-                    size="small"
-                    value={draftStatus}
-                    onChange={(e) => setDraftStatus(e.target.value)}
-                    fullWidth
-                  >
-                    {STATUS_OPTIONS.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !searchQuery && !filterStatus}
-          />
+          isVoucherDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search by voucher code or invoice..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <TextField
+                select
+                size="small"
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                sx={{ width: 170, flexShrink: 0 }}
+              >
+                {STATUS_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              {(searchQuery || filterStatus) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         headerActions={
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={handleExportCSV}
-            disabled={filteredVouchers.length === 0}
-            sx={{ mr: 1 }}
-          >
-            Export CSV
-          </Button>
+          isVoucherDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNewVoucher}
+                  sx={{ mr: 1 }}
+                >
+                  Add Voucher
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={handleExportCSV}
+                disabled={filteredVouchers.length === 0}
+                sx={{ mr: 1 }}
+              >
+                Export CSV
+              </Button>
+            </>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isVoucherDetailMode
+          ? { masterPanel: singleVoucherPanel, detailPanel }
+          : { children: vouchersTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 

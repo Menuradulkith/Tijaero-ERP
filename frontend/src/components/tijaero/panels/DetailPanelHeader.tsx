@@ -49,8 +49,9 @@ export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
       sx={{
         px: 1.5,
         py: 1,
-        borderBottom: 1,
+        border: 1,
         borderColor: "divider",
+        borderRadius: "12px",
         bgcolor: "grey.50",
         ...sx,
       }}

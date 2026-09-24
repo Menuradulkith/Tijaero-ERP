@@ -1,5 +1,3 @@
-/* Global styles for required fields */
-
 /* Optimize for laptop screens - tighter spacing */
 * {
   box-sizing: border-box;
@@ -30,53 +28,12 @@ html, body, #root {
   background: rgba(0, 0, 0, 0.3);
 }
 
-/* Apply light red background to all required form inputs */
-input[required],
-textarea[required],
-select[required],
-.MuiInputBase-root.Mui-required,
-.MuiOutlinedInput-root.Mui-required,
-.MuiFilledInput-root.Mui-required,
-.MuiTextField-root.Mui-required .MuiInputBase-root {
-  background-color: rgba(255, 235, 238, 0.4) !important;
-}
-
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-  input[required],
-  textarea[required],
-  select[required],
-  .MuiInputBase-root.Mui-required,
-  .MuiOutlinedInput-root.Mui-required,
-  .MuiFilledInput-root.Mui-required,
-  .MuiTextField-root.Mui-required .MuiInputBase-root {
-    background-color: rgba(211, 47, 47, 0.08) !important;
-  }
-}
-
-/* Ensure focused required fields maintain visibility */
-input[required]:focus,
-textarea[required]:focus,
-select[required]:focus {
-  background-color: rgba(255, 235, 238, 0.5) !important;
-}
-
-/* Override for disabled required fields to not show the red background */
-input[required]:disabled,
-textarea[required]:disabled,
-select[required]:disabled,
-.MuiInputBase-root.Mui-required.Mui-disabled {
-  background-color: rgba(0, 0, 0, 0.12) !important;
-}
-
-/* MUI Autocomplete required fields */
-.MuiAutocomplete-root .MuiInputBase-root.Mui-required,
-.MuiAutocomplete-inputRoot[required] {
-  background-color: rgba(255, 235, 238, 0.4) !important;
-}
-
-/* React Hook Form integration - apply to fields with validation rules */
-.MuiTextField-root[data-required="true"] .MuiInputBase-root,
-.MuiFormControl-root[data-required="true"] .MuiInputBase-root {
-  background-color: rgba(255, 235, 238, 0.4) !important;
-}
+/* Required-field background tinting (red normally, grey when also disabled)
+ * lives in styles/theme.ts (MuiTextField/MuiOutlinedInput/MuiFilledInput/
+ * MuiAutocomplete styleOverrides) — not here. That version targets only the
+ * radius-inheriting .MuiInputBase-root/.MuiOutlinedInput-root, never the raw
+ * <input>/<textarea>/<select> elements, which don't inherit border-radius
+ * and show a square-cornered patch poking out past the field's rounded
+ * outline. It's also theme-mode aware (isLight), unlike a
+ * prefers-color-scheme media query, so it follows the app's own light/dark
+ * toggle rather than the OS setting. */

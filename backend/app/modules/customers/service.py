@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from datetime import datetime, date
 from decimal import Decimal
 from app.core import timezone as tz
-from app.common.audit import log_audit
+from app.common.audit import log_audit, diff_changes
 from app.modules.customers import repository, schemas
 from app.modules.customers.models import Customer, CustomerCuponCodes, CouponUsage, CustomerGiftVoucher, VoucherUsage
 from app.modules.products.models import Product
@@ -85,18 +85,15 @@ class CustomerService:
                 detail=f"Customer with id {customer_id} not found"
             )
 
-        changed_fields = {
-            field for field, new_value in submitted_fields.items()
-            if before_values.get(field) != new_value
-        }
-        if changed_fields:
+        changes = diff_changes(before_values, submitted_fields)
+        if changes:
             log_audit(
                 db,
                 user_id=user_id or 0,
                 action="update",
                 entity_type="customer",
                 entity_id=updated_customer.id,
-                changes={"fields": sorted(changed_fields)},
+                changes=changes,
             )
             db.commit()
 

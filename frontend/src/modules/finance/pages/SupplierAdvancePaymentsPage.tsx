@@ -9,6 +9,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Autocomplete,
+  Avatar,
   Box,
   Button,
   Chip,
@@ -20,6 +21,7 @@ import {
   IconButton,
   InputAdornment,
   MenuItem,
+  Paper,
   TextField,
   Tooltip,
   Typography,
@@ -29,32 +31,39 @@ import {
   CheckCircle as CheckCircleIcon,
   History as HistoryIcon,
   Undo as UndoIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
+  Add as AddIcon,
+  ArrowBack as ArrowBackIcon,
+  Star as StarIcon,
+  StarBorder as StarOutlineIcon,
+  OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
   DetailPanelHeader,
   ActionToolbar,
   FormSection,
   EmptyState,
+  SelectableListItem,
   handleApiError,
   useMasterDetailState,
   showErrorToast,
   showSuccessToast,
-  SortOption,
   TDetailSkeleton,
   TExportButton,
   TBranchFilter,
   TSupplierFilter,
-  TTabFilterBar,
   GENERIC_PAYMENT_METHOD,
   TConfirmDialog,
   useConfirmDialog,
   useCrudMutation,
   fmtLKR,
   TActivityHistoryPanel,
+  TDataGrid,
+  type TDataGridColumn,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
@@ -84,12 +93,6 @@ interface EligibleAdvancePOOption {
   branch_code: string;
   remaining_amount: number;
 }
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "created_at", label: "Date" },
-  { value: "advance_no", label: "Advance No" },
-  { value: "original_amount", label: "Amount" },
-];
 
 const INITIAL_FORM_DATA: Partial<SupplierAdvancePaymentCreate> = {
   supplier_id: 0,
@@ -139,16 +142,9 @@ export default function SupplierAdvancePaymentsPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftSupplier, setDraftSupplier] = useState<number | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem,
     setSelectedItem,
     isEditing,
@@ -189,24 +185,14 @@ export default function SupplierAdvancePaymentsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-    setFilterSupplier(draftSupplier);
-  }, [draftSearchQuery, draftBranch, draftSupplier]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
-    setDraftSupplier(null);
     setSearchQuery("");
     setFilterBranch(null);
     setFilterSupplier(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -304,31 +290,15 @@ export default function SupplierAdvancePaymentsPage() {
         String(adv.id).includes(searchQuery)
     );
 
-    // Sort
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there) — newest first.
     filtered.sort((a, b) => {
-      if (sortField === "created_at") {
-        const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      if (sortField === "original_amount") {
-        const diff = Number(b.original_amount || 0) - Number(a.original_amount || 0);
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      const fieldA = a[sortField as keyof SupplierAdvancePayment] || "";
-      const fieldB = b[sortField as keyof SupplierAdvancePayment] || "";
-      const comp = String(fieldA).localeCompare(String(fieldB));
-      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
+      const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
+      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;
-  }, [advances, searchQuery, sortField]);
-
-  // Auto-select first item
-  useEffect(() => {
-    if (filteredAdvances.length > 0 && !selectedItem && !isCreating) {
-      handleSelectItem(filteredAdvances[0]);
-    }
-  }, [filteredAdvances, selectedItem, isCreating]);
+  }, [advances, searchQuery]);
 
   // Mutations
   const createMutation = useCrudMutation({
@@ -507,104 +477,216 @@ export default function SupplierAdvancePaymentsPage() {
     [handleSelectItem]
   );
 
-  // Master panel
-  const masterPanel = (
-    <SearchableList<SupplierAdvancePayment>
-      items={filteredAdvances}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedItem}
-      onSelectItem={handleSelectWithCheck}
-      emptyMessage="No supplier advance payments found"
-      renderItem={(adv, isSelected) => (
+  // Cancelling out of "New Advance" should return to the browse table, not
+  // auto-open the first advance the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing
+  // advance still just reverts its form, which the generic handler already
+  // does correctly.
+  const handleCancelAdvance = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedItem(null);
+    } else {
+      handleCancel(filteredAdvances);
+    }
+  }, [isCreating, filteredAdvances, handleCancel, setIsCreating, setIsEditing, setSelectedItem]);
+
+  // Returns to the browse table from the detail view.
+  const handleBackToAdvances = useCallback(() => {
+    setSelectedItem(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedItem, setIsCreating, setIsEditing]);
+
+  // The table sorts by whichever column the user clicks; the grid's own
+  // column-header sort takes over from the fixed default order above.
+  const advanceColumns: TDataGridColumn<SupplierAdvancePayment>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "advance_no",
+        header: "Ref No",
+        flex: 1,
+        minWidth: 140,
+        renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) =>
+          params.row.advance_no || `ADV-${params.row.id}`,
+      },
+      {
+        field: "supplier_name",
+        header: "Supplier",
+        flex: 1,
+        minWidth: 170,
+        renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) =>
+          params.row.supplier_name || getSupplierName(params.row.supplier_id),
+      },
+      { field: "branch_code", header: "Branch", width: 110 },
+      {
+        field: "payment_date",
+        header: "Date",
+        width: 120,
+        renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) =>
+          params.row.payment_date ? new Date(params.row.payment_date).toLocaleDateString() : "-",
+      },
+      {
+        field: "original_amount",
+        header: "Amount",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) =>
+          `Rs. ${fmtLKR(Number(params.row.original_amount || 0))}`,
+      },
+      {
+        field: "is_fully_applied",
+        header: "Status",
+        width: 130,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) => (
+          <Chip
+            label={params.row.is_fully_applied ? "Fully Applied" : "Active"}
+            size="small"
+            color={params.row.is_fully_applied ? "default" : "success"}
+          />
+        ),
+      },
+      {
+        field: "remaining_amount",
+        header: "Balance",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) =>
+          `Rs. ${fmtLKR(Number(params.row.remaining_amount || 0))}`,
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectWithCheck(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, getSupplierName, handleSelectWithCheck]
+  );
+
+  // Whether we're showing a single advance's detail view (selected or being
+  // created) instead of the browse table.
+  const isAdvanceDetailMode = !!selectedItem || isCreating;
+
+  // Browse mode: a full-width table of every advance. Sorting is done
+  // per-column via the grid's own column header menu.
+  const advanceTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<SupplierAdvancePayment>
+          rows={filteredAdvances}
+          columns={advanceColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectWithCheck(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No supplier advance payments found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current advance
+  // payment (or the "New Advance" placeholder while creating). A "Back to
+  // Supplier Advances" link returns to the table.
+  const singleAdvancePanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToAdvances}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Supplier Advances
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
+              <WalletIcon />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Advance
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedItem && (
         <SelectableListItem
-          key={adv.id}
-          id={adv.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectWithCheck(adv)}
+          id={selectedItem.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* Advance No */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{adv.advance_no || `ADV-${adv.id}`}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Advance No)
-                  </Typography>
-                )}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
+                <WalletIcon />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedItem.advance_no || `ADV-${selectedItem.id}`}</span>
               </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {adv.supplier_name || getSupplierName(adv.supplier_id)}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Supplier)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      Rs. {fmtLKR(Number(adv.original_amount || 0))}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Applied)
-                    </Typography>
-                  </Box>
-                  {adv.purchasing_order_id && (
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {adv.po_no || `PO #${adv.purchasing_order_id}`}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Purchase Order)
-                      </Typography>
-                    </Box>
-                  )}
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {adv.payment_date ? new Date(adv.payment_date).toLocaleDateString() : "-"}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Date)
-                    </Typography>
-                  </Box>
-                  {/* Status Chip */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip
-                      label={adv.is_fully_applied ? "Fully Applied" : "Active"}
-                      size="small"
-                      color={adv.is_fully_applied ? "default" : "success"}
-                      sx={{ height: 18, fontSize: "0.65rem" }}
-                    />
-                  </Box>
-                </>
-              )}
             </Box>
           }
-          secondaryText={
-            !isSelected
-              ? `${adv.supplier_name || getSupplierName(adv.supplier_id)}${adv.po_no ? ` • ${adv.po_no}` : adv.purchasing_order_id ? ` • PO #${adv.purchasing_order_id}` : ""} - Rs. ${fmtLKR(Number(adv.original_amount || 0))}`
-              : undefined
-          }
-          isFavorite={favorites.includes(adv.id)}
-          onToggleFavorite={(e) => toggleFavorite(adv.id, e)}
-          statusChip={
-            !isSelected
-              ? adv.is_fully_applied
-                ? { label: "Fully Applied", color: "default" }
-                : { label: "Active", color: "success" }
-              : undefined
-          }
+          isFavorite={favorites.includes(selectedItem.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
-    />
+    </Paper>
   );
 
   // Detail panel
@@ -636,7 +718,7 @@ export default function SupplierAdvancePaymentsPage() {
         isFormValid={isFormValid}
         onNew={handleNewAdvance}
         onSave={handleSave}
-        onCancel={() => handleCancel(filteredAdvances)}
+        onCancel={handleCancelAdvance}
         onDelete={undefined}
         canDelete={false}
         endActions={
@@ -937,106 +1019,100 @@ export default function SupplierAdvancePaymentsPage() {
       <MasterDetailLayout
         title="Supplier Advance Payments"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search advances..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => (
-                  <TBranchFilter
-                    branches={branches}
-                    value={draftBranch}
-                    onChange={setDraftBranch}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "supplier",
-                label: "Supplier",
-                hasValue: !!draftSupplier,
-                render: () => (
-                  <TSupplierFilter
-                    suppliers={suppliers || []}
-                    value={draftSupplier}
-                    onChange={setDraftSupplier}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={
-              !draftSearchQuery &&
-              !draftBranch &&
-              !draftSupplier &&
-              !searchQuery &&
-              !filterBranch &&
-              !filterSupplier
-            }
-          />
+          isAdvanceDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search advances..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TBranchFilter
+                  branches={branches}
+                  value={filterBranch}
+                  onChange={setFilterBranch}
+                  label=""
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TSupplierFilter
+                  suppliers={suppliers || []}
+                  value={filterSupplier}
+                  onChange={setFilterSupplier}
+                  label=""
+                  size="small"
+                />
+              </Box>
+              {(searchQuery || filterBranch || filterSupplier) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
         headerActions={
-          <TExportButton
-            filename="supplier_advance_payments"
-            headers={[
-              "Advance No",
-              "Supplier",
-              "Payment Date",
-              "Method",
-              "Original",
-              "Applied",
-              "Remaining",
-              "Returned",
-              "Reference",
-              "Created",
-            ]}
-            rows={() =>
-              filteredAdvances.map((adv) => [
-                adv.advance_no || "",
-                adv.supplier_name || "",
-                adv.payment_date || "",
-                adv.payment_method || "",
-                adv.original_amount ?? 0,
-                adv.applied_amount ?? 0,
-                adv.remaining_amount ?? 0,
-                adv.returned_amount ?? 0,
-                adv.reference_number || "",
-                adv.created_at || "",
-              ])
-            }
-            disabled={filteredAdvances.length === 0}
-          />
+          isAdvanceDetailMode ? undefined : (
+            <>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleNewAdvance}
+                sx={{ mr: 1 }}
+              >
+                Add Supplier Advance
+              </Button>
+              <TExportButton
+                filename="supplier_advance_payments"
+                headers={[
+                  "Advance No",
+                  "Supplier",
+                  "Payment Date",
+                  "Method",
+                  "Original",
+                  "Applied",
+                  "Remaining",
+                  "Returned",
+                  "Reference",
+                  "Created",
+                ]}
+                rows={() =>
+                  filteredAdvances.map((adv) => [
+                    adv.advance_no || "",
+                    adv.supplier_name || "",
+                    adv.payment_date || "",
+                    adv.payment_method || "",
+                    adv.original_amount ?? 0,
+                    adv.applied_amount ?? 0,
+                    adv.remaining_amount ?? 0,
+                    adv.returned_amount ?? 0,
+                    adv.reference_number || "",
+                    adv.created_at || "",
+                  ])
+                }
+                disabled={filteredAdvances.length === 0}
+              />
+            </>
+          )
         }
+        {...(isAdvanceDetailMode
+          ? { masterPanel: singleAdvancePanel, detailPanel }
+          : { children: advanceTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 

@@ -626,7 +626,7 @@ export default function CustomerPaymentReportPage() {
                 <Typography variant="body2" color="text.secondary">Try changing filters or date range to view more records.</Typography>
               </Paper>
             ) : (
-              <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+              <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
                 <TableContainer sx={{ maxHeight: "calc(100vh - 440px)" }}>
                   <Table size="small" stickyHeader>
                     <TableHead>
@@ -712,7 +712,7 @@ export default function CustomerPaymentReportPage() {
                 <Typography variant="body2" color="text.secondary">All credit invoices are fully settled.</Typography>
               </Paper>
             ) : (
-              <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+              <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
                 <TableContainer sx={{ maxHeight: "calc(100vh - 440px)" }}>
                   <Table size="small" stickyHeader>
                     <TableHead>

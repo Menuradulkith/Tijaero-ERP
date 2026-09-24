@@ -31,9 +31,12 @@ import { SxProps, Theme } from "@mui/material";
  * Complete modern table styles object
  */
 export const modernTableStyles = {
-  /** Container wrapper styles */
+  /** Container wrapper styles. Applied directly to <Table> in some pages
+   * (not a Paper/TableContainer, which would pick up MuiPaper's theme
+   * default automatically) — borderRadius: 1 here means "theme.shape.
+   * borderRadius x1" = 12px, matching every other rounded surface. */
   container: {
-    borderRadius: 2,
+    borderRadius: 1,
     overflow: "hidden",
     border: "1px solid",
     borderColor: "divider",
@@ -135,10 +138,10 @@ export const getRowStyle = (
 });
 
 /**
- * Inline table wrapper component styles for Paper
+ * Inline table wrapper component styles for Paper. No explicit
+ * borderRadius — inherits MuiPaper's theme default (12px).
  */
 export const modernTableContainerSx: SxProps<Theme> = {
-  borderRadius: 2,
   overflow: "hidden",
   border: "1px solid",
   borderColor: "divider",

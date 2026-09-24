@@ -302,7 +302,7 @@ ${subtotalRow("Total Liabilities & Equity", Number(report.total_liabilities) + N
             </Box>
 
             {/* Statement */}
-            <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+            <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
               <Box sx={{ px: 2, py: 1.5, bgcolor: "primary.main", color: "white" }}>
                 <Typography variant="subtitle1" fontWeight={700}>
                   Statement of Financial Position — FY {report.fiscal_year}

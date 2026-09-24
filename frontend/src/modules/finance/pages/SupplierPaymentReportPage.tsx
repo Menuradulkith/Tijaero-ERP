@@ -445,7 +445,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                 <Typography variant="body2" color="text.secondary">Adjust the filters or date range.</Typography>
               </Paper>
             ) : (
-              <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+              <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
                 <TableContainer sx={{ maxHeight: "calc(100vh - 420px)" }}>
                   <Table size="small" stickyHeader>
                     <TableHead>
@@ -526,7 +526,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                 <Typography variant="body2" color="text.secondary">All invoices are fully settled.</Typography>
               </Paper>
             ) : (
-              <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+              <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
                 <TableContainer sx={{ maxHeight: "calc(100vh - 420px)" }}>
                   <Table size="small" stickyHeader>
                     <TableHead>

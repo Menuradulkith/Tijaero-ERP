@@ -10,6 +10,8 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import VerifiedIcon from "@mui/icons-material/Verified";
 import PaymentIcon from "@mui/icons-material/Payment";
 import ReceiptIcon from "@mui/icons-material/Receipt";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 import {
   Alert,
   Box,
@@ -18,6 +20,8 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
+  InputAdornment,
   MenuItem,
   Table,
   TableBody,
@@ -25,6 +29,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -48,7 +53,6 @@ import {
   type SortOption,
   TBranchFilter,
   TStatusChip,
-  TTabFilterBar,
   showErrorToast,
   showSuccessToast,
   TConfirmDialog,
@@ -81,11 +85,6 @@ export default function ReimbursementApprovalsPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [selectedReimbursement, setSelectedReimbursement] = useState<Reimbursement | null>(null);
 
-  // Filter state (draft - edited via the header filter bar, only applied on Search click)
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-  const [draftStatus, setDraftStatus] = useState<string>("pending");
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -103,24 +102,14 @@ export default function ReimbursementApprovalsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterBranch(draftBranch);
-  }, [draftSearchQuery, draftStatus, draftBranch]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus("");
-    setDraftBranch(null);
     setSearchQuery("");
     setFilterStatus("");
     setFilterBranch(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -471,8 +460,8 @@ export default function ReimbursementApprovalsPage() {
         </Alert>
       )}
 
-      {/* Record Information */}
-      <FormSection title="Record Information" columns={2}>
+      {/* Activity History */}
+      <FormSection title="Activity History" columns={2}>
         <Box>
           <Typography variant="caption" color="text.secondary">Created</Typography>
           <Typography variant="body2">{formatDateTimeReadable(detail.created_at) || "-"}</Typography>
@@ -493,68 +482,52 @@ export default function ReimbursementApprovalsPage() {
         title="Reimbursement Approvals"
         icon={<ReceiptIcon />}
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search by reimbursement no, employee..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search by reimbursement no, employee..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => (
-                  <TBranchFilter
-                    branches={branches}
-                    value={draftBranch}
-                    onChange={setDraftBranch}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TextField
-                    select
-                    size="small"
-                    value={draftStatus}
-                    onChange={(e) => setDraftStatus(e.target.value)}
-                    fullWidth
-                  >
-                    {REIMBURSEMENT_STATUS_FILTER_OPTIONS.map((opt) => (
-                      <MenuItem key={opt.value} value={opt.value || ""}>
-                        {opt.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TBranchFilter
+                branches={branches}
+                value={filterBranch}
+                onChange={setFilterBranch}
+                label=""
+                placeholder="All Branches"
+                size="small"
+              />
+            </Box>
+            <TextField
+              select
+              size="small"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              sx={{ width: 170, flexShrink: 0 }}
+            >
+              {REIMBURSEMENT_STATUS_FILTER_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value || ""}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            {(searchQuery || filterStatus || filterBranch) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         }
         masterPanel={masterPanel}
         detailPanel={detailPanel}

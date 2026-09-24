@@ -1,10 +1,17 @@
 /**
- * PromotionsPage — Master/Detail layout for employee promotions.
+ * PromotionsPage — Browse table + single-record detail toggle.
+ * Browse mode: a full-width table of every promotion record.
+ * Detail mode: the record's detail form (unchanged), full-width, with a
+ * "Back to Promotions" link returning to the table.
  */
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, TextField, Typography } from "@mui/material";
+import { Avatar, Box, Button, IconButton, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { format } from "date-fns";
 
 import {
@@ -13,12 +20,12 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
-  SortOption,
   TConfirmDialog,
   TDetailSkeleton,
   TExportButton,
+  TDataGrid,
+  type TDataGridColumn,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -29,13 +36,6 @@ import { usePermission } from "@/auth/permissions";
 import { promotionsApi } from "@/modules/hr/api";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import type { EmployeePromotion, EmployeePromotionCreate } from "@/modules/hr/types";
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "appointed_desc", label: "Date (Newest)" },
-  { value: "employee_id", label: "Employee ID" },
-  { value: "designation", label: "Designation" },
-  { value: "created_at", label: "Creation Date" },
-];
 
 const INITIAL_FORM: EmployeePromotionCreate = {
   employee_id: "",
@@ -52,7 +52,6 @@ export default function PromotionsPage() {
 
   const {
     searchQuery, setSearchQuery,
-    sortField, setSortField,
     selectedItem, setSelectedItem, isEditing, isCreating,
     setIsCreating, setIsEditing,
     formData, setFormData,
@@ -78,20 +77,11 @@ export default function PromotionsPage() {
     let list = (promotions || []).filter(
       (p) => !q || p.employee_id.toLowerCase().includes(q) || p.designation.toLowerCase().includes(q) || (p.remark || "").toLowerCase().includes(q)
     );
-    list.sort((a, b) => {
-      if (sortField === "employee_id") return a.employee_id.localeCompare(b.employee_id);
-      if (sortField === "designation") return a.designation.localeCompare(b.designation);
-      if (sortField === "created_at")
-        return (b.created_at ? new Date(b.created_at).getTime() : 0) -
-          (a.created_at ? new Date(a.created_at).getTime() : 0);
-      return b.appointed_date.localeCompare(a.appointed_date);
-    });
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
+    list.sort((a, b) => b.appointed_date.localeCompare(a.appointed_date));
     return list;
-  }, [promotions, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filtered.length > 0 && !selectedItem && !isCreating) handleSelectItem(filtered[0]);
-  }, [filtered, selectedItem, isCreating, handleSelectItem]);
+  }, [promotions, searchQuery]);
 
   const createMut = useMutation({
     mutationFn: (d: EmployeePromotionCreate) => promotionsApi.create(d),
@@ -120,7 +110,7 @@ export default function PromotionsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["promotions"] });
       showSuccessToast("Promotion deleted");
-      baseCancel(filtered);
+      setSelectedItem(null);
     },
     onError: (e) => showErrorToast(handleApiError(e, "Failed to delete promotion")),
   });
@@ -138,41 +128,165 @@ export default function PromotionsPage() {
     if (ok) deleteMut.mutate(selectedItem.id);
   }, [selectedItem, deleteMut, confirmDialog]);
 
+  // Cancelling out of "New Promotion" should return to the browse table,
+  // not auto-open the first record the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing
+  // record still just reverts its form, which the generic handler already
+  // does correctly.
+  const handleCancelPromotion = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedItem(null);
+    } else {
+      baseCancel(filtered);
+    }
+  }, [isCreating, filtered, baseCancel, setIsCreating, setIsEditing, setSelectedItem]);
+
+  // Returns to the browse table from the detail view.
+  const handleBackToPromotions = useCallback(() => {
+    setSelectedItem(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedItem, setIsCreating, setIsEditing]);
+
   const isFormValid = !!formData.employee_id && !!formData.designation && !!formData.appointed_date;
   const isSaving = createMut.isPending || updateMut.isPending;
   const isDisabled = !isEditing && !isCreating;
 
-  const masterPanel = (
-    <SearchableList<EmployeePromotion>
-      items={filtered}
-      isLoading={isLoading}
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      searchPlaceholder="Search promotions..."
-      sortOptions={SORT_OPTIONS}
-      currentSort={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedItem}
-      onSelectItem={handleSelectItem}
-      emptyMessage="No promotions found"
-      renderItem={(p, isSelected) => (
+  // Whether we're showing a single promotion's detail view (selected or
+  // being created) instead of the browse table.
+  const isPromotionDetailMode = !!selectedItem || isCreating;
+
+  // The table sorts by whichever column the user clicks via the grid's own
+  // column-header menu, not a separate "Sort by" control.
+  //
+  // NOTE: EmployeePromotion only records the resulting designation (plus a
+  // free-text remark) — there's no stored "previous designation" field to
+  // show a distinct "Old Position" column, so the columns below use New
+  // Position (designation), Effective Date and Remark instead.
+  const promotionColumns: TDataGridColumn<EmployeePromotion>[] = useMemo(
+    () => [
+      { field: "employee_id", header: "Employee", flex: 1, minWidth: 140 },
+      { field: "designation", header: "New Position", flex: 1, minWidth: 160 },
+      {
+        field: "appointed_date",
+        header: "Effective Date",
+        width: 140,
+        renderCell: (params: GridRenderCellParams<EmployeePromotion>) =>
+          format(new Date(params.row.appointed_date), "MMM dd, yyyy"),
+      },
+      {
+        field: "remark",
+        header: "Remark",
+        flex: 1,
+        minWidth: 160,
+        renderCell: (params: GridRenderCellParams<EmployeePromotion>) => params.row.remark || "-",
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<EmployeePromotion>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectItem(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectItem]
+  );
+
+  // Browse mode: a full-width table of every promotion record.
+  const promotionTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<EmployeePromotion>
+          rows={filtered}
+          columns={promotionColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectItem(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No promotions found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current promotion
+  // record (or the "New Promotion" placeholder while creating) plus a
+  // "Back to Promotions" link that returns to the table.
+  const singlePromotionPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToPromotions}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Promotions
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+              <TrendingUpIcon color="primary" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Promotion
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedItem && (
         <SelectableListItem
-          key={p.id}
-          id={p.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectItem(p)}
+          id={selectedItem.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
-              <span>{p.employee_id}</span>
-              <Typography component="span" variant="caption" sx={{ color: isSelected ? "inherit" : "text.secondary", fontWeight: 600 }}>
-                {p.designation}
-              </Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
+                <TrendingUpIcon color="primary" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedItem.employee_id} → {selectedItem.designation}</span>
+              </Box>
             </Box>
           }
-          secondaryText={format(new Date(p.appointed_date), "MMM dd, yyyy")}
         />
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -186,7 +300,7 @@ export default function PromotionsPage() {
       />
       <ActionToolbar canCreate={canCreate} canUpdate={canUpdate} canDelete={canDelete} hasSelectedItem={!!selectedItem}
         isCreating={isCreating} isEditing={isEditing} isSaving={isSaving} isFormValid={isFormValid}
-        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={() => baseCancel(filtered)} onEdit={handleStartEdit}
+        onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={handleCancelPromotion} onEdit={handleStartEdit}
       />
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedItem && !isCreating ? (
@@ -217,21 +331,42 @@ export default function PromotionsPage() {
 
   return (
     <>
-      <MasterDetailLayout title="Promotions" onRefresh={refetch} isLoading={isLoading} masterPanel={masterPanel} detailPanel={detailPanel}
+      <MasterDetailLayout
+        title="Promotions"
+        onRefresh={refetch}
+        isLoading={isLoading}
+        {...(isPromotionDetailMode
+          ? { masterPanel: singlePromotionPanel, detailPanel }
+          : { children: promotionTablePanel })}
         headerActions={
-          <TExportButton
-            filename="promotions"
-            headers={["Employee ID", "Designation", "Appointed Date", "Remark"]}
-            rows={() =>
-              filtered.map((p) => [
-                p.employee_id || "",
-                p.designation || "",
-                p.appointed_date || "",
-                p.remark || "",
-              ])
-            }
-            disabled={filtered.length === 0}
-          />
+          isPromotionDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNew}
+                  sx={{ mr: 1 }}
+                >
+                  Add Promotion
+                </Button>
+              )}
+              <TExportButton
+                filename="promotions"
+                headers={["Employee ID", "Designation", "Appointed Date", "Remark"]}
+                rows={() =>
+                  filtered.map((p) => [
+                    p.employee_id || "",
+                    p.designation || "",
+                    p.appointed_date || "",
+                    p.remark || "",
+                  ])
+                }
+                disabled={filtered.length === 0}
+              />
+            </>
+          )
         }
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

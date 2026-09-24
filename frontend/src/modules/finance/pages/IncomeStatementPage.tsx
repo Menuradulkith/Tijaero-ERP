@@ -297,7 +297,7 @@ ${subtotalRow("Net Income", Number(report.net_income), true)}
             </Grid>
 
             {/* Statement */}
-            <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+            <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
               <Box sx={{ px: 2, py: 1.5, bgcolor: "primary.main", color: "white" }}>
                 <Typography variant="subtitle1" fontWeight={700}>
                   Income Statement — FY {report.fiscal_year}

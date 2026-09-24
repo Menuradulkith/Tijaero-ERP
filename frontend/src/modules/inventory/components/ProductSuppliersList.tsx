@@ -1,6 +1,6 @@
 /**
  * ProductSuppliersList - "Vendor Pricelist" for a product: which suppliers
- * can supply it, and on what terms (cost, lead time, MOQ, preferred).
+ * can supply it, and on what terms (cost, MOQ, preferred).
  *
  * This is the product-first entry point into the same supplier_product
  * mapping managed from the Supplier's own detail page (Suppliers ->
@@ -46,7 +46,6 @@ export interface PendingSupplierMapping {
   supplier_company_name: string;
   supplier_sku?: string;
   cost_price: number;
-  lead_time_days?: number;
   minimum_order_qty?: number;
   is_preferred: boolean;
   active: boolean;
@@ -66,7 +65,6 @@ interface MappingFormState {
   supplier_id: number;
   supplier_sku: string;
   cost_price: string;
-  lead_time_days: string;
   minimum_order_qty: string;
   is_preferred: boolean;
   active: boolean;
@@ -76,7 +74,6 @@ const emptyForm: MappingFormState = {
   supplier_id: 0,
   supplier_sku: "",
   cost_price: "",
-  lead_time_days: "",
   minimum_order_qty: "",
   is_preferred: false,
   active: true,
@@ -131,7 +128,6 @@ export default function ProductSuppliersList({
     product_id: productId as number,
     supplier_sku: form.supplier_sku || undefined,
     cost_price: parseFloat(form.cost_price),
-    lead_time_days: form.lead_time_days ? parseInt(form.lead_time_days, 10) : undefined,
     minimum_order_qty: form.minimum_order_qty ? parseInt(form.minimum_order_qty, 10) : undefined,
     is_preferred: form.is_preferred,
     active: form.active,
@@ -160,7 +156,6 @@ export default function ProductSuppliersList({
     supplier_id: mapping.supplier_id,
     supplier_sku: mapping.supplier_sku || "",
     cost_price: String(mapping.cost_price),
-    lead_time_days: mapping.lead_time_days != null ? String(mapping.lead_time_days) : "",
     minimum_order_qty: mapping.minimum_order_qty != null ? String(mapping.minimum_order_qty) : "",
     is_preferred: mapping.is_preferred,
     active: mapping.active,
@@ -235,7 +230,6 @@ export default function ProductSuppliersList({
           supplier?.company_name ?? activeMapping?.supplier_company_name ?? "",
         supplier_sku: form.supplier_sku || undefined,
         cost_price: parseFloat(form.cost_price),
-        lead_time_days: form.lead_time_days ? parseInt(form.lead_time_days, 10) : undefined,
         minimum_order_qty: form.minimum_order_qty ? parseInt(form.minimum_order_qty, 10) : undefined,
         is_preferred: form.is_preferred,
         active: form.active,
@@ -295,15 +289,6 @@ export default function ProductSuppliersList({
         align: "right",
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<MappingRow>) => fmtLKR(params.row.cost_price),
-      },
-      {
-        field: "lead_time_days",
-        header: "Lead Time",
-        width: 110,
-        align: "right",
-        headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<MappingRow>) =>
-          params.row.lead_time_days != null ? `${params.row.lead_time_days}d` : "-",
       },
       {
         field: "minimum_order_qty",
@@ -435,15 +420,6 @@ export default function ProductSuppliersList({
             value={form.cost_price}
             onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
             inputProps={{ min: 0, step: "0.01" }}
-            disabled={panelMode === "view"}
-            fullWidth
-          />
-          <TextField
-            label="Lead Time (days)"
-            type="number"
-            value={form.lead_time_days}
-            onChange={(e) => setForm({ ...form, lead_time_days: e.target.value })}
-            inputProps={{ min: 0 }}
             disabled={panelMode === "view"}
             fullWidth
           />

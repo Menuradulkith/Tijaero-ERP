@@ -3,7 +3,7 @@
  */
 
 import { useMemo, useCallback, useEffect, useState, type ReactNode } from "react";
-import { formatDateTimeReadable } from "@/utils/formatters";
+import { formatDateTimeReadable, formatCurrency } from "@/utils/formatters";
 import { exportToCSV } from "@/utils/csvExport";
 import DownloadIcon from "@mui/icons-material/FileDownload";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,7 +22,14 @@ import {
   Alert,
   Avatar,
   Tooltip,
+  InputAdornment,
 } from "@mui/material";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import BusinessIcon from "@mui/icons-material/Business";
 import LocationOnOutlinedIcon from "@mui/icons-material/LocationOnOutlined";
@@ -42,7 +49,6 @@ import { useReferenceData, type CountryRef } from "@/hooks/useReferenceData";
 
 import {
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
   DetailPanelHeader,
   ActionToolbar,
@@ -51,11 +57,9 @@ import {
   useMasterDetailState,
   showErrorToast,
   showSuccessToast,
-  SortOption,
   TConfirmDialog,
   TDetailSkeleton,
   TStatusFilter,
-  TTabFilterBar,
   TSectionNav,
   type TSectionNavItem,
   TITLE_CHOICES,
@@ -83,6 +87,11 @@ import {
   SupplierContactPersonCreate,
 } from "@/modules/purchasing/types";
 import SupplierLogoUploader from "@/modules/purchasing/components/SupplierLogoUploader";
+
+// A supplier row as shown in the browse table, with the country name looked
+// up and attached directly so the table's own column-header sort orders by
+// the displayed name rather than the raw country_id.
+type SupplierRow = Supplier & { country_name: string };
 
 // The API client's baseURL includes /api/v1; uploaded files are served from
 // the plain origin at /uploads (mirrors SupplierLogoUploader's own helper).
@@ -148,12 +157,6 @@ async function runSequentially<T>(
   }
   return results;
 }
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "company_name", label: "Company Name" },
-  { value: "country_id", label: "Country" },
-  { value: "created_at", label: "Creation Date" },
-];
 
 const SUPPLIER_STATUS_OPTIONS = [
   { value: "active", label: "Active" },
@@ -275,29 +278,16 @@ export default function SuppliersPage() {
   // Confirm dialog for unsaved changes and delete actions
   const confirmDialog = useTConfirmDialog();
 
-  // Filter state (applied - drives the actual list filtering)
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterCountryId, setFilterCountryId] = useState<number | null>(null);
 
-  // Filter state (draft - edited via the filter bar, only applied on Search click)
-  const [draftSupplierQuery, setDraftSupplierQuery] = useState("");
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftCountry, setDraftCountry] = useState<CountryRef | null>(null);
-
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSupplierQuery);
-    setFilterStatus(draftStatus);
-    setFilterCountryId(draftCountry?.id ?? null);
-  }, [draftSupplierQuery, draftStatus, draftCountry]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSupplierQuery("");
-    setDraftStatus(null);
-    setDraftCountry(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterCountryId(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Validation state - track which fields have been touched/blurred
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -325,8 +315,6 @@ export default function SuppliersPage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedSupplier,
     setSelectedItem: setSelectedSupplier,
     isEditing,
@@ -825,31 +813,128 @@ export default function SuppliersPage() {
       filtered = filtered.filter((supplier) => supplier.country_id === filterCountryId);
     }
 
-    filtered.sort((a, b) => {
-      if (sortField === "country_id") {
-        const countryA = countries.find((c) => c.id === a.country_id)?.name || "";
-        const countryB = countries.find((c) => c.id === b.country_id)?.name || "";
-        return countryA.localeCompare(countryB);
-      }
-      if (sortField === "created_at") {
-        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return dateA - dateB;
-      }
-      const fieldA = a[sortField as keyof Supplier] || "";
-      const fieldB = b[sortField as keyof Supplier] || "";
-      return String(fieldA).localeCompare(String(fieldB));
-    });
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
+    filtered.sort((a, b) => a.company_name.localeCompare(b.company_name));
 
     return filtered;
-  }, [suppliers, searchQuery, sortField, filterStatus, filterCountryId, countries]);
+  }, [suppliers, searchQuery, filterStatus, filterCountryId]);
 
-  // Auto-select first item when data loads
-  useEffect(() => {
-    if (filteredSuppliers.length > 0 && !selectedSupplier && !isCreating) {
-      handleSelectSupplier(filteredSuppliers[0]);
-    }
-  }, [filteredSuppliers, selectedSupplier, isCreating]);
+  // The table sorts by whichever column the user clicks; the Country column
+  // displays a looked-up name rather than the raw country_id, so it needs
+  // that name as its own field for the grid to sort on correctly.
+  const supplierRows = useMemo(
+    () =>
+      filteredSuppliers.map((supplier) => ({
+        ...supplier,
+        country_name: countries.find((c) => c.id === supplier.country_id)?.name || "-",
+      })),
+    [filteredSuppliers, countries]
+  );
+
+  // Internal selection handler - wraps hook's handler to reset validation state
+  const handleSelectSupplierWithCheck = useCallback(async (supplier: Supplier) => {
+    await handleSelectSupplier(supplier);
+    setTouched({}); // Reset validation state
+  }, [handleSelectSupplier]);
+
+  const supplierColumns: TDataGridColumn<SupplierRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<SupplierRow>) => (
+          <IconButton
+            size="small"
+            onClick={(e) => toggleFavorite(params.row.id, e)}
+          >
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "company_name",
+        header: "Company",
+        flex: 1,
+        minWidth: 200,
+        renderCell: (params: GridRenderCellParams<SupplierRow>) => (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, height: "100%" }}>
+            <SupplierAvatarCircle companyName={params.row.company_name} logoPath={params.row.logo_path} size={30} />
+            <Typography variant="body2" fontWeight={600}>
+              {params.row.company_name}
+            </Typography>
+          </Box>
+        ),
+      },
+      {
+        field: "country_name",
+        header: "Country",
+        width: 150,
+      },
+      { field: "email", header: "Email", flex: 1, minWidth: 170 },
+      { field: "mobile_contact_number", header: "Mobile Contact", width: 150 },
+      {
+        field: "credit_days",
+        header: "Credit Days",
+        width: 110,
+        align: "right",
+        headerAlign: "right",
+      },
+      {
+        field: "max_credit_limit",
+        header: "Max Credit Limit",
+        width: 150,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<SupplierRow>) =>
+          formatCurrency(params.row.max_credit_limit || 0),
+      },
+      {
+        field: "active",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<SupplierRow>) => (
+          <Chip
+            label={params.row.active ? "Active" : "Inactive"}
+            size="small"
+            color={params.row.active ? "success" : "default"}
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<SupplierRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectSupplierWithCheck(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectSupplierWithCheck]
+  );
 
   const createMutation = useCrudMutation({
     mutationFn: suppliersApi.create,
@@ -1018,12 +1103,6 @@ export default function SuppliersPage() {
     canUpdateSupplier,
   ]);
 
-  // Internal selection handler - wraps hook's handler to reset validation state
-  const handleSelectSupplierWithCheck = useCallback(async (supplier: Supplier) => {
-    await handleSelectSupplier(supplier);
-    setTouched({}); // Reset validation state
-  }, [handleSelectSupplier]);
-
   const handleDelete = useCallback(async () => {
     if (!canDeleteSupplier) {
       showErrorToast("You don't have permission to delete suppliers");
@@ -1053,6 +1132,32 @@ export default function SuppliersPage() {
     }
   }, [selectedSupplier, formData, setFormData, handleNewSupplier]);
 
+  // Cancelling out of "New Supplier" should return to the browse table, not
+  // auto-open the first supplier the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing
+  // supplier still just reverts its form, which the generic handler already
+  // does correctly.
+  const handleCancelSupplier = useCallback(() => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedSupplier(null);
+    } else {
+      handleCancel(filteredSuppliers);
+    }
+  }, [isCreating, filteredSuppliers, handleCancel, setIsCreating, setIsEditing, setSelectedSupplier]);
+
+  // Returns to the browse table from the detail view (the "Back to
+  // Suppliers" link in the mini left panel).
+  const handleBackToSuppliers = useCallback(() => {
+    setSelectedSupplier(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedSupplier, setIsCreating, setIsEditing]);
+
   // Email validation regex
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   // Phone validation regex (allows digits, spaces, dashes, parentheses, plus)
@@ -1076,9 +1181,6 @@ export default function SuppliersPage() {
       case 'company_name':
         if (!formData.company_name) return 'Company name is required';
         break;
-      case 'billing_address_line1':
-        if (!formData.billing_address_line1) return 'Billing address is required';
-        break;
       case 'credit_days':
         if (formData.credit_days === undefined || formData.credit_days < 0) return 'Credit days must be 0 or more';
         break;
@@ -1094,11 +1196,12 @@ export default function SuppliersPage() {
     return !!getFieldError(fieldName);
   };
 
+  // Only the Main section's fields gate Save — Address and Payment can be
+  // filled in later via their own sections after the supplier is created
+  // (mirrors ProductsPage, where only Main + cost_price gate Save and
+  // selling_price/suppliers are filled in afterward).
   const isFormValid = formData.company_name &&
     formData.mobile_contact_number &&
-    formData.billing_address_line1 &&
-    formData.credit_days !== undefined &&
-    formData.max_credit_limit !== undefined &&
     (!formData.email || emailRegex.test(formData.email));
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
@@ -1109,102 +1212,119 @@ export default function SuppliersPage() {
     },
   };
 
-  const masterPanel = (
-    <SearchableList<Supplier>
-      items={filteredSuppliers}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedSupplier}
-      onSelectItem={handleSelectSupplierWithCheck}
-      emptyMessage="No suppliers found"
-      listHeader={
-        isCreating ? (
-          <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
-              <SupplierAvatarCircle companyName={formData.company_name} size={40} />
-              <Typography variant="caption" color="text.secondary">
-                New Supplier
-              </Typography>
-            </Box>
-            <TSectionNav
-              items={SUPPLIER_SECTION_NAV_ITEMS}
-              activeKey={activeSection}
-              onChange={handleSectionNavChange}
-              variant="inline"
-            />
+  // Whether we're showing a single supplier's detail view (selected or being
+  // created) instead of the browse table.
+  const isSupplierDetailMode = !!selectedSupplier || isCreating;
+
+  // Browse mode: a full-width table of every supplier (shown when nothing is
+  // selected and nothing is being created). Sorting is done per-column via
+  // the grid's own column header menu, not a separate "Sort by" control.
+  const supplierTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<SupplierRow>
+          rows={supplierRows}
+          columns={supplierColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectSupplierWithCheck(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No suppliers found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current supplier (or
+  // the "New Supplier" placeholder while creating) plus the Address/Contact
+  // Person/Payment section nav — the same card+nav the old list panel showed
+  // for whichever row was selected, just without the rest of the list beside
+  // it. A "Back to Suppliers" link returns to the table.
+  const singleSupplierPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToSuppliers}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Suppliers
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box
+            onClick={() => setActiveSection(null)}
+            sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1, cursor: "pointer" }}
+          >
+            <SupplierAvatarCircle companyName={formData.company_name} size={40} />
+            <Typography variant="caption" color="text.secondary">
+              New Supplier
+            </Typography>
           </Box>
-        ) : undefined
-      }
-      renderItem={(supplier, isSelected) => (
-        <Box key={supplier.id}>
-        <SelectableListItem
-          id={supplier.id}
-          isSelected={isSelected}
-          onClick={() => {
-            // Re-clicking the already-selected supplier doesn't change its id,
-            // so the effect that resets the detail panel to "Company
-            // Information" on selection change won't fire on its own — reset
-            // it here too so the purple box always returns to the main view.
-            if (isSelected) {
-              setActiveSection(null);
-            } else {
-              handleSelectSupplierWithCheck(supplier);
-            }
-          }}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <SupplierAvatarCircle companyName={supplier.company_name} logoPath={supplier.logo_path} />
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                {/* Company Name */}
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{supplier.company_name}</span>
-                  {isSelected && (
+          <TSectionNav
+            items={SUPPLIER_SECTION_NAV_ITEMS}
+            activeKey={activeSection}
+            onChange={handleSectionNavChange}
+            variant="inline"
+          />
+        </Box>
+      ) : selectedSupplier && (
+        <Box>
+          <SelectableListItem
+            id={selectedSupplier.id}
+            isSelected
+            onClick={() => setActiveSection(null)}
+            primaryText={
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+                <SupplierAvatarCircle companyName={selectedSupplier.company_name} logoPath={selectedSupplier.logo_path} />
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>{selectedSupplier.company_name}</span>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                       (Company Name)
                     </Typography>
-                  )}
-                </Box>
-                {/* Additional fields when selected */}
-                {isSelected && (
-                  <>
-                    {countries.find((c) => c.id === supplier.country_id)?.name && (
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <Typography component="span" variant="caption">
-                          {countries.find((c) => c.id === supplier.country_id)?.name}
-                        </Typography>
-                        <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                          (Country)
-                        </Typography>
-                      </Box>
-                    )}
-                    {/* Status Chips - shown below all fields when selected */}
-                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                      <Chip
-                        label={supplier.active ? "Active" : "Inactive"}
-                        size="small"
-                        color={supplier.active ? "success" : "default"}
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
+                  </Box>
+                  {countries.find((c) => c.id === selectedSupplier.country_id)?.name && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Typography component="span" variant="caption">
+                        {countries.find((c) => c.id === selectedSupplier.country_id)?.name}
+                      </Typography>
+                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                        (Country)
+                      </Typography>
                     </Box>
-                  </>
-                )}
+                  )}
+                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                    <Chip
+                      label={selectedSupplier.active ? "Active" : "Inactive"}
+                      size="small"
+                      color={selectedSupplier.active ? "success" : "default"}
+                      sx={{ height: 18, fontSize: "0.65rem" }}
+                    />
+                  </Box>
+                </Box>
               </Box>
-            </Box>
-          }
-          isFavorite={favorites.includes(supplier.id)}
-          onToggleFavorite={(e) => toggleFavorite(supplier.id, e)}
-          statusChip={!isSelected ? (
-            supplier.active
-              ? { label: "Active", color: "success" }
-              : { label: "Inactive", color: "default" }
-          ) : undefined}
-        />
-        {isSelected && (
+            }
+            isFavorite={favorites.includes(selectedSupplier.id)}
+            onToggleFavorite={(e) => toggleFavorite(selectedSupplier.id, e)}
+          />
           <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
             <TSectionNav
               items={SUPPLIER_SECTION_NAV_ITEMS}
@@ -1213,10 +1333,9 @@ export default function SuppliersPage() {
               variant="inline"
             />
           </Box>
-        )}
         </Box>
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -1248,7 +1367,7 @@ export default function SuppliersPage() {
         onDuplicate={handleDuplicate}
         onDelete={canDeleteSupplier ? handleDelete : undefined}
         onSave={handleSave}
-        onCancel={() => handleCancel(filteredSuppliers)}
+        onCancel={handleCancelSupplier}
         onEdit={canUpdateSupplier ? handleStartEdit : undefined}
         canDelete={canDeleteSupplier}
       />
@@ -1399,7 +1518,7 @@ export default function SuppliersPage() {
 
             {selectedSupplier && !isEditing && !isCreating && (
               <FormSection
-                title="Record Information"
+                title="Activity History"
                 columns={2}
                 titleAction={
                   <Tooltip title="View activity history">
@@ -1449,12 +1568,7 @@ export default function SuppliersPage() {
                   size="small"
                   value={formData.billing_address_line1}
                   onChange={(e) => setFormData({ ...formData, billing_address_line1: e.target.value })}
-                  onBlur={() => handleBlur('billing_address_line1')}
                   disabled={!isEditing && !isCreating}
-                  required
-                  sx={requiredFieldSx}
-                  error={hasError('billing_address_line1')}
-                  helperText={getFieldError('billing_address_line1')}
                 />
                 <TextField
                   label="Address Line 2"
@@ -1649,80 +1763,85 @@ export default function SuppliersPage() {
       <MasterDetailLayout
         title="Suppliers"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "supplier",
-                label: "Supplier",
-                hasValue: !!draftSupplierQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Company name"
-                    value={draftSupplierQuery}
-                    onChange={(e) => setDraftSupplierQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TStatusFilter
-                    options={SUPPLIER_STATUS_OPTIONS}
-                    value={draftStatus}
-                    onChange={setDraftStatus}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "country",
-                label: "Country",
-                hasValue: !!draftCountry,
-                render: () => (
-                  <TAutocomplete<CountryRef>
-                    label="Country"
-                    options={countries}
-                    value={draftCountry}
-                    onChange={(value) => setDraftCountry(value as CountryRef | null)}
-                    getOptionLabel={(c) => c.name}
-                    size="small"
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSupplierQuery && !draftStatus && !draftCountry && !searchQuery && !filterStatus && filterCountryId === null}
-          />
+          isSupplierDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search suppliers..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TStatusFilter
+                  options={SUPPLIER_STATUS_OPTIONS}
+                  value={filterStatus}
+                  onChange={setFilterStatus}
+                  label=""
+                  placeholder="All Status"
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TAutocomplete<CountryRef>
+                  label=""
+                  placeholder="All Countries"
+                  options={countries}
+                  value={countries.find((c) => c.id === filterCountryId) || null}
+                  onChange={(value) => setFilterCountryId((value as CountryRef | null)?.id ?? null)}
+                  getOptionLabel={(c) => c.name}
+                  size="small"
+                />
+              </Box>
+              {(searchQuery || filterStatus || filterCountryId !== null) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         headerActions={
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={handleExportCSV}
-            disabled={filteredSuppliers.length === 0}
-            sx={{ mr: 1 }}
-          >
-            Export CSV
-          </Button>
+          isSupplierDetailMode ? undefined : (
+            <>
+              {canCreateSupplier && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNewSupplier}
+                  sx={{ mr: 1 }}
+                >
+                  Add Supplier
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={handleExportCSV}
+                disabled={filteredSuppliers.length === 0}
+                sx={{ mr: 1 }}
+              >
+                Export CSV
+              </Button>
+            </>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isSupplierDetailMode
+          ? { masterPanel: singleSupplierPanel, detailPanel }
+          : { children: supplierTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 

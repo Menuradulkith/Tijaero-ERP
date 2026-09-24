@@ -183,6 +183,29 @@ export const PRODUCT_ITEM_TYPE = [
   { value: 'service', label: 'Service' },
 ] as const;
 
+// Standard ERP units of measure (mirrors the common Odoo/SAP default set).
+export const PRODUCT_UOM = [
+  { value: 'pcs', label: 'Piece(s)' },
+  { value: 'unit', label: 'Unit' },
+  { value: 'pair', label: 'Pair' },
+  { value: 'set', label: 'Set' },
+  { value: 'dozen', label: 'Dozen' },
+  { value: 'box', label: 'Box' },
+  { value: 'pack', label: 'Pack' },
+  { value: 'carton', label: 'Carton' },
+  { value: 'roll', label: 'Roll' },
+  { value: 'kg', label: 'Kilogram (kg)' },
+  { value: 'g', label: 'Gram (g)' },
+  { value: 'l', label: 'Liter (L)' },
+  { value: 'ml', label: 'Milliliter (mL)' },
+  { value: 'm', label: 'Meter (m)' },
+  { value: 'cm', label: 'Centimeter (cm)' },
+  { value: 'sqm', label: 'Square Meter (m²)' },
+  { value: 'cbm', label: 'Cubic Meter (m³)' },
+  { value: 'hour', label: 'Hour' },
+  { value: 'day', label: 'Day' },
+] as const;
+
 // =============================================================================
 // SERVICE JOB
 // =============================================================================
@@ -290,6 +313,7 @@ export type GenericPaymentMethod = typeof GENERIC_PAYMENT_METHOD[number]['value'
 export type CardType = typeof CARD_TYPE[number]['value'];
 export type ExpensesMethod = typeof EXPENSES_METHOD[number]['value'];
 export type ProductItemType = typeof PRODUCT_ITEM_TYPE[number]['value'];
+export type ProductUom = typeof PRODUCT_UOM[number]['value'];
 export type ServiceJobStatus = typeof SERVICE_JOB_STATUS[number]['value'];
 export type ServiceJobFaultType = typeof SERVICE_JOB_FAULT_TYPE[number]['value'];
 

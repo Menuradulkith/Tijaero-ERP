@@ -281,6 +281,25 @@ class SupplierProductRepository:
         )
         return self._stamp_display_fields(rows)
 
+    def get_preferred_for_products(self, product_ids: List[int]) -> dict:
+        """The preferred supplier's company name per product, in one query —
+        for list endpoints that need to show it per row without N+1 queries.
+        is_preferred is scoped one-per-product (see _clear_preferred), so a
+        plain filter is enough, no DISTINCT ON needed."""
+        if not product_ids:
+            return {}
+
+        rows = (
+            self.db.query(models.SupplierProduct.product_id, models.Supplier.company_name)
+            .join(models.Supplier, models.Supplier.id == models.SupplierProduct.supplier_id)
+            .filter(
+                models.SupplierProduct.product_id.in_(product_ids),
+                models.SupplierProduct.is_preferred.is_(True),
+            )
+            .all()
+        )
+        return {product_id: company_name for product_id, company_name in rows}
+
     def get_by_id(self, mapping_id: int) -> Optional[models.SupplierProduct]:
         return (
             self.db.query(models.SupplierProduct)

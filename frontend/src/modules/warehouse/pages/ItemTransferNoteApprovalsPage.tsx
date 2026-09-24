@@ -24,11 +24,14 @@ import {
   IconButton,
   Tooltip,
   Chip,
+  InputAdornment,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 
 // Import tijaero components
 import {
@@ -38,7 +41,6 @@ import {
   DetailPanelHeader,
   FormSection,
   EmptyState,
-  TTabFilterBar,
   TBranchFilter,
   TStatusFilter,
   getStatusProps,
@@ -85,14 +87,10 @@ export default function ItemTransferNoteApprovalsPage() {
   // Confirm dialog for warnings
   const confirmDialog = useTConfirmDialog();
 
-  // Filter states (applied - drives the actual list filtering)
+  // Filter states - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterStatus, setFilterStatus] = useState<string | null>("pending");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
-
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftStatus, setDraftStatus] = useState<string | null>("pending");
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -109,23 +107,13 @@ export default function ItemTransferNoteApprovalsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterBranch(draftBranch);
-  }, [draftSearchQuery, draftStatus, draftBranch]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftBranch(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterBranch(null);
@@ -484,7 +472,7 @@ export default function ItemTransferNoteApprovalsPage() {
 
             {/* Transfer Items */}
             <FormSection title="Transfer Items" columns={1}>
-              <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+              <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
@@ -563,50 +551,49 @@ export default function ItemTransferNoteApprovalsPage() {
       <MasterDetailLayout
         title="ITN Approvals"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search transfer notes..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search transfer notes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TStatusFilter options={STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
-                ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => (
-                  <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !draftBranch && !searchQuery && !filterStatus && !filterBranch}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TStatusFilter
+                options={STATUS_FILTER_OPTIONS}
+                value={filterStatus}
+                onChange={setFilterStatus}
+                label=""
+                placeholder="All Status"
+                size="small"
+              />
+            </Box>
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TBranchFilter
+                branches={branches}
+                value={filterBranch}
+                onChange={setFilterBranch}
+                label=""
+                placeholder="All Branches"
+                size="small"
+              />
+            </Box>
+            {(searchQuery || filterStatus || filterBranch) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         }
         masterPanel={masterPanel}
         detailPanel={detailPanel}

@@ -16,7 +16,6 @@ import {
   Button,
   IconButton,
   Tooltip,
-  Divider,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
@@ -117,14 +116,22 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
         </Tooltip>
       )}
 
-      {/* Divider */}
-      {showDivider && (isEditing || isCreating || (!isEditing && !isCreating && hasItem && canUpdate)) && (
-        <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+      {/* Edit Button (View Mode) */}
+      {!isEditing && !isCreating && hasItem && canUpdate && onEdit && (
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<EditIcon />}
+          onClick={onEdit}
+        >
+          Edit
+        </Button>
       )}
 
-      {/* Save/Cancel Buttons (Edit/Create Mode) */}
+      {/* Save/Cancel (Edit/Create Mode) — pushed to the right edge of the
+          toolbar. */}
       {(isEditing || isCreating) && (
-        <>
+        <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
           {onSave && (
             <Button
               size="small"
@@ -148,19 +155,7 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
               {isCreating ? "Cancel New" : "Cancel"}
             </Button>
           )}
-        </>
-      )}
-
-      {/* Edit Button (View Mode) */}
-      {!isEditing && !isCreating && hasItem && canUpdate && onEdit && (
-        <Button
-          size="small"
-          variant="outlined"
-          startIcon={<EditIcon />}
-          onClick={onEdit}
-        >
-          Edit
-        </Button>
+        </Box>
       )}
 
       {/* Custom End Actions */}

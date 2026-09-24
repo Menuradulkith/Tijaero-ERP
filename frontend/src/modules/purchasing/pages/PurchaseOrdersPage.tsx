@@ -19,9 +19,13 @@ import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
     Alert,
     Autocomplete,
+    Avatar,
     Box,
     Button,
     CircularProgress,
@@ -30,6 +34,7 @@ import {
     DialogContent,
     DialogTitle,
     IconButton,
+    InputAdornment,
     MenuItem,
     Paper,
     Step,
@@ -44,6 +49,9 @@ import {
     Tooltip,
     Typography,
 } from "@mui/material";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
@@ -59,16 +67,15 @@ import {
     MasterDetailLayout,
     modernTableStyles,
     PURCHASE_ORDER_PAYMENT_METHOD,
-    SearchableList,
     SelectableListItem,
     showErrorToast,
     showSuccessToast,
     showWarningToast,
-    SortOption,
     TBranchFilter,
     TConfirmDialog,
+    TDataGrid,
+    type TDataGridColumn,
     TPrintButton,
-    TTabFilterBar,
     TPrintPreviewDialog,
     TStatusChip,
     TSupplierFilter,
@@ -96,11 +103,6 @@ import { productsApi } from "@/modules/inventory/api";
 
 import { useAuthStore } from "@/state/authStore";
 import { hasPermission } from "@/auth/permissions";
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "added_date", label: "Date" },
-  { value: "purchasing_order_no", label: "Order Number" },
-];
 
 // Status options are now imported from common components (PO_STATUS_OPTIONS)
 
@@ -151,6 +153,11 @@ const INITIAL_FORM_DATA: PurchaseOrderFormData = {
 interface OrderLineItem extends PurchasingOrderItemCreate {
   _id: string;
 }
+
+// A purchase order row as shown in the browse table, with the supplier name
+// looked up and attached directly so the table's own column-header sort
+// orders by the displayed name rather than the raw supplier id.
+type PurchaseOrderRow = PurchasingOrder & { supplier_display_name: string };
 
 const resetFormFromOrder = (
   order: PurchasingOrder | PurchasingOrderWithItems,
@@ -221,12 +228,6 @@ export default function PurchaseOrdersPage() {
   const [filterSupplier, setFilterSupplier] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftSupplier, setDraftSupplier] = useState<number | null>(null);
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-
   // Item remarks modal state
   const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
   const [selectedItemForRemark, setSelectedItemForRemark] =
@@ -262,8 +263,6 @@ export default function PurchaseOrdersPage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedOrder,
     setSelectedItem: setSelectedOrder,
     isEditing,
@@ -322,9 +321,21 @@ export default function PurchaseOrdersPage() {
     }
   }, [handleStartEditBase, selectedOrder]);
 
+  // Cancelling out of "New Order" should return to the browse table, not
+  // auto-open the first order the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing
+  // order still just reverts its form, which the generic handler already
+  // does correctly.
   const handleCancel = useCallback(
     (items: PurchasingOrder[]) => {
-      handleCancelBase(items);
+      if (isCreating) {
+        setIsCreating(false);
+        setIsEditing(false);
+        setSelectedOrder(null);
+      } else {
+        handleCancelBase(items);
+      }
       setLineItems([]);
       setFormStep(0);
       setTouched({}); // Reset validation state
@@ -335,7 +346,7 @@ export default function PurchaseOrdersPage() {
         requiresApproval: false,
       }); // Clear credit warning
     },
-    [handleCancelBase],
+    [isCreating, handleCancelBase, setIsCreating, setIsEditing, setSelectedOrder],
   );
 
   const selectingOrderIdRef = useRef<number | null>(null);
@@ -475,27 +486,15 @@ export default function PurchaseOrdersPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-    setFilterSupplier(draftSupplier);
-    setFilterStatus(draftStatus);
-  }, [draftSearchQuery, draftBranch, draftSupplier, draftStatus]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
-    setDraftSupplier(null);
-    setDraftStatus(null);
     setSearchQuery("");
     setFilterBranch(null);
     setFilterSupplier(null);
     setFilterStatus(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
@@ -580,19 +579,15 @@ export default function PurchaseOrdersPage() {
       filtered = filtered.filter((order) => order.status === filterStatus);
     }
 
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
     filtered.sort((a, b) => {
-      if (sortField === "added_date") {
-        const diff = new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      const fieldA = a[sortField as keyof PurchasingOrder] || "";
-      const fieldB = b[sortField as keyof PurchasingOrder] || "";
-      const comp = String(fieldA).localeCompare(String(fieldB));
-      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
+      const diff = new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
+      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;
-  }, [orders, searchQuery, sortField, filterBranch, filterSupplier, filterStatus]);
+  }, [orders, searchQuery, filterBranch, filterSupplier, filterStatus]);
 
   const approvalNavTargetId = useMemo(() => {
     const navState = location.state as {
@@ -606,8 +601,9 @@ export default function PurchaseOrdersPage() {
     return Number.isFinite(parsedId) ? parsedId : null;
   }, [location.state]);
 
-  // Auto-select first item when data loads, or the ?focus=<id> deep-link
-  // target (used by the AI assistant to open a specific PO).
+  // Open the ?focus=<id> deep-link target (used by the AI assistant to open
+  // a specific PO). Nothing is auto-selected otherwise — the default view is
+  // the browse table.
   const focusHandled = useRef(false);
   useEffect(() => {
     if (isCreating || filteredOrders.length === 0) return;
@@ -620,21 +616,11 @@ export default function PurchaseOrdersPage() {
         const next = new URLSearchParams(searchParams);
         next.delete("focus");
         setSearchParams(next, { replace: true });
-        return;
       }
-    }
-    if (
-      !selectedOrder &&
-      approvalNavTargetId == null &&
-      !searchParams.get("focus")
-    ) {
-      handleSelectOrderWithItems(filteredOrders[0]);
     }
   }, [
     filteredOrders,
-    selectedOrder,
     isCreating,
-    approvalNavTargetId,
     handleSelectOrderWithItems,
     searchParams,
     setSearchParams,
@@ -1116,6 +1102,16 @@ export default function PurchaseOrdersPage() {
     }
   }, [selectedOrder, setFormData, handleNewOrderBase]);
 
+  // Returns to the browse table from the detail view (the "Back to Purchase
+  // Orders" link above the detail header).
+  const handleBackToOrders = useCallback(() => {
+    setSelectedOrder(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedOrder, setIsCreating, setIsEditing]);
+
   const getSupplierName = (order: PurchasingOrder) => {
     if (order.supplier_name) return order.supplier_name;
     const supplier = suppliers?.find((s: Supplier) => s.id === order.first_suppliers_id);
@@ -1228,137 +1224,191 @@ export default function PurchaseOrdersPage() {
     }
   };
 
-  const masterPanel = (
-    <SearchableList<PurchasingOrder>
-      items={filteredOrders}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedOrder}
-      onSelectItem={handleSelectOrderWithItems}
-      emptyMessage="No purchase orders found"
-      renderItem={(order, isSelected) => (
-        <SelectableListItem
-          key={order.id}
-          id={order.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectOrderWithItems(order)}
-          primaryText={
-            <Box
-              sx={{
-                display: "flex",
-                flexDirection: "column",
-                width: "100%",
-                gap: 0.5,
+  // The table sorts by whichever column the user clicks; the Supplier column
+  // displays a looked-up name rather than the raw supplier id, so it needs
+  // that name as its own field for the grid to sort on correctly.
+  const purchaseOrderRows = useMemo(
+    () =>
+      filteredOrders.map((order) => ({
+        ...order,
+        supplier_display_name: getSupplierName(order),
+      })),
+    [filteredOrders, suppliers] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const purchaseOrderColumns: TDataGridColumn<PurchaseOrderRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<PurchaseOrderRow>) => (
+          <IconButton
+            size="small"
+            onClick={(e) => toggleFavorite(params.row.id, e)}
+          >
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "purchasing_order_no",
+        header: "PO Number",
+        flex: 1,
+        minWidth: 170,
+        renderCell: (params: GridRenderCellParams<PurchaseOrderRow>) => (
+          <Typography variant="body2" fontWeight={600}>
+            {params.row.purchasing_order_no || `PO-${params.row.id}`}
+          </Typography>
+        ),
+      },
+      {
+        field: "supplier_display_name",
+        header: "Supplier",
+        flex: 1,
+        minWidth: 180,
+      },
+      {
+        field: "branch_code",
+        header: "Branch",
+        width: 110,
+      },
+      {
+        field: "purchasing_order_date",
+        header: "Order Date",
+        type: "date",
+        width: 130,
+      },
+      {
+        field: "status",
+        header: "Status",
+        type: "status",
+        statusMap: "purchaseOrder",
+        width: 150,
+      },
+      {
+        field: "total_amount",
+        header: "Total",
+        type: "currency",
+        width: 140,
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<PurchaseOrderRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectOrderWithItems(params.row);
               }}
             >
-              {/* PO Number */}
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <span>{order.purchasing_order_no || `PO-${order.id}`}</span>
-                {isSelected && (
-                  <Typography
-                    component="span"
-                    variant="caption"
-                    sx={{ color: "inherit", opacity: 0.7 }}
-                  >
-                    (PO No)
-                  </Typography>
-                )}
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectOrderWithItems]
+  );
+
+  // Whether we're showing a single order's detail view (selected or being
+  // created) instead of the browse table.
+  const isPurchaseOrderDetailMode = !!selectedOrder || isCreating;
+
+  // Browse mode: a full-width table of every purchase order (shown when
+  // nothing is selected and nothing is being created). Sorting is done
+  // per-column via the grid's own column header menu, not a separate
+  // "Sort by" control.
+  const purchaseOrderTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<PurchaseOrderRow>
+          rows={purchaseOrderRows}
+          columns={purchaseOrderColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectOrderWithItems(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No purchase orders found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current order (or the
+  // "New Order" placeholder while creating). A "Back to Purchase Orders"
+  // link returns to the table.
+  const singlePurchaseOrderPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToOrders}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Purchase Orders
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
+              <ShoppingCartIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Order
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedOrder && (
+        <SelectableListItem
+          id={selectedOrder.id}
+          isSelected
+          onClick={() => {}}
+          primaryText={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
+                <ShoppingCartIcon fontSize="small" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedOrder.purchasing_order_no || `PO-${selectedOrder.id}`}</span>
               </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Typography component="span" variant="caption">
-                      {getSupplierName(order)}
-                    </Typography>
-                    <Typography
-                      component="span"
-                      variant="caption"
-                      sx={{ color: "inherit", opacity: 0.7 }}
-                    >
-                      (Supplier)
-                    </Typography>
-                  </Box>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Typography component="span" variant="caption">
-                      {new Date(
-                        order.purchasing_order_date || "",
-                      ).toLocaleDateString()}
-                    </Typography>
-                    <Typography
-                      component="span"
-                      variant="caption"
-                      sx={{ color: "inherit", opacity: 0.7 }}
-                    >
-                      (Date)
-                    </Typography>
-                  </Box>
-                  {/* Status Chips - shown below all fields when selected */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      gap: 0.5,
-                      mt: 0.5,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <TStatusChip
-                      status={order.status || "draft"}
-                      statusMap="purchaseOrder"
-                      size="small"
-                    />
-                  </Box>
-                </>
-              )}
             </Box>
           }
-          secondaryText={
-            !isSelected
-              ? `${getSupplierName(order)} - ${new Date(order.purchasing_order_date || "").toLocaleDateString()}`
-              : undefined
-          }
-          isFavorite={favorites.includes(order.id)}
-          onToggleFavorite={(e) => toggleFavorite(order.id, e)}
-          statusChip={
-            !isSelected
-              ? {
-                  label: getStatusProps(
-                    order.status || "draft",
-                    "purchaseOrder",
-                  ).label,
-                  color: getStatusProps(
-                    order.status || "draft",
-                    "purchaseOrder",
-                  ).color,
-                }
-              : undefined
-          }
+          isFavorite={favorites.includes(selectedOrder.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedOrder.id, e)}
         />
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -1652,7 +1702,7 @@ export default function PurchaseOrdersPage() {
                         variant="outlined"
                         sx={{
                           overflow: "hidden",
-                          borderRadius: 2,
+                          borderRadius: 3,
                           border: "1px solid",
                           borderColor: "divider",
                         }}
@@ -1667,7 +1717,6 @@ export default function PurchaseOrdersPage() {
                                   (s: Supplier) => s.id === formData.first_suppliers_id,
                                 )?.company_name || "Supplier") + "'s Cost (Rs.)"}
                               </TableCell>
-                              <TableCell align="right">Lead Time (days)</TableCell>
                             </TableRow>
                           </TableHead>
                           <TableBody>
@@ -1691,9 +1740,6 @@ export default function PurchaseOrdersPage() {
                                           {fmtLKR(baseCost)} (base)
                                         </Typography>
                                       )}
-                                    </TableCell>
-                                    <TableCell align="right">
-                                      {mapping?.lead_time_days ?? "—"}
                                     </TableCell>
                                   </TableRow>
                                 );
@@ -1933,7 +1979,7 @@ export default function PurchaseOrdersPage() {
                     variant="outlined"
                     sx={{
                       overflow: "hidden",
-                      borderRadius: 2,
+                      borderRadius: 3,
                       border: "1px solid",
                       borderColor: "divider",
                     }}
@@ -2173,72 +2219,74 @@ export default function PurchaseOrdersPage() {
       <MasterDetailLayout
         title="Purchase Orders"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "PO No",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search PO No"
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />,
-              },
-              {
-                key: "supplier",
-                label: "Supplier",
-                hasValue: !!draftSupplier,
-                render: () => <TSupplierFilter suppliers={suppliers || []} value={draftSupplier} onChange={setDraftSupplier} label="" size="small" />,
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => <TStatusFilter options={PO_STATUS_FILTER_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />,
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftBranch && !draftSupplier && !draftStatus && !searchQuery && !filterBranch && !filterSupplier && !filterStatus}
-          />
+          isPurchaseOrderDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search PO No"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 160, flexShrink: 0 }}>
+                <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+              </Box>
+              <Box sx={{ width: 180, flexShrink: 0 }}>
+                <TSupplierFilter suppliers={suppliers || []} value={filterSupplier} onChange={setFilterSupplier} label="" placeholder="All Suppliers" size="small" />
+              </Box>
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TStatusFilter options={PO_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
+              </Box>
+              {(searchQuery || filterBranch || filterSupplier || filterStatus) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         headerActions={
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={handleExportCSV}
-            disabled={filteredOrders.length === 0}
-            sx={{ mr: 1 }}
-          >
-            Export CSV
-          </Button>
+          isPurchaseOrderDetailMode ? undefined : (
+            <>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleNewOrder}
+                sx={{ mr: 1 }}
+              >
+                Add Purchase Order
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={handleExportCSV}
+                disabled={filteredOrders.length === 0}
+                sx={{ mr: 1 }}
+              >
+                Export CSV
+              </Button>
+            </>
+          )
         }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
           queryClient.invalidateQueries({ queryKey: ["suppliers"] });
         }}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isPurchaseOrderDetailMode
+          ? { masterPanel: singlePurchaseOrderPanel, detailPanel }
+          : { children: purchaseOrderTablePanel })}
       />
 
       {/* Item Remark Modal */}
@@ -2356,7 +2404,6 @@ export default function PurchaseOrdersPage() {
                 <TableRow>
                   <TableCell>Supplier</TableCell>
                   <TableCell align="right">Cost Price</TableCell>
-                  <TableCell align="right">Lead Time</TableCell>
                   <TableCell align="right">MOQ</TableCell>
                   <TableCell align="right"> </TableCell>
                 </TableRow>
@@ -2373,7 +2420,6 @@ export default function PurchaseOrdersPage() {
                       )}
                     </TableCell>
                     <TableCell align="right">Rs. {supplier.cost_price}</TableCell>
-                    <TableCell align="right">{supplier.lead_time_days != null ? `${supplier.lead_time_days}d` : "-"}</TableCell>
                     <TableCell align="right">{supplier.minimum_order_qty ?? "-"}</TableCell>
                     <TableCell align="right">
                       <Button size="small" onClick={(e) => { e.stopPropagation(); handleQuickFillSupplierPrice(supplier); }}>

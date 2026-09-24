@@ -139,8 +139,8 @@ class SupplierProduct(Base, AuditMixin):
     """
     Which suppliers can supply a given product, and on what terms — the
     "approved vendor list" mapping. A product commonly has more than one
-    supplier, each with their own cost, lead time, and MOQ, so this is a
-    many-to-many junction rather than a single supplier_id on Product.
+    supplier, each with their own cost and MOQ, so this is a many-to-many
+    junction rather than a single supplier_id on Product.
     """
     __tablename__ = "supplier_product"
     __table_args__ = (
@@ -152,7 +152,6 @@ class SupplierProduct(Base, AuditMixin):
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
     supplier_sku = Column(String(255))
     cost_price = Column(Numeric(60, 2), nullable=False)
-    lead_time_days = Column(Integer)
     minimum_order_qty = Column(Integer)
     is_preferred = Column(Boolean, nullable=False, default=False)
     active = Column(Boolean, nullable=False, default=True)

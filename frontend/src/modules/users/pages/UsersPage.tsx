@@ -4,15 +4,26 @@
 
 import HistoryIcon from "@mui/icons-material/History";
 import PersonIcon from "@mui/icons-material/Person";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
     Alert,
     Autocomplete,
+    Avatar,
     Box,
     Button,
     Checkbox,
     Chip,
     FormControlLabel,
     IconButton,
+    InputAdornment,
+    Paper,
     Switch,
     TextField,
     Tooltip,
@@ -28,9 +39,6 @@ import {
     EmptyState,
     FormSection,
     MasterDetailLayout,
-    SearchableList,
-    SelectableListItem,
-    SortOption,
     TDetailSkeleton,
     TExportButton,
     TPageSkeleton,
@@ -42,10 +50,12 @@ import {
     useCrudMutation,
     showErrorToast,
     TActivityHistoryPanel,
-    TTabFilterBar,
     TStatusFilter,
     TAutocomplete,
     type TFilterStatusOption,
+    TDataGrid,
+    SelectableListItem,
+    type TDataGridColumn,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/components/PermissionGuard";
@@ -58,13 +68,6 @@ import { UserCreate, UserList, usersApi, UserUpdate } from "../api";
 import UserAvatarUploader from "../components/UserAvatarUploader";
 
 // Configuration
-const SORT_OPTIONS: SortOption[] = [
-  { value: "username", label: "Username" },
-  { value: "first_name", label: "First Name" },
-  { value: "email", label: "Email" },
-  { value: "created_at", label: "Creation Date" },
-];
-
 const USER_STATUS_OPTIONS: TFilterStatusOption[] = [
   { value: null, label: "All Statuses" },
   { value: "active", label: "Active" },
@@ -159,15 +162,11 @@ export default function UsersPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [filterBranchId, setFilterBranchId] = useState<number | null>(null);
-  const [filterRoleId, setFilterRoleId] = useState<number | null>(null);
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
-
-  // Filter state (draft - edited via the filter bar, only applied on Search click)
-  const [draftUserQuery, setDraftUserQuery] = useState("");
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftBranch, setDraftBranch] = useState<Branch | null>(null);
-  const [draftRole, setDraftRole] = useState<Group | null>(null);
+  const [filterBranch, setFilterBranch] = useState<Branch | null>(null);
+  const [filterRole, setFilterRole] = useState<Group | null>(null);
 
   // Permissions
   const canCreate = usePermission(PERMISSIONS.USER_CREATE.resource, PERMISSIONS.USER_CREATE.action);
@@ -180,8 +179,6 @@ export default function UsersPage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedUser,
     setSelectedItem: setSelectedUser,
     isEditing,
@@ -212,25 +209,14 @@ export default function UsersPage() {
   });
 
   // Activity History is opened on demand from a detail icon next to the
-  // Record Information section title, rather than shown inline.
+  // Activity History section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftUserQuery);
-    setFilterStatus(draftStatus);
-    setFilterBranchId(draftBranch?.id ?? null);
-    setFilterRoleId(draftRole?.id ?? null);
-  }, [draftUserQuery, draftStatus, draftBranch, draftRole, setSearchQuery]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftUserQuery("");
-    setDraftStatus(null);
-    setDraftBranch(null);
-    setDraftRole(null);
     setSearchQuery("");
     setFilterStatus(null);
-    setFilterBranchId(null);
-    setFilterRoleId(null);
+    setFilterBranch(null);
+    setFilterRole(null);
   }, [setSearchQuery]);
 
   useEffect(() => {
@@ -284,16 +270,16 @@ export default function UsersPage() {
     let filtered = users.filter((user) => !user.is_superuser);
 
     // Filter by branch
-    if (filterBranchId) {
+    if (filterBranch) {
       filtered = filtered.filter((user) =>
-        user.branches.some((b) => b.id === filterBranchId)
+        user.branches.some((b) => b.id === filterBranch.id)
       );
     }
 
     // Filter by role
-    if (filterRoleId) {
+    if (filterRole) {
       filtered = filtered.filter((user) =>
-        user.groups.some((g) => g.id === filterRoleId)
+        user.groups.some((g) => g.id === filterRole.id)
       );
     }
 
@@ -313,16 +299,12 @@ export default function UsersPage() {
       );
     }
 
-    filtered.sort((a, b) => {
-      if (sortField === "username") return a.username.localeCompare(b.username);
-      if (sortField === "first_name") return a.first_name.localeCompare(b.first_name);
-      if (sortField === "email") return (a.email || "").localeCompare(b.email || "");
-      if (sortField === "created_at") return (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0);
-      return 0;
-    });
+    // Default order before the user sorts a column in the browse table
+    // itself (the table's own column-header sort takes over from there).
+    filtered.sort((a, b) => a.username.localeCompare(b.username));
 
     return filtered;
-  }, [users, searchQuery, sortField, filterBranchId, filterRoleId, filterStatus]);
+  }, [users, searchQuery, filterBranch, filterRole, filterStatus]);
 
   const createUserMutation = useCrudMutation({
     mutationFn: (user: UserCreate) => usersApi.createUser(user),
@@ -407,14 +389,6 @@ export default function UsersPage() {
     setUsernameError(null);
     baseHandleSelectUser(user);
   }, [baseHandleSelectUser]);
-
-  // Auto-select first user when users are loaded or filtered
-  // But NOT when we're creating a new item (selectedUser is null during creation)
-  useEffect(() => {
-    if (filteredUsers.length > 0 && !selectedUser && !isCreating) {
-      handleSelectUser(filteredUsers[0]);
-    }
-  }, [filteredUsers, selectedUser, isCreating, handleSelectUser]);
 
   const handlePasswordChange = useCallback((value: string) => {
     setFormData((prev) => ({ ...prev, password: value }));
@@ -606,6 +580,12 @@ export default function UsersPage() {
     markAsSaved,
   ]);
 
+  // Cancelling out of "New User" should return to the browse table, not
+  // auto-open the first user the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing user
+  // still just reverts its form, which the generic handler already does
+  // correctly.
   const handleCancel = useCallback(() => {
     setPasswordError(null);
     setEmailError(null);
@@ -613,8 +593,24 @@ export default function UsersPage() {
     setUsernameError(null);
     setBirthdateError(null);
     setDateJoinedError(null);
-    baseHandleCancel(filteredUsers);
-  }, [baseHandleCancel, filteredUsers]);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedUser(null);
+    } else {
+      baseHandleCancel(filteredUsers);
+    }
+  }, [isCreating, baseHandleCancel, filteredUsers, setIsCreating, setIsEditing, setSelectedUser]);
+
+  // Returns to the browse table from the detail view (the "Back to Users"
+  // link above the detail header).
+  const handleBackToUsers = useCallback(() => {
+    setSelectedUser(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedUser, setIsCreating, setIsEditing]);
 
   const handleDelete = useCallback(async () => {
     if (selectedUser) {
@@ -635,105 +631,177 @@ export default function UsersPage() {
     }
   }, [selectedUser, deleteUserMutation, confirmDialog]);
 
-  if (loading) {
-    return <TPageSkeleton variant="detail" />;
-  }
-
   const isFormValid = formData.username && formData.first_name && formData.last_name &&
     formData.employee_id &&
     !!formData.branch_ids?.length && !!formData.primary_branch_id && !!formData.group_ids?.length &&
     (isCreating ? !passwordError && formData.password : true);
   const isDisabled = !isEditing && !isCreating;
 
-  // Master Panel
-  const masterPanel = (
-    <SearchableList<UserList>
-      items={filteredUsers}
-      isLoading={loading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedUser}
-      onSelectItem={handleSelectUser}
-      emptyMessage="No users found"
-      width={300}
-      renderItem={(user, isSelected) => (
-        <SelectableListItem
-          key={user.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectUser(user)}
-          primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* Username */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{user.username}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Username)
-                  </Typography>
-                )}
-              </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {user.first_name} {user.last_name}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Name)
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {user.email}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Email)
-                    </Typography>
-                  </Box>
-                  {/* Status Chips - shown below all fields when selected */}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip
-                      label={user.is_active ? "Active" : "Inactive"}
-                      size="small"
-                      color={user.is_active ? "success" : "default"}
-                      sx={{ height: 18, fontSize: "0.65rem" }}
-                    />
-                    {user.is_staff && (
-                      <Chip
-                        label="Staff"
-                        size="small"
-                        color="warning"
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                    )}
-                    {user.is_superuser && (
-                      <Chip
-                        label="Super"
-                        size="small"
-                        color="error"
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                    )}
-                  </Box>
-                </>
-              )}
-            </Box>
-          }
-          secondaryText={!isSelected ? `${user.first_name} ${user.last_name}` : undefined}
-          isFavorite={favorites.includes(user.id)}
-          onToggleFavorite={(e) => toggleFavorite(user.id, e)}
-          chips={!isSelected ? [
-            ...(user.is_active ? [{ label: "Active", color: "success" as const }] : [{ label: "Inactive", color: "default" as const }]),
-            ...(user.is_staff ? [{ label: "Staff", color: "warning" as const }] : []),
-          ] : []}
+  // Whether we're showing a single user's detail view (selected or being
+  // created) instead of the browse table.
+  const isUserDetailMode = !!selectedUser || isCreating;
+
+  // Browse mode: a full-width table of every user, with the country/role/
+  // branch names looked up and attached directly so the table's own
+  // column-header sort orders by the displayed text rather than the raw ids.
+  type UserRow = UserList & { full_name: string; role_names: string; branch_names: string };
+
+  const userRows: UserRow[] = useMemo(
+    () =>
+      filteredUsers.map((user) => ({
+        ...user,
+        full_name: `${user.first_name} ${user.last_name}`.trim(),
+        role_names: (user.groups || []).map((g) => g.name).join(", "),
+        branch_names: user.primary_branch?.branch_name || (user.branches || []).map((b) => b.branch_name).join(", "),
+      })),
+    [filteredUsers]
+  );
+
+  const userColumns: TDataGridColumn<UserRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<UserRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      { field: "username", header: "Username", flex: 1, minWidth: 150 },
+      { field: "full_name", header: "Full Name", flex: 1, minWidth: 170 },
+      { field: "email", header: "Email", flex: 1, minWidth: 190 },
+      { field: "role_names", header: "Role", flex: 1, minWidth: 150 },
+      { field: "branch_names", header: "Branch", flex: 1, minWidth: 150 },
+      {
+        field: "is_active",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<UserRow>) => (
+          <Chip
+            label={params.row.is_active ? "Active" : "Inactive"}
+            size="small"
+            color={params.row.is_active ? "success" : "default"}
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<UserRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectUser(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectUser]
+  );
+
+  const usersTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<UserRow>
+          rows={userRows}
+          columns={userColumns}
+          loading={loading}
+          onRowClick={(row) => handleSelectUser(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No users found"
+          autoHeight={false}
+          height="100%"
         />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current user (or the
+  // "New User" placeholder while creating). A "Back to Users" link returns
+  // to the table.
+  const singleUserPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToUsers}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Users
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main" }}>
+              <PersonIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New User
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedUser && (
+        <Box>
+          <SelectableListItem
+            id={selectedUser.id}
+            isSelected
+            onClick={() => {}}
+            primaryText={
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+                <Avatar sx={{ bgcolor: "primary.main" }}>
+                  <PersonIcon fontSize="small" />
+                </Avatar>
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                  <span>{`${selectedUser.first_name} ${selectedUser.last_name}`.trim()}</span>
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    {selectedUser.username}
+                  </Typography>
+                </Box>
+              </Box>
+            }
+            isFavorite={favorites.includes(selectedUser.id)}
+            onToggleFavorite={(e) => toggleFavorite(selectedUser.id, e)}
+          />
+        </Box>
       )}
-    />
+    </Paper>
   );
 
   // Detail Panel
@@ -1063,10 +1131,10 @@ export default function UsersPage() {
               </FormSection>
             )}
 
-            {/* Record Information (view mode only) */}
+            {/* Activity History (view mode only) */}
             {selectedUser && !isEditing && !isCreating && (
               <FormSection
-                title="Record Information"
+                title="Activity History"
                 columns={2}
                 titleAction={
                   <Tooltip title="View activity history">
@@ -1144,124 +1212,127 @@ export default function UsersPage() {
     </Box>
   );
 
+  if (loading) {
+    return <TPageSkeleton variant="detail" />;
+  }
+
   return (
     <>
       <MasterDetailLayout
         title="Users"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "user",
-                label: "User",
-                hasValue: !!draftUserQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Username, name, or email"
-                    value={draftUserQuery}
-                    onChange={(e) => setDraftUserQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          isUserDetailMode ? undefined : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Username, name, or email"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TStatusFilter
-                    options={USER_STATUS_OPTIONS}
-                    value={draftStatus}
-                    onChange={setDraftStatus}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => (
-                  <TAutocomplete<Branch>
-                    label="Branch"
-                    options={branches}
-                    value={draftBranch}
-                    onChange={(value) => setDraftBranch(value as Branch | null)}
-                    getOptionLabel={(b) => b.branch_name}
-                    size="small"
-                  />
-                ),
-              },
-              {
-                key: "role",
-                label: "Role",
-                hasValue: !!draftRole,
-                render: () => (
-                  <TAutocomplete<Group>
-                    label="Role"
-                    options={groups}
-                    value={draftRole}
-                    onChange={(value) => setDraftRole(value as Group | null)}
-                    getOptionLabel={(g) => g.name}
-                    size="small"
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftUserQuery && !draftStatus && !draftBranch && !draftRole && !searchQuery && !filterStatus && filterBranchId === null && filterRoleId === null}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TStatusFilter
+                options={USER_STATUS_OPTIONS}
+                value={filterStatus}
+                onChange={setFilterStatus}
+                label=""
+                placeholder="All Status"
+                size="small"
+              />
+            </Box>
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TAutocomplete<Branch>
+                label=""
+                placeholder="All Branches"
+                options={branches}
+                value={filterBranch}
+                onChange={(value) => setFilterBranch(value as Branch | null)}
+                getOptionLabel={(b) => b.branch_name}
+                size="small"
+              />
+            </Box>
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TAutocomplete<Group>
+                label=""
+                placeholder="All Roles"
+                options={groups}
+                value={filterRole}
+                onChange={(value) => setFilterRole(value as Group | null)}
+                getOptionLabel={(g) => g.name}
+                size="small"
+              />
+            </Box>
+            {(searchQuery || filterStatus || filterBranch || filterRole) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+          )
         }
         onRefresh={loadData}
         isLoading={loading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
         headerActions={
-          <TExportButton
-            filename="users"
-            headers={[
-              "Username",
-              "First Name",
-              "Middle Name",
-              "Last Name",
-              "Email",
-              "Gender",
-              "Birthdate",
-              "Date Joined",
-              "Employee ID",
-              "Branches",
-              "Roles",
-              "Status",
-            ]}
-            rows={() =>
-              filteredUsers.map((u) => [
-                u.username || "",
-                u.first_name || "",
-                u.middle_name || "",
-                u.last_name || "",
-                u.email || "",
-                GENDER_CHOICES.find((g) => g.value === u.gender)?.label || "",
-                u.birthdate ? new Date(u.birthdate).toLocaleDateString() : "",
-                u.date_joined ? new Date(u.date_joined).toLocaleDateString() : "",
-                u.employee_id || "",
-                (u.branches || []).map((b) => b.branch_name).join(", "),
-                (u.groups || []).map((g) => g.name).join(", "),
-                u.is_active ? "Active" : "Inactive",
-              ])
-            }
-            disabled={filteredUsers.length === 0}
-          />
+          isUserDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleCreate}
+                  sx={{ mr: 1 }}
+                >
+                  Add User
+                </Button>
+              )}
+              <TExportButton
+                filename="users"
+                headers={[
+                  "Username",
+                  "First Name",
+                  "Middle Name",
+                  "Last Name",
+                  "Email",
+                  "Gender",
+                  "Birthdate",
+                  "Date Joined",
+                  "Employee ID",
+                  "Branches",
+                  "Roles",
+                  "Status",
+                ]}
+                rows={() =>
+                  filteredUsers.map((u) => [
+                    u.username || "",
+                    u.first_name || "",
+                    u.middle_name || "",
+                    u.last_name || "",
+                    u.email || "",
+                    GENDER_CHOICES.find((g) => g.value === u.gender)?.label || "",
+                    u.birthdate ? new Date(u.birthdate).toLocaleDateString() : "",
+                    u.date_joined ? new Date(u.date_joined).toLocaleDateString() : "",
+                    u.employee_id || "",
+                    (u.branches || []).map((b) => b.branch_name).join(", "),
+                    (u.groups || []).map((g) => g.name).join(", "),
+                    u.is_active ? "Active" : "Inactive",
+                  ])
+                }
+                disabled={filteredUsers.length === 0}
+              />
+            </>
+          )
         }
+        {...(isUserDetailMode ? { masterPanel: singleUserPanel, detailPanel } : { children: usersTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 

@@ -64,6 +64,7 @@ export interface Product {
   item_code: string;
   model?: string;
   item_type: string;
+  unit_of_measure: string;
   description?: string;
   website_active: boolean;
   website_price?: number;
@@ -82,6 +83,11 @@ export interface Product {
   created_by_name?: string;
   updated_by_name?: string;
   price_tiers: PriceTier[];
+  // Bulk-attached by the backend service (not real Product columns) — the
+  // product's current minimum selling price and its preferred supplier's
+  // company name, so the browse table can show them without a per-row fetch.
+  minimum_selling_price?: number | null;
+  preferred_supplier_name?: string | null;
 }
 
 export interface PriceTier {
@@ -133,6 +139,7 @@ export interface ProductCreate {
   item_code: string;
   model?: string;
   item_type: string;
+  unit_of_measure?: string;
   description?: string;
   website_active?: boolean;
   website_price?: number;
@@ -148,6 +155,7 @@ export interface ProductUpdate {
   name?: string;
   model?: string;
   item_type?: string;
+  unit_of_measure?: string;
   description?: string;
   website_active?: boolean;
   website_price?: number;

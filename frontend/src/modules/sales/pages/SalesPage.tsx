@@ -11,25 +11,25 @@ import {
     handleApiError,
     MasterDetailLayout,
     modernTableStyles,
-    SearchableList,
-    SelectableListItem,
     showErrorToast,
     showSuccessToast,
-    SortOption,
     TBranchFilter,
     TConfirmDialog,
+    TDataGrid,
+    type TDataGridColumn,
     TEmailDialog,
     TPrintButton,
     TPrintPreviewDialog,
     TStatusChip,
     TStatusFilter,
     TSteps,
-    TTabFilterBar,
     useCrudMutation,
     useMasterDetailState,
     useTConfirmDialog,
     TActivityHistoryPanel,
+    SelectableListItem,
 } from "@/components/tijaero";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useReferenceData } from "@/hooks";
 import { couponsApi, customersApi, vouchersApi } from "@/modules/customers/api";
 import {
@@ -62,9 +62,13 @@ import HistoryIcon from "@mui/icons-material/History";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
     Alert,
     Autocomplete,
+    Avatar,
     Box,
     Button,
     Chip,
@@ -147,13 +151,6 @@ export const getPaymentMethodsDisplay = (invoice: any) => {
     ? invoice.payment_method.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
     : "N/A";
 };
-
-// Sort options
-const sortOptions: SortOption[] = [
-  { value: "created_date", label: "Date (Newest)" },
-  { value: "invoice_no", label: "Invoice No" },
-  { value: "total", label: "Total Amount" },
-];
 
 // Status filter options
 const INVOICE_STATUS_OPTIONS = [
@@ -422,14 +419,10 @@ export default function SalesPage() {
     });
   };
 
-  // Filter states (applied - drives the actual list filtering)
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
-
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   // Permissions
   const canCreate = usePermission("sales_orders", "create");
@@ -470,24 +463,14 @@ export default function SalesPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    state.setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-    setFilterStatus(draftStatus);
-  }, [draftSearchQuery, draftBranch, draftStatus]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
-    setDraftStatus(null);
     state.setSearchQuery("");
     setFilterBranch(null);
     setFilterStatus(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
@@ -740,33 +723,153 @@ export default function SalesPage() {
       );
     }
 
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there) — newest
+    // orders first, same as the old default "Date (Newest)" sort option.
     filtered.sort((a, b) => {
-      if (state.sortField === "invoice_no") {
-        return a.invoice_no.localeCompare(b.invoice_no);
-      } else if (state.sortField === "created_date") {
-        const timeA = a.created_date_time ? new Date(a.created_date_time).getTime() : new Date(a.created_date).getTime();
-        const timeB = b.created_date_time ? new Date(b.created_date_time).getTime() : new Date(b.created_date).getTime();
-        if (timeB !== timeA) {
-          return timeB - timeA;
-        }
-        return b.id - a.id;
-      } else if (state.sortField === "total") {
-        return calculateTotal(b) - calculateTotal(a);
+      const timeA = a.created_date_time ? new Date(a.created_date_time).getTime() : new Date(a.created_date).getTime();
+      const timeB = b.created_date_time ? new Date(b.created_date_time).getTime() : new Date(b.created_date).getTime();
+      if (timeB !== timeA) {
+        return timeB - timeA;
       }
-      return 0;
+      return b.id - a.id;
     });
 
     return filtered;
   }, [
     invoices,
     state.searchQuery,
-    state.sortField,
     filterBranch,
     filterStatus,
   ]);
 
-  // Auto-select first item when data loads, or the ?focus=<id> deep-link
-  // target (used by the AI assistant to open a specific sales order).
+  // The table sorts by whichever column the user clicks; Customer/Branch
+  // display looked-up names rather than raw ids/codes, and Total is a
+  // derived value, so each needs its own field for the grid to sort on
+  // correctly.
+  type InvoiceRow = Invoice & {
+    customer_name: string;
+    branch_name: string;
+    total_amount: number;
+  };
+
+  const salesRows: InvoiceRow[] = useMemo(
+    () =>
+      filteredInvoices.map((invoice) => ({
+        ...invoice,
+        customer_name:
+          customers?.find((c) => c.id === invoice.customer_id)?.customer_name ||
+          "Unknown Customer",
+        branch_name:
+          branches.find((b) => b.branch_code === invoice.branch_code)?.branch_name ||
+          invoice.branch_code,
+        total_amount: calculateTotal(invoice),
+      })),
+    [filteredInvoices, customers, branches] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // Pending invoice for selection after discard confirm
+  const [_pendingInvoice, setPendingInvoice] = useState<Invoice | null>(null);
+
+  // Handlers
+  // NOTE: declared here (rather than further down with the other handlers)
+  // because salesColumns' "view" column below needs it in its useMemo
+  // dependency array, and a const referenced in a dependency array must
+  // already be initialized by the time that line runs.
+  const handleSelectInvoice = (invoice: Invoice) => {
+    if (state.isCreating) {
+      setPendingInvoice(invoice);
+      discardDialog.open("Discard Changes", "Discard unsaved changes?", () => {
+        state.setSelectedItem(invoice);
+        state.setIsCreating(false);
+        setPendingInvoice(null);
+      });
+      return;
+    }
+    state.setSelectedItem(invoice);
+    state.setIsCreating(false);
+  };
+
+  const salesColumns: TDataGridColumn<InvoiceRow>[] = useMemo(
+    () => [
+      { field: "invoice_no", header: "Order No", flex: 1, minWidth: 160 },
+      { field: "customer_name", header: "Customer", flex: 1, minWidth: 180 },
+      { field: "branch_name", header: "Branch", width: 140 },
+      {
+        field: "created_date",
+        header: "Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<InvoiceRow>) =>
+          format(
+            new Date(params.row.created_date_time || params.row.created_date),
+            "MMM dd, yyyy"
+          ),
+      },
+      {
+        field: "approval_status",
+        header: "Status",
+        width: 160,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<InvoiceRow>) => (
+          <TStatusChip
+            status={params.row.approval_status || "pending_approval"}
+            statusMap="invoice"
+            size="small"
+          />
+        ),
+      },
+      {
+        field: "total_amount",
+        header: "Total",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<InvoiceRow>) =>
+          `Rs. ${fmtLKR(params.row.total_amount)}`,
+      },
+      {
+        field: "payment_status",
+        header: "Payment Status",
+        width: 140,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<InvoiceRow>) => (
+          <TStatusChip
+            status={params.row.payment_status || "unpaid"}
+            statusMap="paymentStatus"
+            size="small"
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<InvoiceRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectInvoice(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectInvoice]
+  );
+
+  // Open the ?focus=<id> deep-link target (used by the AI assistant to open
+  // a specific sales order). The default view is now the browse table, so
+  // nothing is auto-selected on load anymore when there's no focus target.
   const focusHandled = useRef(false);
   useEffect(() => {
     if (state.isCreating || filteredInvoices.length === 0) return;
@@ -779,13 +882,9 @@ export default function SalesPage() {
         const next = new URLSearchParams(searchParams);
         next.delete("focus");
         setSearchParams(next, { replace: true });
-        return;
       }
     }
-    if (!state.selectedItem && !searchParams.get("focus")) {
-      state.setSelectedItem(filteredInvoices[0]);
-    }
-  }, [filteredInvoices, state.selectedItem, state.isCreating, searchParams, setSearchParams]);
+  }, [filteredInvoices, state.isCreating, searchParams, setSearchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle navigation state from Proforma page (auto-select Sales Order created from proforma)
   const navStateHandled = useRef(false);
@@ -1098,24 +1197,6 @@ export default function SalesPage() {
         return_reason: returnReason,
       },
     });
-  };
-
-  // Pending invoice for selection after discard confirm
-  const [_pendingInvoice, setPendingInvoice] = useState<Invoice | null>(null);
-
-  // Handlers
-  const handleSelectInvoice = (invoice: Invoice) => {
-    if (state.isCreating) {
-      setPendingInvoice(invoice);
-      discardDialog.open("Discard Changes", "Discard unsaved changes?", () => {
-        state.setSelectedItem(invoice);
-        state.setIsCreating(false);
-        setPendingInvoice(null);
-      });
-      return;
-    }
-    state.setSelectedItem(invoice);
-    state.setIsCreating(false);
   };
 
   const handleCreate = () => {
@@ -5159,350 +5240,259 @@ export default function SalesPage() {
     </>
   );
 
+  // Whether we're showing a single sales order's detail view (selected or
+  // being created) instead of the browse table.
+  const isSalesDetailMode = !!state.selectedItem || state.isCreating;
+
+  // Returns to the browse table from the detail view (the "Back to Sales"
+  // link above the detail content's breadcrumbs).
+  const handleBackToSales = useCallback(() => {
+    state.setSelectedItem(null);
+    if (state.isCreating) {
+      state.setIsCreating(false);
+      state.setIsEditing(false);
+    }
+  }, [state.isCreating, state.setSelectedItem, state.setIsCreating, state.setIsEditing]);
+
+  // Browse mode: a full-width table of every sales order (shown when nothing
+  // is selected and nothing is being created). Sorting is done per-column via
+  // the grid's own column header menu, not a separate "Sort by" control.
+  const salesTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<InvoiceRow>
+          rows={salesRows}
+          columns={salesColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectInvoice(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No sales orders found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current sales order
+  // (or the "New Sales Order" placeholder while creating), with a "Back to
+  // Sales" link returning to the table.
+  const singleSalesPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToSales}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Sales
+        </Button>
+      </Box>
+      {state.isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main" }}>
+              <ReceiptIcon />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Sales Order
+            </Typography>
+          </Box>
+        </Box>
+      ) : state.selectedItem && (
+        <SelectableListItem
+          id={state.selectedItem.id}
+          isSelected
+          onClick={() => {}}
+          primaryText={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "primary.main" }}>
+                <ReceiptIcon />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{state.selectedItem.invoice_no}</span>
+              </Box>
+            </Box>
+          }
+        />
+      )}
+    </Paper>
+  );
+
+  // Detail mode: the sales order's existing form/detail content, full width.
+  const salesDetailContent = (
+    <Box
+      sx={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <DetailPanelHeader
+        icon={<ReceiptIcon color="primary" />}
+        breadcrumbs={[
+          { label: "Sales", href: "/sales" },
+          { label: "Sales Orders" },
+        ]}
+        title={
+          state.isCreating
+            ? "Create New Sales Order"
+            : state.selectedItem
+              ? state.selectedItem.invoice_no
+              : "Select a Sales Order"
+        }
+        chips={
+          state.selectedItem && !state.isCreating
+            ? [
+                {
+                  label: state.selectedItem.status
+                    ? "Active"
+                    : "Inactive",
+                  color: state.selectedItem.status
+                    ? "success"
+                    : "default",
+                },
+              ]
+            : undefined
+        }
+      />
+
+      <ActionToolbar
+        canCreate={canCreate}
+        canDelete={
+          canDelete && state.selectedItem?.approval_status !== "completed"
+        }
+        canUpdate={
+          canUpdate && state.selectedItem?.approval_status !== "completed"
+        }
+        isEditing={state.isEditing}
+        isCreating={state.isCreating}
+        hasSelection={!!state.selectedItem}
+        onAdd={handleCreate}
+        onDelete={handleDelete}
+        onSave={handleSave}
+        onCancel={handleCancel}
+        isSaving={createMutation.isPending || updateMutation.isPending}
+        saveDisabled={lineItems.length === 0 || formStep !== 1}
+        customActions={
+          state.isCreating && formStep === 0 ? (
+            <Button
+              size="small"
+              variant="contained"
+              color="primary"
+              onClick={handleNextStep}
+              disabled={!isStep1Valid}
+              endIcon={<ArrowForwardIcon />}
+            >
+              Next: Line Items
+            </Button>
+          ) : state.isCreating && formStep === 1 ? (
+            customActions
+          ) : customActions
+        }
+      />
+
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {!state.selectedItem && !state.isCreating && !state.isEditing ? (
+          <EmptyState message="Select a sales order from the list or create a new one" />
+        ) : state.isCreating || state.isEditing ? (
+          renderCreateForm()
+        ) : (
+          renderViewInvoice()
+        )}
+      </Box>
+    </Box>
+  );
+
   return (
     <>
       <MasterDetailLayout
         title="Sales Orders"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Search",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search by invoice no, customer name..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TStatusFilter options={INVOICE_STATUS_OPTIONS} value={draftStatus} onChange={setDraftStatus} label="" size="small" />
-                ),
-              },
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranch,
-                render: () => (
-                  <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftBranch && !draftStatus && !state.searchQuery && !filterBranch && !filterStatus}
-          />
+          isSalesDetailMode ? undefined : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search by invoice no, customer name..."
+                value={state.searchQuery}
+                onChange={(e) => state.setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TStatusFilter options={INVOICE_STATUS_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Status" size="small" />
+              </Box>
+              <Box sx={{ width: 160, flexShrink: 0 }}>
+                <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+              </Box>
+              {(state.searchQuery || filterStatus || filterBranch) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )
         }
         headerActions={
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={handleExportCSV}
-            disabled={filteredInvoices.length === 0}
-            sx={{ mr: 1 }}
-          >
-            Export CSV
-          </Button>
+          isSalesDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleCreate}
+                  sx={{ mr: 1 }}
+                >
+                  Add Sales Order
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={handleExportCSV}
+                disabled={filteredInvoices.length === 0}
+                sx={{ mr: 1 }}
+              >
+                Export CSV
+              </Button>
+            </>
+          )
         }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["sales"] });
           queryClient.invalidateQueries({ queryKey: ["customers"] });
           queryClient.invalidateQueries({ queryKey: ["payment-cards-active"] });
         }}
-      >
-        <Box
-          sx={{
-            flex: 1,
-            display: "flex",
-            flexDirection: { xs: "column", md: "row" },
-            overflow: "hidden",
-          }}
-        >
-          {/* Master List */}
-          <SearchableList
-            searchValue={state.searchQuery}
-            onSearchChange={state.setSearchQuery}
-            hideSearch
-            sortOptions={sortOptions}
-            currentSort={state.sortField}
-            onSortChange={state.setSortField}
-            isLoading={isLoading}
-            emptyMessage="No sales orders found"
-          >
-            {filteredInvoices.map((invoice) => {
-              const isSelected = state.selectedItem?.id === invoice.id;
-              const customer = customers?.find(
-                (c) => c.id === invoice.customer_id,
-              );
-              const customerName =
-                customer?.customer_name || "Unknown Customer";
-              return (
-                <SelectableListItem
-                  key={invoice.id}
-                  isSelected={isSelected}
-                  onClick={() => handleSelectInvoice(invoice)}
-                  primaryText={
-                    <Box
-                      sx={{
-                        display: "flex",
-                        flexDirection: "column",
-                        width: "100%",
-                        gap: 0.5,
-                      }}
-                    >
-                      {/* Invoice No */}
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <span>{invoice.invoice_no}</span>
-                        {isSelected && (
-                          <Typography
-                            component="span"
-                            variant="caption"
-                            sx={{ color: "inherit", opacity: 0.7 }}
-                          >
-                            (Invoice No)
-                          </Typography>
-                        )}
-                      </Box>
-                      {/* Total */}
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <Typography
-                          component="span"
-                          variant="caption"
-                          fontWeight={600}
-                          sx={{
-                            color: isSelected ? "common.white" : "text.primary",
-                          }}
-                        >
-                          Rs. {fmtLKR(calculateTotal(invoice))}
-                        </Typography>
-                        {isSelected && (
-                          <Typography
-                            component="span"
-                            variant="caption"
-                            sx={{ color: "inherit", opacity: 0.7 }}
-                          >
-                            (Total)
-                          </Typography>
-                        )}
-                      </Box>
-                      {/* Date & Customer Name - only when selected */}
-                      {isSelected && (
-                        <>
-                          <Box
-                            sx={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                            }}
-                          >
-                            <Typography component="span" variant="caption">
-                              {format(
-                                new Date(invoice.created_date),
-                                "MMM dd, yyyy",
-                              )}
-                            </Typography>
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              sx={{ color: "inherit", opacity: 0.7 }}
-                            >
-                              (Date)
-                            </Typography>
-                          </Box>
-                          <Box
-                            sx={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                            }}
-                          >
-                            <Typography component="span" variant="caption">
-                              {customerName}
-                            </Typography>
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              sx={{ color: "inherit", opacity: 0.7 }}
-                            >
-                              (Customer)
-                            </Typography>
-                          </Box>
-                          <Box
-                            sx={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                            }}
-                          >
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              sx={{ textTransform: "capitalize" }}
-                            >
-                              {getPaymentMethodsDisplay(invoice)}
-                            </Typography>
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              sx={{ color: "inherit", opacity: 0.7 }}
-                            >
-                              (Payment)
-                            </Typography>
-                          </Box>
-                          {/* Status Chips - shown below all fields when selected */}
-                          <Box
-                            sx={{
-                              display: "flex",
-                              gap: 0.5,
-                              mt: 0.5,
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            <Chip
-                              label={invoice.status ? "Active" : "Inactive"}
-                              size="small"
-                              color={invoice.status ? "success" : "default"}
-                              sx={{ height: 18, fontSize: "0.65rem" }}
-                            />
-                            <TStatusChip
-                              status={
-                                invoice.approval_status || "pending_approval"
-                              }
-                              statusMap="invoice"
-                              size="small"
-                              sx={{ height: 18, fontSize: "0.65rem" }}
-                            />
-                          </Box>
-                        </>
-                      )}
-                    </Box>
-                  }
-                  secondaryText={
-                    !isSelected
-                      ? `${format(new Date(invoice.created_date), "MMM dd, yyyy")} • ${customerName}`
-                      : undefined
-                  }
-                  isFavorite={state.favorites.includes(invoice.id)}
-                  onToggleFavorite={() => state.toggleFavorite(invoice.id)}
-                />
-              );
-            })}
-          </SearchableList>
-
-          {/* Detail Panel */}
-          <Box
-            sx={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-            }}
-          >
-            <DetailPanelHeader
-              icon={<ReceiptIcon color="primary" />}
-              breadcrumbs={[
-                { label: "Sales", href: "/sales" },
-                { label: "Sales Orders" },
-              ]}
-              title={
-                state.isCreating
-                  ? "Create New Sales Order"
-                  : state.selectedItem
-                    ? state.selectedItem.invoice_no
-                    : "Select a Sales Order"
-              }
-              chips={
-                state.selectedItem && !state.isCreating
-                  ? [
-                      {
-                        label: state.selectedItem.status
-                          ? "Active"
-                          : "Inactive",
-                        color: state.selectedItem.status
-                          ? "success"
-                          : "default",
-                      },
-                    ]
-                  : undefined
-              }
-            />
-
-            <ActionToolbar
-              canCreate={canCreate}
-              canDelete={
-                canDelete && state.selectedItem?.approval_status !== "completed"
-              }
-              canUpdate={
-                canUpdate && state.selectedItem?.approval_status !== "completed"
-              }
-              isEditing={state.isEditing}
-              isCreating={state.isCreating}
-              hasSelection={!!state.selectedItem}
-              onAdd={handleCreate}
-              onDelete={handleDelete}
-              onSave={handleSave}
-              onCancel={handleCancel}
-              isSaving={createMutation.isPending || updateMutation.isPending}
-              saveDisabled={lineItems.length === 0 || formStep !== 1}
-              customActions={
-                state.isCreating && formStep === 0 ? (
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="primary"
-                    onClick={handleNextStep}
-                    disabled={!isStep1Valid}
-                    endIcon={<ArrowForwardIcon />}
-                  >
-                    Next: Line Items
-                  </Button>
-                ) : state.isCreating && formStep === 1 ? (
-                  customActions
-                ) : customActions
-              }
-            />
-
-            <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
-              {!state.selectedItem && !state.isCreating && !state.isEditing ? (
-                <EmptyState message="Select a sales order from the list or create a new one" />
-              ) : state.isCreating || state.isEditing ? (
-                renderCreateForm()
-              ) : (
-                renderViewInvoice()
-              )}
-            </Box>
-          </Box>
-        </Box>
-      </MasterDetailLayout>
+        {...(isSalesDetailMode
+          ? { masterPanel: singleSalesPanel, detailPanel: salesDetailContent }
+          : { children: salesTablePanel })}
+      />
       <TConfirmDialog {...deleteDialog.dialogProps} />
       <TConfirmDialog {...discardDialog.dialogProps} confirmText="Discard" />
       <TConfirmDialog

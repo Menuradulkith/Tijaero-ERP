@@ -7,32 +7,40 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
+  Avatar,
   Box,
+  Button,
   IconButton,
   InputAdornment,
+  Paper,
   TextField,
   Tooltip,
-  Typography,
 } from "@mui/material";
 import {
   History as HistoryIcon,
   Receipt as ChequeIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
+  Star as StarIcon,
+  StarBorder as StarOutlineIcon,
+  ArrowBack as ArrowBackIcon,
+  OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
   DetailPanelHeader,
   FormSection,
   EmptyState,
+  SelectableListItem,
   useMasterDetailState,
-  SortOption,
   TDetailSkeleton,
   TBranchFilter,
-  TTabFilterBar,
   TDatePicker,
   TExportButton,
+  TDataGrid,
+  type TDataGridColumn,
   fmtLKR,
   TActivityHistoryPanel,
 } from "@/components/tijaero";
@@ -46,12 +54,10 @@ interface Branch {
   branch_name: string;
 }
 
-const SORT_OPTIONS: SortOption[] = [
-  { value: "cheque_date", label: "Cheque Date" },
-  { value: "amount", label: "Amount" },
-  { value: "cheque_number", label: "Cheque No." },
-  { value: "from_party", label: "Party" },
-];
+// A cheque payment row as shown in the browse table, with the branch name
+// looked up and attached directly so the table's own column-header sort
+// orders by the displayed name rather than the raw branch_code.
+type ChequePaymentRow = ChequePayment & { branch_name: string };
 
 const INITIAL_FORM_DATA: Partial<ChequePaymentCreate> = {
   cheque_number: 0,
@@ -80,19 +86,15 @@ const resetFormFromItem = (item: ChequePayment): Partial<ChequePaymentCreate> =>
 });
 
 export default function ChequePaymentsPage() {
-  // Filter state (applied - drives the actual list filtering)
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
-
-  // Filter state (draft - edited via the filter bar, only applied on Search click)
-  const [draftBranch, setDraftBranch] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem,
+    setSelectedItem,
     isCreating,
     favorites,
     toggleFavorite,
@@ -116,21 +118,13 @@ export default function ChequePaymentsPage() {
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) {
       setFilterBranch(defaultBranchCode);
-      setDraftBranch(defaultBranchCode);
     }
   }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterBranch(draftBranch);
-  }, [draftSearchQuery, draftBranch]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftBranch(null);
     setSearchQuery("");
     setFilterBranch(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
@@ -154,26 +148,14 @@ export default function ChequePaymentsPage() {
         String(c.cheque_number || "").includes(searchQuery) ||
         String(c.id).includes(searchQuery)
     );
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there).
     filtered.sort((a, b) => {
-      if (sortField === "cheque_date") {
-        const diff = new Date(b.cheque_date || "").getTime() - new Date(a.cheque_date || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      if (sortField === "amount") return Number(b.amount || 0) - Number(a.amount || 0);
-      if (sortField === "cheque_number") return Number(b.cheque_number || 0) - Number(a.cheque_number || 0);
-      const fA = a[sortField as keyof ChequePayment] || "";
-      const fB = b[sortField as keyof ChequePayment] || "";
-      const comp = String(fA).localeCompare(String(fB));
-      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
+      const diff = new Date(b.cheque_date || "").getTime() - new Date(a.cheque_date || "").getTime();
+      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
     });
     return filtered;
-  }, [cheques, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filteredCheques.length > 0 && !selectedItem && !isCreating) {
-      handleSelectItem(filteredCheques[0]);
-    }
-  }, [filteredCheques, selectedItem, isCreating]);
+  }, [cheques, searchQuery]);
 
   const handleSelectWithCheck = useCallback(
     async (item: ChequePayment) => {
@@ -182,67 +164,171 @@ export default function ChequePaymentsPage() {
     [handleSelectItem]
   );
 
-  const masterPanel = (
-    <SearchableList<ChequePayment>
-      items={filteredCheques}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedItem}
-      onSelectItem={handleSelectWithCheck}
-      emptyMessage="No cheque payments found"
-      renderItem={(chq, isSelected) => (
+  // Whether we're showing a single cheque payment's detail view instead of
+  // the browse table. This page is read-only, so there's no "creating" state
+  // to account for beyond what the hook exposes.
+  const isChequeDetailMode = !!selectedItem || isCreating;
+
+  // Returns to the browse table from the detail view.
+  const handleBackToCheques = useCallback(() => {
+    setSelectedItem(null);
+  }, [setSelectedItem]);
+
+  // The table sorts by whichever column the user clicks; the Branch column
+  // displays a looked-up name rather than the raw branch_code, so it needs
+  // that name as its own field for the grid to sort on correctly.
+  const chequeRows: ChequePaymentRow[] = useMemo(
+    () =>
+      filteredCheques.map((chq) => ({
+        ...chq,
+        branch_name: branches.find((b) => String(b.branch_code) === String(chq.branch_code))?.branch_name || String(chq.branch_code ?? "-"),
+      })),
+    [filteredCheques, branches]
+  );
+
+  const chequeColumns: TDataGridColumn<ChequePaymentRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ChequePaymentRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "cheque_number",
+        header: "Cheque No",
+        width: 140,
+        renderCell: (params: GridRenderCellParams<ChequePaymentRow>) => `CHQ-${params.row.cheque_number || params.row.id}`,
+      },
+      { field: "from_party", header: "Payee", flex: 1, minWidth: 160 },
+      { field: "branch_name", header: "Branch", width: 150 },
+      { field: "bank", header: "Bank", flex: 1, minWidth: 130 },
+      {
+        field: "cheque_date",
+        header: "Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<ChequePaymentRow>) =>
+          params.row.cheque_date ? new Date(params.row.cheque_date).toLocaleDateString() : "-",
+      },
+      {
+        field: "amount",
+        header: "Amount",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<ChequePaymentRow>) => `Rs. ${fmtLKR(Number(params.row.amount || 0))}`,
+      },
+      {
+        field: "deposit_date",
+        header: "Clearance Date",
+        width: 150,
+        renderCell: (params: GridRenderCellParams<ChequePaymentRow>) =>
+          params.row.deposit_date ? new Date(params.row.deposit_date).toLocaleDateString() : "-",
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ChequePaymentRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectWithCheck(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectWithCheck]
+  );
+
+  // Browse mode: a full-width table of every cheque payment (shown when
+  // nothing is selected). Sorting is done per-column via the grid's own
+  // column header menu, not a separate "Sort by" control.
+  const chequeTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<ChequePaymentRow>
+          rows={chequeRows}
+          columns={chequeColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectWithCheck(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No cheque payments found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current cheque
+  // payment. A "Back to Cheque Payments" link returns to the table.
+  const singleChequePanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToCheques}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Cheque Payments
+        </Button>
+      </Box>
+      {selectedItem && (
         <SelectableListItem
-          key={chq.id}
-          id={chq.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectWithCheck(chq)}
+          id={selectedItem.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>CHQ-{chq.cheque_number || chq.id}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Cheque No.)
-                  </Typography>
-                )}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
+                <ChequeIcon />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{`CHQ-${selectedItem.cheque_number || selectedItem.id}`}</span>
               </Box>
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">{chq.from_party || "-"}</Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Party)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      Rs. {fmtLKR(Number(chq.amount || 0))}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Amount)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">{chq.bank || "-"}</Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Bank)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {chq.cheque_date ? new Date(chq.cheque_date).toLocaleDateString() : "-"}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Cheque Date)</Typography>
-                  </Box>
-                </>
-              )}
             </Box>
           }
-          secondaryText={!isSelected ? `${chq.from_party || "-"} - Rs. ${fmtLKR(Number(chq.amount || 0))}` : undefined}
-          isFavorite={favorites.includes(chq.id)}
-          onToggleFavorite={(e) => toggleFavorite(chq.id, e)}
+          isFavorite={favorites.includes(selectedItem.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -380,69 +466,64 @@ export default function ChequePaymentsPage() {
     <MasterDetailLayout
       title="Cheque Payments"
       titleSlot={
-        <TTabFilterBar
-          tabs={[
-            {
-              key: "search",
-              label: "Search",
-              hasValue: !!draftSearchQuery,
-              render: ({ close }) => (
-                <TextField
-                  size="small"
-                  autoFocus
-                  placeholder="Search cheques..."
-                  value={draftSearchQuery}
-                  onChange={(e) => setDraftSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleApplyFilters();
-                      close();
-                    }
-                  }}
-                  fullWidth
-                />
-              ),
-            },
-            {
-              key: "branch",
-              label: "Branch",
-              hasValue: !!draftBranch,
-              render: () => (
-                <TBranchFilter branches={branches} value={draftBranch} onChange={setDraftBranch} label="" size="small" />
-              ),
-            },
-          ]}
-          onSearch={handleApplyFilters}
-          onClear={handleClearFilters}
-          clearDisabled={!draftSearchQuery && !draftBranch && !searchQuery && !filterBranch}
-        />
+        isChequeDetailMode ? undefined : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search cheques..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+            </Box>
+            {(searchQuery || filterBranch) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+        )
       }
       onRefresh={refetch}
       isLoading={isLoading}
       headerActions={
-        <TExportButton
-          filename={`cheque_payments_${new Date().toISOString().split("T")[0]}`}
-          headers={["ID", "Cheque No", "From Party", "Bank", "Amount", "Cheque Date", "Deposit Date", "Invoice No", "Payment For", "Branch", "Remark"]}
-          rows={() =>
-            filteredCheques.map((c) => [
-              c.id,
-              c.cheque_number ?? "",
-              c.from_party || "",
-              c.bank || "",
-              Number(c.amount || 0),
-              c.cheque_date || "",
-              c.deposit_date || "",
-              c.invoice_no || "",
-              c.payment_for || "",
-              c.branch_code ?? "",
-              c.remark || "",
-            ])
-          }
-          disabled={filteredCheques.length === 0}
-        />
+        isChequeDetailMode ? undefined : (
+          <TExportButton
+            filename={`cheque_payments_${new Date().toISOString().split("T")[0]}`}
+            headers={["ID", "Cheque No", "From Party", "Bank", "Amount", "Cheque Date", "Deposit Date", "Invoice No", "Payment For", "Branch", "Remark"]}
+            rows={() =>
+              filteredCheques.map((c) => [
+                c.id,
+                c.cheque_number ?? "",
+                c.from_party || "",
+                c.bank || "",
+                Number(c.amount || 0),
+                c.cheque_date || "",
+                c.deposit_date || "",
+                c.invoice_no || "",
+                c.payment_for || "",
+                c.branch_code ?? "",
+                c.remark || "",
+              ])
+            }
+            disabled={filteredCheques.length === 0}
+          />
+        )
       }
-      masterPanel={masterPanel}
-      detailPanel={detailPanel}
+      {...(isChequeDetailMode
+        ? { masterPanel: singleChequePanel, detailPanel }
+        : { children: chequeTablePanel })}
     />
 
     <TActivityHistoryPanel

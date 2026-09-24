@@ -7,13 +7,20 @@
  */
 
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import HistoryIcon from "@mui/icons-material/History";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import UndoIcon from "@mui/icons-material/Undo";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
   Alert,
+  Avatar,
   Box,
   Button,
   Chip,
@@ -22,6 +29,7 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  InputAdornment,
   MenuItem,
   Paper,
   Step,
@@ -36,6 +44,8 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -50,22 +60,21 @@ import {
   FormSection,
   handleApiError,
   MasterDetailLayout,
-  SearchableList,
   SelectableListItem,
   showErrorToast,
   showSuccessToast,
   TPrintButton,
   TPrintPreviewDialog,
   TSearchableSelect,
-  TTabFilterBar,
   TExportButton,
-  type SortOption,
   useMasterDetailState,
   modernTableStyles,
   TConfirmDialog,
   useConfirmDialog,
   useCrudMutation,
   TActivityHistoryPanel,
+  TDataGrid,
+  type TDataGridColumn,
 } from "@/components/tijaero";
 
 import { journalEntriesApi, chartOfAccountsApi } from "@/modules/finance/api";
@@ -97,13 +106,6 @@ const TYPE_FILTER_OPTIONS = ENTRY_TYPES.map((t) => ({
   label: t.label,
   color: "info" as const,
 }));
-
-const SORT_OPTIONS: SortOption[] = [
-  { value: "entry_date", label: "Entry Date" },
-  { value: "journal_entry_no", label: "Entry No" },
-  { value: "total_debit", label: "Amount" },
-  { value: "created_at", label: "Creation Date" },
-];
 
 const FORM_STEPS = ["Entry Information", "Line Items"];
 
@@ -157,25 +159,11 @@ export default function JournalEntriesPage() {
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string | null>(null);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
-  const [draftType, setDraftType] = useState<string | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterStatus(draftStatus);
-    setFilterType(draftType);
-  }, [draftSearchQuery, draftStatus, draftType]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftStatus(null);
-    setDraftType(null);
     setSearchQuery("");
     setFilterStatus(null);
     setFilterType(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reverse dialog
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
@@ -190,14 +178,14 @@ export default function JournalEntriesPage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedJE,
     setSelectedItem: setSelectedJE,
     isEditing,
     setIsEditing,
     isCreating,
     setIsCreating,
+    favorites,
+    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectJE,
@@ -222,7 +210,7 @@ export default function JournalEntriesPage() {
   });
 
   // Activity History is opened on demand from a detail icon next to the
-  // Record Information section title, rather than shown inline.
+  // Activity History section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   const handleNew = useCallback(() => {
@@ -234,14 +222,36 @@ export default function JournalEntriesPage() {
     ]);
   }, [handleNewBase]);
 
+  // Cancelling out of "New Entry" should return to the browse table, not
+  // auto-open the first entry the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of an existing entry never
+  // reaches here since JEs can't be edited after creation (canEdit is false).
   const handleCancel = useCallback(
     (items: JournalEntry[]) => {
-      handleCancelBase(items);
+      if (isCreating) {
+        setIsCreating(false);
+        setIsEditing(false);
+        setSelectedJE(null);
+      } else {
+        handleCancelBase(items);
+      }
       setLineItems([]);
       setFormStep(0);
     },
-    [handleCancelBase]
+    [isCreating, handleCancelBase, setIsCreating, setIsEditing, setSelectedJE]
   );
+
+  // Returns to the browse table from the detail view.
+  const handleBackToJournalEntries = useCallback(() => {
+    setSelectedJE(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+    setLineItems([]);
+    setFormStep(0);
+  }, [isCreating, setSelectedJE, setIsCreating, setIsEditing]);
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
@@ -281,31 +291,14 @@ export default function JournalEntriesPage() {
           e.description?.toLowerCase().includes(q)
       );
     }
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there) — newest first.
     filtered.sort((a, b) => {
-      if (sortField === "total_debit") {
-        const diff = Number(b.total_debit) - Number(a.total_debit);
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      if (sortField === "journal_entry_no") {
-        const diff = (b.journal_entry_no || "").localeCompare(a.journal_entry_no || "");
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      if (sortField === "created_at") {
-        const diff = (b.created_at ? new Date(b.created_at).getTime() : 0) -
-          (a.created_at ? new Date(a.created_at).getTime() : 0);
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
       const timeDiff = new Date(b.entry_date || "").getTime() - new Date(a.entry_date || "").getTime();
       return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
     });
     return filtered;
-  }, [entries, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filteredEntries.length > 0 && !selectedJE && !isCreating) {
-      handleSelectJE(filteredEntries[0]);
-    }
-  }, [filteredEntries, selectedJE, isCreating]);
+  }, [entries, searchQuery]);
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
@@ -436,96 +429,184 @@ export default function JournalEntriesPage() {
 
   const detail = jeDetail || selectedJE;
 
-  // ─── Master Panel ──────────────────────────────────────────────────────────
+  // ─── Browse Table ──────────────────────────────────────────────────────────
 
-  const masterPanel = (
-    <SearchableList<JournalEntry>
-      items={filteredEntries}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedJE}
-      onSelectItem={handleSelectJE}
-      emptyMessage="No journal entries found"
-      renderItem={(je: JournalEntry, isSelected: boolean) => {
-        const statusColor = getStatusColor(je.status);
-        return (
-          <SelectableListItem
-            key={je.id}
-            id={je.id}
-            isSelected={isSelected}
-            onClick={() => handleSelectJE(je)}
-            primaryText={
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{je.journal_entry_no}</span>
-                  {isSelected && (
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Entry No)
-                    </Typography>
-                  )}
-                </Box>
-                {isSelected && (
-                  <>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {je.description?.substring(0, 50) || "No description"}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Description)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {format(new Date(je.entry_date), "dd/MM/yyyy")}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Date)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption" fontWeight={600}>
-                        Rs. {fmtLKR(je.total_debit)}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Amount)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                      <Chip
-                        label={je.status.charAt(0).toUpperCase() + je.status.slice(1)}
-                        size="small"
-                        color={statusColor}
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                      <Chip
-                        label={je.entry_type}
-                        size="small"
-                        variant="outlined"
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                    </Box>
-                  </>
-                )}
-              </Box>
-            }
-            secondaryText={
-              !isSelected
-                ? `${je.description?.substring(0, 40) || "No description"} - ${format(new Date(je.entry_date), "dd/MM/yyyy")}`
-                : undefined
-            }
-            statusChip={!isSelected ? { label: je.status.charAt(0).toUpperCase() + je.status.slice(1), color: statusColor } : undefined}
+  // The table sorts by whichever column the user clicks via the grid's own
+  // column header menu, not a separate "Sort by" control.
+  const jeColumns: TDataGridColumn<JournalEntry>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<JournalEntry>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      { field: "journal_entry_no", header: "JE No", flex: 1, minWidth: 140 },
+      {
+        field: "entry_date",
+        header: "Date",
+        width: 120,
+        renderCell: (params: GridRenderCellParams<JournalEntry>) =>
+          params.row.entry_date ? format(new Date(params.row.entry_date), "dd/MM/yyyy") : "-",
+      },
+      { field: "description", header: "Description", flex: 1.5, minWidth: 220 },
+      {
+        field: "total_debit",
+        header: "Debit",
+        width: 130,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<JournalEntry>) => fmtLKR(params.row.total_debit),
+      },
+      {
+        field: "total_credit",
+        header: "Credit",
+        width: 130,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<JournalEntry>) => fmtLKR(params.row.total_credit),
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 120,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<JournalEntry>) => (
+          <Chip
+            label={params.row.status.charAt(0).toUpperCase() + params.row.status.slice(1)}
+            size="small"
+            color={getStatusColor(params.row.status)}
           />
-        );
-      }}
-    />
+        ),
+      },
+      {
+        field: "posted_by_name",
+        header: "Posted By",
+        width: 150,
+        renderCell: (params: GridRenderCellParams<JournalEntry>) => params.row.posted_by_name || "-",
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<JournalEntry>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectJE(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectJE]
+  );
+
+  // Whether we're showing a single journal entry's detail view (selected or
+  // being created) instead of the browse table.
+  const isJEDetailMode = !!selectedJE || isCreating;
+
+  // Browse mode: a full-width table of every journal entry.
+  const jeTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<JournalEntry>
+          rows={filteredEntries}
+          columns={jeColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectJE(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No journal entries found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
   );
 
   // ─── Detail Panel ──────────────────────────────────────────────────────────
+
+  // Detail mode: a narrow left panel showing only the current journal entry
+  // (or the "New Entry" placeholder while creating). A "Back to Journal
+  // Entries" link returns to the table.
+  const singleJEPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToJournalEntries}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Journal Entries
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
+              <ReceiptLongIcon />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Entry
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedJE && (
+        <SelectableListItem
+          id={selectedJE.id}
+          isSelected
+          onClick={() => {}}
+          primaryText={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
+                <ReceiptLongIcon />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
+                <span>{selectedJE.journal_entry_no}</span>
+              </Box>
+            </Box>
+          }
+          isFavorite={favorites.includes(selectedJE.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedJE.id, e)}
+        />
+      )}
+    </Paper>
+  );
 
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -657,7 +738,7 @@ export default function JournalEntriesPage() {
 
             {formStep === 1 && (
               <FormSection title="Line Items" columns={1}>
-                <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+                <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
                   <Table size="small">
                     <TableHead>
                       <TableRow sx={modernTableStyles.headerRow}>
@@ -835,7 +916,7 @@ export default function JournalEntriesPage() {
 
             {/* Line Items Table */}
             <FormSection title="Line Items" columns={1}>
-              <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+              <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
@@ -878,9 +959,9 @@ export default function JournalEntriesPage() {
               </Paper>
             </FormSection>
 
-            {/* Record Information */}
+            {/* Activity History */}
             <FormSection
-              title="Record Information"
+              title="Activity History"
               columns={2}
               titleAction={
                 <Tooltip title="View activity history">
@@ -934,78 +1015,65 @@ export default function JournalEntriesPage() {
         title="Journal Entries"
         icon={<ReceiptLongIcon color="primary" />}
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Entry No / Description",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search entry no or description..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          isJEDetailMode ? undefined : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search entry no or description..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftStatus}
-                    onChange={(val) => setDraftStatus(val as string | null)}
-                    options={STATUS_FILTER_OPTIONS.map((s) => ({
-                      value: s.value,
-                      label: s.label,
-                      color: s.color,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Statuses"
-                    placeholder="Search status..."
-                    size="small"
-                    fullWidth
-                  />
-                ),
-              },
-              {
-                key: "type",
-                label: "Entry Type",
-                hasValue: !!draftType,
-                render: () => (
-                  <TSearchableSelect
-                    label=""
-                    value={draftType}
-                    onChange={(val) => setDraftType(val as string | null)}
-                    options={TYPE_FILTER_OPTIONS.map((t) => ({
-                      value: t.value,
-                      label: t.label,
-                      color: t.color,
-                    }))}
-                    showAllOption
-                    allOptionLabel="All Types"
-                    placeholder="Search types..."
-                    size="small"
-                    fullWidth
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftStatus && !draftType && !searchQuery && !filterStatus && !filterType}
-          />
+              }}
+              sx={{ width: 240, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TSearchableSelect
+                label=""
+                value={filterStatus}
+                onChange={(val) => setFilterStatus(val as string | null)}
+                options={STATUS_FILTER_OPTIONS.map((s) => ({
+                  value: s.value,
+                  label: s.label,
+                  color: s.color,
+                }))}
+                showAllOption
+                allOptionLabel="All Statuses"
+                placeholder="Search status..."
+                size="small"
+                fullWidth
+              />
+            </Box>
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TSearchableSelect
+                label=""
+                value={filterType}
+                onChange={(val) => setFilterType(val as string | null)}
+                options={TYPE_FILTER_OPTIONS.map((t) => ({
+                  value: t.value,
+                  label: t.label,
+                  color: t.color,
+                }))}
+                showAllOption
+                allOptionLabel="All Types"
+                placeholder="Search types..."
+                size="small"
+                fullWidth
+              />
+            </Box>
+            {(searchQuery || filterStatus || filterType) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+          )
         }
         onRefresh={() => {
           queryClient.invalidateQueries({ queryKey: ["journal-entries"] });
@@ -1014,26 +1082,40 @@ export default function JournalEntriesPage() {
         }}
         isLoading={isLoading}
         headerActions={
-          <TExportButton
-            filename={`journal_entries_${new Date().toISOString().split("T")[0]}`}
-            headers={["JE No", "Date", "Description", "Total Debit", "Total Credit", "Status", "Reversed", "Branch"]}
-            rows={() =>
-              filteredEntries.map((e) => [
-                e.journal_entry_no || "",
-                e.entry_date || "",
-                e.description || "",
-                Number(e.total_debit || 0),
-                Number(e.total_credit || 0),
-                e.status || "",
-                e.is_reversed ? "Yes" : "No",
-                e.branch_code || "",
-              ])
-            }
-            disabled={filteredEntries.length === 0}
-          />
+          isJEDetailMode ? undefined : (
+            <>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleNew}
+                sx={{ mr: 1 }}
+              >
+                Add Journal Entry
+              </Button>
+              <TExportButton
+                filename={`journal_entries_${new Date().toISOString().split("T")[0]}`}
+                headers={["JE No", "Date", "Description", "Total Debit", "Total Credit", "Status", "Reversed", "Branch"]}
+                rows={() =>
+                  filteredEntries.map((e) => [
+                    e.journal_entry_no || "",
+                    e.entry_date || "",
+                    e.description || "",
+                    Number(e.total_debit || 0),
+                    Number(e.total_credit || 0),
+                    e.status || "",
+                    e.is_reversed ? "Yes" : "No",
+                    e.branch_code || "",
+                  ])
+                }
+                disabled={filteredEntries.length === 0}
+              />
+            </>
+          )
         }
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isJEDetailMode
+          ? { masterPanel: singleJEPanel, detailPanel }
+          : { children: jeTablePanel })}
       />
 
       {/* Reverse Dialog */}

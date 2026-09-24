@@ -3,36 +3,47 @@
  * Follows the Purchasing/Sales UI pattern with Tijaero components.
  */
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
+  Avatar,
   Box,
+  Button,
+  IconButton,
   InputAdornment,
+  Paper,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import {
   NoteAlt as CreditNoteIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
+  ArrowBack as ArrowBackIcon,
+  Star as StarIcon,
+  StarBorder as StarOutlineIcon,
+  OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
   ActionToolbar,
   canPrintDocument,
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
   DetailPanelHeader,
   FormSection,
   EmptyState,
+  SelectableListItem,
   TPrintButton,
   TPrintPreviewDialog,
   useMasterDetailState,
-  SortOption,
   TDetailSkeleton,
   TExportButton,
-  TTabFilterBar,
   fmtLKR,
+  TDataGrid,
+  type TDataGridColumn,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
@@ -45,11 +56,10 @@ interface Customer {
   customer_name: string;
 }
 
-const SORT_OPTIONS: SortOption[] = [
-  { value: "date", label: "Date" },
-  { value: "amount", label: "Amount" },
-  { value: "customer_id", label: "Customer" },
-];
+// A credit note row as shown in the browse table, with the customer name
+// looked up and attached directly so the grid's own column-header sort
+// orders by the displayed name rather than the raw customer_id.
+type CreditNoteRow = CustomerCreditNote & { customer_name: string };
 
 const INITIAL_FORM_DATA: Partial<CustomerCreditNoteCreate> = {
   customer_id: 0,
@@ -67,12 +77,9 @@ const resetFormFromItem = (item: CustomerCreditNote): Partial<CustomerCreditNote
 
 export default function CreditNotesPage() {
   const canViewCustomers = usePermission("customers", "view");
-  // Filter state (applied - drives the actual list filtering)
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterCustomerId, setFilterCustomerId] = useState<number | null>(null);
-
-  // Filter state (draft - edited via the header filter bar, only applied on Search click)
-  const [draftCustomerId, setDraftCustomerId] = useState<number | null>(null);
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
 
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [selectedItemForPrint, setSelectedItemForPrint] = useState<CustomerCreditNote | null>(null);
@@ -80,9 +87,8 @@ export default function CreditNotesPage() {
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem,
+    setSelectedItem,
     isCreating,
     favorites,
     toggleFavorite,
@@ -101,17 +107,10 @@ export default function CreditNotesPage() {
     enabled: canViewCustomers,
   });
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterCustomerId(draftCustomerId);
-  }, [draftSearchQuery, draftCustomerId]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftCustomerId(null);
     setSearchQuery("");
     setFilterCustomerId(null);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: creditNotes = [], isLoading, refetch } = useQuery({
     queryKey: ["credit-notes", filterCustomerId],
@@ -138,25 +137,22 @@ export default function CreditNotesPage() {
         (n.remark || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         String(n.id).includes(searchQuery)
     );
+    // Default order before the user sorts a column in the table itself (the
+    // table's own column-header sort takes over from there) — newest first.
     filtered.sort((a, b) => {
-      if (sortField === "date") {
-        const diff = new Date(b.date || "").getTime() - new Date(a.date || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      if (sortField === "amount") return Number(b.amount || 0) - Number(a.amount || 0);
-      const fA = a[sortField as keyof CustomerCreditNote] || "";
-      const fB = b[sortField as keyof CustomerCreditNote] || "";
-      const comp = String(fA).localeCompare(String(fB));
-      return comp !== 0 ? comp : (b.id || 0) - (a.id || 0);
+      const diff = new Date(b.date || "").getTime() - new Date(a.date || "").getTime();
+      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
     });
     return filtered;
-  }, [creditNotes, searchQuery, sortField, getCustomerName]);
+  }, [creditNotes, searchQuery, getCustomerName]);
 
-  useEffect(() => {
-    if (filteredNotes.length > 0 && !selectedItem && !isCreating) {
-      handleSelectItem(filteredNotes[0]);
-    }
-  }, [filteredNotes, selectedItem, isCreating]);
+  // The Customer column displays a looked-up name rather than the raw
+  // customer_id, so it needs that name as its own field for the grid to
+  // sort on correctly.
+  const creditNoteRows: CreditNoteRow[] = useMemo(
+    () => filteredNotes.map((n) => ({ ...n, customer_name: getCustomerName(n.customer_id) })),
+    [filteredNotes, getCustomerName]
+  );
 
   const handleSelectWithCheck = useCallback(
     async (item: CustomerCreditNote) => {
@@ -170,69 +166,157 @@ export default function CreditNotesPage() {
     [customers, formData.customer_id]
   );
 
-  const masterPanel = (
-    <SearchableList<CustomerCreditNote>
-      items={filteredNotes}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedItem}
-      onSelectItem={handleSelectWithCheck}
-      emptyMessage="No credit notes found"
-      renderItem={(note, isSelected) => (
+  // The table sorts by whichever column the user clicks via the grid's own
+  // column header menu, not a separate "Sort by" control.
+  const creditNoteColumns: TDataGridColumn<CreditNoteRow>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<CreditNoteRow>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      {
+        field: "id",
+        header: "Credit Note No",
+        width: 150,
+        renderCell: (params: GridRenderCellParams<CreditNoteRow>) => `CN-${params.row.id}`,
+      },
+      { field: "customer_name", header: "Customer", flex: 1, minWidth: 170 },
+      {
+        field: "date",
+        header: "Date",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<CreditNoteRow>) =>
+          params.row.date ? new Date(params.row.date).toLocaleDateString() : "-",
+      },
+      {
+        field: "amount",
+        header: "Amount",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<CreditNoteRow>) =>
+          `Rs. ${fmtLKR(Number(params.row.amount || 0))}`,
+      },
+      { field: "invoice_no", header: "Invoice No", width: 140 },
+      { field: "remark", header: "Reason", flex: 1, minWidth: 180 },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<CreditNoteRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectWithCheck(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectWithCheck]
+  );
+
+  // Whether we're showing a single credit note's detail view (this page is
+  // view-only, so this is just "is something selected").
+  const isCreditNoteDetailMode = !!selectedItem || isCreating;
+
+  // Browse mode: a full-width table of every credit note.
+  const creditNoteTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<CreditNoteRow>
+          rows={creditNoteRows}
+          columns={creditNoteColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectWithCheck(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No credit notes found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  // Returns to the browse table from the detail view.
+  const handleBackToCreditNotes = useCallback(() => {
+    setSelectedItem(null);
+  }, [setSelectedItem]);
+
+  // Detail mode: a narrow left panel showing only the current credit note,
+  // plus a "Back to Credit Notes" link that returns to the table.
+  const singleCreditNotePanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToCreditNotes}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Credit Notes
+        </Button>
+      </Box>
+      {selectedItem && (
         <SelectableListItem
-          key={note.id}
-          id={note.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectWithCheck(note)}
+          id={selectedItem.id}
+          isSelected
+          onClick={() => {}}
           primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{`CN-${note.id}`}</span>
-                {isSelected && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+              <Avatar sx={{ width: 36, height: 36 }}>
+                <CreditNoteIcon fontSize="small" />
+              </Avatar>
+              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{`CN-${selectedItem.id}`}</span>
                   <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Credit Note)
+                    (Credit Note No)
                   </Typography>
-                )}
+                </Box>
               </Box>
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">{getCustomerName(note.customer_id)}</Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Customer)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      Rs. {fmtLKR(Number(note.amount || 0))}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Amount)</Typography>
-                  </Box>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {note.date ? new Date(note.date).toLocaleDateString() : "-"}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Date)</Typography>
-                  </Box>
-                  {note.invoice_no && (
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">{note.invoice_no}</Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>(Invoice)</Typography>
-                    </Box>
-                  )}
-                </>
-              )}
             </Box>
           }
-          secondaryText={!isSelected ? `${getCustomerName(note.customer_id)} - Rs. ${fmtLKR(Number(note.amount || 0))}` : undefined}
-          isFavorite={favorites.includes(note.id)}
-          onToggleFavorite={(e) => toggleFavorite(note.id, e)}
+          isFavorite={favorites.includes(selectedItem.id)}
+          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
-    />
+    </Paper>
   );
 
   const detailPanel = (
@@ -347,72 +431,66 @@ export default function CreditNotesPage() {
       <MasterDetailLayout
         title="Credit Notes"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "search",
-                label: "Credit Note",
-                hasValue: !!draftSearchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Search credit notes..."
-                    value={draftSearchQuery}
-                    onChange={(e) => setDraftSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          isCreditNoteDetailMode ? undefined : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search credit notes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "customer",
-                label: "Customer",
-                hasValue: !!draftCustomerId,
-                render: () => (
-                  <Autocomplete
-                    size="small"
-                    options={customers}
-                    getOptionLabel={(option: Customer) => option.customer_name || `Customer #${option.id}`}
-                    value={customers.find((c: Customer) => c.id === draftCustomerId) || null}
-                    onChange={(_, newValue) => setDraftCustomerId(newValue?.id || null)}
-                    renderInput={(params) => <TextField {...params} placeholder="All Customers" />}
-                    fullWidth
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftSearchQuery && !draftCustomerId && !searchQuery && !filterCustomerId}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 190, flexShrink: 0 }}>
+              <Autocomplete
+                size="small"
+                options={customers}
+                getOptionLabel={(option: Customer) => option.customer_name || `Customer #${option.id}`}
+                value={customers.find((c: Customer) => c.id === filterCustomerId) || null}
+                onChange={(_, newValue) => setFilterCustomerId(newValue?.id || null)}
+                renderInput={(params) => <TextField {...params} placeholder="All Customers" />}
+              />
+            </Box>
+            {(searchQuery || filterCustomerId) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
         headerActions={
-          <TExportButton
-            filename={`credit_notes_${new Date().toISOString().split("T")[0]}`}
-            headers={["ID", "Customer", "Amount", "Date", "Invoice No", "Remark"]}
-            rows={() =>
-              filteredNotes.map((n) => [
-                `CN-${n.id}`,
-                getCustomerName(n.customer_id),
-                Number(n.amount || 0),
-                n.date ? new Date(n.date).toLocaleString() : "",
-                n.invoice_no || "",
-                n.remark || "",
-              ])
-            }
-            disabled={filteredNotes.length === 0}
-          />
+          isCreditNoteDetailMode ? undefined : (
+            <TExportButton
+              filename={`credit_notes_${new Date().toISOString().split("T")[0]}`}
+              headers={["ID", "Customer", "Amount", "Date", "Invoice No", "Remark"]}
+              rows={() =>
+                filteredNotes.map((n) => [
+                  `CN-${n.id}`,
+                  getCustomerName(n.customer_id),
+                  Number(n.amount || 0),
+                  n.date ? new Date(n.date).toLocaleString() : "",
+                  n.invoice_no || "",
+                  n.remark || "",
+                ])
+              }
+              disabled={filteredNotes.length === 0}
+            />
+          )
         }
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isCreditNoteDetailMode
+          ? { masterPanel: singleCreditNotePanel, detailPanel }
+          : { children: creditNoteTablePanel })}
       />
 
       {/* Print Preview Dialog */}

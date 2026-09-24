@@ -18,6 +18,8 @@ import {
   Card,
   CardContent,
   Chip,
+  IconButton,
+  InputAdornment,
   Paper,
   Skeleton,
   Tab,
@@ -28,8 +30,11 @@ import {
   TableRow,
   Tabs,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -44,7 +49,6 @@ import {
   SelectableListItem,
   TCurrency,
   TSearchableSelect,
-  TTabFilterBar,
   type SortOption,
   TDetailSkeleton,
   modernTableStyles,
@@ -103,18 +107,7 @@ export default function GeneralLedgerPage() {
   const [filterAccountType, setFilterAccountType] = useState<string | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<AccountListItem | null>(null);
 
-  // Filter states (draft - edited via the header filter bar, only applied on Search click)
-  const [draftSearchQuery, setDraftSearchQuery] = useState("");
-  const [draftAccountType, setDraftAccountType] = useState<string | null>(null);
-
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftSearchQuery);
-    setFilterAccountType(draftAccountType);
-  }, [draftSearchQuery, draftAccountType]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftSearchQuery("");
-    setDraftAccountType(null);
     setSearchQuery("");
     setFilterAccountType(null);
   }, []);
@@ -487,7 +480,7 @@ export default function GeneralLedgerPage() {
 
             {/* GL Entries Table */}
             <FormSection title="Ledger Entries" columns={1}>
-              <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+              <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
@@ -626,7 +619,7 @@ export default function GeneralLedgerPage() {
 
             {/* Trial Balance Table */}
             <FormSection title="Account Balances" columns={1}>
-              <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+              <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
@@ -706,60 +699,45 @@ export default function GeneralLedgerPage() {
       title="General Ledger"
       icon={<AccountBalanceIcon color="primary" />}
       titleSlot={
-        <TTabFilterBar
-          tabs={[
-            {
-              key: "search",
-              label: "Search",
-              hasValue: !!draftSearchQuery,
-              render: ({ close }) => (
-                <TextField
-                  size="small"
-                  autoFocus
-                  placeholder="Search accounts..."
-                  value={draftSearchQuery}
-                  onChange={(e) => setDraftSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleApplyFilters();
-                      close();
-                    }
-                  }}
-                  fullWidth
-                />
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+          <TextField
+            size="small"
+            placeholder="Search accounts..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" color="action" />
+                </InputAdornment>
               ),
-            },
-            {
-              key: "accountType",
-              label: "Account Type",
-              hasValue: !!draftAccountType,
-              render: () => (
-                <TSearchableSelect
-                  label=""
-                  value={draftAccountType}
-                  onChange={(val) => setDraftAccountType(val as string | null)}
-                  options={ACCOUNT_TYPE_OPTIONS.map((t) => ({
-                    value: t.value,
-                    label: t.label,
-                    color: t.color,
-                  }))}
-                  showAllOption
-                  allOptionLabel="All Types"
-                  placeholder="Search types..."
-                  size="small"
-                />
-              ),
-            },
-          ]}
-          onSearch={handleApplyFilters}
-          onClear={handleClearFilters}
-          clearDisabled={
-            !draftSearchQuery &&
-            !draftAccountType &&
-            !searchQuery &&
-            !filterAccountType
-          }
-        />
+            }}
+            sx={{ width: 220, flexShrink: 0 }}
+          />
+          <Box sx={{ width: 170, flexShrink: 0 }}>
+            <TSearchableSelect
+              label=""
+              value={filterAccountType}
+              onChange={(val) => setFilterAccountType(val as string | null)}
+              options={ACCOUNT_TYPE_OPTIONS.map((t) => ({
+                value: t.value,
+                label: t.label,
+                color: t.color,
+              }))}
+              showAllOption
+              allOptionLabel="All Types"
+              placeholder="Search types..."
+              size="small"
+            />
+          </Box>
+          {(searchQuery || filterAccountType) && (
+            <Tooltip title="Clear filters">
+              <IconButton size="small" onClick={handleClearFilters}>
+                <ClearIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
       }
       onRefresh={handleRefresh}
       isLoading={accountsLoading || glLoading}

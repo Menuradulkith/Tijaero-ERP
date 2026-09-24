@@ -207,6 +207,7 @@ class SalesQuoteService:
 
         # Update fields
         update_data = quote_data.model_dump(exclude_unset=True, exclude={'items'})
+        before_values = {key: getattr(quote, key, None) for key in update_data}
         changed_fields = set(update_data.keys())
         for key, value in update_data.items():
             if value is not None:
@@ -236,14 +237,22 @@ class SalesQuoteService:
         updated = self.repository.update(db, quote)
 
         if changed_fields:
-            from app.common.audit import log_audit
+            from app.common.audit import log_audit, diff_changes
+            changes = diff_changes(before_values, update_data)
+            # `items` is a full list replace (no single scalar old/new), so
+            # it's always reported as changed whenever it was submitted, on
+            # top of whatever scalar diffs diff_changes found.
+            if "items" in changed_fields:
+                changes.setdefault("fields", [])
+                if "items" not in changes["fields"]:
+                    changes["fields"] = sorted(set(changes["fields"]) | {"items"})
             log_audit(
                 db,
                 user_id=user_id or 0,
                 action="update",
                 entity_type="sales_quote",
                 entity_id=updated.id,
-                changes={"fields": sorted(changed_fields)},
+                changes=changes or {"fields": sorted(changed_fields)},
             )
             db.commit()
 

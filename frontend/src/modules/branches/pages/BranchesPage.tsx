@@ -2,9 +2,8 @@
  * BranchesPage - Refactored to use Tijaero-style reusable components
  * 
  * This page demonstrates how to use the Tijaero component library:
- * - MasterDetailLayout for overall page structure
- * - SearchableList for the master list panel
- * - SelectableListItem for list items
+ * - MasterDetailLayout for overall page structure (browse table + single-record detail toggle)
+ * - TDataGrid for the browse table
  * - DetailPanelHeader for detail panel header
  * - ActionToolbar for action buttons
  * - FormSection for form sections
@@ -23,7 +22,15 @@ import LocationOnIcon from "@mui/icons-material/LocationOn";
 import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import StarIcon from "@mui/icons-material/Star";
+import StarOutlineIcon from "@mui/icons-material/StarBorder";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
+    Avatar,
     Box,
     Button,
     Chip,
@@ -35,6 +42,7 @@ import {
     FormControlLabel,
     Grid,
     IconButton,
+    InputAdornment,
     List,
     ListItem,
     ListItemSecondaryAction,
@@ -55,9 +63,6 @@ import {
     EmptyState,
     FormSection,
     MasterDetailLayout,
-    SearchableList,
-    SelectableListItem,
-    SortOption,
     TDetailSkeleton,
     TExportButton,
     useMasterDetailState,
@@ -67,10 +72,12 @@ import {
     showErrorToast,
     showSuccessToast,
     TActivityHistoryPanel,
-    TTabFilterBar,
     TStatusFilter,
     fmtLKR,
     type TFilterStatusOption,
+    TDataGrid,
+    SelectableListItem,
+    type TDataGridColumn,
 } from "@/components/tijaero";
 import { KpiSparkCard } from "@/components/dashboard";
 import { formatDateTimeReadable } from "@/utils/formatters";
@@ -82,12 +89,6 @@ import { Location, LocationCreate, locationsApi } from "@/modules/common/api";
 import { branchApi } from "../api";
 
 // Configuration - Define once, use everywhere
-const SORT_OPTIONS: SortOption[] = [
-  { value: "branch_code", label: "Branch Code" },
-  { value: "branch_name", label: "Branch Name" },
-  { value: "created_at", label: "Creation Date" },
-];
-
 const BRANCH_STATUS_OPTIONS: TFilterStatusOption[] = [
   { value: null, label: "All Statuses" },
   { value: "active", label: "Active" },
@@ -134,19 +135,14 @@ export default function BranchesPage() {
   const [branchNameError, setBranchNameError] = useState<string | null>(null);
   const [branchEmailError, setBranchEmailError] = useState<string | null>(null);
 
-  // Filter state (applied - drives the actual list filtering)
+  // Filter state - all filters apply live as the user types/selects, no
+  // separate "Search" step needed.
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
-
-  // Filter state (draft - edited via the filter bar, only applied on Search click)
-  const [draftBranchQuery, setDraftBranchQuery] = useState("");
-  const [draftStatus, setDraftStatus] = useState<string | null>(null);
 
   // Use the reusable state management hook
   const {
     searchQuery,
     setSearchQuery,
-    sortField,
-    setSortField,
     selectedItem: selectedBranch,
     setSelectedItem: setSelectedBranch,
     isEditing,
@@ -160,7 +156,7 @@ export default function BranchesPage() {
     markAsSaved,
     handleSelectItem: handleSelectBranch,
     handleNew: handleNewBranch,
-    handleCancel,
+    handleCancel: handleCancelBase,
     handleStartEdit,
   } = useMasterDetailState<Branch, BranchCreate>({
     initialFormData: INITIAL_FORM_DATA,
@@ -177,17 +173,10 @@ export default function BranchesPage() {
   });
 
   // Activity History is opened on demand from a detail icon next to the
-  // Record Information section title, rather than shown inline.
+  // Activity History section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
-  const handleApplyFilters = useCallback(() => {
-    setSearchQuery(draftBranchQuery);
-    setFilterStatus(draftStatus);
-  }, [draftBranchQuery, draftStatus, setSearchQuery]);
-
   const handleClearFilters = useCallback(() => {
-    setDraftBranchQuery("");
-    setDraftStatus(null);
     setSearchQuery("");
     setFilterStatus(null);
   }, [setSearchQuery]);
@@ -227,27 +216,12 @@ export default function BranchesPage() {
       filtered = filtered.filter((branch) => branch.active === isActive);
     }
 
-    filtered.sort((a, b) => {
-      if (sortField === "branch_code") {
-        return a.branch_code.localeCompare(b.branch_code);
-      } else if (sortField === "branch_name") {
-        return a.branch_name.localeCompare(b.branch_name);
-      } else if (sortField === "created_at") {
-        return (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0);
-      }
-      return 0;
-    });
+    // Default order before the user sorts a column in the browse table
+    // itself (the table's own column-header sort takes over from there).
+    filtered.sort((a, b) => a.branch_code.localeCompare(b.branch_code));
 
     return filtered;
-  }, [data?.items, searchQuery, sortField, filterStatus]);
-
-  // Auto-select first branch when branches are loaded or filtered
-  // But NOT when we're creating a new item (selectedBranch is null during creation)
-  useEffect(() => {
-    if (filteredBranches.length > 0 && !selectedBranch && !isCreating) {
-      handleSelectBranch(filteredBranches[0]);
-    }
-  }, [filteredBranches, selectedBranch, isCreating, handleSelectBranch]);
+  }, [data?.items, searchQuery, filterStatus]);
 
   // Clear branch locations when starting to create a new branch
   useEffect(() => {
@@ -544,76 +518,183 @@ export default function BranchesPage() {
   const isFormValid = formData.branch_code && formData.branch_name && branchLocations.length > 0;
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
-  // Render Master List using Tijaero SearchableList component
-  const masterPanel = (
-    <SearchableList<Branch>
-      items={filteredBranches}
-      isLoading={isLoading}
-      searchQuery={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedBranch}
-      onSelectItem={handleSelectBranch}
-      emptyMessage="No branches found"
-      renderItem={(branch, isSelected) => (
-        <SelectableListItem
-          key={branch.id}
-          isSelected={isSelected}
-          onClick={() => handleSelectBranch(branch)}
-          primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              {/* Branch Code */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <span>{branch.branch_code}</span>
-                  <Chip
-                    label={branch.active ? "Active" : "Inactive"}
-                    size="small"
-                    color={branch.active ? "success" : "default"}
-                    variant={branch.active ? "filled" : "outlined"}
-                    sx={{ height: 20, fontSize: "0.7rem" }}
-                  />
-                </Box>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Branch Code)
-                  </Typography>
-                )}
-              </Box>
-              {/* Additional fields when selected */}
-              {isSelected && (
-                <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {branch.branch_name}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Name)
-                    </Typography>
-                  </Box>
-                  {branch.contact_number && (
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {branch.contact_number}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Contact)
-                      </Typography>
-                    </Box>
-                  )}
-                </>
-              )}
-            </Box>
-          }
-          secondaryText={!isSelected ? branch.branch_name : undefined}
-          isFavorite={favorites.includes(branch.id)}
-          onToggleFavorite={(e) => toggleFavorite(branch.id, e)}
+  // Cancelling out of "New Branch" should return to the browse table, not
+  // auto-open the first branch the way useMasterDetailState's generic
+  // handleCancel does (that behavior made sense for the old always-visible
+  // detail panel, but not here). Cancelling out of editing an existing
+  // branch still just reverts its form, which the generic handler already
+  // does correctly.
+  const handleCancel = useCallback((items: Branch[]) => {
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+      setSelectedBranch(null);
+    } else {
+      handleCancelBase(items);
+    }
+  }, [isCreating, handleCancelBase, setIsCreating, setIsEditing, setSelectedBranch]);
+
+  // Returns to the browse table from the detail view (the "Back to
+  // Branches" link above the detail header).
+  const handleBackToBranches = useCallback(() => {
+    setSelectedBranch(null);
+    if (isCreating) {
+      setIsCreating(false);
+      setIsEditing(false);
+    }
+  }, [isCreating, setSelectedBranch, setIsCreating, setIsEditing]);
+
+  // Whether we're showing a single branch's detail view (selected or being
+  // created) instead of the browse table.
+  const isBranchDetailMode = !!selectedBranch || isCreating;
+
+  // Browse mode: a full-width table of every branch. Sorting is done
+  // per-column via the grid's own column header menu, not a separate
+  // "Sort by" control.
+  const branchColumns: TDataGridColumn<Branch>[] = useMemo(
+    () => [
+      {
+        field: "favorite",
+        header: "",
+        width: 48,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Branch>) => (
+          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
+            {favorites.includes(params.row.id) ? (
+              <StarIcon fontSize="small" color="warning" />
+            ) : (
+              <StarOutlineIcon fontSize="small" color="action" />
+            )}
+          </IconButton>
+        ),
+      },
+      { field: "branch_code", header: "Branch Code", width: 140 },
+      { field: "branch_name", header: "Name", flex: 1, minWidth: 200 },
+      { field: "address", header: "Address", flex: 1, minWidth: 200 },
+      { field: "contact_number", header: "Phone", width: 150 },
+      {
+        field: "active",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Branch>) => (
+          <Chip
+            label={params.row.active ? "Active" : "Inactive"}
+            size="small"
+            color={params.row.active ? "success" : "default"}
+          />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<Branch>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectBranch(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [favorites, toggleFavorite, handleSelectBranch]
+  );
+
+  const branchTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<Branch>
+          rows={filteredBranches}
+          columns={branchColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectBranch(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No branches found"
+          autoHeight={false}
+          height="100%"
         />
+      </Box>
+    </Box>
+  );
+
+  // Detail mode: a narrow left panel showing only the current branch (or the
+  // "New Branch" placeholder while creating). A "Back to Branches" link
+  // returns to the table.
+  const singleBranchPanel = (
+    <Paper
+      elevation={0}
+      sx={{
+        width: 280,
+        minWidth: 240,
+        maxWidth: 300,
+        borderRight: 1,
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon fontSize="small" />}
+          onClick={handleBackToBranches}
+          sx={{ textTransform: "none" }}
+        >
+          Back to Branches
+        </Button>
+      </Box>
+      {isCreating ? (
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: "primary.main" }}>
+              <BusinessIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="caption" color="text.secondary">
+              New Branch
+            </Typography>
+          </Box>
+        </Box>
+      ) : selectedBranch && (
+        <Box>
+          <SelectableListItem
+            id={selectedBranch.id}
+            isSelected
+            onClick={() => {}}
+            primaryText={
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
+                <Avatar sx={{ bgcolor: "primary.main" }}>
+                  <BusinessIcon fontSize="small" />
+                </Avatar>
+                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
+                  <span>{selectedBranch.branch_name}</span>
+                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
+                    {selectedBranch.branch_code}
+                  </Typography>
+                </Box>
+              </Box>
+            }
+            isFavorite={favorites.includes(selectedBranch.id)}
+            onToggleFavorite={(e) => toggleFavorite(selectedBranch.id, e)}
+          />
+        </Box>
       )}
-    />
+    </Paper>
   );
 
   // Render Detail Panel
@@ -864,10 +945,10 @@ export default function BranchesPage() {
           </>
         )}
 
-        {/* Record Information (view mode only) */}
+        {/* Activity History (view mode only) */}
         {selectedBranch && !isCreating && !isEditing && (
           <FormSection
-            title="Record Information"
+            title="Activity History"
             columns={2}
             titleAction={
               <Tooltip title="View activity history">
@@ -902,69 +983,76 @@ export default function BranchesPage() {
       <MasterDetailLayout
         title="Branches"
         titleSlot={
-          <TTabFilterBar
-            tabs={[
-              {
-                key: "branch",
-                label: "Branch",
-                hasValue: !!draftBranchQuery,
-                render: ({ close }) => (
-                  <TextField
-                    size="small"
-                    autoFocus
-                    placeholder="Branch code or name"
-                    value={draftBranchQuery}
-                    onChange={(e) => setDraftBranchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleApplyFilters();
-                        close();
-                      }
-                    }}
-                    fullWidth
-                  />
+          isBranchDetailMode ? undefined : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Branch code or name"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
                 ),
-              },
-              {
-                key: "status",
-                label: "Status",
-                hasValue: !!draftStatus,
-                render: () => (
-                  <TStatusFilter
-                    options={BRANCH_STATUS_OPTIONS}
-                    value={draftStatus}
-                    onChange={setDraftStatus}
-                    label=""
-                    size="small"
-                  />
-                ),
-              },
-            ]}
-            onSearch={handleApplyFilters}
-            onClear={handleClearFilters}
-            clearDisabled={!draftBranchQuery && !draftStatus && !searchQuery && !filterStatus}
-          />
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 150, flexShrink: 0 }}>
+              <TStatusFilter
+                options={BRANCH_STATUS_OPTIONS}
+                value={filterStatus}
+                onChange={setFilterStatus}
+                label=""
+                placeholder="All Status"
+                size="small"
+              />
+            </Box>
+            {(searchQuery || filterStatus) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+          )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
         headerActions={
-          <TExportButton
-            filename="branches"
-            headers={["Branch Code", "Branch Name", "Address", "Contact Number", "Email"]}
-            rows={() =>
-              filteredBranches.map((b) => [
-                b.branch_code || "",
-                b.branch_name || "",
-                b.address || "",
-                b.contact_number || "",
-                b.email || "",
-              ])
-            }
-            disabled={filteredBranches.length === 0}
-          />
+          isBranchDetailMode ? undefined : (
+            <>
+              {canCreate && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleNewBranch}
+                  sx={{ mr: 1 }}
+                >
+                  Add Branch
+                </Button>
+              )}
+              <TExportButton
+                filename="branches"
+                headers={["Branch Code", "Branch Name", "Address", "Contact Number", "Email"]}
+                rows={() =>
+                  filteredBranches.map((b) => [
+                    b.branch_code || "",
+                    b.branch_name || "",
+                    b.address || "",
+                    b.contact_number || "",
+                    b.email || "",
+                  ])
+                }
+                disabled={filteredBranches.length === 0}
+              />
+            </>
+          )
         }
+        {...(isBranchDetailMode ? { masterPanel: singleBranchPanel, detailPanel } : { children: branchTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
       

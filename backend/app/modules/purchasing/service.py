@@ -7,7 +7,7 @@ from . import models, schemas, repository
 from .invoice_models import PurchaseInvoice, PurchaseInvoicePayment
 from fastapi import HTTPException, status
 from app.core import timezone as tz
-from app.common.audit import log_audit
+from app.common.audit import log_audit, diff_changes
 from app.common.enums import PurchaseOrderStatus, DocumentStatus, StockStatus
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.modules.finance.gl_posting_service import record_gl_commit_failure
@@ -251,10 +251,7 @@ class SupplierService:
                 detail=f"Supplier with id {supplier_id} not found"
             )
 
-        changed_fields = {
-            field for field, new_value in submitted_fields.items()
-            if before_values.get(field) != new_value
-        }
+        changes = diff_changes(before_values, submitted_fields)
 
         # When max_credit_limit changes, recalculate left_credit_amount
         if supplier_update.max_credit_limit is not None:
@@ -265,14 +262,14 @@ class SupplierService:
             self.repo.db.commit()
             self.repo.db.refresh(supplier)
 
-        if changed_fields:
+        if changes:
             log_audit(
                 self.repo.db,
                 user_id=updated_by or 0,
                 action="update",
                 entity_type="supplier",
                 entity_id=supplier.id,
-                changes={"fields": sorted(changed_fields)},
+                changes=changes,
             )
             self.repo.db.commit()
 

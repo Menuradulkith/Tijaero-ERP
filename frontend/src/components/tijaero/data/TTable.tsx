@@ -138,9 +138,10 @@ export function TTable<T = Record<string, unknown>>({
 }: TTableProps<T>) {
   const tableSize = dense ? "small" : size;
 
-  // Modern table styles
+  // Modern table styles. No explicit borderRadius — this renders through a
+  // Paper (component={Paper} below), which already gets the theme's default
+  // (theme.shape.borderRadius, 12px) from MuiPaper's styleOverrides.
   const modernTableSx = {
-    borderRadius: 2,
     overflow: "hidden",
     border: "1px solid",
     borderColor: "divider",
