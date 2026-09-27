@@ -6,6 +6,7 @@
 
 import { useMemo, useCallback, useState, useEffect } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -72,6 +73,7 @@ const SORT_OPTIONS: SortOption[] = [
 // getStatusChipProps is now imported from common components
 
 export default function PurchaseReturnApprovalsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("added_date");
@@ -298,7 +300,7 @@ export default function PurchaseReturnApprovalsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        Rs. {fmtLKR(selectedReturn?.items?.reduce((sum, item) => sum + Number(item.return_price), 0) || 0)}
+                        {currencySymbol} {fmtLKR(selectedReturn?.items?.reduce((sum, item) => sum + Number(item.return_price), 0) || 0)}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Amount)
@@ -435,8 +437,8 @@ export default function PurchaseReturnApprovalsPage() {
                     <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell>Barcode</TableCell>
                       <TableCell>Product</TableCell>
-                      <TableCell align="right">Purchase Price (Rs.)</TableCell>
-                      <TableCell align="right">Return Price (Rs.)</TableCell>
+                      <TableCell align="right">{`Purchase Price (${currencySymbol})`}</TableCell>
+                      <TableCell align="right">{`Return Price (${currencySymbol})`}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>

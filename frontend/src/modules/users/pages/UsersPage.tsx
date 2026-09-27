@@ -6,8 +6,6 @@ import HistoryIcon from "@mui/icons-material/History";
 import PersonIcon from "@mui/icons-material/Person";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -43,6 +41,7 @@ import {
     TExportButton,
     TPageSkeleton,
     useMasterDetailState,
+    useRowSelection,
     GENDER_CHOICES,
     TConfirmDialog,
     useConfirmDialog,
@@ -185,8 +184,6 @@ export default function UsersPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     markAsSaved,
@@ -197,7 +194,6 @@ export default function UsersPage() {
   } = useMasterDetailState<UserList, Partial<UserCreate>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromUser,
-    favoritesKey: "users_favorites",
     defaultSortField: "username",
     confirmUnsavedChanges: () => confirmDialog.confirm({
       title: "Discard Changes",
@@ -207,6 +203,8 @@ export default function UsersPage() {
       confirmColor: "warning",
     }),
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -659,23 +657,6 @@ export default function UsersPage() {
 
   const userColumns: TDataGridColumn<UserRow>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<UserRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "username", header: "Username", flex: 1, minWidth: 150 },
       { field: "full_name", header: "Full Name", flex: 1, minWidth: 170 },
       { field: "email", header: "Email", flex: 1, minWidth: 190 },
@@ -717,7 +698,7 @@ export default function UsersPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectUser]
+    [handleSelectUser]
   );
 
   const usersTablePanel = (
@@ -733,6 +714,9 @@ export default function UsersPage() {
           emptyMessage="No users found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -796,8 +780,6 @@ export default function UsersPage() {
                 </Box>
               </Box>
             }
-            isFavorite={favorites.includes(selectedUser.id)}
-            onToggleFavorite={(e) => toggleFavorite(selectedUser.id, e)}
           />
         </Box>
       )}
@@ -823,8 +805,6 @@ export default function UsersPage() {
           { label: selectedUser.is_active ? "Active" : "Inactive", color: selectedUser.is_active ? "success" : "default" as const },
           { label: selectedUser.is_staff ? "Staff" : "User", variant: "outlined" as const },
         ] : []}
-        isFavorite={selectedUser ? favorites.includes(selectedUser.id) : false}
-        onToggleFavorite={selectedUser ? (e) => toggleFavorite(selectedUser.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -1312,7 +1292,7 @@ export default function UsersPage() {
                   "Status",
                 ]}
                 rows={() =>
-                  filteredUsers.map((u) => [
+                  rowSelection.pick(filteredUsers).map((u) => [
                     u.username || "",
                     u.first_name || "",
                     u.middle_name || "",

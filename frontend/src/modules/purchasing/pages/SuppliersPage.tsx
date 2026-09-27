@@ -2,7 +2,7 @@
  * SuppliersPage - Using Tijaero-style reusable components
  */
 
-import { useMemo, useCallback, useEffect, useState, type ReactNode } from "react";
+import { useMemo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { formatDateTimeReadable, formatCurrency } from "@/utils/formatters";
 import { exportToCSV } from "@/utils/csvExport";
 import DownloadIcon from "@mui/icons-material/FileDownload";
@@ -26,8 +26,6 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
@@ -38,13 +36,18 @@ import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalance
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import LocalAtmIcon from "@mui/icons-material/LocalAtm";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import SyncAltIcon from "@mui/icons-material/SyncAlt";
+import DescriptionIcon from "@mui/icons-material/Description";
+import CreditCardIcon from "@mui/icons-material/CreditCard";
+import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import HistoryIcon from "@mui/icons-material/History";
 import { useAuthStore } from "@/state/authStore";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { hasPermission, PERMISSIONS } from "@/auth/permissions";
-import { useReferenceData, type CountryRef } from "@/hooks/useReferenceData";
+import { useReferenceData, type CountryRef, type CurrencyRef } from "@/hooks/useReferenceData";
 // ConfirmDialog now uses TConfirmDialog from tijaero
 
 import {
@@ -55,8 +58,11 @@ import {
   FormSection,
   EmptyState,
   useMasterDetailState,
+  useRowSelection,
   showErrorToast,
   showSuccessToast,
+  showWarningToast,
+  handleApiError,
   TConfirmDialog,
   TDetailSkeleton,
   TStatusFilter,
@@ -64,6 +70,14 @@ import {
   type TSectionNavItem,
   TITLE_CHOICES,
   GENDER_CHOICES,
+  SUPPLIER_TAX_AREA,
+  SUPPLIER_PAYMENT_TERMS,
+  SUPPLIER_PAYMENT_TERMS_CUSTOM,
+  getPaymentTermsLabel,
+  SUPPLIER_SAVED_PAYMENT_METHOD_TYPE,
+  SUPPLIER_PAYMENT_CARD_TYPE,
+  SUPPLIER_LC_TYPE,
+  SUPPLIER_WALLET_PROVIDER,
   useCrudMutation,
   useTConfirmDialog,
   TDataGrid,
@@ -173,12 +187,20 @@ const PAYMENT_METHOD_TYPE_LABELS: Record<SupplierPaymentAccountType, string> = {
   bank_transfer: "Bank Transfer",
   cash: "Cash",
   cheque: "Cheque",
+  direct_debit: "Direct Debit / ACH",
+  letter_of_credit: "Letter of Credit",
+  credit_card: "Credit Card",
+  digital_wallet: "Digital Wallet",
 };
 
 const PAYMENT_METHOD_TYPE_ICONS: Record<SupplierPaymentAccountType, ReactNode> = {
   bank_transfer: <AccountBalanceIcon fontSize="small" color="action" />,
   cash: <LocalAtmIcon fontSize="small" color="action" />,
   cheque: <ReceiptLongIcon fontSize="small" color="action" />,
+  direct_debit: <SyncAltIcon fontSize="small" color="action" />,
+  letter_of_credit: <DescriptionIcon fontSize="small" color="action" />,
+  credit_card: <CreditCardIcon fontSize="small" color="action" />,
+  digital_wallet: <AccountBalanceWalletIcon fontSize="small" color="action" />,
 };
 
 const INITIAL_PAYMENT_METHOD_FORM: SupplierPaymentAccountCreate = {
@@ -186,6 +208,28 @@ const INITIAL_PAYMENT_METHOD_FORM: SupplierPaymentAccountCreate = {
   bank_name: "",
   account_number: "",
   account_holder_name: "",
+  branch: "",
+  bank_branch_code: "",
+  swift_code: "",
+  correspondent_bank_name: "",
+  correspondent_bank_swift_code: "",
+  mandate_reference: "",
+  mandate_date: "",
+  lc_number: "",
+  issuing_bank_name: "",
+  advising_bank_name: "",
+  lc_amount: undefined,
+  lc_currency: "",
+  lc_type: "",
+  lc_issue_date: "",
+  lc_expiry_date: "",
+  latest_shipment_date: "",
+  card_type: "",
+  card_last4: "",
+  card_expiry: "",
+  cardholder_name: "",
+  wallet_provider: "",
+  wallet_id: "",
   is_default: false,
 };
 
@@ -207,10 +251,31 @@ const SUPPLIER_SECTION_NAV_ITEMS: TSectionNavItem[] = [
   { key: "payment", label: "Payment", icon: <AccountBalanceWalletOutlinedIcon fontSize="small" /> },
 ];
 
+// Lead time is always stored in days (SupplierCreate/Update.lead_time_days);
+// the unit dropdown next to the input is purely a display/entry convenience
+// — whatever unit is picked, the typed number is converted to days before
+// being saved, and converted back for display when the unit changes.
+type LeadTimeUnit = "hours" | "days" | "weeks";
+const LEAD_TIME_UNIT_OPTIONS: { value: LeadTimeUnit; label: string }[] = [
+  { value: "hours", label: "Hours" },
+  { value: "days", label: "Days" },
+  { value: "weeks", label: "Weeks" },
+];
+const LEAD_TIME_UNIT_TO_DAYS: Record<LeadTimeUnit, number> = {
+  hours: 1 / 24,
+  days: 1,
+  weeks: 7,
+};
+const daysToUnit = (days: number, unit: LeadTimeUnit): number =>
+  Math.round((days / LEAD_TIME_UNIT_TO_DAYS[unit]) * 100) / 100;
+const unitToDays = (value: number, unit: LeadTimeUnit): number =>
+  Math.round(value * LEAD_TIME_UNIT_TO_DAYS[unit]);
+
 const INITIAL_FORM_DATA: SupplierCreate = {
   company_name: "",
   company_registration_number: "",
   tax_registration_number: "",
+  tax_area: undefined,
   company_website: "",
   billing_address_line1: "",
   billing_address_line2: "",
@@ -226,15 +291,20 @@ const INITIAL_FORM_DATA: SupplierCreate = {
   home_contact_number: "",
   mobile_contact_number: "",
   credit_days: 30,
-  max_credit_limit: 100000,
+  // No auto-filled default — the user must explicitly set the credit
+  // limit for each new supplier rather than inheriting an arbitrary value.
+  max_credit_limit: 0,
   active: true,
   country_id: undefined,
+  lead_time_days: undefined,
+  default_currency: undefined,
 };
 
 const resetFormFromSupplier = (supplier: Supplier): SupplierCreate => ({
   company_name: supplier.company_name || "",
   company_registration_number: supplier.company_registration_number || "",
   tax_registration_number: supplier.tax_registration_number || "",
+  tax_area: supplier.tax_area || undefined,
   company_website: supplier.company_website || "",
   billing_address_line1: supplier.billing_address_line1 || "",
   billing_address_line2: supplier.billing_address_line2 || "",
@@ -253,11 +323,14 @@ const resetFormFromSupplier = (supplier: Supplier): SupplierCreate => ({
   max_credit_limit: supplier.max_credit_limit,
   active: supplier.active,
   country_id: supplier.country_id,
+  lead_time_days: supplier.lead_time_days ?? undefined,
+  default_currency: supplier.default_currency || undefined,
 });
 
 export default function SuppliersPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   const canCreateSupplier = hasPermission(
     user,
@@ -309,8 +382,21 @@ export default function SuppliersPage() {
   // defaults to on for a brand-new supplier without fighting existing data.
   const [shippingSameAsBilling, setShippingSameAsBilling] = useState(true);
 
-  const { data: countryRefData } = useReferenceData(["countries"]);
+  // Which unit the Lead Time field is currently displayed/typed in — purely
+  // local UI state, never sent to the backend (formData.lead_time_days is
+  // always in days; see daysToUnit/unitToDays above).
+  const [leadTimeUnit, setLeadTimeUnit] = useState<LeadTimeUnit>("days");
+
+  // Sticky "user explicitly chose Custom" flag for the Payment Terms
+  // dropdown — without this, clearing the custom day-count input back to ""
+  // would make formData.credit_days no longer match any standard option,
+  // which already shows "Custom" on its own; this flag only matters for the
+  // moment right after picking "Custom" but before typing a value.
+  const [paymentTermsCustom, setPaymentTermsCustom] = useState(false);
+
+  const { data: countryRefData } = useReferenceData(["countries", "currencies"]);
   const countries: CountryRef[] = countryRefData?.countries || [];
+  const currencies: CurrencyRef[] = countryRefData?.currencies || [];
 
   const {
     searchQuery,
@@ -321,8 +407,6 @@ export default function SuppliersPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectSupplier,
@@ -332,7 +416,6 @@ export default function SuppliersPage() {
   } = useMasterDetailState<Supplier, SupplierCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromSupplier,
-    favoritesKey: "suppliers_favorites",
     defaultSortField: "company_name",
     confirmUnsavedChanges: () => confirmDialog.confirm({
       title: "Discard Changes",
@@ -342,6 +425,14 @@ export default function SuppliersPage() {
       confirmColor: "warning",
     }),
   });
+
+  const rowSelection = useRowSelection();
+
+  // Which supplier is on screen right now, readable from async callbacks
+  // that resolve later: a response must only be applied if the user is still
+  // on the supplier it belongs to (they may have gone Back or opened another).
+  const selectedSupplierIdRef = useRef<number | null>(null);
+  selectedSupplierIdRef.current = selectedSupplier?.id ?? null;
 
   const selectedCountry = countries.find((c) => c.id === formData.country_id) || null;
 
@@ -355,13 +446,27 @@ export default function SuppliersPage() {
 
   // Reflect whether this supplier's shipping address was actually left
   // blank (mirroring billing) or explicitly filled in with its own values.
+  // Keyed on the id and shipping value rather than the whole object: a logo
+  // upload or "Keep My Edits" swaps in a new selectedSupplier object, and
+  // that must not reset a toggle the user changed while editing. Re-syncs
+  // on leaving edit mode (save or cancel), when the saved value is truth.
+  const selectedShippingLine1 = selectedSupplier?.shipping_address_line1;
   useEffect(() => {
+    if (isEditing && !isCreating) return;
     if (selectedSupplier) {
-      setShippingSameAsBilling(!selectedSupplier.shipping_address_line1);
+      setShippingSameAsBilling(!selectedShippingLine1);
     } else if (isCreating) {
       setShippingSameAsBilling(true);
     }
-  }, [selectedSupplier, isCreating]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
+  }, [selectedSupplier?.id, selectedShippingLine1, isCreating, isEditing]);
+
+  // Whether formData.credit_days already matches a standard option decides
+  // "Custom" mode on its own — this just clears a stale explicit-Custom
+  // pick from a previously-viewed supplier.
+  useEffect(() => {
+    setPaymentTermsCustom(false);
+  }, [selectedSupplier?.id, isCreating]);
 
   // Saved payment methods for the currently-selected supplier (fetched fresh
   // whenever the selection changes; a brand-new, not-yet-saved supplier has
@@ -396,9 +501,11 @@ export default function SuppliersPage() {
   const refreshPaymentMethods = useCallback(async (supplierId: number) => {
     try {
       const methods = await suppliersApi.getPaymentMethods(supplierId);
-      setPaymentMethods(methods);
+      // Drop a slow response for a supplier the user has since left, or it
+      // would show that supplier's bank accounts under the current one.
+      if (selectedSupplierIdRef.current === supplierId) setPaymentMethods(methods);
     } catch {
-      setPaymentMethods([]);
+      if (selectedSupplierIdRef.current === supplierId) setPaymentMethods([]);
     }
   }, []);
 
@@ -435,6 +542,28 @@ export default function SuppliersPage() {
     bank_name: method.bank_name || "",
     account_number: method.account_number || "",
     account_holder_name: method.account_holder_name || "",
+    branch: method.branch || "",
+    bank_branch_code: method.bank_branch_code || "",
+    swift_code: method.swift_code || "",
+    correspondent_bank_name: method.correspondent_bank_name || "",
+    correspondent_bank_swift_code: method.correspondent_bank_swift_code || "",
+    mandate_reference: method.mandate_reference || "",
+    mandate_date: method.mandate_date?.split("T")[0] || "",
+    lc_number: method.lc_number || "",
+    issuing_bank_name: method.issuing_bank_name || "",
+    advising_bank_name: method.advising_bank_name || "",
+    lc_amount: method.lc_amount,
+    lc_currency: method.lc_currency || "",
+    lc_type: method.lc_type || "",
+    lc_issue_date: method.lc_issue_date?.split("T")[0] || "",
+    lc_expiry_date: method.lc_expiry_date?.split("T")[0] || "",
+    latest_shipment_date: method.latest_shipment_date?.split("T")[0] || "",
+    card_type: method.card_type || "",
+    card_last4: method.card_last4 || "",
+    card_expiry: method.card_expiry || "",
+    cardholder_name: method.cardholder_name || "",
+    wallet_provider: method.wallet_provider || "",
+    wallet_id: method.wallet_id || "",
     is_default: method.is_default,
   });
 
@@ -544,7 +673,7 @@ export default function SuppliersPage() {
         renderCell: (params: GridRenderCellParams<SupplierPaymentAccount>) =>
           params.row.account_number ? `•••${params.row.account_number.slice(-4)}` : "",
       },
-      { field: "account_holder_name", header: "Account Holder", flex: 1, minWidth: 150 },
+      { field: "account_holder_name", header: "Account Name", flex: 1, minWidth: 150 },
       {
         field: "is_default",
         header: "Default",
@@ -609,9 +738,10 @@ export default function SuppliersPage() {
   const refreshContactPersons = useCallback(async (supplierId: number) => {
     try {
       const contacts = await suppliersApi.getContactPersons(supplierId);
-      setContactPersons(contacts);
+      // Same stale-response guard as refreshPaymentMethods.
+      if (selectedSupplierIdRef.current === supplierId) setContactPersons(contacts);
     } catch {
-      setContactPersons([]);
+      if (selectedSupplierIdRef.current === supplierId) setContactPersons([]);
     }
   }, []);
 
@@ -841,26 +971,6 @@ export default function SuppliersPage() {
   const supplierColumns: TDataGridColumn<SupplierRow>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<SupplierRow>) => (
-          <IconButton
-            size="small"
-            onClick={(e) => toggleFavorite(params.row.id, e)}
-          >
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "company_name",
         header: "Company",
         flex: 1,
@@ -883,10 +993,30 @@ export default function SuppliersPage() {
       { field: "mobile_contact_number", header: "Mobile Contact", width: 150 },
       {
         field: "credit_days",
-        header: "Credit Days",
-        width: 110,
+        header: "Payment Terms",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<SupplierRow>) =>
+          getPaymentTermsLabel(params.row.credit_days),
+      },
+      {
+        field: "lead_time_days",
+        header: "Lead Time",
+        width: 120,
         align: "right",
         headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<SupplierRow>) =>
+          params.row.lead_time_days != null
+            ? `${params.row.lead_time_days} ${params.row.lead_time_days === 1 ? "day" : "days"}`
+            : "-",
+      },
+      {
+        field: "default_currency",
+        header: "Currency",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<SupplierRow>) =>
+          params.row.default_currency || "-",
       },
       {
         field: "max_credit_limit",
@@ -896,6 +1026,15 @@ export default function SuppliersPage() {
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<SupplierRow>) =>
           formatCurrency(params.row.max_credit_limit || 0),
+      },
+      {
+        field: "left_credit_amount",
+        header: "Left Credit Amount",
+        width: 160,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<SupplierRow>) =>
+          formatCurrency(params.row.left_credit_amount || 0),
       },
       {
         field: "active",
@@ -933,7 +1072,7 @@ export default function SuppliersPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectSupplierWithCheck]
+    [handleSelectSupplierWithCheck]
   );
 
   const createMutation = useCrudMutation({
@@ -961,12 +1100,29 @@ export default function SuppliersPage() {
           logoFailed = true;
         }
       }
-      const failedCount =
-        contactResults.filter((r) => r.status === "rejected").length +
-        paymentResults.filter((r) => r.status === "rejected").length +
-        (logoFailed ? 1 : 0);
-      if (failedCount > 0) {
-        showErrorToast(`Supplier saved, but ${failedCount} draft item(s) failed to save`);
+      // Name each draft that failed, with the server's reason, so the user
+      // knows exactly what to re-add — previously only a count was shown and
+      // the failed drafts were silently discarded.
+      const failures: string[] = [];
+      contactResults.forEach((r, i) => {
+        if (r.status === "rejected") {
+          failures.push(
+            `Contact "${draftContactPersons[i].full_name || "(unnamed)"}": ${handleApiError(r.reason, "failed to save")}`
+          );
+        }
+      });
+      paymentResults.forEach((r, i) => {
+        if (r.status === "rejected") {
+          const d = draftPaymentMethods[i];
+          const label = PAYMENT_METHOD_TYPE_LABELS[d.method_type] ?? d.method_type;
+          failures.push(`Payment method "${label}": ${handleApiError(r.reason, "failed to save")}`);
+        }
+      });
+      if (logoFailed) failures.push("Logo: failed to upload");
+      if (failures.length > 0) {
+        showWarningToast(
+          `Supplier saved, but these weren't — please add them again: ${failures.join(" • ")}`
+        );
       }
       setDraftContactPersons([]);
       setDraftPaymentMethods([]);
@@ -993,27 +1149,64 @@ export default function SuppliersPage() {
     successMessage: "Supplier updated successfully",
     errorMessage: "Failed to update supplier",
     onSuccess: (updatedSupplier) => {
+      // Only if the user is still on this supplier — they may have pressed
+      // Back or opened another while the save was in flight, and reselecting
+      // this one would yank them back (with the other's form still loaded).
+      if (selectedSupplierIdRef.current !== updatedSupplier.id) return;
       setIsEditing(false);
       setSelectedSupplier(updatedSupplier);
+      setFormData(resetFormFromSupplier(updatedSupplier));
     },
-    onError: async (error) => {
-      // 409 = someone else changed this supplier since it was loaded (see
-      // expected_updated_at / SupplierService.update_supplier). The global
-      // axios interceptor already toasts the server's message; here we just
-      // pull the current record so the user isn't stuck editing stale data.
-      if (axios.isAxiosError(error) && error.response?.status === 409 && selectedSupplier) {
-        try {
-          const fresh = await suppliersApi.getById(selectedSupplier.id);
-          queryClient.setQueryData<Supplier[]>(["suppliers"], (prev) =>
-            prev ? prev.map((s) => (s.id === fresh.id ? fresh : s)) : prev
-          );
-          setSelectedSupplier(fresh);
+    onError: async (error, variables) => {
+      if (!axios.isAxiosError(error)) return;
+      const status = error.response?.status;
+
+      // 404 = someone deleted this supplier while it was open here.
+      if (status === 404) {
+        queryClient.setQueryData<Supplier[]>(["suppliers"], (prev) =>
+          prev ? prev.filter((s) => s.id !== variables.id) : prev
+        );
+        if (selectedSupplierIdRef.current === variables.id) {
+          setIsEditing(false);
+          setSelectedSupplier(null);
+        }
+        return;
+      }
+
+      // 409 = someone else saved this supplier since it was loaded (see
+      // expected_version / SupplierService.update_supplier). The global
+      // axios interceptor already toasts the server's message.
+      if (status !== 409) return;
+      try {
+        const fresh = await suppliersApi.getById(variables.id);
+        // Not actually stale (version unchanged) → some other conflict;
+        // leave the user's edits alone.
+        if (!variables.data.expected_version || fresh.version === variables.data.expected_version) return;
+        queryClient.setQueryData<Supplier[]>(["suppliers"], (prev) =>
+          prev ? prev.map((s) => (s.id === fresh.id ? fresh : s)) : prev
+        );
+        if (selectedSupplierIdRef.current !== fresh.id) return;
+
+        // Let the user choose instead of silently discarding their edits.
+        const reload = await confirmDialog.confirm({
+          title: "Supplier Changed by Someone Else",
+          message: `${fresh.updated_by_name || "Another user"} saved changes to "${fresh.company_name}" after you opened it. Load their version (your unsaved edits will be discarded), or keep editing yours? If you keep yours, saving again will overwrite their changes.`,
+          confirmText: "Load Their Version",
+          cancelText: "Keep My Edits",
+          confirmColor: "warning",
+        });
+        if (selectedSupplierIdRef.current !== fresh.id) return;
+        setSelectedSupplier(fresh);
+        if (reload) {
           setFormData(resetFormFromSupplier(fresh));
           setIsEditing(false);
-        } catch {
-          // Refresh failed too — the error toast from the 409 already told
-          // the user what happened; nothing more useful to do here.
         }
+        // Keep: formData stays as the user's edits; selectedSupplier now
+        // carries the fresh version, so the next save is a deliberate
+        // overwrite the user just agreed to.
+      } catch {
+        // Refresh failed too — the error toast from the 409 already told
+        // the user what happened; nothing more useful to do here.
       }
     },
   });
@@ -1040,16 +1233,18 @@ export default function SuppliersPage() {
       "Email",
       "Mobile Contact",
       "Home Contact",
-      "Credit Days",
+      "Payment Terms",
+      "Default Currency",
       "Max Credit Limit",
       "Initial Credit Amount",
       "Left Credit Amount",
+      "Lead Time (Days)",
       "Avg. Lead Time (Days)",
       "Date Joined",
       "Status"
     ];
 
-    const rows = filteredSuppliers.map(supplier => [
+    const rows = rowSelection.pick(filteredSuppliers).map(supplier => [
       supplier.company_name || "",
       supplier.company_registration_number || "",
       supplier.tax_registration_number || "",
@@ -1060,10 +1255,12 @@ export default function SuppliersPage() {
       supplier.email || "",
       supplier.mobile_contact_number || "",
       supplier.home_contact_number || "",
-      supplier.credit_days,
+      getPaymentTermsLabel(supplier.credit_days),
+      supplier.default_currency || "",
       supplier.max_credit_limit,
       supplier.initial_credit_amount || 0,
       supplier.left_credit_amount || 0,
+      supplier.lead_time_days ?? "",
       supplier.average_lead_time_days ?? "",
       supplier.date_joined ? new Date(supplier.date_joined).toLocaleDateString() : "",
       supplier.active ? "Active" : "Inactive"
@@ -1090,7 +1287,11 @@ export default function SuppliersPage() {
       }
       updateMutation.mutate({
         id: selectedSupplier.id,
-        data: { ...formData, expected_updated_at: selectedSupplier.updated_at },
+        data: {
+          ...formData,
+          expected_updated_at: selectedSupplier.updated_at,
+          expected_version: selectedSupplier.version,
+        },
       });
     }
   }, [
@@ -1121,15 +1322,37 @@ export default function SuppliersPage() {
     }
   }, [selectedSupplier, deleteMutation, confirmDialog, canDeleteSupplier]);
 
-  const handleDuplicate = useCallback(() => {
-    if (selectedSupplier) {
-      setFormData({
-        ...formData,
-        company_name: `${selectedSupplier.company_name} (Copy)`,
-      });
-      handleNewSupplier();
-      setTouched({}); // Reset validation state
-    }
+  // A logo upload/remove response is merged into the current record as just
+  // logo_path — never swapped in wholesale. The response carries the latest
+  // version token; adopting it while the form still holds older values would
+  // let a stale save pass the conflict check and overwrite another user's
+  // changes. Also skipped if the user has since moved to another supplier.
+  const handleLogoUpdated = useCallback(
+    (updated: Supplier) => {
+      const merge = (s: Supplier) => (s.id === updated.id ? { ...s, logo_path: updated.logo_path } : s);
+      queryClient.setQueryData<Supplier[]>(["suppliers"], (prev) => (prev ? prev.map(merge) : prev));
+      setSelectedSupplier((current) => (current ? merge(current) : current));
+    },
+    [queryClient, setSelectedSupplier]
+  );
+
+  const handleDuplicate = useCallback(async () => {
+    if (!selectedSupplier) return;
+    // Build the copy first: handleNewSupplier resets the form to blank, so
+    // the copy must be applied after it (previously it was applied before
+    // and immediately wiped, leaving a blank form).
+    const copy: SupplierCreate = {
+      ...formData,
+      company_name: `${selectedSupplier.company_name} (Copy)`,
+      // Must be unique per supplier — copying them would only fail on save.
+      company_registration_number: "",
+      tax_registration_number: "",
+      email: "",
+    };
+    const started = await handleNewSupplier();
+    if (!started) return; // user chose to keep editing instead
+    setFormData(copy);
+    setTouched({}); // Reset validation state
   }, [selectedSupplier, formData, setFormData, handleNewSupplier]);
 
   // Cancelling out of "New Supplier" should return to the browse table, not
@@ -1182,7 +1405,7 @@ export default function SuppliersPage() {
         if (!formData.company_name) return 'Company name is required';
         break;
       case 'credit_days':
-        if (formData.credit_days === undefined || formData.credit_days < 0) return 'Credit days must be 0 or more';
+        if (formData.credit_days === undefined || formData.credit_days < 0) return 'Payment terms must be 0 days or more';
         break;
       case 'max_credit_limit':
         if (formData.max_credit_limit === undefined || formData.max_credit_limit < 0) return 'Credit limit must be 0 or more';
@@ -1232,6 +1455,9 @@ export default function SuppliersPage() {
           emptyMessage="No suppliers found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1322,8 +1548,6 @@ export default function SuppliersPage() {
                 </Box>
               </Box>
             }
-            isFavorite={favorites.includes(selectedSupplier.id)}
-            onToggleFavorite={(e) => toggleFavorite(selectedSupplier.id, e)}
           />
           <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
             <TSectionNav
@@ -1353,8 +1577,6 @@ export default function SuppliersPage() {
         isCreating={isCreating}
         createTitle="New Supplier"
         noSelectionTitle="Select a Supplier"
-        isFavorite={selectedSupplier ? favorites.includes(selectedSupplier.id) : false}
-        onToggleFavorite={selectedSupplier ? (e) => toggleFavorite(selectedSupplier.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -1441,6 +1663,44 @@ export default function SuppliersPage() {
                 disabled={!isEditing && !isCreating}
               />
               <TextField
+                select
+                label="Tax Area"
+                size="small"
+                value={formData.tax_area ?? ""}
+                onChange={(e) => setFormData({ ...formData, tax_area: e.target.value || undefined })}
+                disabled={!isEditing && !isCreating}
+                SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {SUPPLIER_TAX_AREA.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Default Currency"
+                size="small"
+                value={formData.default_currency ?? ""}
+                onChange={(e) => setFormData({ ...formData, default_currency: e.target.value || undefined })}
+                disabled={!isEditing && !isCreating}
+                SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {currencies.map((currency) => (
+                  <MenuItem key={currency.code} value={currency.code}>
+                    {currency.code} — {currency.name} ({currency.symbol})
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
                 label="Company Website"
                 size="small"
                 value={formData.company_website}
@@ -1457,15 +1717,60 @@ export default function SuppliersPage() {
                 }
                 label="Active"
               />
+              <Box sx={{ display: "flex", gap: 1 }}>
+                <TextField
+                  label="Lead Time"
+                  size="small"
+                  type="number"
+                  value={
+                    formData.lead_time_days != null
+                      ? daysToUnit(formData.lead_time_days, leadTimeUnit)
+                      : ""
+                  }
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw.trim() === "") {
+                      setFormData({ ...formData, lead_time_days: undefined });
+                      return;
+                    }
+                    const parsed = Number(raw);
+                    setFormData({
+                      ...formData,
+                      lead_time_days: Number.isFinite(parsed) ? unitToDays(Math.max(0, parsed), leadTimeUnit) : undefined,
+                    });
+                  }}
+                  disabled={!isEditing && !isCreating}
+                  inputProps={{ min: 0 }}
+                  sx={{ flex: 1 }}
+                />
+                <TextField
+                  select
+                  size="small"
+                  value={leadTimeUnit}
+                  onChange={(e) => setLeadTimeUnit(e.target.value as LeadTimeUnit)}
+                  disabled={!isEditing && !isCreating}
+                  sx={{ width: 110, flexShrink: 0 }}
+                >
+                  {LEAD_TIME_UNIT_OPTIONS.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Box>
               {selectedSupplier && !isCreating && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Avg. Lead Time (Days)</Typography>
-                  <Typography variant="body2">
-                    {selectedSupplier.average_lead_time_days != null
+                <TextField
+                  label="Avg. Lead Time (computed)"
+                  size="small"
+                  value={
+                    selectedSupplier.average_lead_time_days != null
                       ? `${selectedSupplier.average_lead_time_days} days`
-                      : "No completed orders yet"}
-                  </Typography>
-                </Box>
+                      : "No completed orders yet"
+                  }
+                  disabled
+                  InputProps={{ readOnly: true }}
+                  helperText="From actual delivery history — read-only"
+                />
               )}
             </FormSection>
 
@@ -1510,7 +1815,7 @@ export default function SuppliersPage() {
                   supplier={selectedSupplier && !isCreating ? selectedSupplier : undefined}
                   draftFile={draftLogoFile}
                   onDraftFileChange={setDraftLogoFile}
-                  onUpdated={setSelectedSupplier}
+                  onUpdated={handleLogoUpdated}
                   disabled={!isEditing && !isCreating}
                 />
               </FormSection>
@@ -1671,19 +1976,54 @@ export default function SuppliersPage() {
           {activeSection === "payment" && (
             <FormSection title="Payment" columns={3}>
               <TextField
-                label="Credit Days"
+                select
+                label="Payment Terms"
                 size="small"
-                type="number"
-                value={formData.credit_days}
-                onChange={(e) => setFormData({ ...formData, credit_days: parseInt(e.target.value) || 0 })}
+                value={
+                  paymentTermsCustom ||
+                  !SUPPLIER_PAYMENT_TERMS.some((t) => t.value === formData.credit_days)
+                    ? SUPPLIER_PAYMENT_TERMS_CUSTOM
+                    : formData.credit_days
+                }
+                onChange={(e) => {
+                  if (e.target.value === SUPPLIER_PAYMENT_TERMS_CUSTOM) {
+                    setPaymentTermsCustom(true);
+                    return;
+                  }
+                  setPaymentTermsCustom(false);
+                  setFormData({ ...formData, credit_days: Number(e.target.value) });
+                }}
                 onBlur={() => handleBlur('credit_days')}
                 disabled={!isEditing && !isCreating}
                 required
                 sx={requiredFieldSx}
                 error={hasError('credit_days')}
-                helperText={getFieldError('credit_days')}
-                inputProps={{ min: 0 }}
-              />
+                helperText={getFieldError('credit_days') || "How many days after invoicing this supplier expects payment"}
+              >
+                {SUPPLIER_PAYMENT_TERMS.map((term) => (
+                  <MenuItem key={term.value} value={term.value}>
+                    {term.label}
+                  </MenuItem>
+                ))}
+                <MenuItem value={SUPPLIER_PAYMENT_TERMS_CUSTOM}>Custom</MenuItem>
+              </TextField>
+              {(paymentTermsCustom ||
+                !SUPPLIER_PAYMENT_TERMS.some((t) => t.value === formData.credit_days)) && (
+                <TextField
+                  label="Custom Payment Terms (days)"
+                  size="small"
+                  type="number"
+                  value={formData.credit_days}
+                  onChange={(e) => setFormData({ ...formData, credit_days: parseInt(e.target.value) || 0 })}
+                  onBlur={() => handleBlur('credit_days')}
+                  disabled={!isEditing && !isCreating}
+                  required
+                  sx={requiredFieldSx}
+                  error={hasError('credit_days')}
+                  helperText={getFieldError('credit_days')}
+                  inputProps={{ min: 0 }}
+                />
+              )}
               <TextField
                 label="Max Credit Limit"
                 size="small"
@@ -1697,6 +2037,11 @@ export default function SuppliersPage() {
                 error={hasError('max_credit_limit')}
                 helperText={getFieldError('max_credit_limit')}
                 inputProps={{ min: 0 }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">{currencySymbol}</InputAdornment>
+                  ),
+                }}
               />
               {selectedSupplier && !isCreating && (
                 <>
@@ -1706,7 +2051,12 @@ export default function SuppliersPage() {
                     type="number"
                     value={selectedSupplier.initial_credit_amount || 0}
                     disabled
-                    InputProps={{ readOnly: true }}
+                    InputProps={{
+                      readOnly: true,
+                      startAdornment: (
+                        <InputAdornment position="start">{currencySymbol}</InputAdornment>
+                      ),
+                    }}
                   />
                   <TextField
                     label="Left Credit Amount"
@@ -1714,7 +2064,12 @@ export default function SuppliersPage() {
                     type="number"
                     value={selectedSupplier.left_credit_amount || 0}
                     disabled
-                    InputProps={{ readOnly: true }}
+                    InputProps={{
+                      readOnly: true,
+                      startAdornment: (
+                        <InputAdornment position="start">{currencySymbol}</InputAdornment>
+                      ),
+                    }}
                   />
                 </>
               )}
@@ -1879,9 +2234,11 @@ export default function SuppliersPage() {
               setPaymentMethodForm({ ...paymentMethodForm, method_type: e.target.value as SupplierPaymentAccountType })
             }
           >
-            <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-            <MenuItem value="cheque">Cheque</MenuItem>
-            <MenuItem value="cash">Cash</MenuItem>
+            {SUPPLIER_SAVED_PAYMENT_METHOD_TYPE.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
           </TextField>
           <FormControlLabel
             sx={{ alignSelf: "center" }}
@@ -1895,8 +2252,15 @@ export default function SuppliersPage() {
             label="Set as default"
           />
         </TFormSection>
-        {(paymentMethodForm.method_type !== "cash" || paymentMethodPanelMode === "view") && (
-          <TFormSection title="Account Details" variant="plain" columns={1}>
+        {["bank_transfer", "cheque", "direct_debit"].includes(paymentMethodForm.method_type) && (
+          <TFormSection title="Account Details" variant="plain" columns={2}>
+            <TextField
+              label="Account Name"
+              size="small"
+              value={paymentMethodForm.account_holder_name}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, account_holder_name: e.target.value })}
+            />
             <TextField
               label="Bank Name"
               size="small"
@@ -1911,12 +2275,251 @@ export default function SuppliersPage() {
               disabled={paymentMethodPanelMode === "view"}
               onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, account_number: e.target.value })}
             />
+          </TFormSection>
+        )}
+        {(paymentMethodForm.method_type === "bank_transfer" || paymentMethodForm.method_type === "direct_debit") && (
+          <TFormSection title="Wire Details" variant="plain" columns={2}>
             <TextField
-              label="Account Holder Name"
+              label="Branch"
               size="small"
-              value={paymentMethodForm.account_holder_name}
+              value={paymentMethodForm.branch}
               disabled={paymentMethodPanelMode === "view"}
-              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, account_holder_name: e.target.value })}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, branch: e.target.value })}
+            />
+            <TextField
+              label="Branch Code"
+              size="small"
+              value={paymentMethodForm.bank_branch_code}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, bank_branch_code: e.target.value })}
+            />
+            <TextField
+              label="Swift Code"
+              size="small"
+              value={paymentMethodForm.swift_code}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, swift_code: e.target.value })}
+            />
+          </TFormSection>
+        )}
+        {paymentMethodForm.method_type === "bank_transfer" && (
+          <TFormSection title="Correspondent Bank" variant="plain" columns={2}>
+            <TextField
+              label="Bank Name"
+              size="small"
+              placeholder="e.g. Citibank"
+              value={paymentMethodForm.correspondent_bank_name}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, correspondent_bank_name: e.target.value })}
+            />
+            <TextField
+              label="Swift Code"
+              size="small"
+              value={paymentMethodForm.correspondent_bank_swift_code}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, correspondent_bank_swift_code: e.target.value })}
+            />
+          </TFormSection>
+        )}
+        {paymentMethodForm.method_type === "direct_debit" && (
+          <TFormSection title="Mandate Details" variant="plain" columns={2}>
+            <TextField
+              label="Mandate Reference"
+              size="small"
+              value={paymentMethodForm.mandate_reference}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, mandate_reference: e.target.value })}
+            />
+            <TextField
+              label="Mandate / Authorization Date"
+              type="date"
+              size="small"
+              value={paymentMethodForm.mandate_date}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, mandate_date: e.target.value })}
+              InputLabelProps={{ shrink: true }}
+            />
+          </TFormSection>
+        )}
+        {paymentMethodForm.method_type === "letter_of_credit" && (
+          <>
+            <TFormSection title="Letter of Credit" variant="plain" columns={2}>
+              <TextField
+                label="LC Number"
+                size="small"
+                value={paymentMethodForm.lc_number}
+                disabled={paymentMethodPanelMode === "view"}
+                onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, lc_number: e.target.value })}
+              />
+              <TextField
+                select
+                label="LC Type"
+                size="small"
+                value={paymentMethodForm.lc_type || ""}
+                disabled={paymentMethodPanelMode === "view"}
+                onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, lc_type: e.target.value })}
+                SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {SUPPLIER_LC_TYPE.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Issuing Bank"
+                size="small"
+                value={paymentMethodForm.issuing_bank_name}
+                disabled={paymentMethodPanelMode === "view"}
+                onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, issuing_bank_name: e.target.value })}
+              />
+              <TextField
+                label="Advising Bank"
+                size="small"
+                value={paymentMethodForm.advising_bank_name}
+                disabled={paymentMethodPanelMode === "view"}
+                onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, advising_bank_name: e.target.value })}
+              />
+              <TextField
+                label="LC Amount"
+                type="number"
+                size="small"
+                value={paymentMethodForm.lc_amount ?? ""}
+                disabled={paymentMethodPanelMode === "view"}
+                onChange={(e) =>
+                  setPaymentMethodForm({
+                    ...paymentMethodForm,
+                    lc_amount: e.target.value ? parseFloat(e.target.value) : undefined,
+                  })
+                }
+                inputProps={{ min: 0 }}
+              />
+              <TextField
+                label="LC Currency"
+                size="small"
+                placeholder="e.g. USD"
+                value={paymentMethodForm.lc_currency}
+                disabled={paymentMethodPanelMode === "view"}
+                onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, lc_currency: e.target.value.toUpperCase() })}
+                inputProps={{ maxLength: 3 }}
+              />
+            </TFormSection>
+            <TFormSection title="LC Dates" variant="plain" columns={2}>
+              <TextField
+                label="Issue Date"
+                type="date"
+                size="small"
+                value={paymentMethodForm.lc_issue_date}
+                disabled={paymentMethodPanelMode === "view"}
+                onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, lc_issue_date: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+              <TextField
+                label="Expiry Date"
+                type="date"
+                size="small"
+                value={paymentMethodForm.lc_expiry_date}
+                disabled={paymentMethodPanelMode === "view"}
+                onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, lc_expiry_date: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+              <TextField
+                label="Latest Shipment Date"
+                type="date"
+                size="small"
+                value={paymentMethodForm.latest_shipment_date}
+                disabled={paymentMethodPanelMode === "view"}
+                onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, latest_shipment_date: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </TFormSection>
+          </>
+        )}
+        {paymentMethodForm.method_type === "credit_card" && (
+          <TFormSection title="Card Details" variant="plain" columns={2}>
+            <TextField
+              select
+              label="Card Type"
+              size="small"
+              value={paymentMethodForm.card_type || ""}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, card_type: e.target.value })}
+              SelectProps={{ displayEmpty: true }}
+              InputLabelProps={{ shrink: true }}
+            >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
+              {SUPPLIER_PAYMENT_CARD_TYPE.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="Cardholder Name"
+              size="small"
+              value={paymentMethodForm.cardholder_name}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, cardholder_name: e.target.value })}
+            />
+            <TextField
+              label="Card Number (last 4 digits)"
+              size="small"
+              placeholder="1234"
+              value={paymentMethodForm.card_last4}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) =>
+                setPaymentMethodForm({
+                  ...paymentMethodForm,
+                  card_last4: e.target.value.replace(/\D/g, "").slice(0, 4),
+                })
+              }
+              inputProps={{ maxLength: 4, inputMode: "numeric" }}
+              helperText={paymentMethodPanelMode === "view" ? undefined : "Only the last 4 digits are stored — never the full card number"}
+            />
+            <TextField
+              label="Expiry (MM/YYYY)"
+              size="small"
+              placeholder="12/2027"
+              value={paymentMethodForm.card_expiry}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, card_expiry: e.target.value })}
+              inputProps={{ maxLength: 7 }}
+            />
+          </TFormSection>
+        )}
+        {paymentMethodForm.method_type === "digital_wallet" && (
+          <TFormSection title="Wallet Details" variant="plain" columns={2}>
+            <TextField
+              select
+              label="Provider"
+              size="small"
+              value={paymentMethodForm.wallet_provider || ""}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, wallet_provider: e.target.value })}
+              SelectProps={{ displayEmpty: true }}
+              InputLabelProps={{ shrink: true }}
+            >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
+              {SUPPLIER_WALLET_PROVIDER.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="Wallet ID / Email"
+              size="small"
+              value={paymentMethodForm.wallet_id}
+              disabled={paymentMethodPanelMode === "view"}
+              onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, wallet_id: e.target.value })}
             />
           </TFormSection>
         )}

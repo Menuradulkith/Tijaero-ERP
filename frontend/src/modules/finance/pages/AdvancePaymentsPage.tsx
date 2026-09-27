@@ -64,6 +64,7 @@ import {
   TActivityHistoryPanel,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 // Types
 interface Branch {
@@ -115,6 +116,7 @@ const SUPPLIER_INITIAL_FORM: Partial<SupplierAdvancePaymentCreate> = {
 };
 
 export default function AdvancePaymentsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const confirmDialog = useConfirmDialog();
   const canViewCustomers = usePermission("customers", "view");
   const canViewSuppliers = usePermission("suppliers", "view");
@@ -139,7 +141,6 @@ export default function AdvancePaymentsPage() {
   const [selectedItem, setSelectedItem] = useState<AdvanceRecord | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [favorites, setFavorites] = useState<number[]>([]);
 
   // Activity History is opened on demand from a detail icon next to the
   // Status/Tracking section title, rather than shown inline.
@@ -343,12 +344,6 @@ export default function AdvancePaymentsPage() {
       setSelectedItem(null);
     }
   }, [filteredAdvances, handleSelectItem]);
-
-  // Toggle favorites
-  const toggleFavorite = useCallback((id: number, e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setFavorites((prev) => (prev.includes(id) ? prev.filter((fid) => fid !== id) : [...prev, id]));
-  }, []);
 
   // Tab switch handler
   const handleTypeSwitch = useCallback(
@@ -561,7 +556,7 @@ export default function AdvancePaymentsPage() {
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      Rs. {fmtLKR(getRecordAmount(adv))}
+                      {currencySymbol} {fmtLKR(getRecordAmount(adv))}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                       (Amount)
@@ -570,7 +565,7 @@ export default function AdvancePaymentsPage() {
                   {advanceType === "supplier" && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption" sx={{ color: "success.main" }}>
-                        Rs. {fmtLKR(Number(adv.remaining_amount || 0))}
+                        {currencySymbol} {fmtLKR(Number(adv.remaining_amount || 0))}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Remaining)
@@ -608,11 +603,9 @@ export default function AdvancePaymentsPage() {
           }
           secondaryText={
             !isSelected
-              ? `${getRecordEntity(adv)} - Rs. ${fmtLKR(getRecordAmount(adv))}`
+              ? `${getRecordEntity(adv)} - ${currencySymbol} ${fmtLKR(getRecordAmount(adv))}`
               : undefined
           }
-          isFavorite={favorites.includes(adv.id)}
-          onToggleFavorite={(e) => toggleFavorite(adv.id, e)}
           statusChip={
             !isSelected
               ? advanceType === "customer"
@@ -646,8 +639,6 @@ export default function AdvancePaymentsPage() {
         isCreating={isCreating}
         createTitle={`New ${advanceType === "customer" ? "Customer" : "Supplier"} Advance Payment`}
         noSelectionTitle="Select an Advance Payment"
-        isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
-        onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
         chips={
           selectedItem && !isCreating
             ? [
@@ -790,7 +781,7 @@ export default function AdvancePaymentsPage() {
                 error={hasError("payment_amount")}
                 helperText={getFieldError("payment_amount")}
                 InputProps={{
-                  startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                  startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment>,
                 }}
                 inputProps={{ min: 0, step: 0.01 }}
               />
@@ -943,7 +934,7 @@ export default function AdvancePaymentsPage() {
                 error={hasError("original_amount")}
                 helperText={getFieldError("original_amount")}
                 InputProps={{
-                  startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                  startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment>,
                 }}
                 inputProps={{ min: 0, step: 0.01 }}
               />
@@ -977,14 +968,14 @@ export default function AdvancePaymentsPage() {
                 <TextField
                   label="Original Amount"
                   size="small"
-                  value={`Rs. ${fmtLKR(Number(selectedItem.original_amount || 0))}`}
+                  value={`${currencySymbol} ${fmtLKR(Number(selectedItem.original_amount || 0))}`}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
                 <TextField
                   label="Applied Amount"
                   size="small"
-                  value={`Rs. ${fmtLKR(Number(selectedItem.applied_amount || 0))}`}
+                  value={`${currencySymbol} ${fmtLKR(Number(selectedItem.applied_amount || 0))}`}
                   disabled
                   InputProps={{ readOnly: true }}
                   sx={{
@@ -996,7 +987,7 @@ export default function AdvancePaymentsPage() {
                 <TextField
                   label="Remaining Amount"
                   size="small"
-                  value={`Rs. ${fmtLKR(Number(selectedItem.remaining_amount || 0))}`}
+                  value={`${currencySymbol} ${fmtLKR(Number(selectedItem.remaining_amount || 0))}`}
                   disabled
                   InputProps={{ readOnly: true }}
                   sx={{

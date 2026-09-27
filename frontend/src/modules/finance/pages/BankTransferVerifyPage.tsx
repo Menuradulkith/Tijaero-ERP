@@ -68,6 +68,7 @@ import { format } from "date-fns";
 import { salesApi } from "@/modules/sales/api";
 import { InvoiceWithItems } from "@/modules/sales/types";
 import { commissionsApi } from "@/modules/sales/commission-api";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "created_date", label: "Date" },
@@ -84,6 +85,7 @@ const BT_STATUS_FILTER_OPTIONS = [
 ];
 
 export default function BankTransferVerifyPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const canViewCustomers = usePermission("customers", "view");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("created_date");
@@ -297,7 +299,7 @@ export default function BankTransferVerifyPage() {
       "Verify Bank Transfer",
       `Are you sure you want to verify the bank transfer for invoice ${selectedTransfer.invoice_no}? 
        Type: ${sourceLabel}
-       Amount: Rs. ${fmtLKR(selectedTransfer.bank_transfer_amount)}
+       Amount: ${currencySymbol} ${fmtLKR(selectedTransfer.bank_transfer_amount)}
        Bank: ${selectedTransfer.bank_name || "N/A"}
        Reference: ${selectedTransfer.bank_transfer_ref || "N/A"}`,
       () => verifyMutation.mutate(selectedTransfer)
@@ -317,8 +319,8 @@ export default function BankTransferVerifyPage() {
 
   // Format currency
   const formatCurrency = (amount: number | undefined | null) => {
-    if (amount === undefined || amount === null) return `Rs. ${fmtLKR(0)}`;
-    return `Rs. ${fmtLKR(amount)}`;
+    if (amount === undefined || amount === null) return `${currencySymbol} ${fmtLKR(0)}`;
+    return `${currencySymbol} ${fmtLKR(amount)}`;
   };
 
   // Format date
@@ -582,11 +584,11 @@ export default function BankTransferVerifyPage() {
                       <TableCell sx={{ width: 110 }}>Barcode</TableCell>
                       <TableCell sx={{ width: 200 }}>Product</TableCell>
                       <TableCell align="right" sx={{ width: 60 }}>Qty</TableCell>
-                      <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
+                      <TableCell align="right" sx={{ width: 120 }}>{`Unit Price (${currencySymbol})`}</TableCell>
                       <TableCell align="right" sx={{ width: 70 }}>Disc %</TableCell>
                       <TableCell align="center" sx={{ width: 80 }}>Warranty</TableCell>
                       <TableCell sx={{ width: 120 }}>Remark</TableCell>
-                      <TableCell align="right" sx={{ width: 140 }}>Net Amount (Rs.)</TableCell>
+                      <TableCell align="right" sx={{ width: 140 }}>{`Net Amount (${currencySymbol})`}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -708,32 +710,32 @@ export default function BankTransferVerifyPage() {
                       {selectedOrder.cash_amount > 0 && (
                         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="body2" color="text.secondary">Cash Payment</Typography>
-                          <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.cash_amount)}</Typography>
+                          <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(selectedOrder.cash_amount)}</Typography>
                         </Box>
                       )}
                       {selectedOrder.card_visa_amount > 0 && (
                         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="body2" color="text.secondary">Card Payment (Visa)</Typography>
-                          <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.card_visa_amount)}</Typography>
+                          <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(selectedOrder.card_visa_amount)}</Typography>
                         </Box>
                       )}
                       {selectedOrder.card_mastercard_amount > 0 && (
                         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="body2" color="text.secondary">Card Payment (Mastercard)</Typography>
-                          <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.card_mastercard_amount)}</Typography>
+                          <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(selectedOrder.card_mastercard_amount)}</Typography>
                         </Box>
                       )}
                       {selectedOrder.card_amex_amount > 0 && (
                         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="body2" color="text.secondary">Card Payment (Amex)</Typography>
-                          <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.card_amex_amount)}</Typography>
+                          <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(selectedOrder.card_amex_amount)}</Typography>
                         </Box>
                       )}
                       {selectedOrder.cheque_amount > 0 && (
                         <Box>
                           <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                             <Typography variant="body2" color="text.secondary">Cheque Payment</Typography>
-                            <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.cheque_amount)}</Typography>
+                            <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(selectedOrder.cheque_amount)}</Typography>
                           </Box>
                           {(selectedOrder.cheque_number || selectedOrder.cheque_bank || selectedOrder.cheque_date) && (
                             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}>
@@ -748,7 +750,7 @@ export default function BankTransferVerifyPage() {
                         <Box>
                           <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                             <Typography variant="body2" color="text.secondary">Bank Transfer</Typography>
-                            <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.bank_transfer_amount)}</Typography>
+                            <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(selectedOrder.bank_transfer_amount)}</Typography>
                           </Box>
                           {(selectedOrder.bank_name || selectedOrder.bank_transfer_ref) && (
                             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}>
@@ -761,19 +763,19 @@ export default function BankTransferVerifyPage() {
                       {selectedOrder.credit_amount > 0 && (
                         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="body2" color="warning.main" fontWeight="medium">Credit (Owed)</Typography>
-                          <Typography variant="body2" fontWeight="bold" color="warning.main">Rs. {fmtLKR(selectedOrder.credit_amount)}</Typography>
+                          <Typography variant="body2" fontWeight="bold" color="warning.main">{currencySymbol} {fmtLKR(selectedOrder.credit_amount)}</Typography>
                         </Box>
                       )}
                       {selectedOrder.gift_voucher_amount > 0 && (
                         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="body2" color="secondary.main">Gift Voucher</Typography>
-                          <Typography variant="body2" fontWeight="medium" color="secondary.main">Rs. {fmtLKR(selectedOrder.gift_voucher_amount)}</Typography>
+                          <Typography variant="body2" fontWeight="medium" color="secondary.main">{currencySymbol} {fmtLKR(selectedOrder.gift_voucher_amount)}</Typography>
                         </Box>
                       )}
                       {selectedOrder.credit_note_amount > 0 && (
                         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="body2" color="success.main">Credit Note Redeemed</Typography>
-                          <Typography variant="body2" fontWeight="medium" color="success.main">Rs. {fmtLKR(selectedOrder.credit_note_amount)}</Typography>
+                          <Typography variant="body2" fontWeight="medium" color="success.main">{currencySymbol} {fmtLKR(selectedOrder.credit_note_amount)}</Typography>
                         </Box>
                       )}
                     </Box>
@@ -801,22 +803,22 @@ export default function BankTransferVerifyPage() {
                           <>
                             <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                               <Typography variant="body2" color="text.secondary">Gross Total</Typography>
-                              <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(displayGrossTotal)}</Typography>
+                              <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(displayGrossTotal)}</Typography>
                             </Box>
                             {displayItemDiscounts > 0 && (
                               <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                                 <Typography variant="body2" color="error.main">Item Discounts</Typography>
-                                <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(displayItemDiscounts)}</Typography>
+                                <Typography variant="body2" color="error.main" fontWeight="medium">-{currencySymbol} {fmtLKR(displayItemDiscounts)}</Typography>
                               </Box>
                             )}
                             <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                               <Typography variant="body2" color="text.secondary">Subtotal</Typography>
-                              <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(displaySubtotal)}</Typography>
+                              <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(displaySubtotal)}</Typography>
                             </Box>
                             {selectedOrder.cupon_amount > 0 && (
                               <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                                 <Typography variant="body2" color="error.main">Coupon Discount</Typography>
-                                <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(selectedOrder.cupon_amount)}</Typography>
+                                <Typography variant="body2" color="error.main" fontWeight="medium">-{currencySymbol} {fmtLKR(selectedOrder.cupon_amount)}</Typography>
                               </Box>
                             )}
                             {selectedOrder.discount_amount > 0 && (
@@ -824,7 +826,7 @@ export default function BankTransferVerifyPage() {
                                 <Typography variant="body2" color="error.main">
                                   Invoice Discount {selectedOrder.discount_percent > 0 ? `(${selectedOrder.discount_percent}%)` : ""}
                                 </Typography>
-                                <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(selectedOrder.discount_amount)}</Typography>
+                                <Typography variant="body2" color="error.main" fontWeight="medium">-{currencySymbol} {fmtLKR(selectedOrder.discount_amount)}</Typography>
                               </Box>
                             )}
                             {selectedOrder.tax_amount > 0 && (
@@ -832,28 +834,28 @@ export default function BankTransferVerifyPage() {
                                 <Typography variant="body2" color="text.secondary">
                                   Tax ({selectedOrder.tax_rate}%) {isTaxInclusive ? "(Included)" : ""}
                                 </Typography>
-                                <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.tax_amount)}</Typography>
+                                <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(selectedOrder.tax_amount)}</Typography>
                               </Box>
                             )}
                             {selectedOrder.service_charge_amount > 0 && (
                               <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                                 <Typography variant="body2" color="text.secondary">Service Charge ({(selectedOrder.service_charge_rate * 100).toFixed(1)}%)</Typography>
-                                <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(selectedOrder.service_charge_amount)}</Typography>
+                                <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(selectedOrder.service_charge_amount)}</Typography>
                               </Box>
                             )}
                             <Divider sx={{ my: 0.5 }} />
                             <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                               <Typography variant="subtitle2" fontWeight="bold">Grand Total</Typography>
-                              <Typography variant="subtitle2" fontWeight="bold">Rs. {fmtLKR(selectedOrder.grand_total)}</Typography>
+                              <Typography variant="subtitle2" fontWeight="bold">{currencySymbol} {fmtLKR(selectedOrder.grand_total)}</Typography>
                             </Box>
                             <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                               <Typography variant="body2" fontWeight="medium" color="success.main">Amount Paid</Typography>
-                              <Typography variant="body2" fontWeight="medium" color="success.main">Rs. {fmtLKR(selectedOrder.paid_amount)}</Typography>
+                              <Typography variant="body2" fontWeight="medium" color="success.main">{currencySymbol} {fmtLKR(selectedOrder.paid_amount)}</Typography>
                             </Box>
                             {selectedOrder.balance_due > 0 && (
                               <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                                 <Typography variant="body2" fontWeight="medium" color="error.main">Balance Due</Typography>
-                                <Typography variant="body2" fontWeight="medium" color="error.main">Rs. {fmtLKR(selectedOrder.balance_due)}</Typography>
+                                <Typography variant="body2" fontWeight="medium" color="error.main">{currencySymbol} {fmtLKR(selectedOrder.balance_due)}</Typography>
                               </Box>
                             )}
                           </>
@@ -904,7 +906,7 @@ export default function BankTransferVerifyPage() {
                         <Grid item xs={12} sm={4} sx={{ textAlign: { sm: "right" } }}>
                           <Typography variant="body2" color="text.secondary">Commission Amount</Typography>
                           <Typography variant="h6" fontWeight="bold" color="primary.main">
-                            Rs. {fmtLKR(invoiceCommission ? Number(invoiceCommission.commission_amount) : (selectedOrder.grand_total * ((agent?.commission_rate || 0) / 100)))}
+                            {currencySymbol} {fmtLKR(invoiceCommission ? Number(invoiceCommission.commission_amount) : (selectedOrder.grand_total * ((agent?.commission_rate || 0) / 100)))}
                           </Typography>
                         </Grid>
                       </Grid>

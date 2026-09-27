@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict, computed_field, field_serializer
 from pydantic.functional_serializers import PlainSerializer
 from datetime import datetime
 from typing import Optional, Annotated
@@ -34,6 +34,19 @@ class TijaeroBaseSchema(BaseModel):
             datetime: format_datetime
         }
     )
+
+
+class VersionedSchema(BaseModel):
+    """Adds a read-only `version` token (full-precision updated_at) to a
+    response schema. Clients echo it back as `expected_version` on update for
+    an exact optimistic-concurrency check (see app.common.concurrency)."""
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def version(self) -> Optional[str]:
+        from app.common.concurrency import version_token
+
+        return version_token(getattr(self, "updated_at", None))
 
 
 class TimestampSchema(TijaeroBaseSchema):

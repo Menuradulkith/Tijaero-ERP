@@ -31,6 +31,7 @@ import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { salesApi } from "../api";
 // OPTIMIZED: Removed customersApi, productsApi, branchApi imports - using aggregated endpoint
 import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { Invoice, InvoiceCreate } from "../types";
 
 interface SalesOrderDialogProps {
@@ -45,6 +46,7 @@ export default function SalesOrderDialog({
   onClose,
 }: SalesOrderDialogProps) {
   const queryClient = useQueryClient();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const isView = !!invoice;
 
   // OPTIMIZED: Single API call for customers, products, branches (was 3 calls)
@@ -526,7 +528,7 @@ export default function SalesOrderDialog({
 
           <Box sx={{ mt: 2, textAlign: "right" }}>
             <Typography variant="h6">
-              Total: Rs. {calculateTotal().toFixed(2)}
+              Total: {currencySymbol} {calculateTotal().toFixed(2)}
             </Typography>
           </Box>
         </DialogContent>

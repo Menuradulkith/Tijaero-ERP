@@ -29,14 +29,28 @@ import React from "react";
 import {
   DataGrid,
   GridColDef,
+  GridColumnVisibilityModel,
+  GridFooterContainer,
+  GridPagination,
+  GridPreferencePanelsValue,
   GridRowParams,
   GridPaginationModel,
   GridRowSelectionModel,
+  GridSlotProps,
   GridValidRowModel,
+  gridRowSelectionCountSelector,
+  useGridApiContext,
+  useGridSelector,
 } from "@mui/x-data-grid";
-import { Box, Paper, Typography } from "@mui/material";
+import { Box, Button, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Tooltip, Typography } from "@mui/material";
+import CheckIcon from "@mui/icons-material/Check";
+import DensityMediumIcon from "@mui/icons-material/DensityMedium";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
+import SearchOffIcon from "@mui/icons-material/SearchOff";
+import ViewColumnOutlinedIcon from "@mui/icons-material/ViewColumnOutlined";
 import { TStatusChip, StatusMapName } from "../base/TStatusChip";
 import { format } from "date-fns";
+import { formatCurrency as formatCurrencyShared } from "@/utils/formatters";
 
 // Column type for easier configuration
 export interface TDataGridColumn<R extends GridValidRowModel = GridValidRowModel> {
@@ -101,17 +115,157 @@ export interface TDataGridProps<R extends GridValidRowModel = GridValidRowModel>
   disableColumnMenu?: boolean;
   /** Custom toolbar component */
   toolbar?: React.ReactNode;
+  /**
+   * Key under which this table remembers the user's row density and hidden
+   * columns (per browser). Defaults to the page path + the column fields,
+   * which is unique enough for one table per page; pass one explicitly when
+   * a page shows several tables with the same columns.
+   */
+  storageKey?: string;
+  /** File name (without extension) for Export CSV. Defaults to "export". */
+  exportFileName?: string;
 }
 
-// Format currency value
+// Row density: the ERP list-table style uses 40px rows by default, with a
+// tighter and a roomier option. Names match MUI's density prop, which pages
+// already pass, so an existing `density="compact"` now means 32px rows.
+type TDensity = "compact" | "standard" | "comfortable";
+const DENSITY_OPTIONS: { value: TDensity; label: string; rowHeight: number; headerHeight: number }[] = [
+  { value: "compact", label: "Compact", rowHeight: 32, headerHeight: 36 },
+  { value: "standard", label: "Standard", rowHeight: 40, headerHeight: 40 },
+  { value: "comfortable", label: "Comfortable", rowHeight: 48, headerHeight: 48 },
+];
+
+// Browser storage can be unavailable (private mode, blocked site data), so
+// every access is guarded and the table works fine without it.
+const readStored = <T,>(key: string, fallback: T): T => {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+const writeStored = (key: string, value: unknown) => {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore — the choice just won't be remembered
+  }
+};
+
+declare module "@mui/x-data-grid" {
+  interface FooterPropsOverrides {
+    tDensity?: TDensity;
+    onTDensityChange?: (density: TDensity) => void;
+    exportFileName?: string;
+  }
+}
+
+/**
+ * Footer: table controls on the left (density, columns, export), pagination
+ * on the right. Sits in the footer rather than a toolbar above the grid so
+ * it adds no height — the page's own toolbar above keeps search/filters.
+ */
+function TDataGridFooter(props: GridSlotProps["footer"]) {
+  const { tDensity = "standard", onTDensityChange, exportFileName, ...containerProps } = props;
+  const apiRef = useGridApiContext();
+  const [densityAnchor, setDensityAnchor] = React.useState<HTMLElement | null>(null);
+  const current = DENSITY_OPTIONS.find((d) => d.value === tDensity) ?? DENSITY_OPTIONS[1];
+  // Re-render when the selection changes so the Export label/behaviour
+  // (all rows vs. only the ticked ones) stays in sync.
+  const selectedCount = useGridSelector(apiRef, gridRowSelectionCountSelector);
+  const hasSelection = selectedCount > 0;
+
+  const controlSx = {
+    color: "text.secondary",
+    fontWeight: 500,
+    fontSize: "0.8125rem",
+    minWidth: 0,
+    px: 1,
+    "& .MuiButton-startIcon": { mr: { xs: 0, sm: 0.75 } },
+    "& .tdg-label": { display: { xs: "none", sm: "inline" } },
+  };
+
+  return (
+    <GridFooterContainer {...containerProps} sx={{ px: 1, gap: 1, flexWrap: "wrap" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+        <Tooltip title="Row density">
+          <Button
+            size="small"
+            sx={controlSx}
+            startIcon={<DensityMediumIcon fontSize="small" />}
+            onClick={(e) => setDensityAnchor(e.currentTarget)}
+            aria-haspopup="true"
+            aria-expanded={Boolean(densityAnchor)}
+          >
+            <span className="tdg-label">{current.label}</span>
+          </Button>
+        </Tooltip>
+        <Menu
+          anchorEl={densityAnchor}
+          open={Boolean(densityAnchor)}
+          onClose={() => setDensityAnchor(null)}
+          anchorOrigin={{ vertical: "top", horizontal: "left" }}
+          transformOrigin={{ vertical: "bottom", horizontal: "left" }}
+        >
+          {DENSITY_OPTIONS.map((d) => (
+            <MenuItem
+              key={d.value}
+              selected={d.value === tDensity}
+              onClick={() => {
+                onTDensityChange?.(d.value);
+                setDensityAnchor(null);
+              }}
+            >
+              <ListItemIcon>{d.value === tDensity ? <CheckIcon fontSize="small" /> : null}</ListItemIcon>
+              <ListItemText primary={d.label} secondary={`${d.rowHeight}px rows`} />
+            </MenuItem>
+          ))}
+        </Menu>
+        <Tooltip title="Show or hide columns">
+          <Button
+            size="small"
+            sx={controlSx}
+            startIcon={<ViewColumnOutlinedIcon fontSize="small" />}
+            onClick={() => apiRef.current.showPreferences(GridPreferencePanelsValue.columns)}
+          >
+            <span className="tdg-label">Columns</span>
+          </Button>
+        </Tooltip>
+        <Tooltip title={hasSelection ? "Export the selected rows to CSV" : "Export the filtered rows to CSV"}>
+          <Button
+            size="small"
+            sx={controlSx}
+            startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
+            onClick={() =>
+              apiRef.current.exportDataAsCsv({
+                fileName: exportFileName || "export",
+                utf8WithBom: true,
+                // Export only the ticked rows when any are selected —
+                // otherwise every visible (filtered) row, same as before.
+                getRowsToExport: hasSelection
+                  ? ({ apiRef: api }) => [...api.current.getSelectedRows().keys()]
+                  : undefined,
+              })
+            }
+          >
+            <span className="tdg-label">Export{hasSelection ? ` (${selectedCount})` : ""}</span>
+          </Button>
+        </Tooltip>
+      </Box>
+      <GridPagination />
+    </GridFooterContainer>
+  );
+}
+
+// Format currency value using the ERP's active currency (Settings > Company
+// Configuration > Currency), not a hardcoded symbol/locale.
 const formatCurrency = (value: unknown): string => {
   if (value === null || value === undefined) return "-";
   const num = Number(value);
   if (isNaN(num)) return "-";
-  return `Rs. ${new Intl.NumberFormat("en-LK", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num)}`;
+  return formatCurrencyShared(num);
 };
 
 // Format date value
@@ -137,7 +291,6 @@ const toGridColDef = <R extends GridValidRowModel>(
     flex: col.flex,
     sortable: col.sortable !== false,
     align: col.align || (col.type === "number" || col.type === "currency" ? "right" : "left"),
-    headerAlign: col.headerAlign || col.align || "left",
     hideable: true,
   };
 
@@ -181,6 +334,11 @@ const toGridColDef = <R extends GridValidRowModel>(
     base.renderCell = col.renderCell;
   }
 
+  // A header lines up with its column's content (right-aligned amounts get
+  // right-aligned headers), unless the column says otherwise. Set after the
+  // type switch, which can change `align`.
+  base.headerAlign = col.headerAlign || base.align;
+
   return base;
 };
 
@@ -202,6 +360,8 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
   emptyMessage = "No data available",
   disableColumnMenu = false,
   toolbar,
+  storageKey,
+  exportFileName,
 }: TDataGridProps<R>) {
   const [paginationModel, setPaginationModel] = React.useState<GridPaginationModel>({
     page: 0,
@@ -213,107 +373,134 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
     [columns]
   );
 
+  // Per-user table preferences (density, hidden columns), remembered in this
+  // browser. The key is fixed at mount so it doesn't drift if the page
+  // re-orders its columns later.
+  const fieldsKey = columns.map((c) => c.field).join(",");
+  const prefsKey = React.useMemo(
+    () => `tdg:${storageKey ?? `${window.location.pathname}:${fieldsKey}`}`,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally fixed at mount
+    []
+  );
+  const [tDensity, setTDensity] = React.useState<TDensity>(() =>
+    readStored<TDensity>(`${prefsKey}:density`, density)
+  );
+  const [columnVisibilityModel, setColumnVisibilityModel] = React.useState<GridColumnVisibilityModel>(() =>
+    readStored<GridColumnVisibilityModel>(`${prefsKey}:columns`, {})
+  );
+  const densityOption = DENSITY_OPTIONS.find((d) => d.value === tDensity) ?? DENSITY_OPTIONS[1];
+
+  const handleDensityChange = (next: TDensity) => {
+    setTDensity(next);
+    writeStored(`${prefsKey}:density`, next);
+  };
+  const handleColumnVisibilityChange = (model: GridColumnVisibilityModel) => {
+    setColumnVisibilityModel(model);
+    writeStored(`${prefsKey}:columns`, model);
+  };
+
   const handleRowClick = (params: GridRowParams<R>) => {
     onRowClick?.(params.row);
   };
 
+  const emptyState = React.useCallback(
+    () => (
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 1,
+          height: "100%",
+          py: 5,
+          px: 2,
+          textAlign: "center",
+        }}
+      >
+        <Box
+          sx={{
+            width: 44,
+            height: 44,
+            borderRadius: "12px",
+            display: "grid",
+            placeItems: "center",
+            bgcolor: "action.hover",
+            color: "text.secondary",
+          }}
+        >
+          <SearchOffIcon fontSize="small" />
+        </Box>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+          {emptyMessage}
+        </Typography>
+      </Box>
+    ),
+    [emptyMessage]
+  );
+
   return (
-    <Paper 
-      elevation={0} 
+    <Paper
+      elevation={0}
       sx={{
         width: "100%",
         // No explicit borderRadius here — inherits the theme's MuiPaper
-        // default (theme.shape.borderRadius, 12px), same as every other
-        // rounded surface in the app.
+        // default (12px), same as every other rounded surface in the app.
         overflow: "hidden",
         border: "1px solid",
         borderColor: "divider",
       }}
     >
       {toolbar && (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "grey.50" }}>
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider" }}>
           {toolbar}
         </Box>
       )}
       <Box sx={{ height: autoHeight ? "auto" : height, width: "100%" }}>
+        {/* Row/header colours, lines, hover and selected styles come from
+            the theme (MuiDataGrid in styles/theme.ts) so every grid in the
+            app — including ones not built with TDataGrid — looks the same. */}
         <DataGrid
           rows={rows}
           columns={gridColumns}
           loading={loading}
-          density={density}
+          // Row height is set explicitly per density; MUI's own density
+          // multiplier is left at "standard" so the heights are exact.
+          density="standard"
+          rowHeight={densityOption.rowHeight}
+          columnHeaderHeight={densityOption.headerHeight}
           autoHeight={autoHeight}
           paginationModel={paginationModel}
           onPaginationModelChange={setPaginationModel}
           pageSizeOptions={pageSizeOptions}
           disableColumnMenu={disableColumnMenu}
-          disableRowSelectionOnClick={selectionMode === "none"}
+          // Always true: selection must only happen via the checkbox itself
+          // (still clickable either way). Without this, clicking anywhere on
+          // a row both opens it (onRowClick) AND toggles its checkbox, which
+          // is not what a user clicking a row to view it expects.
+          disableRowSelectionOnClick
           checkboxSelection={selectionMode === "multiple"}
           rowSelectionModel={selectedRows}
           onRowSelectionModelChange={onSelectionChange}
+          columnVisibilityModel={columnVisibilityModel}
+          onColumnVisibilityModelChange={handleColumnVisibilityChange}
           onRowClick={onRowClick ? handleRowClick : undefined}
           getRowId={getRowId}
           slots={{
-            noRowsOverlay: () => (
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  height: "100%",
-                  py: 4,
-                }}
-              >
-                <Typography color="text.secondary" variant="body2">{emptyMessage}</Typography>
-              </Box>
-            ),
+            footer: TDataGridFooter,
+            noRowsOverlay: emptyState,
+            noResultsOverlay: emptyState,
+          }}
+          slotProps={{
+            footer: { tDensity, onTDensityChange: handleDensityChange, exportFileName },
+            loadingOverlay: { variant: "skeleton", noRowsVariant: "skeleton" },
           }}
           sx={{
+            // The surrounding Paper draws the border and radius.
             border: "none",
-            "& .MuiDataGrid-columnHeaders": {
-              bgcolor: "grey.50",
-              borderBottom: "2px solid",
-              borderColor: "divider",
-            },
-            "& .MuiDataGrid-columnHeaderTitle": {
-              fontWeight: 600,
-              fontSize: "0.875rem",
-            },
-            "& .MuiDataGrid-cell": {
-              borderColor: "grey.100",
-              fontSize: "0.875rem",
-            },
-            "& .MuiDataGrid-cell:focus": {
-              outline: "none",
-            },
-            "& .MuiDataGrid-cell:focus-within": {
-              outline: "none",
-            },
+            borderRadius: 0,
             "& .MuiDataGrid-row": {
               cursor: onRowClick ? "pointer" : "default",
-              transition: "background-color 0.15s ease",
-              "&:nth-of-type(even)": {
-                bgcolor: "grey.25",
-              },
-            },
-            "& .MuiDataGrid-row:hover": {
-              backgroundColor: "primary.50",
-            },
-            "& .MuiDataGrid-row.Mui-selected": {
-              backgroundColor: "primary.100",
-              "&:hover": {
-                backgroundColor: "primary.150",
-              },
-            },
-            "& .MuiDataGrid-footerContainer": {
-              borderTop: "1px solid",
-              borderColor: "divider",
-              bgcolor: "grey.50",
-            },
-            "& .MuiTablePagination-root": {
-              fontSize: "0.875rem",
-            },
-            "& .MuiDataGrid-virtualScroller": {
-              bgcolor: "background.paper",
             },
           }}
         />

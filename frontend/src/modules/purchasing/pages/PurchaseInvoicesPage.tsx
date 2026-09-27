@@ -9,8 +9,6 @@ import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AddIcon from "@mui/icons-material/Add";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Alert,
@@ -57,6 +55,7 @@ import {
   TSupplierFilter,
   useCrudMutation,
   useMasterDetailState,
+  useRowSelection,
   useTConfirmDialog,
 } from "@/components/tijaero";
 
@@ -143,8 +142,6 @@ export default function PurchaseInvoicesPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectInvoice,
@@ -154,7 +151,6 @@ export default function PurchaseInvoicesPage() {
   } = useMasterDetailState<PurchaseInvoiceListItem, InvoiceFormData>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromInvoice,
-    favoritesKey: "purchase_invoices_favorites",
     defaultSortField: "created_at",
     confirmUnsavedChanges: () =>
       confirmDialog.confirm({
@@ -171,6 +167,7 @@ export default function PurchaseInvoicesPage() {
     },
   });
 
+  const rowSelection = useRowSelection();
 
   // Cancelling a brand-new invoice should return to the browse table, not
   // auto-select the first invoice the way useMasterDetailState's generic
@@ -493,23 +490,6 @@ export default function PurchaseInvoicesPage() {
   // (no custom "Sort by" dropdown).
   const invoiceColumns: TDataGridColumn<PurchaseInvoiceRow>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<PurchaseInvoiceRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "invoice_no", header: "Invoice No", width: 140 },
       { field: "supplier_name", header: "Supplier", flex: 1, minWidth: 180 },
       { field: "branch_name", header: "Branch", width: 150 },
@@ -596,7 +576,7 @@ export default function PurchaseInvoicesPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectInvoiceWithDetail],
+    [handleSelectInvoiceWithDetail],
   );
 
   // Browse mode: a full-width table of every purchase invoice (shown when
@@ -614,6 +594,9 @@ export default function PurchaseInvoicesPage() {
           emptyMessage="No purchase invoices found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -673,8 +656,6 @@ export default function PurchaseInvoicesPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedInvoice.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedInvoice.id, e)}
         />
       )}
     </Paper>
@@ -695,8 +676,6 @@ export default function PurchaseInvoicesPage() {
         isCreating={isCreating}
         createTitle="New Supplier Voucher Payment"
         noSelectionTitle="Select an Invoice"
-        isFavorite={selectedInvoice ? favorites.includes(selectedInvoice.id) : false}
-        onToggleFavorite={selectedInvoice ? (e) => toggleFavorite(selectedInvoice.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -1066,7 +1045,7 @@ export default function PurchaseInvoicesPage() {
                   "Payment Status",
                 ]}
                 rows={() =>
-                  filteredInvoices.map((inv) => [
+                  rowSelection.pick(filteredInvoices).map((inv) => [
                     inv.invoice_no || "",
                     inv.supplier_invoice_no || "",
                     inv.supplier_name || "",

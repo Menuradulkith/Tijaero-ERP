@@ -45,6 +45,7 @@ import {
 } from "@mui/icons-material";
 import { companyAssetsApi } from "@/modules/inventory/api";
 import { fmtLKR } from "@/components/tijaero";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { KpiSparkCard } from "@/components/dashboard";
 import { useReferenceData, REFERENCE_DATA_PRESETS } from "@/hooks";
 import { CompanyAsset, Product, Brand } from "@/modules/inventory/types";
@@ -104,6 +105,7 @@ interface AssetDetailsPanelProps {
 }
 
 const AssetDetailsPanel = ({ asset, isOpen, onClose }: AssetDetailsPanelProps) => {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   return (
     <Drawer
       anchor="right"
@@ -176,7 +178,7 @@ const AssetDetailsPanel = ({ asset, isOpen, onClose }: AssetDetailsPanelProps) =
                 {asset.cost_price != null && (
                   <Grid item xs={6}>
                     <Typography variant="caption" color="text.secondary">Cost Price</Typography>
-                    <Typography variant="body2" fontWeight={500}>Rs. {fmtLKR(asset.cost_price)}</Typography>
+                    <Typography variant="body2" fontWeight={500}>{currencySymbol} {fmtLKR(asset.cost_price)}</Typography>
                   </Grid>
                 )}
                 <Grid item xs={12}>
@@ -227,6 +229,7 @@ const AssetDetailsPanel = ({ asset, isOpen, onClose }: AssetDetailsPanelProps) =
 
 // Main Component
 export default function CompanyAssetsDashboard() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   // Filter States
   const [selectedBranch, setSelectedBranch] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -717,7 +720,7 @@ export default function CompanyAssetsDashboard() {
                   <TableCell>Source</TableCell>
                   <TableCell>GRN No</TableCell>
                   <TableCell>Added Date</TableCell>
-                  <TableCell align="right">Cost Price (Rs.)</TableCell>
+                  <TableCell align="right">{`Cost Price (${currencySymbol})`}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>

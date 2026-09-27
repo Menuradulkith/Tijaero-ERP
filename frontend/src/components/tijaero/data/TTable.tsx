@@ -32,6 +32,7 @@ import {
 } from "@mui/material";
 import { TStatusChip, StatusMapName } from "../base/TStatusChip";
 import { format } from "date-fns";
+import { formatCurrency } from "@/utils/formatters";
 
 export interface TTableColumn<T = Record<string, unknown>> {
   /** Field name in data object */
@@ -87,13 +88,11 @@ const formatValue = (
   if (value === null || value === undefined) return "-";
 
   switch (type) {
-    case "currency":
+    case "currency": {
       const num = Number(value);
       if (isNaN(num)) return "-";
-      return `Rs. ${new Intl.NumberFormat("en-LK", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(num)}`;
+      return formatCurrency(num);
+    }
 
     case "date":
       try {

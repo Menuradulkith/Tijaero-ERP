@@ -7,6 +7,7 @@
  */
 
 import { showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { settingsApi } from "@/modules/settings/api";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import {
@@ -23,6 +24,7 @@ import { useEffect, useState } from "react";
 import { TButton } from "@/components/tijaero";
 
 export default function TaxSettingsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -135,10 +137,10 @@ export default function TaxSettingsPage() {
         {defaultTaxRate > 0 && (
           <Box sx={{ mt: 2, p: 1.5, bgcolor: "info.50", borderRadius: 1, border: 1, borderColor: "info.light" }}>
             <Typography variant="body2" color="info.dark">
-              <strong>Example:</strong> Item priced at Rs. 500 with {defaultTaxRate}% tax →{" "}
-              Customer pays Rs. 500 · Tax extracted ={" "}
-              Rs. {(500 * (defaultTaxRate / 100) / (1 + defaultTaxRate / 100)).toFixed(2)} · Net ={" "}
-              Rs. {(500 - 500 * (defaultTaxRate / 100) / (1 + defaultTaxRate / 100)).toFixed(2)}
+              <strong>Example:</strong> Item priced at {currencySymbol} 500 with {defaultTaxRate}% tax →{" "}
+              Customer pays {currencySymbol} 500 · Tax extracted ={" "}
+              {currencySymbol} {(500 * (defaultTaxRate / 100) / (1 + defaultTaxRate / 100)).toFixed(2)} · Net ={" "}
+              {currencySymbol} {(500 - 500 * (defaultTaxRate / 100) / (1 + defaultTaxRate / 100)).toFixed(2)}
             </Typography>
           </Box>
         )}

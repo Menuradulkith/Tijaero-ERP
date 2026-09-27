@@ -3,7 +3,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.core import timezone as tz
 from app.modules.products.models import Product, Category, ItemsBrand, MinimumPrice
-from app.modules.products.schemas import ProductCreate, ProductUpdate, CategoryCreate, CategoryUpdate, BrandCreate, BrandUpdate
+from app.modules.products.schemas import ProductCreate, ProductUpdate, CategoryCreate, CategoryUpdate, BrandCreate, BrandUpdate, NON_COLUMN_UPDATE_FIELDS
+
+# create/update/delete here only flush — the service owns the transaction and
+# commits once (together with the audit row and any MinimumPrice row), so a
+# failure part-way through can't leave half-written catalog data behind.
 
 class ProductRepository:
     def get_by_id(self, db: Session, product_id: int) -> Optional[Product]:
@@ -33,13 +37,12 @@ class ProductRepository:
     
     def create(self, db: Session, product: ProductCreate, created_by: int) -> Product:
         db_product = Product(
-            **product.dict(),
+            **product.dict(exclude=NON_COLUMN_UPDATE_FIELDS),
             created_date=tz.today(),
             added_date=tz.now(),
         )
         db.add(db_product)
-        db.commit()
-        db.refresh(db_product)
+        db.flush()
         
         # Seed a default price tier for the new product
         from app.modules.products.price_tier_models import ProductPriceTier
@@ -57,9 +60,7 @@ class ProductRepository:
             updated_by=created_by,
         )
         db.add(default_tier)
-        db.commit()
-        db.refresh(db_product)
-        
+        db.flush()
         return db_product
     
     def update(self, db: Session, product_id: int, product: ProductUpdate, updated_by: int) -> Optional[Product]:
@@ -67,12 +68,11 @@ class ProductRepository:
         if not db_product:
             return None
         
-        update_data = product.dict(exclude_unset=True)
+        update_data = product.dict(exclude_unset=True, exclude=NON_COLUMN_UPDATE_FIELDS)
         for field, value in update_data.items():
             setattr(db_product, field, value)
         
-        db.commit()
-        db.refresh(db_product)
+        db.flush()
         return db_product
     
     def delete(self, db: Session, product_id: int) -> bool:
@@ -80,7 +80,7 @@ class ProductRepository:
         if not db_product:
             return False
         db.delete(db_product)
-        db.commit()
+        db.flush()
         return True
     
     def count(self, db: Session, active_only: bool = True) -> int:
@@ -114,8 +114,7 @@ class CategoryRepository:
             created_date=tz.now(),
         )
         db.add(db_category)
-        db.commit()
-        db.refresh(db_category)
+        db.flush()
         return db_category
     
     def update(self, db: Session, category_id: int, category: CategoryUpdate, updated_by: int) -> Optional[Category]:
@@ -123,12 +122,11 @@ class CategoryRepository:
         if not db_category:
             return None
         
-        update_data = category.dict(exclude_unset=True)
+        update_data = category.dict(exclude_unset=True, exclude=NON_COLUMN_UPDATE_FIELDS)
         for field, value in update_data.items():
             setattr(db_category, field, value)
         
-        db.commit()
-        db.refresh(db_category)
+        db.flush()
         return db_category
     
     def delete(self, db: Session, category_id: int) -> bool:
@@ -136,7 +134,7 @@ class CategoryRepository:
         if not db_category:
             return False
         db.delete(db_category)
-        db.commit()
+        db.flush()
         return True
 
 class BrandRepository:
@@ -160,8 +158,7 @@ class BrandRepository:
     def create(self, db: Session, brand: BrandCreate) -> ItemsBrand:
         db_brand = ItemsBrand(**brand.dict())
         db.add(db_brand)
-        db.commit()
-        db.refresh(db_brand)
+        db.flush()
         return db_brand
     
     def update(self, db: Session, brand_id: int, brand: BrandUpdate) -> Optional[ItemsBrand]:
@@ -169,12 +166,11 @@ class BrandRepository:
         if not db_brand:
             return None
         
-        update_data = brand.dict(exclude_unset=True)
+        update_data = brand.dict(exclude_unset=True, exclude=NON_COLUMN_UPDATE_FIELDS)
         for field, value in update_data.items():
             setattr(db_brand, field, value)
         
-        db.commit()
-        db.refresh(db_brand)
+        db.flush()
         return db_brand
     
     def delete(self, db: Session, brand_id: int) -> bool:
@@ -182,7 +178,7 @@ class BrandRepository:
         if not db_brand:
             return False
         db.delete(db_brand)
-        db.commit()
+        db.flush()
         return True
 
 class MinimumPriceRepository:
@@ -210,15 +206,18 @@ class MinimumPriceRepository:
         )
         return {row.product_id: row.minimum_price for row in rows}
 
-    def create(self, db: Session, product_id: int, minimum_price: float) -> MinimumPrice:
+    def create(self, db: Session, product_id: int, minimum_price: float, commit: bool = True) -> MinimumPrice:
         db_price = MinimumPrice(
             product_id=product_id,
             minimum_price=minimum_price,
             created_date=tz.now(),
         )
         db.add(db_price)
-        db.commit()
-        db.refresh(db_price)
+        if commit:
+            db.commit()
+            db.refresh(db_price)
+        else:
+            db.flush()
         return db_price
     
     def delete(self, db: Session, price_id: int) -> bool:

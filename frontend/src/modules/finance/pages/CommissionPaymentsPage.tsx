@@ -22,8 +22,6 @@ import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Autocomplete,
@@ -71,6 +69,7 @@ import {
   modernTableStyles,
   useCrudMutation,
   useMasterDetailState,
+  useRowSelection,
   TDataGrid,
   type TDataGridColumn,
 } from "@/components/tijaero";
@@ -142,8 +141,6 @@ export default function CommissionPaymentsPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectPayment,
@@ -152,9 +149,10 @@ export default function CommissionPaymentsPage() {
   } = useMasterDetailState<PaymentWithAgent, CustomerAgentCommissionPaymentCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromPayment,
-    favoritesKey: "commission_payments_favorites",
     defaultSortField: "created_at",
   });
+
+  const rowSelection = useRowSelection();
 
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
@@ -365,23 +363,6 @@ export default function CommissionPaymentsPage() {
   // column header menu, not a separate "Sort by" control.
   const paymentColumns: TDataGridColumn<PaymentWithAgent>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<PaymentWithAgent>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "payment_no", header: "Payment No", flex: 1, minWidth: 150 },
       { field: "agent_name", header: "Agent", flex: 1, minWidth: 160 },
       {
@@ -434,7 +415,7 @@ export default function CommissionPaymentsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectPayment]
+    [handleSelectPayment]
   );
 
   // Whether we're showing a single payment's detail view (selected or being
@@ -496,6 +477,9 @@ export default function CommissionPaymentsPage() {
           emptyMessage="No payments found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -557,8 +541,6 @@ export default function CommissionPaymentsPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedPayment.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedPayment.id, e)}
         />
       )}
     </Paper>
@@ -590,8 +572,6 @@ export default function CommissionPaymentsPage() {
               ]
             : []
         }
-        isFavorite={selectedPayment ? favorites.includes(selectedPayment.id) : false}
-        onToggleFavorite={selectedPayment ? (e) => toggleFavorite(selectedPayment.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -1026,7 +1006,7 @@ export default function CommissionPaymentsPage() {
                   "Created",
                 ]}
                 rows={() =>
-                  filteredPayments.map((p) => [
+                  rowSelection.pick(filteredPayments).map((p) => [
                     p.payment_no || "",
                     p.agent_name || "",
                     p.payment_amount ?? 0,

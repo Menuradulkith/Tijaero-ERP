@@ -63,6 +63,7 @@ import {
 import { useReferenceData } from "@/hooks";
 import { reimbursementsApi } from "@/modules/hr/api";
 import type { Reimbursement } from "@/modules/hr/types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -77,6 +78,7 @@ const SORT_OPTIONS: SortOption[] = [
 
 export default function ReimbursementApprovalsPage() {
   const queryClient = useQueryClient();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
@@ -241,7 +243,7 @@ export default function ReimbursementApprovalsPage() {
     if (!selectedReimbursement) return;
     approveDialog.open(
       "Approve Reimbursement",
-      `Approve reimbursement ${selectedReimbursement.reimbursement_no} for Rs. ${fmtLKR(selectedReimbursement.total_amount)}?`,
+      `Approve reimbursement ${selectedReimbursement.reimbursement_no} for ${currencySymbol} ${fmtLKR(selectedReimbursement.total_amount)}?`,
       () => approveMutation.mutate(selectedReimbursement.id)
     );
   }, [selectedReimbursement, approveDialog, approveMutation]);
@@ -297,7 +299,7 @@ export default function ReimbursementApprovalsPage() {
                   {r.employee_name || r.employee_id}
                 </Typography>
                 <Typography variant="caption" fontWeight={600}>
-                  Rs. {fmtLKR(r.total_amount)}
+                  {currencySymbol} {fmtLKR(r.total_amount)}
                 </Typography>
               </Box>
             }
@@ -392,11 +394,11 @@ export default function ReimbursementApprovalsPage() {
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">Total Amount</Typography>
-            <Typography fontWeight="bold">Rs. {fmtLKR(detail.total_amount)}</Typography>
+            <Typography fontWeight="bold">{currencySymbol} {fmtLKR(detail.total_amount)}</Typography>
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">Approved Amount</Typography>
-            <Typography fontWeight="bold">{detail.approved_amount ? `Rs. ${fmtLKR(detail.approved_amount)}` : "-"}</Typography>
+            <Typography fontWeight="bold">{detail.approved_amount ? `${currencySymbol} ${fmtLKR(detail.approved_amount)}` : "-"}</Typography>
           </Box>
           <Box sx={{ gridColumn: "1 / -1" }}>
             <Typography variant="caption" color="text.secondary">Description</Typography>
@@ -422,7 +424,7 @@ export default function ReimbursementApprovalsPage() {
                   <TableCell>{item.expense_type}</TableCell>
                   <TableCell>{item.item_description || "-"}</TableCell>
                   <TableCell>{item.receipt_number || "-"}</TableCell>
-                  <TableCell align="right">Rs. {fmtLKR(item.amount)}</TableCell>
+                  <TableCell align="right">{currencySymbol} {fmtLKR(item.amount)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -443,7 +445,7 @@ export default function ReimbursementApprovalsPage() {
             </Box>
             <Box>
               <Typography variant="caption" color="text.secondary">Paid Amount</Typography>
-              <Typography fontWeight="bold">{detail.paid_amount ? `Rs. ${fmtLKR(detail.paid_amount)}` : "-"}</Typography>
+              <Typography fontWeight="bold">{detail.paid_amount ? `${currencySymbol} ${fmtLKR(detail.paid_amount)}` : "-"}</Typography>
             </Box>
             <Box>
               <Typography variant="caption" color="text.secondary">Payment Date</Typography>
@@ -570,7 +572,7 @@ export default function ReimbursementApprovalsPage() {
               Processing payment for {selectedReimbursement?.reimbursement_no}
             </Typography>
             <Typography variant="h6">
-              Amount: Rs. {selectedReimbursement && fmtLKR(selectedReimbursement.approved_amount || selectedReimbursement.total_amount)}
+              Amount: {currencySymbol} {selectedReimbursement && fmtLKR(selectedReimbursement.approved_amount || selectedReimbursement.total_amount)}
             </Typography>
             <TextField
               select

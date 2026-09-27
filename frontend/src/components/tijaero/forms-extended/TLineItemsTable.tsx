@@ -41,6 +41,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { TButton } from "../base/TButton";
+import { formatCurrency as formatCurrencyShared } from "@/utils/formatters";
 
 export interface TLineItemColumn<T = Record<string, unknown>> {
   /** Field name */
@@ -100,15 +101,12 @@ export interface TLineItemsTableProps<T = Record<string, unknown>> {
   size?: "small" | "medium";
 }
 
-// Format currency
+// Format currency using the ERP's active currency, not a hardcoded symbol/locale.
 const formatCurrency = (value: unknown): string => {
   if (value === null || value === undefined) return "-";
   const num = Number(value);
   if (isNaN(num)) return "-";
-  return `Rs. ${new Intl.NumberFormat("en-LK", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num)}`;
+  return formatCurrencyShared(num);
 };
 
 export function TLineItemsTable<T = Record<string, unknown>>({

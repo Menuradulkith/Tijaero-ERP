@@ -22,8 +22,6 @@ import {
   History as HistoryIcon,
   Search as SearchIcon,
   Clear as ClearIcon,
-  Star as StarIcon,
-  StarBorder as StarOutlineIcon,
   ArrowBack as ArrowBackIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
@@ -43,11 +41,13 @@ import {
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
+  useRowSelection,
 } from "@/components/tijaero";
 
 import { creditPaymentsApi } from "@/modules/finance/api";
 import { CreditPayment } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 interface Branch {
   branch_code: string;
@@ -85,6 +85,7 @@ const getStatusColor = (status: string): "warning" | "success" | "error" | "defa
 };
 
 export default function CreditPaymentsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   // Filter state - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -95,16 +96,15 @@ export default function CreditPaymentsPage() {
     selectedItem,
     setSelectedItem,
     isCreating,
-    favorites,
-    toggleFavorite,
     formData,
     handleSelectItem,
   } = useMasterDetailState<CreditPayment, Partial<CreditPayment>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem,
-    favoritesKey: "credit_payments_favorites",
     defaultSortField: "created_date",
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Metadata & Audit section title, rather than shown inline.
@@ -179,23 +179,6 @@ export default function CreditPaymentsPage() {
   const paymentColumns: TDataGridColumn<CreditPaymentRow>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<CreditPaymentRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "id",
         header: "Payment No",
         width: 140,
@@ -222,7 +205,7 @@ export default function CreditPaymentsPage() {
         width: 140,
         align: "right",
         headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<CreditPaymentRow>) => `Rs. ${fmtLKR(Number(params.row.amount || 0))}`,
+        renderCell: (params: GridRenderCellParams<CreditPaymentRow>) => `${currencySymbol} ${fmtLKR(Number(params.row.amount || 0))}`,
       },
       {
         field: "status",
@@ -262,7 +245,7 @@ export default function CreditPaymentsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectWithCheck]
+    [handleSelectWithCheck, currencySymbol]
   );
 
   const paymentTablePanel = (
@@ -278,6 +261,9 @@ export default function CreditPaymentsPage() {
           emptyMessage="No credit payments found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -327,8 +313,6 @@ export default function CreditPaymentsPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedItem.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
     </Paper>
@@ -348,8 +332,6 @@ export default function CreditPaymentsPage() {
         isCreating={isCreating}
         createTitle="New Credit Payment"
         noSelectionTitle="Select a Credit Payment"
-        isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
-        onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
 
       {/* Actions disabled - read-only mode */}
@@ -487,7 +469,7 @@ export default function CreditPaymentsPage() {
             filename={`credit_payments_${new Date().toISOString().split("T")[0]}`}
             headers={["ID", "Customer", "Invoice No", "Amount", "Credit Terms", "Due Date", "Status", "Created Date"]}
             rows={() =>
-              filteredPayments.map((p) => [
+              rowSelection.pick(filteredPayments).map((p) => [
                 p.id,
                 p.customer_name || `Customer #${p.customer_id ?? ""}`,
                 p.invoice_no || "",

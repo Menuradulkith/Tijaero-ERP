@@ -74,6 +74,7 @@ class ReferenceDataResponse(TijaeroBaseSchema):
     locations: Optional[List[Any]] = None
     products: Optional[List[Any]] = None
     countries: Optional[List[Any]] = None
+    currencies: Optional[List[Any]] = None
     suppliers: Optional[List[Any]] = None
     customers: Optional[List[Any]] = None
     employees: Optional[List[Any]] = None

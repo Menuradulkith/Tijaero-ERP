@@ -9,8 +9,10 @@ import {
   Button,
 } from "@mui/material";
 import { reportingApi } from "@/modules/reporting/api";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 export default function InventoryReportPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const {
     data: report,
     isLoading,
@@ -58,7 +60,7 @@ export default function InventoryReportPage() {
                   Total Stock Value
                 </Typography>
                 <Typography variant="h4" fontWeight="bold">
-                  Rs. {report.total_stock_value.toFixed(2)}
+                  {currencySymbol} {report.total_stock_value.toFixed(2)}
                 </Typography>
               </CardContent>
             </Card>

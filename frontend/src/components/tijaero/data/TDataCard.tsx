@@ -31,6 +31,7 @@ import {
 } from "@mui/material";
 import { TStatusChip, StatusMapName } from "../base/TStatusChip";
 import { format } from "date-fns";
+import { formatCurrency as formatCurrencyShared } from "@/utils/formatters";
 
 export interface TDataCardField {
   /** Field label */
@@ -76,13 +77,11 @@ const formatFieldValue = (
   }
 
   switch (type) {
-    case "currency":
+    case "currency": {
       const num = Number(value);
       if (isNaN(num)) return "-";
-      return `Rs. ${new Intl.NumberFormat("en-LK", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(num)}`;
+      return formatCurrencyShared(num);
+    }
 
     case "date":
       try {

@@ -1,11 +1,10 @@
 /**
  * DetailPanelHeader - Tijaero-style detail panel header component
- * 
+ *
  * Provides a consistent header for detail panels with:
  * - Breadcrumbs navigation
  * - Title with icon
  * - Status chips
- * - Favorite toggle
  * - Custom actions
  */
 
@@ -16,11 +15,8 @@ import {
   Link,
   Typography,
   Chip,
-  IconButton,
 } from "@mui/material";
 import HomeIcon from "@mui/icons-material/Home";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import { DetailPanelHeaderProps } from "../types";
 
 export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
@@ -33,8 +29,6 @@ export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
   createTitle = "New Item",
   noSelectionTitle = "Select an item",
   chips,
-  isFavorite,
-  onToggleFavorite,
   actions,
   sx,
 }) => {
@@ -102,17 +96,6 @@ export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
             variant={chip.variant || "filled"}
           />
         ))}
-
-        {/* Favorite Toggle */}
-        {!isCreating && title && onToggleFavorite && (
-          <IconButton
-            size="small"
-            onClick={onToggleFavorite}
-            color={isFavorite ? "warning" : "default"}
-          >
-            {isFavorite ? <StarIcon /> : <StarOutlineIcon />}
-          </IconButton>
-        )}
 
         {/* Custom Actions */}
         {actions && (

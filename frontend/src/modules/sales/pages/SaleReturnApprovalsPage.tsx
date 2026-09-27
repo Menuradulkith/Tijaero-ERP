@@ -65,6 +65,7 @@ import {
 import { saleReturnsApi, salesApi } from "@/modules/sales/api";
 import ApproverAuthDialog from "../../purchasing/components/ApproverAuthDialog";
 import { useReferenceData, ProductRef } from "@/hooks";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { SaleReturn, SaleReturnWithItems } from "@/modules/sales/types";
 
 const SORT_OPTIONS: SortOption[] = [
@@ -74,6 +75,7 @@ const SORT_OPTIONS: SortOption[] = [
 ];
 
 export default function SaleReturnApprovalsPage() {
+    const currencySymbol = useCurrencyStore((s) => s.symbol);
     const queryClient = useQueryClient();
     const [searchQuery, setSearchQuery] = useState("");
     const [sortField, setSortField] = useState("added_date");
@@ -316,7 +318,7 @@ export default function SaleReturnApprovalsPage() {
                                         </Box>
                                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                             <Typography component="span" variant="caption">
-                                                Rs. {fmtLKR(ret.total_refund || 0)}
+                                                {currencySymbol} {fmtLKR(ret.total_refund || 0)}
                                             </Typography>
                                             <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                                                 (Amount)
@@ -477,19 +479,19 @@ export default function SaleReturnApprovalsPage() {
                             <TextField
                                 label="Subtotal"
                                 size="small"
-                                value={`Rs. ${fmtLKR(selectedReturn.subtotal || 0)}`}
+                                value={`${currencySymbol} ${fmtLKR(selectedReturn.subtotal || 0)}`}
                                 disabled
                             />
                             <TextField
                                 label="Tax Refund"
                                 size="small"
-                                value={`Rs. ${fmtLKR(selectedReturn.tax_refund || 0)}`}
+                                value={`${currencySymbol} ${fmtLKR(selectedReturn.tax_refund || 0)}`}
                                 disabled
                             />
                             <TextField
                                 label="Total Refund"
                                 size="small"
-                                value={`Rs. ${fmtLKR(selectedReturn.total_refund || 0)}`}
+                                value={`${currencySymbol} ${fmtLKR(selectedReturn.total_refund || 0)}`}
                                 disabled
                             />
                         </FormSection>
@@ -503,8 +505,8 @@ export default function SaleReturnApprovalsPage() {
                                             <TableCell>Barcode</TableCell>
                                             <TableCell>Product</TableCell>
                                             <TableCell align="right">Qty</TableCell>
-                                            <TableCell align="right">Sold Price (Rs.)</TableCell>
-                                            <TableCell align="right">Return Price (Rs.)</TableCell>
+                                            <TableCell align="right">{`Sold Price (${currencySymbol})`}</TableCell>
+                                            <TableCell align="right">{`Return Price (${currencySymbol})`}</TableCell>
                                             <TableCell>Condition</TableCell>
                                             <TableCell>Restockable</TableCell>
                                         </TableRow>

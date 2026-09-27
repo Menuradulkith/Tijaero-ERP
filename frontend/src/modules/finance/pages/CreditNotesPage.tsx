@@ -22,8 +22,6 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   ArrowBack as ArrowBackIcon,
-  Star as StarIcon,
-  StarBorder as StarOutlineIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
@@ -44,12 +42,14 @@ import {
   fmtLKR,
   TDataGrid,
   type TDataGridColumn,
+  useRowSelection,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
 import { creditNotesApi } from "@/modules/finance/api";
 import { CustomerCreditNote, CustomerCreditNoteCreate } from "@/modules/finance/types";
 import { customersApi } from "@/modules/customers/api";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 interface Customer {
   id: number;
@@ -76,6 +76,7 @@ const resetFormFromItem = (item: CustomerCreditNote): Partial<CustomerCreditNote
 });
 
 export default function CreditNotesPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const canViewCustomers = usePermission("customers", "view");
   // Filter state - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
@@ -90,16 +91,15 @@ export default function CreditNotesPage() {
     selectedItem,
     setSelectedItem,
     isCreating,
-    favorites,
-    toggleFavorite,
     formData,
     handleSelectItem,
   } = useMasterDetailState<CustomerCreditNote, Partial<CustomerCreditNoteCreate>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem,
-    favoritesKey: "credit_notes_favorites",
     defaultSortField: "date",
   });
+
+  const rowSelection = useRowSelection();
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
@@ -171,23 +171,6 @@ export default function CreditNotesPage() {
   const creditNoteColumns: TDataGridColumn<CreditNoteRow>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<CreditNoteRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "id",
         header: "Credit Note No",
         width: 150,
@@ -208,7 +191,7 @@ export default function CreditNotesPage() {
         align: "right",
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<CreditNoteRow>) =>
-          `Rs. ${fmtLKR(Number(params.row.amount || 0))}`,
+          `${currencySymbol} ${fmtLKR(Number(params.row.amount || 0))}`,
       },
       { field: "invoice_no", header: "Invoice No", width: 140 },
       { field: "remark", header: "Reason", flex: 1, minWidth: 180 },
@@ -234,7 +217,7 @@ export default function CreditNotesPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectWithCheck]
+    [handleSelectWithCheck, currencySymbol]
   );
 
   // Whether we're showing a single credit note's detail view (this page is
@@ -255,6 +238,9 @@ export default function CreditNotesPage() {
           emptyMessage="No credit notes found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -312,8 +298,6 @@ export default function CreditNotesPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedItem.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
     </Paper>
@@ -333,8 +317,6 @@ export default function CreditNotesPage() {
         isCreating={isCreating}
         createTitle="New Credit Note"
         noSelectionTitle="Select a Credit Note"
-        isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
-        onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -475,7 +457,7 @@ export default function CreditNotesPage() {
               filename={`credit_notes_${new Date().toISOString().split("T")[0]}`}
               headers={["ID", "Customer", "Amount", "Date", "Invoice No", "Remark"]}
               rows={() =>
-                filteredNotes.map((n) => [
+                rowSelection.pick(filteredNotes).map((n) => [
                   `CN-${n.id}`,
                   getCustomerName(n.customer_id),
                   Number(n.amount || 0),

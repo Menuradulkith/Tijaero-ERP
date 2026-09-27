@@ -16,6 +16,7 @@
  */
 
 import { Chip, ChipProps } from "@mui/material";
+import { alpha, darken, lighten, type Theme } from "@mui/material/styles";
 import React from "react";
 
 // Status color type
@@ -345,25 +346,49 @@ export const TStatusChip: React.FC<TStatusChipProps> = ({
   const label = entry?.label || fallbackLabel || String(status);
   const color = entry?.color || "default";
 
+  // "filled" (the default) is the ERP list-table status style: a soft tinted
+  // pill with a coloured dot and dark text of the same hue, rather than a
+  // solid block with white text — calmer in dense tables, still one fixed
+  // colour per status. Text is the status colour darkened (lightened in dark
+  // mode) instead of the palette's `dark` shade, which for amber/light-blue
+  // is too pale to read on a tint.
+  const tinted = (theme: Theme) => {
+    const isLight = theme.palette.mode === "light";
+    const main = color === "default" ? theme.palette.text.secondary : theme.palette[color].main;
+    return {
+      backgroundColor: color === "default" ? theme.palette.action.selected : alpha(main, isLight ? 0.14 : 0.22),
+      color: color === "default" ? theme.palette.text.secondary : isLight ? darken(main, 0.45) : lighten(main, 0.35),
+      "&::before": {
+        content: '""',
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        backgroundColor: "currentColor",
+        marginLeft: "9px",
+        flexShrink: 0,
+      },
+      "& .MuiChip-label": { paddingLeft: "6px", paddingRight: "10px" },
+    };
+  };
+
   return (
     <Chip
       {...rest}
       label={label}
-      color={color}
+      color={variant === "filled" ? undefined : color}
       size={size}
       variant={variant}
-      sx={{
-        fontWeight: 600,
-        fontSize: '0.75rem',
-        height: size === "small" ? '24px' : '32px',
-        borderRadius: '6px',
-        color: variant === 'filled' ? '#fff' : undefined,
-        '& .MuiChip-label': {
-          px: 1.5,
-          py: 0.5,
+      sx={[
+        {
+          fontWeight: 600,
+          fontSize: "0.75rem",
+          height: size === "small" ? "22px" : "28px",
+          borderRadius: size === "small" ? "11px" : "14px",
+          "& .MuiChip-label": { px: 1.5 },
         },
-        ...sx,
-      }}
+        variant === "filled" && tinted,
+        ...(Array.isArray(sx) ? sx : [sx]),
+      ]}
     />
   );
 };

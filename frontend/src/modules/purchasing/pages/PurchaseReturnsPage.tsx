@@ -5,6 +5,7 @@
  */
 
 // ConfirmDialog now uses TConfirmDialog from tijaero
+import { useCurrencyStore } from "@/state/currencyStore";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -16,8 +17,6 @@ import HistoryIcon from "@mui/icons-material/History";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Alert,
@@ -73,6 +72,7 @@ import {
   showSuccessToast,
   useCrudMutation,
   useMasterDetailState,
+  useRowSelection,
   useTConfirmDialog,
   TActivityHistoryPanel,
 } from "@/components/tijaero";
@@ -161,6 +161,7 @@ interface ValidatedItem {
 }
 
 export default function PurchaseReturnsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const [lineItems, setLineItems] = useState<ReturnLineItem[]>([]);
   const [formStep, setFormStep] = useState(0);
@@ -208,8 +209,6 @@ export default function PurchaseReturnsPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectReturn,
@@ -219,7 +218,6 @@ export default function PurchaseReturnsPage() {
   } = useMasterDetailState<PurchasingReturn, PurchasingReturnCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromReturn,
-    favoritesKey: "purchase_returns_favorites",
     defaultSortField: "added_date",
     confirmUnsavedChanges: () => confirmDialog.confirm({
       title: "Discard Changes",
@@ -231,6 +229,8 @@ export default function PurchaseReturnsPage() {
     extraDirty: lineItems.length > 0,
     onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -732,23 +732,6 @@ export default function PurchaseReturnsPage() {
   const returnColumns: TDataGridColumn<PurchaseReturnRow>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<PurchaseReturnRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "purchasing_return_no",
         header: "Return No",
         flex: 1,
@@ -818,7 +801,7 @@ export default function PurchaseReturnsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, getGRNNumber, getSupplierName, handleSelectReturnWithItems]
+    [getGRNNumber, getSupplierName, handleSelectReturnWithItems]
   );
 
   // Browse mode: a full-width table of every return (shown when nothing is
@@ -837,6 +820,9 @@ export default function PurchaseReturnsPage() {
           emptyMessage="No purchase returns found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -896,8 +882,6 @@ export default function PurchaseReturnsPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedReturn.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedReturn.id, e)}
         />
       )}
     </Paper>
@@ -918,8 +902,6 @@ export default function PurchaseReturnsPage() {
         isCreating={isCreating}
         createTitle="New Purchase Return"
         noSelectionTitle="Select a Return"
-        isFavorite={selectedReturn ? favorites.includes(selectedReturn.id) : false}
-        onToggleFavorite={selectedReturn ? (e) => toggleFavorite(selectedReturn.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -1188,8 +1170,8 @@ export default function PurchaseReturnsPage() {
                           <TableCell>Product</TableCell>
                           <TableCell>Warranty</TableCell>
                           <TableCell>Added Date</TableCell>
-                          <TableCell align="right" sx={{ width: 120 }}>Purchase Price (Rs.)</TableCell>
-                          <TableCell align="right" sx={{ width: 120 }}>Return Price (Rs.)</TableCell>
+                          <TableCell align="right" sx={{ width: 120 }}>{`Purchase Price (${currencySymbol})`}</TableCell>
+                          <TableCell align="right" sx={{ width: 120 }}>{`Return Price (${currencySymbol})`}</TableCell>
                           {(isEditing || isCreating) && <TableCell sx={{ width: 50 }} />}
                         </TableRow>
                       </TableHead>
@@ -1405,7 +1387,7 @@ export default function PurchaseReturnsPage() {
                   "Remark",
                 ]}
                 rows={() =>
-                  filteredReturns.map((ret) => [
+                  rowSelection.pick(filteredReturns).map((ret) => [
                     ret.purchasing_return_no || "",
                     ret.grn_no || "",
                     ret.po_no || "",

@@ -24,8 +24,6 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
@@ -77,6 +75,7 @@ import {
     type TFilterStatusOption,
     TDataGrid,
     SelectableListItem,
+    useRowSelection,
     type TDataGridColumn,
 } from "@/components/tijaero";
 import { KpiSparkCard } from "@/components/dashboard";
@@ -149,8 +148,6 @@ export default function BranchesPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     markAsSaved,
@@ -161,7 +158,6 @@ export default function BranchesPage() {
   } = useMasterDetailState<Branch, BranchCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromBranch,
-    favoritesKey: "branches_favorites",
     defaultSortField: "branch_code",
     confirmUnsavedChanges: () => confirmDialog.confirm({
       title: "Discard Changes",
@@ -175,6 +171,8 @@ export default function BranchesPage() {
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
+  const rowSelection = useRowSelection();
 
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
@@ -553,23 +551,6 @@ export default function BranchesPage() {
   // "Sort by" control.
   const branchColumns: TDataGridColumn<Branch>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<Branch>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "branch_code", header: "Branch Code", width: 140 },
       { field: "branch_name", header: "Name", flex: 1, minWidth: 200 },
       { field: "address", header: "Address", flex: 1, minWidth: 200 },
@@ -610,7 +591,7 @@ export default function BranchesPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectBranch]
+    [handleSelectBranch]
   );
 
   const branchTablePanel = (
@@ -621,6 +602,9 @@ export default function BranchesPage() {
           columns={branchColumns}
           loading={isLoading}
           onRowClick={(row) => handleSelectBranch(row)}
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No branches found"
@@ -689,8 +673,6 @@ export default function BranchesPage() {
                 </Box>
               </Box>
             }
-            isFavorite={favorites.includes(selectedBranch.id)}
-            onToggleFavorite={(e) => toggleFavorite(selectedBranch.id, e)}
           />
         </Box>
       )}
@@ -722,8 +704,6 @@ export default function BranchesPage() {
         isCreating={isCreating}
         createTitle="New Branch"
         noSelectionTitle="Select a Branch"
-        isFavorite={selectedBranch ? favorites.includes(selectedBranch.id) : false}
-        onToggleFavorite={selectedBranch ? (e) => toggleFavorite(selectedBranch.id, e) : undefined}
       />
 
       {/* Toolbar */}
@@ -1039,7 +1019,7 @@ export default function BranchesPage() {
                 filename="branches"
                 headers={["Branch Code", "Branch Name", "Address", "Contact Number", "Email"]}
                 rows={() =>
-                  filteredBranches.map((b) => [
+                  rowSelection.pick(filteredBranches).map((b) => [
                     b.branch_code || "",
                     b.branch_name || "",
                     b.address || "",

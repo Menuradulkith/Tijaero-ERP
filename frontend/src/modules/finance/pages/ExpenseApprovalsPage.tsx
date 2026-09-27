@@ -58,6 +58,7 @@ import {
 import { useReferenceData } from "@/hooks";
 import { expensesApi } from "@/modules/finance/api";
 import type { Expense } from "@/modules/finance/types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -77,6 +78,7 @@ const SORT_OPTIONS: SortOption[] = [
 
 export default function ExpenseApprovalsPage() {
   const queryClient = useQueryClient();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
@@ -202,7 +204,7 @@ export default function ExpenseApprovalsPage() {
     if (!selectedExpense) return;
     approveDialog.open(
       "Approve Expense",
-      `Approve expense ${selectedExpense.expenses_no} for Rs. ${fmtLKR(selectedExpense.expense_amount)}?`,
+      `Approve expense ${selectedExpense.expenses_no} for ${currencySymbol} ${fmtLKR(selectedExpense.expense_amount)}?`,
       () => approveMutation.mutate(selectedExpense.id)
     );
   }, [selectedExpense, approveDialog, approveMutation]);
@@ -264,7 +266,7 @@ export default function ExpenseApprovalsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        Rs. {fmtLKR(expense.expense_amount)}
+                        {currencySymbol} {fmtLKR(expense.expense_amount)}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Amount)
@@ -283,7 +285,7 @@ export default function ExpenseApprovalsPage() {
             }
             secondaryText={
               !isSelected
-                ? `${getCategoryLabel(expense.expense_category)} - ${expense.vendor_name || "No vendor"} - Rs. ${fmtLKR(expense.expense_amount)}`
+                ? `${getCategoryLabel(expense.expense_category)} - ${expense.vendor_name || "No vendor"} - ${currencySymbol} ${fmtLKR(expense.expense_amount)}`
                 : undefined
             }
             statusChip={!isSelected ? statusChip : undefined}
@@ -417,7 +419,7 @@ export default function ExpenseApprovalsPage() {
                 disabled
               />
               <TextField
-                label="Amount (Rs.)"
+                label={`Amount (${currencySymbol})`}
                 size="small"
                 value={fmtLKR(detail.expense_amount)}
                 disabled
@@ -630,7 +632,7 @@ export default function ExpenseApprovalsPage() {
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>
             {detail &&
-              `Rejecting expense ${detail.expenses_no} for Rs. ${fmtLKR(detail.expense_amount)}`}
+              `Rejecting expense ${detail.expenses_no} for ${currencySymbol} ${fmtLKR(detail.expense_amount)}`}
           </Typography>
           <TextField
             label="Rejection Reason"

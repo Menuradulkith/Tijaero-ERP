@@ -47,6 +47,7 @@ import {
 } from "@/components/tijaero";
 import { format, parse } from "date-fns";
 import { debtorsApi } from "../api/debtors-api";
+import { useCurrencyStore } from "@/state/currencyStore";
 import {
   DebtorSummary,
   CustomerDebtDetails,
@@ -74,6 +75,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function DebtorsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<
@@ -237,7 +239,7 @@ export default function DebtorsPage() {
                 Total Outstanding
               </Typography>
               <Typography variant="h5" color="warning.main">
-                Rs. {data.total_outstanding?.toLocaleString() || "0"}
+                {currencySymbol} {data.total_outstanding?.toLocaleString() || "0"}
               </Typography>
             </CardContent>
           </Card>
@@ -249,7 +251,7 @@ export default function DebtorsPage() {
                 Total Overdue
               </Typography>
               <Typography variant="h5" color="error.main">
-                Rs. {data.total_overdue?.toLocaleString() || "0"}
+                {currencySymbol} {data.total_overdue?.toLocaleString() || "0"}
               </Typography>
             </CardContent>
           </Card>
@@ -423,10 +425,10 @@ export default function DebtorsPage() {
                     </TableCell>
                     <TableCell>{debtor.company_name}</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 600 }}>
-                      Rs. {debtor.outstanding_balance.toLocaleString()}
+                      {currencySymbol} {debtor.outstanding_balance.toLocaleString()}
                     </TableCell>
                     <TableCell align="right">
-                      Rs. {debtor.credit_limit.toLocaleString()}
+                      {currencySymbol} {debtor.credit_limit.toLocaleString()}
                     </TableCell>
                     <TableCell align="center">
                       {debtor.days_overdue > 0 ? (
@@ -552,6 +554,7 @@ function DebtorDetailsDialog({
   isLoading: boolean;
   onClose: () => void;
 }) {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   return (
     <Dialog open maxWidth="md" fullWidth onClose={onClose}>
       <Box sx={{ p: 2 }}>
@@ -581,7 +584,7 @@ function DebtorDetailsDialog({
                   Total Outstanding
                 </Typography>
                 <Typography variant="h6" color="error.main">
-                  Rs. {debtDetails.total_outstanding?.toLocaleString()}
+                  {currencySymbol} {debtDetails.total_outstanding?.toLocaleString()}
                 </Typography>
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -589,7 +592,7 @@ function DebtorDetailsDialog({
                   Credit Limit
                 </Typography>
                 <Typography variant="h6">
-                  Rs. {debtDetails.credit_limit?.toLocaleString()}
+                  {currencySymbol} {debtDetails.credit_limit?.toLocaleString()}
                 </Typography>
               </Grid>
             </Grid>
@@ -623,13 +626,13 @@ function DebtorDetailsDialog({
                     <TableRow key={invoice.invoice_id}>
                       <TableCell>{invoice.invoice_no}</TableCell>
                       <TableCell align="right">
-                        Rs. {invoice.invoice_amount?.toLocaleString()}
+                        {currencySymbol} {invoice.invoice_amount?.toLocaleString()}
                       </TableCell>
                       <TableCell align="right">
-                        Rs. {invoice.amount_paid?.toLocaleString()}
+                        {currencySymbol} {invoice.amount_paid?.toLocaleString()}
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 600 }}>
-                        Rs. {invoice.outstanding_balance?.toLocaleString()}
+                        {currencySymbol} {invoice.outstanding_balance?.toLocaleString()}
                       </TableCell>
                       <TableCell align="right">{invoice.days_outstanding}</TableCell>
                       <TableCell>
@@ -778,6 +781,7 @@ function PaymentDialog({
   onSave: (payment: any) => void;
   onClose: () => void;
 }) {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const [payment, setPayment] = React.useState({
     amount: 0,
     payment_date: format(new Date(), "yyyy-MM-dd"),
@@ -794,7 +798,7 @@ function PaymentDialog({
         </Typography>
 
         <Alert severity="info" sx={{ mb: 2 }}>
-          Outstanding Balance: Rs. {customer.outstanding_balance.toLocaleString()}
+          Outstanding Balance: {currencySymbol} {customer.outstanding_balance.toLocaleString()}
         </Alert>
 
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>

@@ -53,6 +53,7 @@ import {
 } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
 import { useReferenceData } from "@/hooks";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 type SortField = "date" | "customer_name" | "amount" | "branch_code" | "payment_method";
 type SortDir = "asc" | "desc";
@@ -60,6 +61,7 @@ type OutSortField = "invoice_date" | "customer_name" | "balance_due" | "days_ove
 
 export default function CustomerPaymentReportPage() {
   const navigate = useNavigate();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   const defaultFrom = useMemo(() => {
     const d = new Date();
@@ -289,7 +291,7 @@ export default function CustomerPaymentReportPage() {
   </div>
   <div class="amount-highlight">
     <div class="label">Amount Received</div>
-    <div class="value">Rs. ${fmtLKR(item.amount)}</div>
+    <div class="value">${currencySymbol} ${fmtLKR(item.amount)}</div>
   </div>
   <div class="detail-grid">
     <div class="detail-item"><div class="label">Document No.</div><div class="value">${item.document_no}</div></div>
@@ -358,12 +360,12 @@ export default function CustomerPaymentReportPage() {
   <div class="summary-grid">
     <div class="summary-card primary">
       <div class="label">Total Received</div>
-      <div class="value">Rs. ${fmtLKR(summary?.total_amount || 0)}</div>
+      <div class="value">${currencySymbol} ${fmtLKR(summary?.total_amount || 0)}</div>
       <div class="count">${summary?.total_count || 0} transactions</div>
     </div>
     <div class="summary-card success">
       <div class="label">Credit Settlements</div>
-      <div class="value">Rs. ${fmtLKR(summary?.credit_settlements || 0)}</div>
+      <div class="value">${currencySymbol} ${fmtLKR(summary?.credit_settlements || 0)}</div>
       <div class="count">${summary?.credit_settlements_count || 0} settlements</div>
     </div>
     <div class="summary-card info">
@@ -379,7 +381,7 @@ export default function CustomerPaymentReportPage() {
         <th>Document No.</th>
         <th>Invoice(s)</th>
         <th>Method</th>
-        <th class="text-right">Amount (Rs.)</th>
+        <th class="text-right">Amount (${currencySymbol})</th>
         <th>Branch</th>
         <th>Remarks</th>
       </tr>
@@ -399,7 +401,7 @@ export default function CustomerPaymentReportPage() {
       `).join("")}
       <tr class="totals-row">
         <td colspan="5" style="text-align: right;">TOTAL:</td>
-        <td class="text-right">Rs. ${fmtLKR(summary?.total_amount || 0)}</td>
+        <td class="text-right">${currencySymbol} ${fmtLKR(summary?.total_amount || 0)}</td>
         <td colspan="2"></td>
       </tr>
     </tbody>
@@ -431,7 +433,7 @@ export default function CustomerPaymentReportPage() {
           summary
             ? [
                 { label: `${summary.total_count} Records`, color: "info" as const },
-                { label: `Rs. ${fmtLKR(summary.total_amount)}`, color: "primary" as const },
+                { label: `${currencySymbol} ${fmtLKR(summary.total_amount)}`, color: "primary" as const },
               ]
             : []
         }
@@ -592,14 +594,14 @@ export default function CustomerPaymentReportPage() {
               <Card variant="outlined" sx={{ borderRadius: 2, minWidth: 180, flex: "1 1 180px" }}>
                 <CardContent sx={{ py: 1.5, px: 2 }}>
                   <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>Total Received</Typography>
-                  <Typography variant="h6" fontWeight={700} color="primary.main" sx={{ mt: 0.5, whiteSpace: "nowrap" }}>Rs. {fmtLKR(summary.total_amount)}</Typography>
+                  <Typography variant="h6" fontWeight={700} color="primary.main" sx={{ mt: 0.5, whiteSpace: "nowrap" }}>{currencySymbol} {fmtLKR(summary.total_amount)}</Typography>
                   <Typography variant="caption" color="text.secondary">{summary.total_count} transaction{summary.total_count !== 1 ? "s" : ""}</Typography>
                 </CardContent>
               </Card>
               <Card variant="outlined" sx={{ borderRadius: 2, minWidth: 180, flex: "1 1 180px" }}>
                 <CardContent sx={{ py: 1.5, px: 2 }}>
                   <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>Credit Settlements</Typography>
-                  <Typography variant="h6" fontWeight={700} color="info.main" sx={{ mt: 0.5, whiteSpace: "nowrap" }}>Rs. {fmtLKR(summary.credit_settlements)}</Typography>
+                  <Typography variant="h6" fontWeight={700} color="info.main" sx={{ mt: 0.5, whiteSpace: "nowrap" }}>{currencySymbol} {fmtLKR(summary.credit_settlements)}</Typography>
                   <Typography variant="caption" color="text.secondary">{summary.credit_settlements_count} settlement{summary.credit_settlements_count !== 1 ? "s" : ""}</Typography>
                 </CardContent>
               </Card>
@@ -636,7 +638,7 @@ export default function CustomerPaymentReportPage() {
                         <TableCell>Document No.</TableCell>
                         <TableCell>Invoice(s)</TableCell>
                         <TableCell><TableSortLabel active={sortField === "payment_method"} direction={sortField === "payment_method" ? sortDir : "asc"} onClick={() => handleSort("payment_method")}>Method</TableSortLabel></TableCell>
-                        <TableCell align="right"><TableSortLabel active={sortField === "amount"} direction={sortField === "amount" ? sortDir : "asc"} onClick={() => handleSort("amount")}>Amount (Rs.)</TableSortLabel></TableCell>
+                        <TableCell align="right"><TableSortLabel active={sortField === "amount"} direction={sortField === "amount" ? sortDir : "asc"} onClick={() => handleSort("amount")}>{`Amount (${currencySymbol})`}</TableSortLabel></TableCell>
                         <TableCell><TableSortLabel active={sortField === "branch_code"} direction={sortField === "branch_code" ? sortDir : "asc"} onClick={() => handleSort("branch_code")}>Branch</TableSortLabel></TableCell>
                         <TableCell>Remarks</TableCell>
                         <TableCell align="center">Print</TableCell>
@@ -661,7 +663,7 @@ export default function CustomerPaymentReportPage() {
                 </TableContainer>
                 <Box sx={{ px: 2, py: 1.25, borderTop: "1px solid", borderColor: "divider", display: "flex", justifyContent: "space-between", alignItems: "center", bgcolor: "grey.50" }}>
                   <Typography variant="body2" color="text.secondary">{items.length} record{items.length !== 1 ? "s" : ""}</Typography>
-                  <Typography variant="subtitle1" color="primary.main" sx={{ fontWeight: 700 }}>Total: Rs. {fmtLKR(summary?.total_amount || 0)}</Typography>
+                  <Typography variant="subtitle1" color="primary.main" sx={{ fontWeight: 700 }}>Total: {currencySymbol} {fmtLKR(summary?.total_amount || 0)}</Typography>
                 </Box>
               </Paper>
             )}
@@ -678,14 +680,14 @@ export default function CustomerPaymentReportPage() {
               <Card variant="outlined" sx={{ borderRadius: 2, minWidth: 180, flex: "1 1 180px" }}>
                 <CardContent sx={{ py: 1.5, px: 2 }}>
                   <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>Total Outstanding</Typography>
-                  <Typography variant="h6" fontWeight={700} color="primary.main" sx={{ mt: 0.5, whiteSpace: "nowrap" }}>Rs. {fmtLKR(outSummary.total_outstanding)}</Typography>
+                  <Typography variant="h6" fontWeight={700} color="primary.main" sx={{ mt: 0.5, whiteSpace: "nowrap" }}>{currencySymbol} {fmtLKR(outSummary.total_outstanding)}</Typography>
                   <Typography variant="caption" color="text.secondary">{outSummary.total_documents} invoice{outSummary.total_documents !== 1 ? "s" : ""}</Typography>
                 </CardContent>
               </Card>
               <Card variant="outlined" sx={{ borderRadius: 2, minWidth: 180, flex: "1 1 180px", borderColor: outSummary.overdue_count > 0 ? "error.main" : undefined }}>
                 <CardContent sx={{ py: 1.5, px: 2 }}>
                   <Typography variant="caption" color="error.main" sx={{ textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>Overdue</Typography>
-                  <Typography variant="h6" fontWeight={700} color="error.main" sx={{ mt: 0.5, whiteSpace: "nowrap" }}>Rs. {fmtLKR(outSummary.total_overdue)}</Typography>
+                  <Typography variant="h6" fontWeight={700} color="error.main" sx={{ mt: 0.5, whiteSpace: "nowrap" }}>{currencySymbol} {fmtLKR(outSummary.total_overdue)}</Typography>
                   <Typography variant="caption" color="text.secondary">{outSummary.overdue_count} invoice{outSummary.overdue_count !== 1 ? "s" : ""}</Typography>
                 </CardContent>
               </Card>
@@ -753,7 +755,7 @@ export default function CustomerPaymentReportPage() {
                 </TableContainer>
                 <Box sx={{ px: 2, py: 1.25, borderTop: "1px solid", borderColor: "divider", display: "flex", justifyContent: "space-between", alignItems: "center", bgcolor: "grey.50" }}>
                   <Typography variant="body2" color="text.secondary">{sortedOutItems.length} document{sortedOutItems.length !== 1 ? "s" : ""}</Typography>
-                  <Typography variant="subtitle1" color="error.main" sx={{ fontWeight: 700 }}>Outstanding: Rs. {fmtLKR(outSummary?.total_outstanding || 0)}</Typography>
+                  <Typography variant="subtitle1" color="error.main" sx={{ fontWeight: 700 }}>Outstanding: {currencySymbol} {fmtLKR(outSummary?.total_outstanding || 0)}</Typography>
                 </Box>
               </Paper>
             )}

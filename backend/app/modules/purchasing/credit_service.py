@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy import func, or_
 from fastapi import HTTPException, status
 from datetime import date, datetime, timedelta
@@ -87,7 +88,14 @@ class SupplierCreditService:
         max_credit = Decimal(str(supplier.max_credit_limit or 0))
         outstanding = Decimal(str(self._calculate_outstanding_payable(db, supplier_id)))
         pending = Decimal(str(self._calculate_pending_credits(db, supplier_id, exclude_po_id=exclude_po_id)))
-        invoice_outstanding = Decimal(str(
+        invoice_outstanding = self._calculate_invoice_outstanding(db, supplier_id)
+
+        available = max_credit - (outstanding + pending + invoice_outstanding)
+        return available if available > 0 else Decimal("0")
+
+    def _calculate_invoice_outstanding(self, db: Session, supplier_id: int) -> Decimal:
+        """Unpaid balance on credit PurchaseInvoices (new invoice system)."""
+        return Decimal(str(
             db.query(func.coalesce(func.sum(PurchaseInvoice.balance_due), 0)).filter(
                 PurchaseInvoice.supplier_id == supplier_id,
                 PurchaseInvoice.payment_type == "credit",
@@ -96,8 +104,16 @@ class SupplierCreditService:
             ).scalar() or 0
         ))
 
-        available = max_credit - (outstanding + pending + invoice_outstanding)
-        return available if available > 0 else Decimal("0")
+    def calculate_amount_owed(self, db: Session, supplier_id: int) -> Decimal:
+        """What the business currently owes this supplier on credit: received
+        goods not yet settled (old PO/GRN system) plus unpaid credit invoices.
+
+        Computed live from the documents rather than read from the stored
+        left_credit_amount, which is floored at 0 and so can't tell "no
+        credit used" apart from "all credit used" (or more)."""
+        outstanding = Decimal(str(self._calculate_outstanding_payable(db, supplier_id)))
+        owed = outstanding + self._calculate_invoice_outstanding(db, supplier_id)
+        return owed if owed > 0 else Decimal("0")
 
     def get_supplier_credit_status(self, db: Session, supplier_id: int, exclude_po_id: Optional[int] = None) -> Dict[str, Any]:
 
@@ -1019,13 +1035,34 @@ class SupplierCreditService:
         if not supplier:
             return
         
+        # Flush the caller's pending changes (e.g. the settlement transactions
+        # just added) BEFORE calculating: the session has autoflush off, so
+        # otherwise the calculation's queries can't see them and the stored
+        # balance would leave out the very document that triggered this.
+        db.flush()
         # SINGLE authoritative calculator - every flow that changes a
         # supplier's credit exposure calls this method (never bespoke math),
         # so the stored value can no longer diverge between flows (F7).
         available = self.calculate_available_credit(db, supplier_id)
         # Store the full-precision Decimal (F1) - no lossy int() truncation.
-        supplier.left_credit_amount = available.quantize(Decimal("0.01"))
-        db.flush()
+        new_value = available.quantize(Decimal("0.01"))
+        # Written with a direct UPDATE, and updated_at / updated_by set to
+        # themselves, so this system recalculation (triggered by invoices,
+        # payments, GRNs...) does NOT count as a user edit of the supplier.
+        # Otherwise every posting would make anyone editing that supplier fail
+        # the stale check and lose their edits, and "Last Modified By" would
+        # show whoever posted the invoice.
+        db.query(Supplier).filter(Supplier.id == supplier_id).update(
+            {
+                "left_credit_amount": new_value,
+                "updated_at": Supplier.updated_at,
+                "updated_by": Supplier.updated_by,
+            },
+            synchronize_session=False,
+        )
+        # Keep the loaded object in step without marking it dirty (a dirty
+        # attribute would get the before_flush updated_at stamp after all).
+        set_committed_value(supplier, "left_credit_amount", new_value)
     
     def create_credit_settlement(
         self, 
@@ -1108,9 +1145,10 @@ class SupplierCreditService:
                 created_date=tz.now()
             )
             db.add(transaction)
-        
-        db.commit()
 
+        # One commit: the settlement and the recalculated balance land
+        # together (update_supplier_credit_balance flushes the settlement
+        # first, so the recalculation sees it).
         self.update_supplier_credit_balance(db, settlement_data.suppliers_id)
         db.commit()
         

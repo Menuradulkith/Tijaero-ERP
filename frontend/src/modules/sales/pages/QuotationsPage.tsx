@@ -3,6 +3,7 @@
  */
 
 import { usePermission } from "@/auth/permissions";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { exportToCSV } from "@/utils/csvExport";
 import { FileDownload as DownloadIcon } from "@mui/icons-material";
 import {
@@ -29,6 +30,7 @@ import {
   TSteps,
   useCrudMutation,
   useMasterDetailState,
+  useRowSelection,
   useTConfirmDialog,
   TEmailDialog,
   TActivityHistoryPanel,
@@ -61,8 +63,6 @@ import {
   History as HistoryIcon,
   Search as SearchIcon,
   Clear as ClearIcon,
-  Star as StarIcon,
-  StarBorder as StarOutlineIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import {
@@ -146,6 +146,7 @@ const getEmptyQuoteForm = (quoteType: QuoteType): Partial<SalesQuoteCreate> => (
 });
 
 export default function QuotationsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
@@ -240,8 +241,6 @@ export default function QuotationsPage() {
     isCreating,
     setIsCreating,
     hasChanges,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectQuote,
@@ -252,7 +251,6 @@ export default function QuotationsPage() {
   } = useMasterDetailState<SalesQuote, Partial<SalesQuoteCreate>>({
     initialFormData: getEmptyQuoteForm(pageQuoteType),
     resetFormFromItem: (quote) => quote,
-    favoritesKey: `${pageQuoteType}_favorites`,
     defaultSortField: "created_date",
     confirmUnsavedChanges: async () => {
       return await confirmDialog.confirm({
@@ -265,6 +263,8 @@ export default function QuotationsPage() {
     extraDirty: lineItemsDirty,
     onDiscard: () => { setLineItems([]); setLineItemsDirty(false); setFormStep(0); },
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Workflow Timeline section title, rather than shown inline.
@@ -608,7 +608,7 @@ export default function QuotationsPage() {
       "Total Amount"
     ];
 
-    const rows = filteredQuotes.map(quote => [
+    const rows = rowSelection.pick(filteredQuotes).map(quote => [
       quote.quote_no,
       getCustomerName(quote.customer_id),
       getBranchName(quote.branch_code),
@@ -1260,23 +1260,6 @@ export default function QuotationsPage() {
   // "Sort by" control.
   const quoteColumns: TDataGridColumn<(typeof quoteRows)[number]>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<(typeof quoteRows)[number]>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "quote_no", header: "Quote No", width: 150 },
       { field: "customer_display_name", header: "Customer", flex: 1, minWidth: 180 },
       {
@@ -1342,7 +1325,7 @@ export default function QuotationsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectQuote]
+    [handleSelectQuote]
   );
 
   const quoteTablePanel = (
@@ -1358,6 +1341,9 @@ export default function QuotationsPage() {
           emptyMessage="No quotes found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1419,8 +1405,6 @@ export default function QuotationsPage() {
                 </Box>
               </Box>
             }
-            isFavorite={favorites.includes(selectedQuote.id)}
-            onToggleFavorite={(e) => toggleFavorite(selectedQuote.id, e)}
           />
         )}
       </Paper>
@@ -1554,7 +1538,7 @@ export default function QuotationsPage() {
                           color="success"
                           variant="outlined"
                           icon={<PaymentIcon />}
-                          label={`Advance: Rs. ${Number(selectedQuote.advance_amount || 0).toLocaleString()}`}
+                          label={`Advance: ${currencySymbol} ${Number(selectedQuote.advance_amount || 0).toLocaleString()}`}
                         />
                       </Tooltip>
                     ) : (
@@ -1737,11 +1721,11 @@ export default function QuotationsPage() {
               <TableRow sx={modernTableStyles.headerRow}>
                 <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
                 <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
-                <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
+                <TableCell align="right" sx={{ width: 120 }}>Unit Price ({currencySymbol})</TableCell>
                 <TableCell align="right" sx={{ width: 90 }}>Discount</TableCell>
                 <TableCell sx={{ width: 100 }}>Warranty</TableCell>
                 <TableCell align="center" sx={{ width: 140 }}>Item Status</TableCell>
-                <TableCell align="right" sx={{ width: 120 }}>Amount (Rs.)</TableCell>
+                <TableCell align="right" sx={{ width: 120 }}>Amount ({currencySymbol})</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -2075,13 +2059,13 @@ export default function QuotationsPage() {
                     <TableRow>
                       <TableCell sx={{ width: "30%" }}>Product</TableCell>
                       <TableCell align="right" sx={{ width: 90 }}>Qty</TableCell>
-                      <TableCell align="right" sx={{ width: 130 }}>Price (Rs.)</TableCell>
+                      <TableCell align="right" sx={{ width: 130 }}>Price ({currencySymbol})</TableCell>
                       <TableCell align="right" sx={{ width: 110 }}>Disc %</TableCell>
                       <TableCell align="right" sx={{ width: 110 }}>Warranty (Months)</TableCell>
                       {formData.quote_type === "quotation" && (
-                        <TableCell align="right" sx={{ width: 130 }}>Min Price (Rs.)</TableCell>
+                        <TableCell align="right" sx={{ width: 130 }}>Min Price ({currencySymbol})</TableCell>
                       )}
-                      <TableCell align="right" sx={{ width: 120 }}>Total (Rs.)</TableCell>
+                      <TableCell align="right" sx={{ width: 120 }}>Total ({currencySymbol})</TableCell>
                       <TableCell align="center" sx={{ width: 60 }}>Del</TableCell>
                     </TableRow>
                   </TableHead>
@@ -2117,7 +2101,7 @@ export default function QuotationsPage() {
                                   <Autocomplete
                                     options={activeTiers}
                                     getOptionLabel={(option) =>
-                                      `${option.remark || "Unnamed Tier"} - Rs. ${option.selling_price}`
+                                      `${option.remark || "Unnamed Tier"} - ${currencySymbol} ${option.selling_price}`
                                     }
                                     value={activeTiers.find((t) => t.id === item.price_tier_id) || null}
                                     onChange={(_, newValue) =>
@@ -2621,7 +2605,7 @@ export default function QuotationsPage() {
             onChange={(e) =>
               setAdvanceAmount(e.target.value === "" ? "" : Number(e.target.value))
             }
-            InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+            InputProps={{ startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment> }}
             sx={{ mb: 2 }}
           />
           <TextField

@@ -75,6 +75,13 @@ export interface CountryRef {
   iso: string;
 }
 
+export interface CurrencyRef {
+  id: number;
+  code: string;
+  name: string;
+  symbol: string;
+}
+
 export interface SupplierRef {
   id: number;
   company_name: string;
@@ -119,6 +126,7 @@ export type ReferenceDataType =
   | "locations"
   | "products"
   | "countries"
+  | "currencies"
   | "suppliers"
   | "customers"
   | "employees"
@@ -132,6 +140,7 @@ export interface ReferenceDataResponse {
   locations?: LocationRef[];
   products?: ProductRef[];
   countries?: CountryRef[];
+  currencies?: CurrencyRef[];
   suppliers?: SupplierRef[];
   customers?: CustomerRef[];
   employees?: EmployeeRef[];

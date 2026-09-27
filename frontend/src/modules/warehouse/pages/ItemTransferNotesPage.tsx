@@ -40,8 +40,6 @@ import SaveIcon from "@mui/icons-material/Save";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import AddIcon from "@mui/icons-material/Add";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
@@ -60,6 +58,7 @@ import {
   TPrintPreviewDialog,
   canPrintDocument,
   useMasterDetailState,
+  useRowSelection,
   modernTableStyles,
   handleApiError,
   TConfirmDialog,
@@ -76,12 +75,13 @@ import { transferNotesApi, transferNoteItemsApi, transferWorkflowApi } from "@/m
 import { locationsApi } from "@/modules/common/api";
 import { useReferenceData } from "@/hooks";
 // OPTIMIZED: Removed branchApi import - using aggregated endpoint
-import { 
-  ItemTransferNote, 
+import {
+  ItemTransferNote,
   ItemTransferNoteCreate,
   ItemTransferNoteItem,
   ItemTransferNoteWithItems,
 } from "@/modules/warehouse/types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
   const year = new Date().getFullYear();
@@ -141,6 +141,7 @@ const getITNStatus = (itn: ItemTransferNote | ItemTransferNoteWithItems): string
 
 export default function ItemTransferNotesPage() {
   const queryClient = useQueryClient();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const location = useLocation();
   const prefillTransfer = (location.state as { prefillTransfer?: { fromBranch: string; toBranch: string; items: Array<{ product_id: number; product_name: string; quantity: number }>; quoteId?: number; quoteNo?: string } } | null)?.prefillTransfer;
   const prefillAppliedRef = useRef(false);
@@ -185,8 +186,6 @@ export default function ItemTransferNotesPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectITN,
@@ -196,7 +195,6 @@ export default function ItemTransferNotesPage() {
   } = useMasterDetailState<ItemTransferNote, ItemTransferNoteCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromITN,
-    favoritesKey: "itn_favorites",
     defaultSortField: "created_date",
     confirmUnsavedChanges: () => confirmDialog.confirm({
       title: "Discard Changes",
@@ -208,6 +206,8 @@ export default function ItemTransferNotesPage() {
     extraDirty: lineItems.length > 0,
     onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
+
+  const rowSelection = useRowSelection();
 
   // Fetch locations
   const { data: locationsData } = useQuery({
@@ -564,23 +564,6 @@ export default function ItemTransferNotesPage() {
   // "Sort by" control.
   const itnColumns: TDataGridColumn<ItemTransferNote>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<ItemTransferNote>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "item_transfer_note", header: "ITN No", flex: 1, minWidth: 160 },
       {
         field: "from_location_name",
@@ -623,7 +606,7 @@ export default function ItemTransferNotesPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectITNWithItems] // eslint-disable-line react-hooks/exhaustive-deps
+    [handleSelectITNWithItems] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const itnTablePanel = (
@@ -639,6 +622,9 @@ export default function ItemTransferNotesPage() {
           emptyMessage="No transfer notes found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -699,8 +685,6 @@ export default function ItemTransferNotesPage() {
                 </Box>
               </Box>
             }
-            isFavorite={favorites.includes(selectedITN.id)}
-            onToggleFavorite={(e) => toggleFavorite(selectedITN.id, e)}
           />
         </Box>
       )}
@@ -723,8 +707,6 @@ export default function ItemTransferNotesPage() {
         isCreating={isCreating}
         createTitle="New Item Transfer Note"
         noSelectionTitle="Select a Transfer Note"
-        isFavorite={selectedITN ? favorites.includes(selectedITN.id) : false}
-        onToggleFavorite={selectedITN ? (e) => toggleFavorite(selectedITN.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -1014,7 +996,7 @@ export default function ItemTransferNotesPage() {
                           <TableCell>Barcode</TableCell>
                           <TableCell>Product</TableCell>
                           <TableCell>Branch Code</TableCell>
-                          <TableCell align="right">Cost Price (Rs.)</TableCell>
+                          <TableCell align="right">{`Cost Price (${currencySymbol})`}</TableCell>
                           <TableCell align="center">Status</TableCell>
                         </TableRow>
                       </TableHead>
@@ -1062,7 +1044,7 @@ export default function ItemTransferNotesPage() {
                           <TableCell>Barcode</TableCell>
                           <TableCell>Product</TableCell>
                           <TableCell>Branch Code</TableCell>
-                          <TableCell align="right">Cost Price (Rs.)</TableCell>
+                          <TableCell align="right">{`Cost Price (${currencySymbol})`}</TableCell>
                           <TableCell sx={{ width: 50 }} />
                         </TableRow>
                       </TableHead>
@@ -1223,7 +1205,7 @@ export default function ItemTransferNotesPage() {
                   "Remark",
                 ]}
                 rows={() =>
-                  filteredITNs.map((itn) => [
+                  rowSelection.pick(filteredITNs).map((itn) => [
                     itn.item_transfer_note || "",
                     itn.from_location_name || "",
                     itn.to_location_name || "",

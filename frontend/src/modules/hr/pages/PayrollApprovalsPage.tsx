@@ -59,6 +59,7 @@ import {
 import { useReferenceData } from "@/hooks";
 import { payrollBatchApi } from "@/modules/hr/api";
 import type { PayrollBatch, EmployeePayroll } from "@/modules/hr/types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ const SORT_OPTIONS: SortOption[] = [
 
 export default function PayrollApprovalsPage() {
   const queryClient = useQueryClient();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
@@ -209,7 +211,7 @@ export default function PayrollApprovalsPage() {
     if (!selectedBatch) return;
     approveDialog.open(
       "Approve Payroll Batch",
-      `Approve payroll batch ${selectedBatch.batch_no} with ${selectedBatch.total_employees || 0} employees and total net salary of Rs. ${fmtLKR(selectedBatch.total_net_salary || 0)}?`,
+      `Approve payroll batch ${selectedBatch.batch_no} with ${selectedBatch.total_employees || 0} employees and total net salary of ${currencySymbol} ${fmtLKR(selectedBatch.total_net_salary || 0)}?`,
       () => approveMutation.mutate(selectedBatch.id)
     );
   }, [selectedBatch, approveDialog, approveMutation]);
@@ -246,7 +248,7 @@ export default function PayrollApprovalsPage() {
                   {formatPeriod(b.payroll_month, b.payroll_year)} • {b.total_employees || 0} employees
                 </Typography>
                 <Typography variant="caption" fontWeight={600}>
-                  Rs. {fmtLKR(b.total_net_salary || 0)}
+                  {currencySymbol} {fmtLKR(b.total_net_salary || 0)}
                 </Typography>
               </Box>
             }
@@ -309,22 +311,22 @@ export default function PayrollApprovalsPage() {
       <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2, mb: 3 }}>
         <TStatCard
           title="Gross Salary"
-          value={`Rs. ${fmtLKR(detail.total_gross_salary || 0)}`}
+          value={`${currencySymbol} ${fmtLKR(detail.total_gross_salary || 0)}`}
           color="primary"
         />
         <TStatCard
           title="Net Salary"
-          value={`Rs. ${fmtLKR(detail.total_net_salary || 0)}`}
+          value={`${currencySymbol} ${fmtLKR(detail.total_net_salary || 0)}`}
           color="success"
         />
         <TStatCard
           title="Total EPF"
-          value={`Rs. ${fmtLKR(Number(detail.total_employer_epf || 0))}`}
+          value={`${currencySymbol} ${fmtLKR(Number(detail.total_employer_epf || 0))}`}
           color="warning"
         />
         <TStatCard
           title="Total ETF"
-          value={`Rs. ${fmtLKR(Number(detail.total_employer_etf || 0))}`}
+          value={`${currencySymbol} ${fmtLKR(Number(detail.total_employer_etf || 0))}`}
           color="info"
         />
       </Box>
@@ -350,23 +352,23 @@ export default function PayrollApprovalsPage() {
         <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 2 }}>
           <Box>
             <Typography variant="caption" color="text.secondary">Total Deductions</Typography>
-            <Typography>Rs. {fmtLKR(detail.total_deductions || 0)}</Typography>
+            <Typography>{currencySymbol} {fmtLKR(detail.total_deductions || 0)}</Typography>
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">Employer EPF (12%)</Typography>
-            <Typography>Rs. {fmtLKR(detail.total_employer_epf || 0)}</Typography>
+            <Typography>{currencySymbol} {fmtLKR(detail.total_employer_epf || 0)}</Typography>
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">Employer ETF (3%)</Typography>
-            <Typography>Rs. {fmtLKR(detail.total_employer_etf || 0)}</Typography>
+            <Typography>{currencySymbol} {fmtLKR(detail.total_employer_etf || 0)}</Typography>
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">Total APIT</Typography>
-            <Typography>Rs. {fmtLKR(detail.total_apit || 0)}</Typography>
+            <Typography>{currencySymbol} {fmtLKR(detail.total_apit || 0)}</Typography>
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">Total Employer Cost</Typography>
-            <Typography fontWeight="bold">Rs. {fmtLKR(detail.total_employer_cost || 0)}</Typography>
+            <Typography fontWeight="bold">{currencySymbol} {fmtLKR(detail.total_employer_cost || 0)}</Typography>
           </Box>
         </Box>
       </FormSection>
@@ -387,10 +389,10 @@ export default function PayrollApprovalsPage() {
               {detail.payroll_records.slice(0, 10).map((record: EmployeePayroll) => (
                 <TableRow key={record.id} sx={modernTableStyles.bodyRow}>
                   <TableCell>{record.employee_id}</TableCell>
-                  <TableCell align="right">Rs. {fmtLKR(record.gross_salary || 0)}</TableCell>
-                  <TableCell align="right">Rs. {fmtLKR(record.less_epf_employee || 0)}</TableCell>
-                  <TableCell align="right">Rs. {fmtLKR(record.less_apit || 0)}</TableCell>
-                  <TableCell align="right">Rs. {fmtLKR(record.net_salary || 0)}</TableCell>
+                  <TableCell align="right">{currencySymbol} {fmtLKR(record.gross_salary || 0)}</TableCell>
+                  <TableCell align="right">{currencySymbol} {fmtLKR(record.less_epf_employee || 0)}</TableCell>
+                  <TableCell align="right">{currencySymbol} {fmtLKR(record.less_apit || 0)}</TableCell>
+                  <TableCell align="right">{currencySymbol} {fmtLKR(record.net_salary || 0)}</TableCell>
                 </TableRow>
               ))}
               {detail.payroll_records.length > 10 && (

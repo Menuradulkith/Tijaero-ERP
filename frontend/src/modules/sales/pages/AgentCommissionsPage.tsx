@@ -34,6 +34,7 @@ import { exportToCSV } from "@/utils/csvExport";
 import DownloadIcon from "@mui/icons-material/FileDownload";
 import { commissionsApi, commissionPaymentsApi } from "@/modules/sales/commission-api";
 import type { CustomerAgentCommissionWithDetails } from "@/modules/sales/commission-types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 const STATUS_COLOR: Record<string, "default" | "warning" | "success" | "error"> = {
   pending: "warning",
@@ -46,6 +47,7 @@ function fmtAmount(val: number) {
 }
 
 export default function AgentCommissionsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const canView = usePermission(
     PERMISSIONS.AGENT_COMMISSIONS_VIEW.resource,
@@ -142,7 +144,7 @@ export default function AgentCommissionsPage() {
       return;
     }
     if (requested - maxAmount > 0.01) {
-      setPayError(`Amount cannot exceed the commission of Rs. ${fmtAmount(maxAmount)}.`);
+      setPayError(`Amount cannot exceed the commission of ${currencySymbol} ${fmtAmount(maxAmount)}.`);
       return;
     }
     setPaying(true);
@@ -234,13 +236,13 @@ export default function AgentCommissionsPage() {
         <Paper variant="outlined" sx={{ px: 2.5, py: 1.5, display: "flex", gap: 2, alignItems: "center" }}>
           <Typography variant="body2" color="text.secondary">Unpaid</Typography>
           <Typography variant="h6" fontWeight="bold" color="warning.main">
-            Rs. {fmtAmount(totalPending)}
+            {currencySymbol} {fmtAmount(totalPending)}
           </Typography>
         </Paper>
         <Paper variant="outlined" sx={{ px: 2.5, py: 1.5, display: "flex", gap: 2, alignItems: "center" }}>
           <Typography variant="body2" color="text.secondary">Paid</Typography>
           <Typography variant="h6" fontWeight="bold" color="success.main">
-            Rs. {fmtAmount(totalPaid)}
+            {currencySymbol} {fmtAmount(totalPaid)}
           </Typography>
         </Paper>
       </Box>
@@ -318,7 +320,7 @@ export default function AgentCommissionsPage() {
                   </TableCell>
                   <TableCell>{c.agent_name || `Agent #${c.customer_agent_id}`}</TableCell>
                   <TableCell>{c.customer_name || ""}</TableCell>
-                  <TableCell align="right">Rs. {fmtAmount(c.invoice_amount ?? 0)}</TableCell>
+                  <TableCell align="right">{currencySymbol} {fmtAmount(c.invoice_amount ?? 0)}</TableCell>
                   <TableCell align="right">
                     {c.commission_rate ? `${c.commission_rate}%` : ""}
                   </TableCell>
@@ -328,7 +330,7 @@ export default function AgentCommissionsPage() {
                       color="text.primary"
                       variant="body2"
                     >
-                      Rs. {fmtAmount(Number(c.commission_amount ?? 0))}
+                      {currencySymbol} {fmtAmount(Number(c.commission_amount ?? 0))}
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
@@ -337,7 +339,7 @@ export default function AgentCommissionsPage() {
                       color={c.status === "pending" || c.status === "approved" ? "warning.main" : "success.main"}
                       variant="body2"
                     >
-                      Rs. {fmtAmount(Number(c.commission_amount ?? 0) - Number(c.total_paid ?? 0))}
+                      {currencySymbol} {fmtAmount(Number(c.commission_amount ?? 0) - Number(c.total_paid ?? 0))}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -430,14 +432,14 @@ export default function AgentCommissionsPage() {
               <TableRow sx={{ bgcolor: "grey.50" }}>
                 <TableCell colSpan={3} align="right"><Typography variant="subtitle2">Total</Typography></TableCell>
                 <TableCell align="right">
-                  <Typography variant="subtitle2">Rs. {fmtAmount(commissions.reduce((s, c) => s + Number(c.invoice_amount ?? 0), 0))}</Typography>
+                  <Typography variant="subtitle2">{currencySymbol} {fmtAmount(commissions.reduce((s, c) => s + Number(c.invoice_amount ?? 0), 0))}</Typography>
                 </TableCell>
                 <TableCell></TableCell>
                 <TableCell align="right">
-                  <Typography variant="subtitle2">Rs. {fmtAmount(commissions.reduce((s, c) => s + Number(c.commission_amount ?? 0), 0))}</Typography>
+                  <Typography variant="subtitle2">{currencySymbol} {fmtAmount(commissions.reduce((s, c) => s + Number(c.commission_amount ?? 0), 0))}</Typography>
                 </TableCell>
                 <TableCell align="right">
-                  <Typography variant="subtitle2">Rs. {fmtAmount(commissions.reduce((s, c) => s + (Number(c.commission_amount ?? 0) - Number(c.total_paid ?? 0)), 0))}</Typography>
+                  <Typography variant="subtitle2">{currencySymbol} {fmtAmount(commissions.reduce((s, c) => s + (Number(c.commission_amount ?? 0) - Number(c.total_paid ?? 0)), 0))}</Typography>
                 </TableCell>
                 <TableCell colSpan={canPay || canApprove ? 3 : 2}></TableCell>
               </TableRow>
@@ -478,8 +480,8 @@ export default function AgentCommissionsPage() {
                 onChange={(e) => setPayAmountOverride(parseFloat(e.target.value) || 0)}
                 fullWidth
                 inputProps={{ min: 0, max: Number(payingCommission.commission_amount ?? 0) - Number(payingCommission.total_paid ?? 0), step: 0.01 }}
-                InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
-                helperText={`Remaining amount: Rs. ${fmtAmount(Number(payingCommission.commission_amount ?? 0) - Number(payingCommission.total_paid ?? 0))} \u2014 partial payments allowed, cannot exceed this.`}
+                InputProps={{ startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment> }}
+                helperText={`Remaining amount: ${currencySymbol} ${fmtAmount(Number(payingCommission.commission_amount ?? 0) - Number(payingCommission.total_paid ?? 0))} \u2014 partial payments allowed, cannot exceed this.`}
               />
 
               <TextField

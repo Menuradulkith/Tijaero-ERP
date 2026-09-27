@@ -1,4 +1,6 @@
-import { createTheme } from "@mui/material/styles";
+import { alpha, createTheme } from "@mui/material/styles";
+// Adds `MuiDataGrid` to theme.components and `DataGrid` to theme.palette.
+import type {} from "@mui/x-data-grid/themeAugmentation";
 
 // Define PaletteMode type
 type PaletteMode = "light" | "dark";
@@ -6,6 +8,24 @@ type PaletteMode = "light" | "dark";
 // Function to create theme based on mode
 export const createAppTheme = (mode: PaletteMode) => {
   const isLight = mode === "light";
+
+  // List-table tokens (shared by MuiDataGrid and MuiTable below). Neutrals
+  // carry a slight tint of the brand purple so they read as chosen, not
+  // default grey. In dark mode the accent is a lighter tint of the primary
+  // so hover/selected stay visible on the dark ground.
+  const table = {
+    headerBg: isLight ? "#FAF8FA" : "#242124",
+    line: isLight ? "#E7E3E7" : "#2F2B2E",
+    lineStrong: isLight ? "#D8D2D7" : "#3E393D",
+    accent: isLight ? "#714B67" : "#C9A3BF",
+    muted: isLight ? "#66737C" : "#A39CA2",
+  };
+  // Zebra stripes: every second row gets this faint tint. Hover and
+  // selected colours are declared after it so they still win on striped rows.
+  const rowStripe = isLight ? "#F7F5F7" : "#232023";
+  const rowHover = alpha(table.accent, isLight ? 0.05 : 0.08);
+  const rowSelected = alpha(table.accent, isLight ? 0.1 : 0.16);
+  const rowSelectedHover = alpha(table.accent, isLight ? 0.14 : 0.22);
 
   return createTheme({
     palette: {
@@ -51,6 +71,11 @@ export const createAppTheme = (mode: PaletteMode) => {
         secondary: isLight ? "#7F8C8D" : "#A0A0A0",
       },
       divider: isLight ? "#E0E0E0" : "#333333",
+      // MUI X DataGrid reads these for its header and body backgrounds.
+      DataGrid: {
+        bg: isLight ? "#FFFFFF" : "#1E1E1E",
+        headerBg: table.headerBg,
+      },
       grey: {
         50: isLight ? "#FAFAFA" : "#303030",
         100: isLight ? "#F5F5F5" : "#2A2A2A",
@@ -228,11 +253,14 @@ export const createAppTheme = (mode: PaletteMode) => {
           },
         },
       },
+      // Hand-built MUI <Table>s get the same look as the data grids: tinted
+      // header with small muted labels, thin row lines, aligned digits.
       MuiTableCell: {
         styleOverrides: {
           root: {
-            borderBottom: isLight ? "1px solid #E0E0E0" : "1px solid #333333",
-            padding: "12px 16px",
+            borderBottom: `1px solid ${table.line}`,
+            padding: "10px 16px",
+            fontVariantNumeric: "tabular-nums",
             "@media (max-width:600px)": {
               padding: "8px 12px",
               fontSize: "0.75rem",
@@ -240,7 +268,82 @@ export const createAppTheme = (mode: PaletteMode) => {
           },
           head: {
             fontWeight: 600,
-            backgroundColor: isLight ? "#FAFAFA" : "#2A2A2A",
+            fontSize: "0.78rem",
+            letterSpacing: "0.01em",
+            color: table.muted,
+            backgroundColor: table.headerBg,
+            borderBottom: `1px solid ${table.lineStrong}`,
+            whiteSpace: "nowrap",
+          },
+        },
+      },
+      MuiTableRow: {
+        styleOverrides: {
+          root: {
+            // Body rows only (not the header). These tables aren't
+            // virtualized, so a plain nth-of-type stripe is stable.
+            ".MuiTableBody-root &:nth-of-type(even)": { backgroundColor: rowStripe },
+            "&.MuiTableRow-hover:hover": { backgroundColor: rowHover },
+            "&.Mui-selected": { backgroundColor: rowSelected },
+            "&.Mui-selected:hover": { backgroundColor: rowSelectedHover },
+          },
+        },
+      },
+      // The ERP list-table style (see TDataGrid): 40px rows and header, thin
+      // tinted row lines, muted 12.5px semibold headers, brand-tinted hover,
+      // selected rows with a left accent bar, skeleton rows while loading.
+      MuiDataGrid: {
+        defaultProps: {
+          rowHeight: 40,
+          columnHeaderHeight: 40,
+          // Zebra stripes. The grid virtualizes (recycles row elements while
+          // scrolling), so a CSS nth-child stripe would jump around; tag rows
+          // by their position on the current page instead.
+          getRowClassName: (params) =>
+            params.indexRelativeToCurrentPage % 2 === 1 ? "tdg-row--striped" : "",
+          slotProps: {
+            loadingOverlay: { variant: "skeleton", noRowsVariant: "skeleton" },
+          },
+        },
+        styleOverrides: {
+          root: {
+            "--DataGrid-rowBorderColor": table.line,
+            borderColor: table.line,
+            borderRadius: 12,
+            fontSize: "0.875rem",
+            "& .MuiDataGrid-columnHeaderTitle": {
+              fontWeight: 600,
+              fontSize: "0.78rem",
+              letterSpacing: "0.01em",
+              color: table.muted,
+            },
+            "& .MuiDataGrid-columnHeader--sorted .MuiDataGrid-columnHeaderTitle": {
+              color: isLight ? "#2C3E50" : "#E6E3E6",
+            },
+            "& .MuiDataGrid-sortIcon": { color: table.accent },
+            "& .MuiDataGrid-columnSeparator": { color: table.line },
+            "& .MuiDataGrid-cell": { fontVariantNumeric: "tabular-nums" },
+            "& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within, & .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within": {
+              outline: "none",
+            },
+            "& .MuiDataGrid-cell:focus-visible, & .MuiDataGrid-columnHeader:focus-visible": {
+              outline: `2px solid ${alpha(table.accent, 0.5)}`,
+              outlineOffset: -2,
+            },
+            "& .MuiDataGrid-row.tdg-row--striped": { backgroundColor: rowStripe },
+            "& .MuiDataGrid-row:hover": { backgroundColor: rowHover },
+            "& .MuiDataGrid-row.Mui-selected": {
+              backgroundColor: rowSelected,
+              boxShadow: `inset 3px 0 0 ${table.accent}`,
+            },
+            "& .MuiDataGrid-row.Mui-selected:hover": { backgroundColor: rowSelectedHover },
+            "& .MuiDataGrid-footerContainer": {
+              minHeight: 48,
+              borderTop: `1px solid ${table.line}`,
+            },
+            "& .MuiDataGrid-checkboxInput.Mui-checked, & .MuiDataGrid-checkboxInput.MuiCheckbox-indeterminate": {
+              color: table.accent,
+            },
           },
         },
       },

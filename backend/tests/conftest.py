@@ -97,10 +97,14 @@ def client(db) -> TestClient:
     def _override_get_db():
         yield db
 
-    app.dependency_overrides[get_db] = _override_get_db
+    # app.main wraps the FastAPI app in ProxyHeadersMiddleware, which has no
+    # dependency_overrides — set them on the inner FastAPI app, but still send
+    # requests through the wrapper so the middleware stack is exercised.
+    fastapi_app = getattr(app, "app", app)
+    fastapi_app.dependency_overrides[get_db] = _override_get_db
     with TestClient(app) as c:
         yield c
-    app.dependency_overrides.pop(get_db, None)
+    fastapi_app.dependency_overrides.pop(get_db, None)
 
 
 # --------------------------------------------------------------------------- #

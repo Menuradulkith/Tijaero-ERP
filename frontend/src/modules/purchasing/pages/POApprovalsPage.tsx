@@ -7,6 +7,7 @@
 import { useMemo, useCallback, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatDateTimeReadable } from "@/utils/formatters";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -77,6 +78,7 @@ const SORT_OPTIONS: SortOption[] = [
 // getStatusChipProps is now imported from common components
 
 export default function POApprovalsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
@@ -268,7 +270,7 @@ export default function POApprovalsPage() {
 
           const confirmed = await creditWarningDialog.confirm({
             title: "⚠️ Credit Limit Warning",
-            message: `Supplier: ${supplierName}\nCredit Limit: Rs. ${fmtLKR(creditCheck.credit_check.max_credit_limit)}\nCurrent Outstanding: Rs. ${fmtLKR(creditCheck.credit_check.current_outstanding)}\nAvailable Credit: Rs. ${fmtLKR(creditCheck.credit_check.available_credit)}\nThis Order: Rs. ${fmtLKR(creditCheck.credit_check.po_value)}\nExceeds by: Rs. ${fmtLKR(creditCheck.credit_check.excess_amount)}\n\n${creditCheck.message}`,
+            message: `Supplier: ${supplierName}\nCredit Limit: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.max_credit_limit)}\nCurrent Outstanding: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.current_outstanding)}\nAvailable Credit: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.available_credit)}\nThis Order: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.po_value)}\nExceeds by: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.excess_amount)}\n\n${creditCheck.message}`,
             confirmText: "Approve Anyway",
             cancelText: "Cancel",
             confirmColor: "warning",
@@ -397,7 +399,7 @@ export default function POApprovalsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        Rs. {isSelected && selectedOrder?.items
+                        {currencySymbol} {isSelected && selectedOrder?.items
                           ? fmtLKR(selectedOrder.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0))
                           : fmtLKR(order.total_amount || 0)}
                       </Typography>
@@ -530,9 +532,9 @@ export default function POApprovalsPage() {
                     <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell>Product</TableCell>
                       <TableCell align="right">Quantity</TableCell>
-                      <TableCell align="right">Unit Price (Rs.)</TableCell>
+                      <TableCell align="right">{`Unit Price (${currencySymbol})`}</TableCell>
                       <TableCell>Remark</TableCell>
-                      <TableCell align="right">Total (Rs.)</TableCell>
+                      <TableCell align="right">{`Total (${currencySymbol})`}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>

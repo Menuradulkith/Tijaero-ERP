@@ -11,8 +11,6 @@ import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { exportToCSV } from "@/utils/csvExport";
 import {
@@ -70,6 +68,7 @@ import {
   useTConfirmDialog,
   useMasterDetailState,
   useCrudMutation,
+  useRowSelection,
   TActivityHistoryPanel,
 } from "@/components/tijaero";
 
@@ -77,6 +76,7 @@ import {
 import { useReferenceData } from "@/hooks";
 import { expensesApi } from "@/modules/finance/api";
 import type { Expense, ExpenseCreate, ExpensePaymentData } from "@/modules/finance/types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 // An expense row as shown in the browse table, with display-only lookup
 // fields precomputed so the grid's own column-header sort orders by the
@@ -126,6 +126,7 @@ const resetFormFromExpense = (expense: Expense): Partial<ExpenseCreate> => ({
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function ExpensesPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
 
@@ -170,8 +171,6 @@ export default function ExpensesPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectExpense,
@@ -181,7 +180,6 @@ export default function ExpensesPage() {
   } = useMasterDetailState<Expense, Partial<ExpenseCreate>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromExpense,
-    favoritesKey: "expenses_favorites",
     defaultSortField: "created_date",
     confirmUnsavedChanges: () =>
       confirmDialog.confirm({
@@ -193,6 +191,8 @@ export default function ExpensesPage() {
       }),
     onDiscard: () => { setFormStep(0); },
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Status & Dates section title, rather than shown inline.
@@ -257,7 +257,7 @@ export default function ExpensesPage() {
   const handleExportCSV = () => {
     if (!filteredExpenses.length) return;
     const headers = ["Expense No", "Category", "Amount", "Method", "Status", "Date", "Vendor", "Remarks", "Branch"];
-    const rows = filteredExpenses.map(e => [
+    const rows = rowSelection.pick(filteredExpenses).map(e => [
       e.expenses_no, e.expense_category || "", e.expense_amount, e.expenses_method, e.status, e.expense_date || e.created_date, e.vendor_name || "", e.remarks || "", e.branch_code || "",
     ]);
     exportToCSV({
@@ -510,23 +510,6 @@ export default function ExpensesPage() {
 
   const expenseColumns: TDataGridColumn<ExpenseRow>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<ExpenseRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "expenses_no", header: "Expense No", width: 150 },
       { field: "category_label", header: "Category", flex: 1, minWidth: 150 },
       { field: "branch_name", header: "Branch", width: 150 },
@@ -580,7 +563,7 @@ export default function ExpensesPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectExpense]
+    [handleSelectExpense]
   );
 
   // ─── Detail Panel ──────────────────────────────────────────────────────────
@@ -738,8 +721,6 @@ export default function ExpensesPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedExpense.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedExpense.id, e)}
         />
       )}
     </Paper>
@@ -760,8 +741,6 @@ export default function ExpensesPage() {
         isCreating={isCreating}
         createTitle="New Expense"
         noSelectionTitle="Select an Expense"
-        isFavorite={selectedExpense ? favorites.includes(selectedExpense.id) : false}
-        onToggleFavorite={selectedExpense ? (e) => toggleFavorite(selectedExpense.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -879,7 +858,7 @@ export default function ExpensesPage() {
                   </TextField>
 
                   <TextField
-                    label="Amount (Rs.)"
+                    label={`Amount (${currencySymbol})`}
                     size="small"
                     type="number"
                     value={formData.expense_amount || 0}
@@ -1087,6 +1066,9 @@ export default function ExpensesPage() {
           columns={expenseColumns}
           loading={isLoading}
           onRowClick={(row) => handleSelectExpense(row)}
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No expenses found"

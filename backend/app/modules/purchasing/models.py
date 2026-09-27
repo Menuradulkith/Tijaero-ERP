@@ -51,6 +51,13 @@ class Supplier(Base, AuditMixin):
     company_name = Column(String(255), nullable=False)
     company_registration_number = Column(String(255))
     tax_registration_number = Column(String(255))
+    # Tax treatment classification — a small fixed set (see
+    # TAX_AREA_CHOICES in schemas.py), not a geographic jurisdiction.
+    # Mirrors Odoo's "Fiscal Position" / standard ERP tax classification:
+    # determines how this supplier's purchases are taxed (domestic
+    # standard/zero-rated/exempt, export, or import), independent of the
+    # company-wide default tax rate in Settings.
+    tax_area = Column(String(30))
     company_website = Column(String(200))
     logo_path = Column(String(500))
     # Billing address — where PO/payment correspondence is sent.
@@ -80,6 +87,19 @@ class Supplier(Base, AuditMixin):
     initial_credit_amount = Column(Numeric(18, 2))
     active = Column(Boolean, nullable=False)
     country_id = Column(Integer, ForeignKey("country.id"))
+    # Manually-set planning default — how long this supplier is expected to
+    # take to deliver, in days. Stays user-editable indefinitely (standard
+    # ERP practice, e.g. SAP's "Planned Delivery Time"), independent of
+    # average_lead_time_days (computed live from actual PO->GRN history in
+    # SupplierRepository.get_average_lead_times — that one is read-only
+    # analytics, this one is the purchaser's own planning assumption).
+    lead_time_days = Column(Integer)
+    # The currency this supplier is normally billed/paid in, e.g. purchase
+    # orders raised against them. A 3-letter ISO 4217 code string, not a
+    # FK — same convention as Settings.default_currency (see
+    # app/modules/settings/models.py) and validated against the
+    # currencies table's `code` at the API layer, not via a DB constraint.
+    default_currency = Column(String(3))
 
     country = relationship("Country", back_populates="suppliers")
     purchasing_orders_first = relationship("PurchasingOrder", foreign_keys="PurchasingOrder.first_suppliers_id", back_populates="first_supplier")
@@ -116,19 +136,61 @@ class SupplierContactPerson(Base, AuditMixin):
 
 class SupplierPaymentMethod(Base, AuditMixin):
     """
-    A saved payment method (bank account, cheque, or cash) recorded on a
-    supplier's profile, so it can be quickly selected — rather than retyped —
-    when processing an actual payment to that supplier on the Supplier
-    Payments screen.
+    A saved payment method recorded on a supplier's profile, so it can be
+    quickly selected — rather than retyped — when processing an actual
+    payment to that supplier on the Supplier Payments screen.
+
+    method_type: cash, bank_transfer, cheque, direct_debit, letter_of_credit,
+    credit_card, digital_wallet. Each type only uses its own subset of the
+    columns below (all nullable — a single flat table with a type
+    discriminator, same pattern as before rather than per-type tables).
     """
     __tablename__ = "supplier_payment_method"
 
     id = Column(Integer, primary_key=True, index=True)
     supplier_id = Column(Integer, ForeignKey("supplier.id", ondelete="CASCADE"), nullable=False, index=True)
-    method_type = Column(String(30), nullable=False)  # cash, bank_transfer, cheque
+    method_type = Column(String(30), nullable=False)
     bank_name = Column(String(255))
     account_number = Column(String(100))
     account_holder_name = Column(String(255))
+    # Bank-transfer-only wire details (not shown/used for cheque or cash).
+    # `bank_branch_code` is deliberately not named `branch_code` — that name
+    # is already used everywhere else in the app for the company's OWN
+    # operating branch/location (see app/modules/branches), an unrelated
+    # concept; this one is the supplier's bank's branch code.
+    branch = Column(String(255))
+    bank_branch_code = Column(String(50))
+    swift_code = Column(String(20))
+    correspondent_bank_name = Column(String(255))
+    correspondent_bank_swift_code = Column(String(20))
+
+    # Direct Debit / ACH only. Reuses bank_name/bank_branch_code/
+    # account_number/account_holder_name above for the mandate's bank details.
+    mandate_reference = Column(String(100))
+    mandate_date = Column(Date)
+
+    # Letter of Credit only.
+    lc_number = Column(String(100))
+    issuing_bank_name = Column(String(255))
+    advising_bank_name = Column(String(255))
+    lc_amount = Column(Numeric(18, 2))
+    lc_currency = Column(String(3))
+    lc_type = Column(String(30))  # sight, usance, irrevocable, confirmed, unconfirmed
+    lc_issue_date = Column(Date)
+    lc_expiry_date = Column(Date)
+    latest_shipment_date = Column(Date)
+
+    # Credit Card only. PCI-DSS: never store the full PAN — only the last 4
+    # digits, for display/identification purposes.
+    card_type = Column(String(20))  # visa, mastercard, amex, other
+    card_last4 = Column(String(4))
+    card_expiry = Column(String(7))  # "MM/YYYY"
+    cardholder_name = Column(String(255))
+
+    # Digital Wallet only.
+    wallet_provider = Column(String(50))  # paypal, payoneer, wise, other
+    wallet_id = Column(String(255))
+
     is_default = Column(Boolean, nullable=False, default=False)
     active = Column(Boolean, nullable=False, default=True)
 

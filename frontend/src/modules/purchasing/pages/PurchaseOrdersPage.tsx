@@ -5,6 +5,7 @@
 
 // Confirm dialog now uses TConfirmDialog from tijaero
 import apiClient from "@/api/client";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { 
   FileDownload as DownloadIcon,
   Check as CheckIcon,
@@ -19,8 +20,6 @@ import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
     Alert,
@@ -83,6 +82,7 @@ import {
     PO_STATUS_FILTER_OPTIONS,
     useCrudMutation,
     useMasterDetailState,
+    useRowSelection,
     useTConfirmDialog,
     TActivityHistoryPanel,
 } from "@/components/tijaero";
@@ -185,6 +185,7 @@ const resetFormFromOrder = (
 });
 
 export default function PurchaseOrdersPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -269,8 +270,6 @@ export default function PurchaseOrdersPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectOrder,
@@ -280,7 +279,6 @@ export default function PurchaseOrdersPage() {
   } = useMasterDetailState<PurchasingOrder, PurchaseOrderFormData>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromOrder,
-    favoritesKey: "purchase_orders_favorites",
     defaultSortField: "added_date",
     confirmUnsavedChanges: () =>
       confirmDialog.confirm({
@@ -296,6 +294,11 @@ export default function PurchaseOrdersPage() {
       setFormStep(0);
     },
   });
+
+  // Server-side export (see handleExportCSV below); row selection here only
+  // narrows what's ticked in the grid, since the export endpoint exports
+  // everything matching the current filters, not a specific id list.
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Tracking section title, rather than shown inline.
@@ -477,7 +480,7 @@ export default function PurchaseOrdersPage() {
       )
     );
     showSuccessToast(
-      `Unit price set to Rs. ${supplier.cost_price} from ${supplier.supplier_company_name || "this supplier"}`
+      `Unit price set to ${currencySymbol} ${supplier.cost_price} from ${supplier.supplier_company_name || "this supplier"}`
     );
     setCompareSuppliersFor(null);
   }, [compareSuppliersFor]);
@@ -1022,7 +1025,7 @@ export default function PurchaseOrdersPage() {
 
           const confirmed = await creditWarningDialog.confirm({
             title: "⚠️ Credit Limit Warning",
-            message: `Supplier: ${supplierName}\nCredit Limit: Rs. ${fmtLKR(creditCheck.credit_check.max_credit_limit)}\nCurrent Outstanding: Rs. ${fmtLKR(creditCheck.credit_check.current_outstanding)}\nAvailable Credit: Rs. ${fmtLKR(creditCheck.credit_check.available_credit)}\nThis Order: Rs. ${fmtLKR(creditCheck.credit_check.po_value)}\nExceeds by: Rs. ${fmtLKR(creditCheck.credit_check.excess_amount)}\n\n${creditCheck.message}`,
+            message: `Supplier: ${supplierName}\nCredit Limit: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.max_credit_limit)}\nCurrent Outstanding: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.current_outstanding)}\nAvailable Credit: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.available_credit)}\nThis Order: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.po_value)}\nExceeds by: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.excess_amount)}\n\n${creditCheck.message}`,
             confirmText: "Continue Anyway",
             cancelText: "Cancel",
             confirmColor: "warning",
@@ -1239,26 +1242,6 @@ export default function PurchaseOrdersPage() {
   const purchaseOrderColumns: TDataGridColumn<PurchaseOrderRow>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<PurchaseOrderRow>) => (
-          <IconButton
-            size="small"
-            onClick={(e) => toggleFavorite(params.row.id, e)}
-          >
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "purchasing_order_no",
         header: "PO Number",
         flex: 1,
@@ -1321,7 +1304,7 @@ export default function PurchaseOrdersPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectOrderWithItems]
+    [handleSelectOrderWithItems]
   );
 
   // Whether we're showing a single order's detail view (selected or being
@@ -1345,6 +1328,9 @@ export default function PurchaseOrdersPage() {
           emptyMessage="No purchase orders found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1404,8 +1390,6 @@ export default function PurchaseOrdersPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedOrder.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedOrder.id, e)}
         />
       )}
     </Paper>
@@ -1444,12 +1428,6 @@ export default function PurchaseOrdersPage() {
         isCreating={isCreating}
         createTitle="New Purchase Order"
         noSelectionTitle="Select an Order"
-        isFavorite={
-          selectedOrder ? favorites.includes(selectedOrder.id) : false
-        }
-        onToggleFavorite={
-          selectedOrder ? (e) => toggleFavorite(selectedOrder.id, e) : undefined
-        }
       />
 
       <ActionToolbar
@@ -1711,11 +1689,11 @@ export default function PurchaseOrdersPage() {
                           <TableHead>
                             <TableRow sx={modernTableStyles.headerRow}>
                               <TableCell>Product</TableCell>
-                              <TableCell align="right">Base Cost (Rs.)</TableCell>
+                              <TableCell align="right">{`Base Cost (${currencySymbol})`}</TableCell>
                               <TableCell align="right">
                                 {(suppliers?.find(
                                   (s: Supplier) => s.id === formData.first_suppliers_id,
-                                )?.company_name || "Supplier") + "'s Cost (Rs.)"}
+                                )?.company_name || "Supplier") + `'s Cost (${currencySymbol})`}
                               </TableCell>
                             </TableRow>
                           </TableHead>
@@ -1989,10 +1967,10 @@ export default function PurchaseOrdersPage() {
                         <TableRow sx={modernTableStyles.headerRow}>
                           <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
                           <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
-                          <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
+                          <TableCell align="right" sx={{ width: 120 }}>{`Unit Price (${currencySymbol})`}</TableCell>
                           <TableCell sx={{ width: 150 }}>Remark</TableCell>
                           <TableCell align="right" sx={{ width: 120 }}>
-                            Amount (Rs.)
+                            {`Amount (${currencySymbol})`}
                           </TableCell>
                           {(isEditing || isCreating) && (
                             <TableCell sx={{ width: 50 }} />
@@ -2032,7 +2010,7 @@ export default function PurchaseOrdersPage() {
                                               <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
                                                 <Typography variant="body2" sx={{ flex: 1 }}>{option.name}</Typography>
                                                 {mapping && (
-                                                  <Tooltip title={`This supplier's cost: Rs. ${mapping.cost_price}${mapping.is_preferred ? " (preferred)" : ""}`}>
+                                                  <Tooltip title={`This supplier's cost: ${currencySymbol} ${mapping.cost_price}${mapping.is_preferred ? " (preferred)" : ""}`}>
                                                     <CheckIcon fontSize="small" color={mapping.is_preferred ? "primary" : "success"} />
                                                   </Tooltip>
                                                 )}
@@ -2419,7 +2397,7 @@ export default function PurchaseOrdersPage() {
                         </Typography>
                       )}
                     </TableCell>
-                    <TableCell align="right">Rs. {supplier.cost_price}</TableCell>
+                    <TableCell align="right">{currencySymbol} {supplier.cost_price}</TableCell>
                     <TableCell align="right">{supplier.minimum_order_qty ?? "-"}</TableCell>
                     <TableCell align="right">
                       <Button size="small" onClick={(e) => { e.stopPropagation(); handleQuickFillSupplierPrice(supplier); }}>

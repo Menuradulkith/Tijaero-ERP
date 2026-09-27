@@ -17,6 +17,7 @@ import {
     TDataGrid,
     type TDataGridColumn,
     TExportButton,
+    useRowSelection,
     TSectionNav,
     TStatusFilter,
     useConfirmDialog,
@@ -26,6 +27,7 @@ import {
     type TSectionNavItem,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
+import { useCurrencyStore } from "@/state/currencyStore";
 import {
     Add as AddIcon,
     ArrowBack as ArrowBackIcon,
@@ -37,8 +39,6 @@ import {
     LocalShipping as SuppliersIcon,
     Search as SearchIcon,
     Clear as ClearIcon,
-    Star as StarIcon,
-    StarBorder as StarOutlineIcon,
     OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import {
@@ -64,7 +64,8 @@ import {
 } from "@mui/material";
   import type { GridRenderCellParams } from "@mui/x-data-grid";
   import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import axios from "axios";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { brandsApi, categoriesApi, minimumPriceApi, productImageUrl, productsApi } from "../api";
 import ProductImageUploader from "../components/ProductImageUploader";
 import ProductSuppliersList, {
@@ -81,7 +82,22 @@ import {
     CategoryUpdate,
     Product,
     ProductCreate,
+    ProductUpdate,
 } from "../types";
+
+// A 409 from an update is either "someone else saved this record since you
+// loaded it" (expected_updated_at mismatch) or a duplicate name/code. Only
+// the first should reload the record — for a duplicate, the user's edits are
+// still wanted. Telling them apart: the server's version token moved on.
+const isStaleConflict = (sentVersion: string | undefined, freshVersion: string | undefined) =>
+  !!sentVersion && !!freshVersion && sentVersion !== freshVersion;
+
+const isConflict = (error: unknown) =>
+  axios.isAxiosError(error) && error.response?.status === 409;
+
+// 404 on save = someone deleted the record while it was open here.
+const isNotFound = (error: unknown) =>
+  axios.isAxiosError(error) && error.response?.status === 404;
 
 const PRODUCT_SECTION_NAV_ITEMS: TSectionNavItem[] = [
   { key: "pricing", label: "Pricing", icon: <PricingIcon fontSize="small" /> },
@@ -108,7 +124,8 @@ const emptyProductForm: ProductCreate = {
   cost_price: undefined,
   category_id: 0,
   items_brand_id: 0,
-  image_url: "",
+  // No image_url: the image is written only by the upload/remove endpoints
+  // (ProductImageUploader), never by the form save.
 };
 
 const emptyCategoryForm: CategoryCreate = {
@@ -178,6 +195,7 @@ export default function ProductsPage({
   const viewToTab = (v: InventoryView) =>
     v === "products" ? 0 : v === "categories" ? 1 : 2;
   const [activeTab, setActiveTab] = useState<number>(viewToTab(view));
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   useEffect(() => {
     if (hideTabs) {
@@ -299,6 +317,13 @@ export default function ProductsPage({
         confirmColor: "warning",
       }),
   });
+
+  // One row-selection instance per tab's grid: ticking rows there narrows
+  // that tab's own CSV export to just the ticked rows (see the TExportButton
+  // headerActions below), independent of the other two tabs.
+  const productSelection = useRowSelection();
+  const categorySelection = useRowSelection();
+  const brandSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to each
   // tab's Activity History title, rather than shown inline. One shared
@@ -532,27 +557,14 @@ export default function ProductsPage({
 
   const productColumns: TDataGridColumn<ProductRow>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<ProductRow>) => (
-          <IconButton
-            size="small"
-            onClick={(e) => productState.toggleFavorite(params.row.id, e)}
-          >
-            {productState.favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "item_code", header: "Item Code", width: 140 },
+      {
+        field: "item_type",
+        header: "Item Type",
+        width: 110,
+        renderCell: (params: GridRenderCellParams<ProductRow>) =>
+          getChoiceLabel(PRODUCT_ITEM_TYPE, params.row.item_type),
+      },
       {
         field: "name",
         header: "Name",
@@ -590,7 +602,7 @@ export default function ProductsPage({
         width: 130,
         align: "right",
         headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<ProductRow>) => `Rs. ${fmtLKR(params.row.cost_price || 0)}`,
+        renderCell: (params: GridRenderCellParams<ProductRow>) => `${currencySymbol} ${fmtLKR(params.row.cost_price || 0)}`,
       },
       {
         field: "selling_price",
@@ -598,7 +610,7 @@ export default function ProductsPage({
         width: 130,
         align: "right",
         headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<ProductRow>) => `Rs. ${fmtLKR(params.row.selling_price || 0)}`,
+        renderCell: (params: GridRenderCellParams<ProductRow>) => `${currencySymbol} ${fmtLKR(params.row.selling_price || 0)}`,
       },
       {
         field: "minimum_selling_price",
@@ -607,7 +619,7 @@ export default function ProductsPage({
         align: "right",
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<ProductRow>) =>
-          params.row.minimum_selling_price != null ? `Rs. ${fmtLKR(params.row.minimum_selling_price)}` : "-",
+          params.row.minimum_selling_price != null ? `${currencySymbol} ${fmtLKR(params.row.minimum_selling_price)}` : "-",
       },
       {
         field: "active",
@@ -645,7 +657,7 @@ export default function ProductsPage({
         ),
       },
     ],
-    [productState.favorites, productState.toggleFavorite, handleSelectProduct]
+    [handleSelectProduct]
   );
 
   const categoryRows: CategoryRow[] = filteredCategories;
@@ -784,9 +796,22 @@ export default function ProductsPage({
     [handleSelectBrand]
   );
 
+  // Which record each tab currently shows, readable from inside mutation
+  // callbacks that resolve later. A save's response must only be applied if
+  // the user is still on that same record — they may have moved on while the
+  // request was in flight.
+  const selectedProductIdRef = useRef<number | null>(null);
+  selectedProductIdRef.current = productState.selectedItem?.id ?? null;
+  const selectedCategoryIdRef = useRef<number | null>(null);
+  selectedCategoryIdRef.current = categoryState.selectedItem?.id ?? null;
+  const selectedBrandIdRef = useRef<number | null>(null);
+  selectedBrandIdRef.current = brandState.selectedItem?.id ?? null;
+
   // Mutations
   const createProductMutation = useCrudMutation({
-    mutationFn: productsApi.create,
+    // The minimum selling price travels in the same request and is saved in
+    // the same transaction as the product (no second follow-up request).
+    mutationFn: (data: ProductCreate) => productsApi.create(data),
     // Also invalidate the referenceData cache so product selectors in purchasing,
     // sales, warehouse etc. immediately reflect the new product without a hard refresh.
     invalidateQueryKeys: [["products"], ["referenceData"]],
@@ -796,15 +821,6 @@ export default function ProductsPage({
       productState.setIsCreating(false);
       productState.setIsEditing(false);
       productState.setSelectedItem(newProduct);
-
-      const priceToSet =
-        typeof minPriceInput === "number" ? minPriceInput : 0;
-      if (priceToSet > 0 && canUpdate) {
-        setMinimumPriceForProductMutation.mutate({
-          productId: newProduct.id,
-          price: priceToSet,
-        });
-      }
       setMinPriceInput("");
 
       if (draftImageFile) {
@@ -828,7 +844,9 @@ export default function ProductsPage({
       if (pendingSupplierMappings.length > 0) {
         const mappingsToCreate = pendingSupplierMappings;
         setPendingSupplierMappings([]);
-        Promise.all(
+        // allSettled, not all: refresh the list whether some or all of the
+        // mappings failed, so the Suppliers section shows what actually saved.
+        Promise.allSettled(
           mappingsToCreate.map((m) =>
             suppliersApi.createProduct(m.supplier_id, {
               product_id: newProduct.id,
@@ -839,44 +857,61 @@ export default function ProductsPage({
               active: m.active,
             }),
           ),
-        )
-          .then(() =>
-            queryClient.invalidateQueries({
-              queryKey: ["product-suppliers", newProduct.id],
-            }),
-          )
-          .catch(() =>
+        ).then((results) => {
+          queryClient.invalidateQueries({
+            queryKey: ["product-suppliers", newProduct.id],
+          });
+          queryClient.invalidateQueries({ queryKey: ["products"] });
+          if (results.some((r) => r.status === "rejected")) {
             showErrorToast(
               "Product created, but some supplier mappings failed to save",
-            ),
-          );
+            );
+          }
+        });
       }
     },
   });
 
   const updateProductMutation = useCrudMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<ProductCreate> }) =>
+    mutationFn: ({ id, data }: { id: number; data: ProductUpdate }) =>
       productsApi.update(id, data),
     invalidateQueryKeys: [["products"], ["referenceData"]],
+    getInvalidateQueryKeys: (_data, variables) => [["minimum-price", variables.id]],
     successMessage: "Product updated successfully",
     errorMessage: "Failed to update product",
     onSuccess: (updatedProduct) => {
-      productState.setIsEditing(false);
-      productState.setSelectedItem(updatedProduct);
-
-      // Minimum price lives in its own history-tracked table, so it's only
-      // saved (a new history row created) when the user actually changed it
-      // — re-submitting the same value on every edit would pollute the
-      // price history with no-op entries.
-      if (
-        typeof minPriceInput === "number" &&
-        minPriceInput !== (currentMinPrice?.minimum_price ?? -1) &&
-        canUpdate
-      ) {
-        setMinimumPriceForProductMutation.mutate({
-          productId: updatedProduct.id,
-          price: minPriceInput,
-        });
+      // Reload the form from the saved record (so it reflects exactly what
+      // the server stored), but only if the user is still on this product.
+      if (selectedProductIdRef.current === updatedProduct.id) {
+        selectProductInternal(updatedProduct);
+      }
+    },
+    onError: async (error, variables) => {
+      if (isNotFound(error)) {
+        queryClient.setQueryData<Product[]>(["products"], (prev) =>
+          prev ? prev.filter((p) => p.id !== variables.id) : prev,
+        );
+        if (selectedProductIdRef.current === variables.id) {
+          productState.setIsEditing(false);
+          productState.setSelectedItem(null);
+          setProductTouched({});
+        }
+        return;
+      }
+      if (!isConflict(error)) return;
+      try {
+        const fresh = await productsApi.getById(variables.id);
+        if (!isStaleConflict(variables.data.expected_version, fresh.version)) return;
+        queryClient.setQueryData<Product[]>(["products"], (prev) =>
+          prev ? prev.map((p) => (p.id === fresh.id ? fresh : p)) : prev,
+        );
+        queryClient.invalidateQueries({ queryKey: ["minimum-price", fresh.id] });
+        if (selectedProductIdRef.current === fresh.id) {
+          selectProductInternal(fresh);
+          setProductTouched({});
+        }
+      } catch {
+        // The 409's toast already told the user; nothing more to do.
       }
     },
   });
@@ -911,8 +946,36 @@ export default function ProductsPage({
     successMessage: "Category updated successfully",
     errorMessage: "Failed to update category",
     onSuccess: (updatedCategory) => {
-      categoryState.setIsEditing(false);
-      categoryState.setSelectedItem(updatedCategory);
+      if (selectedCategoryIdRef.current === updatedCategory.id) {
+        selectCategoryInternal(updatedCategory);
+      }
+    },
+    onError: async (error, variables) => {
+      if (isNotFound(error)) {
+        queryClient.setQueryData<Category[]>(["categories"], (prev) =>
+          prev ? prev.filter((c) => c.id !== variables.id) : prev,
+        );
+        if (selectedCategoryIdRef.current === variables.id) {
+          categoryState.setIsEditing(false);
+          categoryState.setSelectedItem(null);
+          setCategoryTouched({});
+        }
+        return;
+      }
+      if (!isConflict(error)) return;
+      try {
+        const fresh = await categoriesApi.getById(variables.id);
+        if (!isStaleConflict(variables.data.expected_version, fresh.version)) return;
+        queryClient.setQueryData<Category[]>(["categories"], (prev) =>
+          prev ? prev.map((c) => (c.id === fresh.id ? fresh : c)) : prev,
+        );
+        if (selectedCategoryIdRef.current === fresh.id) {
+          selectCategoryInternal(fresh);
+          setCategoryTouched({});
+        }
+      } catch {
+        // The 409's toast already told the user; nothing more to do.
+      }
     },
   });
 
@@ -946,8 +1009,36 @@ export default function ProductsPage({
     successMessage: "Brand updated successfully",
     errorMessage: "Failed to update brand",
     onSuccess: (updatedBrand) => {
-      brandState.setIsEditing(false);
-      brandState.setSelectedItem(updatedBrand);
+      if (selectedBrandIdRef.current === updatedBrand.id) {
+        selectBrandInternal(updatedBrand);
+      }
+    },
+    onError: async (error, variables) => {
+      if (isNotFound(error)) {
+        queryClient.setQueryData<Brand[]>(["brands"], (prev) =>
+          prev ? prev.filter((b) => b.id !== variables.id) : prev,
+        );
+        if (selectedBrandIdRef.current === variables.id) {
+          brandState.setIsEditing(false);
+          brandState.setSelectedItem(null);
+          setBrandTouched({});
+        }
+        return;
+      }
+      if (!isConflict(error)) return;
+      try {
+        const fresh = await brandsApi.getById(variables.id);
+        if (!isStaleConflict(variables.data.expected_version, fresh.version)) return;
+        queryClient.setQueryData<Brand[]>(["brands"], (prev) =>
+          prev ? prev.map((b) => (b.id === fresh.id ? fresh : b)) : prev,
+        );
+        if (selectedBrandIdRef.current === fresh.id) {
+          selectBrandInternal(fresh);
+          setBrandTouched({});
+        }
+      } catch {
+        // The 409's toast already told the user; nothing more to do.
+      }
     },
   });
 
@@ -959,17 +1050,6 @@ export default function ProductsPage({
     onSuccess: (data) => {
       brandState.setSelectedItem(null);
     },
-  });
-
-  // Minimum selling price mutation
-  const setMinimumPriceForProductMutation = useCrudMutation({
-    mutationFn: ({ productId, price }: { productId: number; price: number }) =>
-      minimumPriceApi.set(productId, { minimum_price: price }),
-    getInvalidateQueryKeys: (_data, variables) => [
-      ["minimum-price", variables.productId],
-    ],
-    successMessage: "Minimum selling price set successfully",
-    errorMessage: "Failed to set minimum selling price",
   });
 
 
@@ -990,7 +1070,6 @@ export default function ProductsPage({
       cost_price: product.cost_price,
       category_id: product.category_id,
       items_brand_id: product.items_brand_id,
-      image_url: product.image_url || "",
     });
     productState.setIsEditing(false);
     productState.setIsCreating(false);
@@ -1078,12 +1157,32 @@ export default function ProductsPage({
       dataToSave.website_active = false;
     }
 
+    // Captured now, at submit time, as part of the request itself — not read
+    // later from component state in onSuccess, where it may have changed.
+    const minimumSellingPrice =
+      typeof minPriceInput === "number" ? minPriceInput : undefined;
+
     if (productState.isCreating) {
-      createProductMutation.mutate(dataToSave);
+      createProductMutation.mutate({
+        ...dataToSave,
+        minimum_selling_price: minimumSellingPrice,
+      });
     } else if (productState.selectedItem) {
+      // The backend only writes a new price-history row when the minimum
+      // actually changed, so sending the current value is a no-op.
+      // item_code is immutable after creation, and image_url is owned by the
+      // image upload/remove endpoints — neither belongs in an update.
+      const updateFields: Partial<ProductCreate> = { ...dataToSave };
+      delete updateFields.item_code;
+      delete updateFields.image_url;
       updateProductMutation.mutate({
         id: productState.selectedItem.id,
-        data: dataToSave,
+        data: {
+          ...updateFields,
+          minimum_selling_price: minimumSellingPrice,
+          expected_updated_at: productState.selectedItem.updated_at,
+          expected_version: productState.selectedItem.version,
+        },
       });
     }
   };
@@ -1183,7 +1282,11 @@ export default function ProductsPage({
     } else if (categoryState.selectedItem) {
       updateCategoryMutation.mutate({
         id: categoryState.selectedItem.id,
-        data: categoryState.formData,
+        data: {
+          ...categoryState.formData,
+          expected_updated_at: categoryState.selectedItem.updated_at,
+          expected_version: categoryState.selectedItem.version,
+        },
       });
     }
   };
@@ -1289,7 +1392,11 @@ export default function ProductsPage({
     } else if (brandState.selectedItem) {
       updateBrandMutation.mutate({
         id: brandState.selectedItem.id,
-        data: brandState.formData,
+        data: {
+          ...brandState.formData,
+          expected_updated_at: brandState.selectedItem.updated_at,
+          expected_version: brandState.selectedItem.version,
+        },
       });
     }
   };
@@ -1373,6 +1480,9 @@ export default function ProductsPage({
           emptyMessage="No products found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={productSelection.selectedRows}
+          onSelectionChange={productSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1468,8 +1578,6 @@ export default function ProductsPage({
                   </Box>
                 </Box>
               }
-              isFavorite={productState.favorites.includes(productState.selectedItem.id)}
-              onToggleFavorite={(e) => productState.toggleFavorite(productState.selectedItem!.id, e)}
             />
             <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
               <TSectionNav
@@ -1928,7 +2036,7 @@ export default function ProductsPage({
                     }
                     InputProps={{
                       startAdornment: (
-                        <InputAdornment position="start">Rs.</InputAdornment>
+                        <InputAdornment position="start">{currencySymbol}</InputAdornment>
                       ),
                     }}
                   />
@@ -1962,7 +2070,7 @@ export default function ProductsPage({
                     disabled={!productState.isEditing && !productState.isCreating}
                     InputProps={{
                       startAdornment: (
-                        <InputAdornment position="start">Rs.</InputAdornment>
+                        <InputAdornment position="start">{currencySymbol}</InputAdornment>
                       ),
                     }}
                   />
@@ -2003,7 +2111,7 @@ export default function ProductsPage({
                     }
                     InputProps={{
                       startAdornment: (
-                        <InputAdornment position="start">Rs.</InputAdornment>
+                        <InputAdornment position="start">{currencySymbol}</InputAdornment>
                       ),
                     }}
                   />
@@ -2025,10 +2133,10 @@ export default function ProductsPage({
                     }}
                     disabled={!productState.isEditing && !productState.isCreating}
                     error={typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0)}
-                    helperText={typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0) ? `Cannot be less than cost price (Rs. ${productState.formData.cost_price || 0})` : ""}
+                    helperText={typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0) ? `Cannot be less than cost price (${currencySymbol} ${productState.formData.cost_price || 0})` : ""}
                     InputProps={{
                       startAdornment: (
-                        <InputAdornment position="start">Rs.</InputAdornment>
+                        <InputAdornment position="start">{currencySymbol}</InputAdornment>
                       ),
                     }}
                   />
@@ -2076,6 +2184,9 @@ export default function ProductsPage({
           emptyMessage="No categories found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={categorySelection.selectedRows}
+          onSelectionChange={categorySelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -2389,6 +2500,9 @@ export default function ProductsPage({
           emptyMessage="No brands found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={brandSelection.selectedRows}
+          onSelectionChange={brandSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -2854,7 +2968,7 @@ export default function ProductsPage({
                 "Updated At",
               ]}
               rows={() =>
-                filteredProducts.map((p) => [
+                productSelection.pick(filteredProducts).map((p) => [
                   p.item_code || "",
                   p.name || "",
                   p.model || "",
@@ -2892,7 +3006,7 @@ export default function ProductsPage({
               filename="categories"
               headers={["Category Code", "Name", "Description", "Active"]}
               rows={() =>
-                filteredCategories.map((c) => [
+                categorySelection.pick(filteredCategories).map((c) => [
                   c.category_code || "",
                   c.name || "",
                   c.description || "",
@@ -2921,7 +3035,7 @@ export default function ProductsPage({
               filename="brands"
               headers={["Brand Code", "Brand Name", "Description"]}
               rows={() =>
-                filteredBrands.map((b) => [
+                brandSelection.pick(filteredBrands).map((b) => [
                   b.brand_code || "",
                   b.brand_name || "",
                   b.description || "",

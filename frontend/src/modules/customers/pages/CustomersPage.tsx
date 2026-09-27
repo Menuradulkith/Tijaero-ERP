@@ -5,8 +5,6 @@
 import PersonIcon from "@mui/icons-material/Person";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import SearchIcon from "@mui/icons-material/Search";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
@@ -47,6 +45,7 @@ import {
     CIVIL_CHOICES,
     TDataGrid,
     SelectableListItem,
+    useRowSelection,
     type TDataGridColumn,
 } from "@/components/tijaero";
 import { formatDateTimeReadable, formatCurrency } from "@/utils/formatters";
@@ -121,8 +120,6 @@ export default function CustomersPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectCustomer,
@@ -132,9 +129,10 @@ export default function CustomersPage() {
   } = useMasterDetailState<Customer, CustomerCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromCustomer,
-    favoritesKey: "customers_favorites",
     defaultSortField: "customer_name",
   });
+
+  const rowSelection = useRowSelection();
 
   // Data fetching
   const { data: customers, isLoading, refetch } = useQuery({
@@ -281,23 +279,6 @@ export default function CustomersPage() {
   const customerColumns: TDataGridColumn<Customer>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<Customer>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "customer_name",
         header: "Name",
         flex: 1,
@@ -359,7 +340,7 @@ export default function CustomersPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectCustomer]
+    [handleSelectCustomer]
   );
 
   const customerTablePanel = (
@@ -370,6 +351,9 @@ export default function CustomersPage() {
           columns={customerColumns}
           loading={isLoading}
           onRowClick={(row) => handleSelectCustomer(row)}
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No customers found"
@@ -440,8 +424,6 @@ export default function CustomersPage() {
                 </Box>
               </Box>
             }
-            isFavorite={favorites.includes(selectedCustomer.id)}
-            onToggleFavorite={(e) => toggleFavorite(selectedCustomer.id, e)}
           />
         </Box>
       )}
@@ -468,8 +450,6 @@ export default function CustomersPage() {
           { label: selectedCustomer.active ? "Active" : "Inactive", color: selectedCustomer.active ? "success" : "default" as const },
           ...(selectedCustomer.is_customer_agent ? [{ label: "Agent", color: "info" as const }] : [])
         ] : []}
-        isFavorite={selectedCustomer ? favorites.includes(selectedCustomer.id) : false}
-        onToggleFavorite={selectedCustomer ? (e) => toggleFavorite(selectedCustomer.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -769,7 +749,7 @@ export default function CustomersPage() {
                   "Active",
                 ]}
                 rows={() =>
-                  filteredCustomers.map((c) => [
+                  rowSelection.pick(filteredCustomers).map((c) => [
                     c.customer_name || "",
                     c.company_name || "",
                     c.email || "",

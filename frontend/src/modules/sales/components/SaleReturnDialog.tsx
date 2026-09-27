@@ -27,6 +27,7 @@ import { useReferenceData } from "@/hooks";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 // OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import { showSuccessToast, showErrorToast, fmtLKR } from "@/components/tijaero";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { format } from "date-fns";
 
 interface SaleReturnDialogProps {
@@ -48,6 +49,7 @@ export default function SaleReturnDialog({
   preselectedInvoice,
 }: SaleReturnDialogProps) {
   const queryClient = useQueryClient();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   const { data: invoices } = useQuery({
     queryKey: ["sales"],
@@ -272,8 +274,8 @@ export default function SaleReturnDialog({
               <TableHead>
                 <TableRow>
                   <TableCell>Barcode/Serial</TableCell>
-                  <TableCell>Sold Price (Rs.)</TableCell>
-                  <TableCell>Return Price (Rs.)</TableCell>
+                  <TableCell>{`Sold Price (${currencySymbol})`}</TableCell>
+                  <TableCell>{`Return Price (${currencySymbol})`}</TableCell>
                   <TableCell>Invoice Item</TableCell>
                   <TableCell>Action</TableCell>
                 </TableRow>
@@ -369,7 +371,7 @@ export default function SaleReturnDialog({
 
           <Box sx={{ mt: 2, textAlign: "right" }}>
             <Typography variant="h6" color="error.main">
-              Total Refund: {`Rs. ${fmtLKR(calculateTotal())}`}
+              Total Refund: {`${currencySymbol} ${fmtLKR(calculateTotal())}`}
             </Typography>
           </Box>
         </DialogContent>

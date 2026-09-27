@@ -21,8 +21,6 @@ import {
   Receipt as ChequeIcon,
   Search as SearchIcon,
   Clear as ClearIcon,
-  Star as StarIcon,
-  StarBorder as StarOutlineIcon,
   ArrowBack as ArrowBackIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
@@ -43,11 +41,13 @@ import {
   type TDataGridColumn,
   fmtLKR,
   TActivityHistoryPanel,
+  useRowSelection,
 } from "@/components/tijaero";
 
 import { chequePaymentsApi } from "@/modules/finance/api";
 import { ChequePayment, ChequePaymentCreate } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 interface Branch {
   branch_code: string;
@@ -86,6 +86,7 @@ const resetFormFromItem = (item: ChequePayment): Partial<ChequePaymentCreate> =>
 });
 
 export default function ChequePaymentsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   // Filter state - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -96,20 +97,19 @@ export default function ChequePaymentsPage() {
     selectedItem,
     setSelectedItem,
     isCreating,
-    favorites,
-    toggleFavorite,
     formData,
     handleSelectItem,
   } = useMasterDetailState<ChequePayment, Partial<ChequePaymentCreate>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem,
-    favoritesKey: "cheque_payments_favorites",
     defaultSortField: "cheque_date",
   });
 
   // Activity History is opened on demand from a detail icon next to the
   // Additional Info section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
+  const rowSelection = useRowSelection();
 
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
@@ -189,23 +189,6 @@ export default function ChequePaymentsPage() {
   const chequeColumns: TDataGridColumn<ChequePaymentRow>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<ChequePaymentRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "cheque_number",
         header: "Cheque No",
         width: 140,
@@ -227,7 +210,7 @@ export default function ChequePaymentsPage() {
         width: 140,
         align: "right",
         headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<ChequePaymentRow>) => `Rs. ${fmtLKR(Number(params.row.amount || 0))}`,
+        renderCell: (params: GridRenderCellParams<ChequePaymentRow>) => `${currencySymbol} ${fmtLKR(Number(params.row.amount || 0))}`,
       },
       {
         field: "deposit_date",
@@ -258,7 +241,7 @@ export default function ChequePaymentsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectWithCheck]
+    [handleSelectWithCheck, currencySymbol]
   );
 
   // Browse mode: a full-width table of every cheque payment (shown when
@@ -272,6 +255,9 @@ export default function ChequePaymentsPage() {
           columns={chequeColumns}
           loading={isLoading}
           onRowClick={(row) => handleSelectWithCheck(row)}
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No cheque payments found"
@@ -324,8 +310,6 @@ export default function ChequePaymentsPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedItem.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
     </Paper>
@@ -345,8 +329,6 @@ export default function ChequePaymentsPage() {
         isCreating={isCreating}
         createTitle="New Cheque Payment"
         noSelectionTitle="Select a Cheque"
-        isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
-        onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
 
       {/* Actions disabled - read-only mode */}
@@ -503,7 +485,7 @@ export default function ChequePaymentsPage() {
             filename={`cheque_payments_${new Date().toISOString().split("T")[0]}`}
             headers={["ID", "Cheque No", "From Party", "Bank", "Amount", "Cheque Date", "Deposit Date", "Invoice No", "Payment For", "Branch", "Remark"]}
             rows={() =>
-              filteredCheques.map((c) => [
+              rowSelection.pick(filteredCheques).map((c) => [
                 c.id,
                 c.cheque_number ?? "",
                 c.from_party || "",

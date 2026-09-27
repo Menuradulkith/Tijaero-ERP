@@ -70,11 +70,13 @@ import {
 } from "@/components/dashboard";
 import { fmtLKR, TPageSkeleton, TStatusChip } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { salesApi } from "../api";
 
 export default function SalesDashboard() {
   const navigate = useNavigate();
   const theme = useTheme();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
@@ -211,7 +213,7 @@ export default function SalesDashboard() {
         <Grid item xs={12} sm={6} md={3}>
           <KpiSparkCard
             title="Today's Revenue"
-            value={`Rs. ${fmtLKR(stats.today_revenue)}`}
+            value={`${currencySymbol} ${fmtLKR(stats.today_revenue)}`}
             subtitle={`${stats.today_orders} order${stats.today_orders !== 1 ? "s" : ""} so far`}
             icon={<AttachMoneyIcon />}
             color="success"
@@ -222,8 +224,8 @@ export default function SalesDashboard() {
         <Grid item xs={12} sm={6} md={3}>
           <KpiSparkCard
             title="Month Revenue"
-            value={`Rs. ${fmtLKR(stats.current_month_revenue)}`}
-            subtitle={`Last month: Rs. ${fmtLKR(stats.last_month_revenue)}`}
+            value={`${currencySymbol} ${fmtLKR(stats.current_month_revenue)}`}
+            subtitle={`Last month: ${currencySymbol} ${fmtLKR(stats.last_month_revenue)}`}
             icon={<BarChartIcon />}
             color="primary"
             trend={trends.revenue}
@@ -247,7 +249,7 @@ export default function SalesDashboard() {
         <Grid item xs={12} sm={6} md={3}>
           <KpiSparkCard
             title="Avg Order Value"
-            value={`Rs. ${fmtLKR(stats.avg_order_value)}`}
+            value={`${currencySymbol} ${fmtLKR(stats.avg_order_value)}`}
             subtitle={`${stats.total_orders.toLocaleString()} total orders`}
             icon={<ReceiptIcon />}
             color="warning"
@@ -293,7 +295,7 @@ export default function SalesDashboard() {
                     formatter={(v: number | undefined, n: string | undefined) => {
                       const num = v ?? 0;
                       return n === "Revenue"
-                        ? ([`Rs. ${fmtLKR(num)}`, n] as [string, string])
+                        ? ([`${currencySymbol} ${fmtLKR(num)}`, n] as [string, string])
                         : ([num, n ?? ""] as [number, string]);
                     }}
                     contentStyle={{
@@ -384,7 +386,7 @@ export default function SalesDashboard() {
                   />
                   <RechartsTooltip
                     formatter={(v: number | undefined) =>
-                      [`Rs. ${fmtLKR(v ?? 0)}`, "Revenue"] as [string, string]
+                      [`${currencySymbol} ${fmtLKR(v ?? 0)}`, "Revenue"] as [string, string]
                     }
                     contentStyle={{
                       borderRadius: 8,
@@ -405,8 +407,8 @@ export default function SalesDashboard() {
             <BreakdownDonut
               data={paymentSlices}
               centerLabel="Total"
-              centerValue={`Rs. ${fmtLKR(stats.total_revenue)}`}
-              formatValue={(v) => `Rs. ${fmtLKR(v)}`}
+              centerValue={`${currencySymbol} ${fmtLKR(stats.total_revenue)}`}
+              formatValue={(v) => `${currencySymbol} ${fmtLKR(v)}`}
               height={220}
             />
           </DashboardPanel>
@@ -467,7 +469,7 @@ export default function SalesDashboard() {
                       secondaryTypographyProps={{ variant: "caption" }}
                     />
                     <Typography variant="body2" sx={{ fontWeight: 700, color: "success.main", whiteSpace: "nowrap" }}>
-                      Rs. {fmtLKR(c.revenue)}
+                      {currencySymbol} {fmtLKR(c.revenue)}
                     </Typography>
                   </ListItem>
                 ))}
@@ -515,7 +517,7 @@ export default function SalesDashboard() {
                     />
                     <Stack direction="row" spacing={1.25} alignItems="center">
                       <Typography variant="body2" sx={{ fontWeight: 700, color: "success.main" }}>
-                        Rs. {fmtLKR(inv.total)}
+                        {currencySymbol} {fmtLKR(inv.total)}
                       </Typography>
                       <TStatusChip
                         status={inv.approval ? "approved" : "pending"}
@@ -575,7 +577,7 @@ export default function SalesDashboard() {
                         {inv.invoice_no}
                       </Typography>
                       <Typography variant="h6" sx={{ fontWeight: 800, color: "success.main", mt: 0.5 }}>
-                        Rs. {fmtLKR(inv.total)}
+                        {currencySymbol} {fmtLKR(inv.total)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         {inv.created_date ? format(new Date(inv.created_date), "MMM dd") : "—"}

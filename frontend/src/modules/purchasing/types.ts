@@ -4,6 +4,8 @@ export interface Supplier {
   company_name: string;
   company_registration_number?: string;
   tax_registration_number?: string;
+  /** Tax treatment classification — see SUPPLIER_TAX_AREA in @/components/tijaero. */
+  tax_area?: string | null;
   company_website?: string;
   billing_address_line1: string;
   billing_address_line2?: string;
@@ -26,13 +28,22 @@ export interface Supplier {
   left_credit_amount?: number;
   initial_credit_amount?: number;
   logo_path?: string;
+  /** Manually-set planning default (days) — always editable, independent
+   * of the computed average_lead_time_days below. */
+  lead_time_days?: number | null;
+  /** Read-only, computed live from actual PO->GRN delivery history. */
   average_lead_time_days?: number | null;
+  /** 3-letter ISO 4217 code, e.g. "LKR" — options come from the
+   * currencies reference data (useReferenceData(["currencies"])). */
+  default_currency?: string | null;
   created_at?: string;
   updated_at?: string;
   created_by?: number;
   updated_by?: number;
   created_by_name?: string;
   updated_by_name?: string;
+  /** Full-precision change token — echo back as expected_version on save. */
+  version?: string;
 }
 
 export interface SupplierActivityLogEntry {
@@ -74,10 +85,17 @@ export interface SupplierContactPersonCreate {
 
 export type SupplierContactPersonUpdate = Partial<SupplierContactPersonCreate>;
 
-// Supplier Payment Account Types (saved bank/cash/cheque details on a
-// supplier's profile — distinct from `SupplierPaymentMethod` below, which is
-// the method used on an actual posted SupplierPayment transaction)
-export type SupplierPaymentAccountType = "cash" | "bank_transfer" | "cheque";
+// Supplier Payment Account Types (saved standing/preferred payment methods
+// on a supplier's profile — distinct from `SupplierPaymentMethod` below,
+// which is the method used on an actual posted SupplierPayment transaction)
+export type SupplierPaymentAccountType =
+  | "cash"
+  | "bank_transfer"
+  | "cheque"
+  | "direct_debit"
+  | "letter_of_credit"
+  | "credit_card"
+  | "digital_wallet";
 
 export interface SupplierPaymentAccount {
   id: number;
@@ -86,6 +104,33 @@ export interface SupplierPaymentAccount {
   bank_name?: string;
   account_number?: string;
   account_holder_name?: string;
+  // Bank-transfer-only wire details — not used for cheque/cash.
+  branch?: string;
+  bank_branch_code?: string;
+  swift_code?: string;
+  correspondent_bank_name?: string;
+  correspondent_bank_swift_code?: string;
+  // Direct Debit / ACH only.
+  mandate_reference?: string;
+  mandate_date?: string;
+  // Letter of Credit only.
+  lc_number?: string;
+  issuing_bank_name?: string;
+  advising_bank_name?: string;
+  lc_amount?: number;
+  lc_currency?: string;
+  lc_type?: string;
+  lc_issue_date?: string;
+  lc_expiry_date?: string;
+  latest_shipment_date?: string;
+  // Credit Card only — PCI-DSS: last 4 digits only, never the full PAN.
+  card_type?: string;
+  card_last4?: string;
+  card_expiry?: string;
+  cardholder_name?: string;
+  // Digital Wallet only.
+  wallet_provider?: string;
+  wallet_id?: string;
   is_default: boolean;
   active: boolean;
   created_at: string;
@@ -97,6 +142,28 @@ export interface SupplierPaymentAccountCreate {
   bank_name?: string;
   account_number?: string;
   account_holder_name?: string;
+  branch?: string;
+  bank_branch_code?: string;
+  swift_code?: string;
+  correspondent_bank_name?: string;
+  correspondent_bank_swift_code?: string;
+  mandate_reference?: string;
+  mandate_date?: string;
+  lc_number?: string;
+  issuing_bank_name?: string;
+  advising_bank_name?: string;
+  lc_amount?: number;
+  lc_currency?: string;
+  lc_type?: string;
+  lc_issue_date?: string;
+  lc_expiry_date?: string;
+  latest_shipment_date?: string;
+  card_type?: string;
+  card_last4?: string;
+  card_expiry?: string;
+  cardholder_name?: string;
+  wallet_provider?: string;
+  wallet_id?: string;
   is_default?: boolean;
   active?: boolean;
 }
@@ -106,6 +173,28 @@ export interface SupplierPaymentAccountUpdate {
   bank_name?: string;
   account_number?: string;
   account_holder_name?: string;
+  branch?: string;
+  bank_branch_code?: string;
+  swift_code?: string;
+  correspondent_bank_name?: string;
+  correspondent_bank_swift_code?: string;
+  mandate_reference?: string;
+  mandate_date?: string;
+  lc_number?: string;
+  issuing_bank_name?: string;
+  advising_bank_name?: string;
+  lc_amount?: number;
+  lc_currency?: string;
+  lc_type?: string;
+  lc_issue_date?: string;
+  lc_expiry_date?: string;
+  latest_shipment_date?: string;
+  card_type?: string;
+  card_last4?: string;
+  card_expiry?: string;
+  cardholder_name?: string;
+  wallet_provider?: string;
+  wallet_id?: string;
   is_default?: boolean;
   active?: boolean;
 }
@@ -145,6 +234,7 @@ export interface SupplierCreate {
   company_name: string;
   company_registration_number?: string;
   tax_registration_number?: string;
+  tax_area?: string;
   company_website?: string;
   billing_address_line1: string;
   billing_address_line2?: string;
@@ -163,12 +253,15 @@ export interface SupplierCreate {
   max_credit_limit: number;
   active?: boolean;
   country_id?: number;
+  lead_time_days?: number;
+  default_currency?: string;
 }
 
 export interface SupplierUpdate {
   company_name?: string;
   company_registration_number?: string;
   tax_registration_number?: string;
+  tax_area?: string;
   company_website?: string;
   billing_address_line1?: string;
   billing_address_line2?: string;
@@ -187,10 +280,15 @@ export interface SupplierUpdate {
   max_credit_limit?: number;
   active?: boolean;
   country_id?: number;
+  lead_time_days?: number;
+  default_currency?: string;
   /** The `updated_at` this edit was based on — lets the backend reject the
    * save with a 409 if someone else changed the record in the meantime,
    * instead of silently overwriting their change. Omit to skip the check. */
   expected_updated_at?: string;
+  /** Preferred over expected_updated_at: the exact `version` token from the
+   * Supplier response (catches changes within the same second too). */
+  expected_version?: string;
 }
 
 // Purchase Order Types

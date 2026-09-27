@@ -26,8 +26,6 @@ import {
   History as HistoryIcon,
   Search as SearchIcon,
   Clear as ClearIcon,
-  Star as StarIcon,
-  StarBorder as StarOutlineIcon,
   ArrowBack as ArrowBackIcon,
   Add as AddIcon,
   OpenInNew as OpenInNewIcon,
@@ -43,6 +41,7 @@ import {
   handleApiError,
   SelectableListItem,
   useMasterDetailState,
+  useRowSelection,
   showErrorToast,
   showSuccessToast,
   TDetailSkeleton,
@@ -63,6 +62,7 @@ import { advancePaymentsApi } from "@/modules/finance/api";
 import { customersApi } from "@/modules/customers/api";
 import { CustomerAdvancePayment, CustomerAdvancePaymentCreate } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 // Types
 interface Branch {
@@ -99,6 +99,7 @@ const resetFormFromItem = (item: CustomerAdvancePayment): Partial<CustomerAdvanc
 });
 
 export default function CustomerAdvancePaymentsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const confirmDialog = useConfirmDialog();
   const canViewCustomers = usePermission("customers", "view");
 
@@ -121,8 +122,6 @@ export default function CustomerAdvancePaymentsPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem,
@@ -131,7 +130,6 @@ export default function CustomerAdvancePaymentsPage() {
   } = useMasterDetailState<CustomerAdvancePayment, Partial<CustomerAdvancePaymentCreate>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromItem,
-    favoritesKey: "customer_advance_payments_favorites",
     defaultSortField: "created_date",
     confirmUnsavedChanges: () =>
       confirmDialog.confirm({
@@ -142,6 +140,8 @@ export default function CustomerAdvancePaymentsPage() {
         confirmColor: "warning",
       }),
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Status section title, rather than shown inline.
@@ -332,23 +332,6 @@ export default function CustomerAdvancePaymentsPage() {
   const advanceColumns: TDataGridColumn<AdvanceRow>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<AdvanceRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "advance_payments_no",
         header: "Ref No",
         flex: 1,
@@ -371,7 +354,7 @@ export default function CustomerAdvancePaymentsPage() {
         width: 140,
         align: "right",
         headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<AdvanceRow>) => `Rs. ${fmtLKR(Number(params.row.payment_amount || 0))}`,
+        renderCell: (params: GridRenderCellParams<AdvanceRow>) => `${currencySymbol} ${fmtLKR(Number(params.row.payment_amount || 0))}`,
       },
       {
         field: "active",
@@ -409,7 +392,7 @@ export default function CustomerAdvancePaymentsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectWithCheck]
+    [handleSelectWithCheck, currencySymbol]
   );
 
   const advanceTablePanel = (
@@ -425,6 +408,9 @@ export default function CustomerAdvancePaymentsPage() {
           emptyMessage="No customer advance payments found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -486,8 +472,6 @@ export default function CustomerAdvancePaymentsPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedItem.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
     </Paper>
@@ -510,8 +494,6 @@ export default function CustomerAdvancePaymentsPage() {
         isCreating={isCreating}
         createTitle="New Customer Advance Payment"
         noSelectionTitle="Select an Advance Payment"
-        isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
-        onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -617,7 +599,7 @@ export default function CustomerAdvancePaymentsPage() {
                 error={hasError("payment_amount")}
                 helperText={getFieldError("payment_amount")}
                 InputProps={{
-                  startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                  startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment>,
                 }}
                 inputProps={{ min: 0, step: 0.01 }}
               />
@@ -746,7 +728,7 @@ export default function CustomerAdvancePaymentsPage() {
                   "Remarks",
                 ]}
                 rows={() =>
-                  filteredAdvances.map((adv) => [
+                  rowSelection.pick(filteredAdvances).map((adv) => [
                     adv.advance_payments_no || "",
                     getCustomerName(adv.customer_id),
                     adv.payment_amount ?? 0,

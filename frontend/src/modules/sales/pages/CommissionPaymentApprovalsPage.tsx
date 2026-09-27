@@ -55,6 +55,7 @@ import {
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { customersApi } from "@/modules/customers/api";
 import { commissionPaymentsApi } from "@/modules/sales/commission-api";
 import {
@@ -81,6 +82,7 @@ const SORT_OPTIONS: SortOption[] = [
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function CommissionPaymentApprovalsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const canApprove = usePermission("commission_payment_approvals", "approve");
   const canUpdate = usePermission("commission_payments", "update");
   const canViewCustomers = usePermission("customers", "view");
@@ -341,7 +343,7 @@ export default function CommissionPaymentApprovalsPage() {
                       }}
                     >
                       <Typography component="span" variant="caption">
-                        Rs. {fmtLKR(Number(payment.payment_amount))}
+                        {currencySymbol} {fmtLKR(Number(payment.payment_amount))}
                       </Typography>
                       <Typography
                         component="span"
@@ -499,7 +501,7 @@ export default function CommissionPaymentApprovalsPage() {
               <TextField
                 label="Payment Amount"
                 size="small"
-                value={`Rs. ${fmtLKR(selectedPayment.payment_amount)}`}
+                value={`${currencySymbol} ${fmtLKR(selectedPayment.payment_amount)}`}
                 disabled
                 sx={{
                   "& .MuiInputBase-input": {
@@ -607,13 +609,13 @@ export default function CommissionPaymentApprovalsPage() {
                                 `Commission #${item.commission_id}`}
                             </TableCell>
                             <TableCell align="right">
-                              Rs. {fmtLKR(item.invoice_amount || 0)}
+                              {currencySymbol} {fmtLKR(item.invoice_amount || 0)}
                             </TableCell>
                             <TableCell align="right">
-                              Rs. {fmtLKR(item.commission_amount || 0)}
+                              {currencySymbol} {fmtLKR(item.commission_amount || 0)}
                             </TableCell>
                             <TableCell align="right">
-                              <strong>Rs. {fmtLKR(item.paid_amount || 0)}</strong>
+                              <strong>{currencySymbol} {fmtLKR(item.paid_amount || 0)}</strong>
                             </TableCell>
                             <TableCell>
                               <TStatusChip
@@ -631,7 +633,7 @@ export default function CommissionPaymentApprovalsPage() {
                           </TableCell>
                           <TableCell align="right">
                             <strong>
-                              Rs. {fmtLKR(selectedPayment.payment_amount)}
+                              {currencySymbol} {fmtLKR(selectedPayment.payment_amount)}
                             </strong>
                           </TableCell>
                           <TableCell />

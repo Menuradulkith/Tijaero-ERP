@@ -14,8 +14,6 @@ import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
@@ -58,6 +56,7 @@ import {
   TPrintPreviewDialog,
   useCrudMutation,
   useMasterDetailState,
+  useRowSelection,
   useTConfirmDialog,
   modernTableStyles,
   SelectableListItem,
@@ -68,6 +67,7 @@ import DownloadIcon from "@mui/icons-material/FileDownload";
 
 
 import { usePermission } from "@/auth/permissions";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { useReferenceData } from "@/hooks";
 import { vouchersApi } from "@/modules/customers/api";
 import { CustomerGiftVoucher, CustomerGiftVoucherCreate, VoucherUsage } from "@/modules/customers/types";
@@ -128,6 +128,7 @@ const calculateExpiryDate = (issueDate: string, months: number): Date => {
 };
 
 export default function VouchersPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   // Permissions
@@ -149,8 +150,6 @@ export default function VouchersPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectVoucher,
@@ -160,9 +159,10 @@ export default function VouchersPage() {
   } = useMasterDetailState<CustomerGiftVoucher, CustomerGiftVoucherCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromVoucher,
-    favoritesKey: "vouchers_favorites",
     defaultSortField: "barcode_no",
   });
+
+  const rowSelection = useRowSelection();
 
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
@@ -279,7 +279,7 @@ export default function VouchersPage() {
       "Status"
     ];
 
-    const rows = filteredVouchers.map(voucher => {
+    const rows = rowSelection.pick(filteredVouchers).map(voucher => {
       const expiryDate = calculateExpiryDate(voucher.date, voucher.valid_period_in_months);
       return [
         voucher.barcode_no,
@@ -391,27 +391,10 @@ export default function VouchersPage() {
     (!isCreating || (formData.branch_code && formData.branch_code.trim() !== ""));
   const isDisabled = !isEditing && !isCreating;
 
-  // The Favorite star column plus real-data columns — sorting is done via
-  // the grid's own column header menu, not a separate "Sort by" control.
+  // Sorting is done via the grid's own column header menu, not a separate
+  // "Sort by" control.
   const voucherColumns: TDataGridColumn<VoucherRow>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<VoucherRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "barcode_no", header: "Voucher Code", flex: 1, minWidth: 160 },
       {
         field: "purchased_invoice_no",
@@ -427,7 +410,7 @@ export default function VouchersPage() {
         align: "right",
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<VoucherRow>) =>
-          `Rs. ${fmtLKR(params.row.amount)}`,
+          `${currencySymbol} ${fmtLKR(params.row.amount)}`,
       },
       {
         field: "balance",
@@ -436,7 +419,7 @@ export default function VouchersPage() {
         align: "right",
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<VoucherRow>) =>
-          `Rs. ${fmtLKR(params.row.balance)}`,
+          `${currencySymbol} ${fmtLKR(params.row.balance)}`,
       },
       {
         field: "date",
@@ -491,7 +474,7 @@ export default function VouchersPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectVoucher] // eslint-disable-line react-hooks/exhaustive-deps
+    [handleSelectVoucher] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // Whether we're showing a single voucher's detail view (selected or being
@@ -539,6 +522,9 @@ export default function VouchersPage() {
           emptyMessage="No vouchers found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -598,8 +584,6 @@ export default function VouchersPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedVoucher.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedVoucher.id, e)}
         />
       )}
     </Paper>
@@ -621,8 +605,6 @@ export default function VouchersPage() {
         isCreating={isCreating}
         createTitle="New Voucher"
         noSelectionTitle="Select a Voucher"
-        isFavorite={selectedVoucher ? favorites.includes(selectedVoucher.id) : false}
-        onToggleFavorite={selectedVoucher ? (e) => toggleFavorite(selectedVoucher.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -697,7 +679,7 @@ export default function VouchersPage() {
             <FormSection title="Voucher Value" columns={3}>
               <TextField
                 size="small"
-                label="Voucher Amount (Rs.)"
+                label={`Voucher Amount (${currencySymbol})`}
                 type="number"
                 value={Number(formData.amount)}
                 onChange={(e) =>
@@ -707,7 +689,7 @@ export default function VouchersPage() {
                 required
                 inputProps={{ min: 0, step: 100 }}
                 InputProps={{
-                  startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                  startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment>,
                 }}
               />
               <TextField
@@ -730,7 +712,7 @@ export default function VouchersPage() {
               {selectedVoucher && !isCreating && (
                 <TextField
                   size="small"
-                  label="Current Balance (Rs.)"
+                  label={`Current Balance (${currencySymbol})`}
                   value={fmtLKR(selectedVoucher.balance)}
                   disabled
                   InputProps={{
@@ -786,7 +768,7 @@ export default function VouchersPage() {
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" }, gap: 2, mb: 2 }}>
                   <Paper variant="outlined" sx={{ textAlign: "center", p: 2, bgcolor: "action.hover" }}>
                     <Typography variant="h4" color="primary">
-                      Rs. {fmtLKR(selectedVoucher.amount)}
+                      {currencySymbol} {fmtLKR(selectedVoucher.amount)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       Original Amount
@@ -794,7 +776,7 @@ export default function VouchersPage() {
                   </Paper>
                   <Paper variant="outlined" sx={{ textAlign: "center", p: 2, bgcolor: "action.hover" }}>
                     <Typography variant="h4" color="success.main">
-                      Rs. {fmtLKR(selectedVoucher.balance)}
+                      {currencySymbol} {fmtLKR(selectedVoucher.balance)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       Remaining Balance
@@ -802,7 +784,7 @@ export default function VouchersPage() {
                   </Paper>
                   <Paper variant="outlined" sx={{ textAlign: "center", p: 2, bgcolor: "action.hover" }}>
                     <Typography variant="h4" color="error.main">
-                      Rs. {fmtLKR(selectedVoucher.amount - selectedVoucher.balance)}
+                      {currencySymbol} {fmtLKR(selectedVoucher.amount - selectedVoucher.balance)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       Amount Used
@@ -842,7 +824,7 @@ export default function VouchersPage() {
                             </TableCell>
                             <TableCell>{usage.invoice_no || `#${usage.invoice_id}`}</TableCell>
                             <TableCell align="right">
-                              Rs. {fmtLKR(usage.amount_used)}
+                              {currencySymbol} {fmtLKR(usage.amount_used)}
                             </TableCell>
                           </TableRow>
                         ))}

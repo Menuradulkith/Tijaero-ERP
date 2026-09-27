@@ -23,8 +23,6 @@ import {
   History as HistoryIcon,
   Search as SearchIcon,
   Clear as ClearIcon,
-  Star as StarIcon,
-  StarBorder as StarOutlineIcon,
   ArrowBack as ArrowBackIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
@@ -45,11 +43,13 @@ import {
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
+  useRowSelection,
 } from "@/components/tijaero";
 
 import { cardPaymentsApi } from "@/modules/finance/api";
 import { CardPayment, CardPaymentCreate } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 interface Branch {
   branch_code: string;
@@ -84,6 +84,7 @@ const getCardColor = (type: string): "primary" | "secondary" | "info" | "default
 };
 
 export default function CardPaymentsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   // Filter state - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -94,16 +95,15 @@ export default function CardPaymentsPage() {
     selectedItem,
     setSelectedItem,
     isCreating,
-    favorites,
-    toggleFavorite,
     formData,
     handleSelectItem,
   } = useMasterDetailState<CardPayment, Partial<CardPaymentCreate>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem,
-    favoritesKey: "card_payments_favorites",
     defaultSortField: "date_time",
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Date section title, rather than shown inline.
@@ -178,23 +178,6 @@ export default function CardPaymentsPage() {
   const paymentColumns: TDataGridColumn<CardPaymentRow>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<CardPaymentRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "ref_number",
         header: "Payment No",
         flex: 1,
@@ -222,7 +205,7 @@ export default function CardPaymentsPage() {
         width: 140,
         align: "right",
         headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<CardPaymentRow>) => `Rs. ${fmtLKR(Number(params.row.amount || 0))}`,
+        renderCell: (params: GridRenderCellParams<CardPaymentRow>) => `${currencySymbol} ${fmtLKR(Number(params.row.amount || 0))}`,
       },
       {
         field: "deposited",
@@ -255,7 +238,7 @@ export default function CardPaymentsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectWithCheck]
+    [handleSelectWithCheck, currencySymbol]
   );
 
   const paymentTablePanel = (
@@ -271,6 +254,9 @@ export default function CardPaymentsPage() {
           emptyMessage="No card payments found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -320,8 +306,6 @@ export default function CardPaymentsPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedItem.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
     </Paper>
@@ -341,8 +325,6 @@ export default function CardPaymentsPage() {
         isCreating={isCreating}
         createTitle="New Card Payment"
         noSelectionTitle="Select a Payment"
-        isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
-        onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
 
       {/* Actions disabled - read-only mode */}
@@ -482,7 +464,7 @@ export default function CardPaymentsPage() {
             filename={`card_payments_${new Date().toISOString().split("T")[0]}`}
             headers={["ID", "Ref Number", "Card Type", "Amount", "Invoice No", "Deposited", "Date", "Remark"]}
             rows={() =>
-              filteredPayments.map((p) => [
+              rowSelection.pick(filteredPayments).map((p) => [
                 p.id,
                 p.ref_number || "",
                 p.card_type || "",

@@ -8,6 +8,7 @@
  */
 
 import { usePermission } from "@/auth/permissions";
+import { useCurrencyStore } from "@/state/currencyStore";
 import DownloadIcon from "@mui/icons-material/FileDownload";
 // ConfirmDialog now uses TConfirmDialog from tijaero
 import AddIcon from "@mui/icons-material/Add";
@@ -28,8 +29,6 @@ import SaveIcon from "@mui/icons-material/Save";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
@@ -93,6 +92,7 @@ import {
   TPrintPreviewDialog,
   useCrudMutation,
   useMasterDetailState,
+  useRowSelection,
   useTConfirmDialog,
   TActivityHistoryPanel,
   TDataGrid,
@@ -204,6 +204,7 @@ const resetFormFromGRN = (grn: GoodReceivedNote): GoodReceivedNoteCreate => ({
 });
 
 export default function GoodReceivedNotesPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -267,8 +268,6 @@ export default function GoodReceivedNotesPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectGRN,
@@ -278,7 +277,6 @@ export default function GoodReceivedNotesPage() {
   } = useMasterDetailState<GoodReceivedNote, GoodReceivedNoteCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromGRN,
-    favoritesKey: "grn_favorites",
     defaultSortField: "good_received_date",
     confirmUnsavedChanges: () => confirmDialog.confirm({
       title: "Discard Changes",
@@ -290,6 +288,8 @@ export default function GoodReceivedNotesPage() {
     extraDirty: lineItems.length > 0,
     onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -824,7 +824,7 @@ export default function GoodReceivedNotesPage() {
       "Created Date",
     ];
 
-    const rows = filteredGRNs.map((grn) => [
+    const rows = rowSelection.pick(filteredGRNs).map((grn) => [
       grn.good_received_no || `GRN-${grn.id}`,
       getOrderNumber(grn),
       getSupplierName(grn.purchasingorders_id),
@@ -1377,23 +1377,6 @@ export default function GoodReceivedNotesPage() {
   const grnColumns: TDataGridColumn<GRNRow>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<GRNRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "good_received_no",
         header: "GRN No",
         flex: 1,
@@ -1447,7 +1430,7 @@ export default function GoodReceivedNotesPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectGRNWithItems]
+    [handleSelectGRNWithItems]
   );
 
   // Whether we're showing a single GRN's detail view (selected or being
@@ -1470,6 +1453,9 @@ export default function GoodReceivedNotesPage() {
           emptyMessage="No GRNs found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1529,8 +1515,6 @@ export default function GoodReceivedNotesPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedGRN.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedGRN.id, e)}
         />
       )}
     </Paper>
@@ -1551,8 +1535,6 @@ export default function GoodReceivedNotesPage() {
         isCreating={isCreating}
         createTitle="New Good Received Note"
         noSelectionTitle="Select a GRN"
-        isFavorite={selectedGRN ? favorites.includes(selectedGRN.id) : false}
-        onToggleFavorite={selectedGRN ? (e) => toggleFavorite(selectedGRN.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -1876,7 +1858,7 @@ export default function GoodReceivedNotesPage() {
                                 {group.product_name}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                Rs. {fmtLKR(group.unit_price)} per unit • Qty: {group.total_quantity} • Branch: {group.items[0]?.branch_code} • PO Item ID: {group.items[0]?.purchasing_order_items_id}
+                                {currencySymbol} {fmtLKR(group.unit_price)} per unit • Qty: {group.total_quantity} • Branch: {group.items[0]?.branch_code} • PO Item ID: {group.items[0]?.purchasing_order_items_id}
                               </Typography>
                             </Box>
                           </Box>
