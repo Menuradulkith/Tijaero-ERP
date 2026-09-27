@@ -62,6 +62,7 @@ import { useReferenceData } from "@/hooks";
 import { Customer } from "@/modules/customers/types";
 import { Product } from "@/modules/inventory/types";
 import { format } from "date-fns";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "created_date", label: "Date" },
@@ -78,6 +79,7 @@ const BT_STATUS_FILTER_OPTIONS = [
 ];
 
 export default function BankTransferConfirmationPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const canViewCustomers = usePermission("customers", "view");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("created_date");
@@ -243,7 +245,7 @@ export default function BankTransferConfirmationPage() {
     verifyDialog.open(
       "Verify Bank Transfer",
       `Are you sure you want to verify the bank transfer for invoice ${selectedTransfer.invoice_no}? 
-       Amount: Rs. ${fmtLKR(selectedTransfer.bank_transfer_amount)}
+       Amount: ${currencySymbol} ${fmtLKR(selectedTransfer.bank_transfer_amount)}
        Bank: ${selectedTransfer.bank_name || "N/A"}
        Reference: ${selectedTransfer.bank_transfer_ref || "N/A"}`,
       () => verifyMutation.mutate(selectedTransfer.id)
@@ -263,8 +265,8 @@ export default function BankTransferConfirmationPage() {
 
   // Format currency
   const formatCurrency = (amount: number | undefined | null) => {
-    if (amount === undefined || amount === null) return "Rs. 0.00";
-    return `Rs. ${fmtLKR(amount)}`;
+    if (amount === undefined || amount === null) return `${currencySymbol} 0.00`;
+    return `${currencySymbol} ${fmtLKR(amount)}`;
   };
 
   // Format date

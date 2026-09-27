@@ -104,3 +104,29 @@ class PurchaseOrderStatus(str, Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
+
+
+class SupplierTaxArea(str, Enum):
+    """A supplier's tax treatment classification — standard ERP "fiscal
+    position" concept (cf. Odoo's Fiscal Position, SAP tax classification).
+    Independent of the company-wide default tax rate (Settings.default_tax_rate)
+    and of tax_registration_number (just an ID string)."""
+    DOMESTIC_STANDARD = "domestic_standard"
+    DOMESTIC_ZERO_RATED = "domestic_zero_rated"
+    DOMESTIC_EXEMPT = "domestic_exempt"
+    EXPORT = "export"
+    IMPORT = "import"
+
+
+class SupplierPaymentMethodType(str, Enum):
+    """A supplier's standing/preferred payment method — master data on the
+    supplier record (how they're set up to be paid), not a one-off
+    transaction payment method. Matches standard ERP vendor-master payment
+    method options (SAP, Oracle NetSuite, MS Dynamics)."""
+    CASH = "cash"
+    CHEQUE = "cheque"
+    BANK_TRANSFER = "bank_transfer"
+    DIRECT_DEBIT = "direct_debit"
+    LETTER_OF_CREDIT = "letter_of_credit"
+    CREDIT_CARD = "credit_card"
+    DIGITAL_WALLET = "digital_wallet"

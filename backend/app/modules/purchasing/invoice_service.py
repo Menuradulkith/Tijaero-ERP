@@ -210,7 +210,10 @@ class PurchaseInvoiceService:
             if data.due_date and data.due_date > data.supplier_invoice_date:
                 due_date = data.due_date
             else:
-                credit_days = supplier.credit_days or 30
+                # `or 30` would silently turn a supplier's genuine "Due on
+                # Receipt" (0 days) into Net 30 — only fall back to 30 when
+                # credit_days is truly unset, not when it's a real 0.
+                credit_days = supplier.credit_days if supplier.credit_days is not None else 30
                 due_date = data.supplier_invoice_date + timedelta(days=credit_days)
         else:
             due_date = data.due_date or data.supplier_invoice_date

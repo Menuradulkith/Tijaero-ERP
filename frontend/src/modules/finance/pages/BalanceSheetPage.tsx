@@ -59,6 +59,7 @@ import {
 } from "@/components/tijaero";
 import { financialReportsApi } from "../api";
 import type { BalanceSheetResponse, BalanceSheetSection } from "../types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -106,10 +107,11 @@ function GroupHeader({ label }: { label: string }) {
 }
 
 function SubtotalBar({ label, value, color = "text.primary" }: { label: string; value: number; color?: string }) {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   return (
     <Box sx={{ px: 2, py: 1, bgcolor: "grey.100", display: "flex", justifyContent: "space-between", borderTop: "2px solid", borderBottom: "2px solid", borderColor: "divider" }}>
       <Typography variant="subtitle2" fontWeight={700}>{label}</Typography>
-      <Typography variant="subtitle2" fontWeight={700} color={color} sx={{ fontFamily: "monospace" }}>Rs. {fmtLKR(Math.abs(value))}</Typography>
+      <Typography variant="subtitle2" fontWeight={700} color={color} sx={{ fontFamily: "monospace" }}>{currencySymbol} {fmtLKR(Math.abs(value))}</Typography>
     </Box>
   );
 }
@@ -118,6 +120,7 @@ function SubtotalBar({ label, value, color = "text.primary" }: { label: string; 
 
 export default function BalanceSheetPage() {
   const navigate = useNavigate();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   const [fiscalYear, setFiscalYear] = useState(currentYear);
   const [asOfDate, setAsOfDate] = useState("");
@@ -149,7 +152,7 @@ export default function BalanceSheetPage() {
 
   const handleExportCSV = () => {
     if (!report) return;
-    const lines: string[][] = [["Account Code", "Account Name", "Amount (Rs.)"]];
+    const lines: string[][] = [["Account Code", "Account Name", `Amount (${currencySymbol})`]];
     const addSection = (s: BalanceSheetSection) => {
       lines.push([`--- ${s.section_name} ---`, "", ""]);
       s.items.forEach((i) => lines.push([i.account_code, i.account_name, Math.abs(Number(i.amount)).toFixed(2)]));
@@ -187,7 +190,7 @@ export default function BalanceSheetPage() {
           `<tr style="border-top:1px solid #ccc"><td></td><td style="font-weight:600">Total ${s.section_name}</td><td style="text-align:right;font-weight:700">${fmtLKR(Math.abs(Number(s.total)))}</td></tr>`
         : "";
     const subtotalRow = (label: string, val: number, bg = "#f5f5f5") =>
-      `<tr style="background:${bg};border-top:2px solid #ccc;border-bottom:2px solid #ccc"><td></td><td style="font-weight:800;font-size:14px">${label}</td><td style="text-align:right;font-weight:800;font-size:14px">Rs. ${fmtLKR(Math.abs(val))}</td></tr>`;
+      `<tr style="background:${bg};border-top:2px solid #ccc;border-bottom:2px solid #ccc"><td></td><td style="font-weight:800;font-size:14px">${label}</td><td style="text-align:right;font-weight:800;font-size:14px">${currencySymbol} ${fmtLKR(Math.abs(val))}</td></tr>`;
     const groupHdr = (label: string) => `<tr style="background:#1976d2;color:white"><td colspan="3" style="font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:6px 8px">${label}</td></tr>`;
 
     win.document.write(`<!DOCTYPE html><html><head><title>Balance Sheet</title>
@@ -283,7 +286,7 @@ ${subtotalRow("Total Liabilities & Equity", Number(report.total_liabilities) + N
                     <CardContent sx={{ py: 1.5, textAlign: "center" }}>
                       <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>{c.label}</Typography>
                       <Typography variant="h6" fontWeight={700} color={c.color} sx={{ mt: 0.5, fontFamily: "monospace" }}>
-                        Rs. {fmtLKR(Math.abs(Number(c.value)))}
+                        {currencySymbol} {fmtLKR(Math.abs(Number(c.value)))}
                       </Typography>
                     </CardContent>
                   </Card>
@@ -318,7 +321,7 @@ ${subtotalRow("Total Liabilities & Equity", Number(report.total_liabilities) + N
                     <TableRow sx={{ "& th": { fontWeight: 700, textTransform: "uppercase", fontSize: "0.7rem", color: "text.secondary" } }}>
                       <TableCell sx={{ width: 100 }}>Code</TableCell>
                       <TableCell>Account</TableCell>
-                      <TableCell align="right" sx={{ pr: 3 }}>Amount (Rs.)</TableCell>
+                      <TableCell align="right" sx={{ pr: 3 }}>{`Amount (${currencySymbol})`}</TableCell>
                     </TableRow>
                   </TableHead>
                 </Table>
@@ -350,7 +353,7 @@ ${subtotalRow("Total Liabilities & Equity", Number(report.total_liabilities) + N
                 <Box sx={{ px: 2, py: 1.5, bgcolor: "grey.100", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "3px double", borderColor: "divider" }}>
                   <Typography variant="subtitle1" fontWeight={800}>Total Liabilities & Equity</Typography>
                   <Typography variant="h6" fontWeight={800} color="primary.main" sx={{ fontFamily: "monospace" }}>
-                    Rs. {fmtLKR(Math.abs(Number(report.total_liabilities) + Number(report.total_equity)))}
+                    {currencySymbol} {fmtLKR(Math.abs(Number(report.total_liabilities) + Number(report.total_equity)))}
                   </Typography>
                 </Box>
               </TableContainer>

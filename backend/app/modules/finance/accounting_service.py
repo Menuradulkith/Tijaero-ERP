@@ -17,7 +17,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from fastapi import HTTPException, status
 from app.core import timezone as tz
-from app.common.audit import log_audit
+from app.common.audit import log_audit, diff_changes
 
 from .accounting_models import (
     ChartOfAccounts,
@@ -135,14 +135,18 @@ class ChartOfAccountsService:
                     ),
                 )
 
+        before_values = {key: getattr(account, key, None) for key in update_data}
+
         for key, value in update_data.items():
             setattr(account, key, value)
 
-        log_audit(
-            self.db, user_id=updated_by or 0, action="update",
-            entity_type="chart_of_account", entity_id=account.id,
-            changes=update_data,
-        )
+        changes = diff_changes(before_values, update_data)
+        if changes:
+            log_audit(
+                self.db, user_id=updated_by or 0, action="update",
+                entity_type="chart_of_account", entity_id=account.id,
+                changes=changes,
+            )
         self.db.commit()
         self.db.refresh(account)
         _attach_user_names(self.db, [account])

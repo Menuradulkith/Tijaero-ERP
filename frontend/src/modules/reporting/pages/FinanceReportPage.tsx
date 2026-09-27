@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fmtLKR } from "@/components/tijaero";
+import { useCurrencyStore } from "@/state/currencyStore";
 import {
   Box,
   Typography,
@@ -21,6 +22,7 @@ import { reportingApi } from "@/modules/reporting/api";
 import { FinanceReportRequest } from "@/modules/reporting/types";
 
 export default function FinanceReportPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const [filters, setFilters] = useState<FinanceReportRequest>({
     start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()
@@ -99,7 +101,7 @@ export default function FinanceReportPage() {
                     fontWeight="bold"
                     color="success.main"
                   >
-                    Rs. {report.total_income.toFixed(2)}
+                    {currencySymbol} {report.total_income.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -111,7 +113,7 @@ export default function FinanceReportPage() {
                     Total Expenses
                   </Typography>
                   <Typography variant="h4" fontWeight="bold" color="error.main">
-                    Rs. {report.total_expenses.toFixed(2)}
+                    {currencySymbol} {report.total_expenses.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -129,7 +131,7 @@ export default function FinanceReportPage() {
                       report.net_profit >= 0 ? "success.main" : "error.main"
                     }
                   >
-                    Rs. {report.net_profit.toFixed(2)}
+                    {currencySymbol} {report.net_profit.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -141,7 +143,7 @@ export default function FinanceReportPage() {
                     Bank Deposits
                   </Typography>
                   <Typography variant="h4" fontWeight="bold">
-                    Rs. {report.bank_deposits.toFixed(2)}
+                    {currencySymbol} {report.bank_deposits.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -157,7 +159,7 @@ export default function FinanceReportPage() {
                 <TableHead>
                   <TableRow>
                     <TableCell>Category</TableCell>
-                    <TableCell align="right">Amount (Rs.)</TableCell>
+                    <TableCell align="right">{`Amount (${currencySymbol})`}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>

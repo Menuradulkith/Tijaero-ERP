@@ -59,6 +59,7 @@ import {
 import { suppliersApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
 import type { Supplier } from "@/modules/purchasing/types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 type SortDir = "asc" | "desc";
 type HistSortField = "date" | "supplier_name" | "type" | "amount" | "invoice_no";
@@ -66,6 +67,7 @@ type OutSortField = "supplier_invoice_date" | "supplier_name" | "balance_due" | 
 
 export default function SupplierPaymentReportPage() {
   const navigate = useNavigate();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   const defaultFrom = useMemo(() => {
     const d = new Date();
@@ -219,7 +221,7 @@ export default function SupplierPaymentReportPage() {
   // ── CSV Export ───────────────────────────────────────────────────────────
   const handleExportCSV = () => {
     if (activeTab === 1) {
-      const headers = ["Invoice No.", "Supplier", "Supplier Invoice No.", "Invoice Date", "Payment Type", "Total (Rs.)", "Paid (Rs.)", "Balance Due (Rs.)", "Due Date", "Days Overdue", "Overdue", "Status", "Branch"];
+      const headers = ["Invoice No.", "Supplier", "Supplier Invoice No.", "Invoice Date", "Payment Type", `Total (${currencySymbol})`, `Paid (${currencySymbol})`, `Balance Due (${currencySymbol})`, "Due Date", "Days Overdue", "Overdue", "Status", "Branch"];
       const rows = filteredOut.map((i) => [
         i.invoice_no, i.supplier_name || "", i.supplier_invoice_no || "",
         i.supplier_invoice_date || "", i.payment_type === "credit" ? "Credit" : "Non-Credit",
@@ -230,7 +232,7 @@ export default function SupplierPaymentReportPage() {
       exportToCSV({ filename: "outstanding_invoices", headers, rows });
       return;
     }
-    const headers = ["Date", "Supplier", "Type", "Payment No.", "Invoice No.", "Method", "Amount (Rs.)", "Status", "Branch", "Remarks"];
+    const headers = ["Date", "Supplier", "Type", "Payment No.", "Invoice No.", "Method", `Amount (${currencySymbol})`, "Status", "Branch", "Remarks"];
     const rows = filteredHist.map((i) => [
       i.date, i.supplier_name, i.type, i.document_no, i.invoice_no || "",
       i.payment_method || "", i.amount.toFixed(2), i.status, i.branch_code || "", i.remarks || "",
@@ -272,10 +274,10 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
 <body><h1>Outstanding Supplier Invoices</h1>
 <div class="meta">${supplierLabel} | Generated ${new Date().toLocaleString()}</div>
 <div class="summary">
-  <div class="sc"><div class="lbl">Total Outstanding</div><div class="val" style="color:#1976d2">Rs. ${fmtLKR(outSummary.total_outstanding)}</div></div>
-  <div class="sc"><div class="lbl">Overdue</div><div class="val" style="color:#c62828">Rs. ${fmtLKR(outSummary.total_overdue)}</div></div>
-  <div class="sc"><div class="lbl">Credit Outstanding</div><div class="val" style="color:#1565c0">Rs. ${fmtLKR(outSummary.credit_outstanding)}</div></div>
-  <div class="sc"><div class="lbl">Non-Credit Outstanding</div><div class="val" style="color:#2e7d32">Rs. ${fmtLKR(outSummary.non_credit_outstanding)}</div></div>
+  <div class="sc"><div class="lbl">Total Outstanding</div><div class="val" style="color:#1976d2">${currencySymbol} ${fmtLKR(outSummary.total_outstanding)}</div></div>
+  <div class="sc"><div class="lbl">Overdue</div><div class="val" style="color:#c62828">${currencySymbol} ${fmtLKR(outSummary.total_overdue)}</div></div>
+  <div class="sc"><div class="lbl">Credit Outstanding</div><div class="val" style="color:#1565c0">${currencySymbol} ${fmtLKR(outSummary.credit_outstanding)}</div></div>
+  <div class="sc"><div class="lbl">Non-Credit Outstanding</div><div class="val" style="color:#2e7d32">${currencySymbol} ${fmtLKR(outSummary.non_credit_outstanding)}</div></div>
 </div>
 <table><thead><tr><th>Invoice No.</th><th>Supplier</th><th>Supplier Invoice</th><th>Date</th><th>Type</th>
 <th>Total</th><th>Paid</th><th>Balance Due</th><th>Due Date</th><th>Overdue</th><th>Branch</th></tr></thead>
@@ -293,7 +295,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
         <td style="font-family:monospace">${i.document_no}</td>
         <td style="font-family:monospace">${i.invoice_no || "-"}</td>
         <td>${i.payment_method || "-"}</td>
-        <td style="text-align:right;font-weight:bold">Rs. ${fmtLKR(i.amount)}</td>
+        <td style="text-align:right;font-weight:bold">${currencySymbol} ${fmtLKR(i.amount)}</td>
         <td>${i.status}</td>
         <td>${i.branch_code || "-"}</td>
         <td>${i.remarks || "-"}</td>
@@ -305,9 +307,9 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
 .total-row{background:#f5f5f5;font-weight:bold}@media print{body{padding:10px}}</style></head>
 <body><h1>Supplier Payment History</h1>
 <div class="meta">${supplierLabel} | ${new Date(dateFrom).toLocaleDateString()} to ${new Date(dateTo).toLocaleDateString()} | Generated ${new Date().toLocaleString()}</div>
-<table><thead><tr><th>Date</th><th>Supplier</th><th>Type</th><th>Payment No.</th><th>Invoice No.</th><th>Method</th><th>Amount (Rs.)</th><th>Status</th><th>Branch</th><th>Remarks</th></tr></thead>
+<table><thead><tr><th>Date</th><th>Supplier</th><th>Type</th><th>Payment No.</th><th>Invoice No.</th><th>Method</th><th>Amount (${currencySymbol})</th><th>Status</th><th>Branch</th><th>Remarks</th></tr></thead>
 <tbody>${rowsHtml}
-<tr class="total-row"><td colspan="6" style="text-align:right">TOTAL:</td><td style="text-align:right">Rs. ${fmtLKR(histSummary?.total_amount || 0)}</td><td colspan="3"></td></tr>
+<tr class="total-row"><td colspan="6" style="text-align:right">TOTAL:</td><td style="text-align:right">${currencySymbol} ${fmtLKR(histSummary?.total_amount || 0)}</td><td colspan="3"></td></tr>
 </tbody></table>
 <script>window.onload=function(){window.print()}</script></body></html>`);
     win.document.close();
@@ -425,7 +427,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                 <Card key={c.label} variant="outlined" sx={{ borderRadius: 2, minWidth: 160, flex: "1 1 160px" }}>
                   <CardContent sx={{ py: 1.5, px: 2 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>{c.label}</Typography>
-                    <Typography variant="h6" fontWeight={700} color={c.color} sx={{ mt: 0.5, whiteSpace: "nowrap" }}>Rs. {fmtLKR(c.value)}</Typography>
+                    <Typography variant="h6" fontWeight={700} color={c.color} sx={{ mt: 0.5, whiteSpace: "nowrap" }}>{currencySymbol} {fmtLKR(c.value)}</Typography>
                     <Typography variant="caption" color="text.secondary">{c.count}</Typography>
                   </CardContent>
                 </Card>
@@ -456,7 +458,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                         <TableCell>Payment No.</TableCell>
                         <TableCell><TableSortLabel active={histSortField === "invoice_no"} direction={histSortField === "invoice_no" ? histSortDir : "asc"} onClick={() => handleHistSort("invoice_no")}>Invoice No.</TableSortLabel></TableCell>
                         <TableCell>Method</TableCell>
-                        <TableCell align="right"><TableSortLabel active={histSortField === "amount"} direction={histSortField === "amount" ? histSortDir : "asc"} onClick={() => handleHistSort("amount")}>Amount (Rs.)</TableSortLabel></TableCell>
+                        <TableCell align="right"><TableSortLabel active={histSortField === "amount"} direction={histSortField === "amount" ? histSortDir : "asc"} onClick={() => handleHistSort("amount")}>{`Amount (${currencySymbol})`}</TableSortLabel></TableCell>
                         <TableCell>Status</TableCell>
                         <TableCell>Branch</TableCell>
                         <TableCell>Remarks</TableCell>
@@ -486,7 +488,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                 </TableContainer>
                 <Box sx={{ px: 2, py: 1.25, borderTop: "1px solid", borderColor: "divider", display: "flex", justifyContent: "space-between", bgcolor: "grey.50" }}>
                   <Typography variant="body2" color="text.secondary">{filteredHist.length} records</Typography>
-                  <Typography variant="subtitle1" fontWeight={700} color="primary.main">Total: Rs. {fmtLKR(histSummary?.total_amount || 0)}</Typography>
+                  <Typography variant="subtitle1" fontWeight={700} color="primary.main">Total: {currencySymbol} {fmtLKR(histSummary?.total_amount || 0)}</Typography>
                 </Box>
               </Paper>
             )}
@@ -507,7 +509,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
               <Card key={c.label} variant="outlined" sx={{ borderRadius: 2, minWidth: 175, flex: "1 1 175px", ...(c.border && { borderColor: "error.main" }) }}>
                 <CardContent sx={{ py: 1.5, px: 2 }}>
                   <Typography variant="caption" color={c.color} sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>{c.label}</Typography>
-                  <Typography variant="h6" fontWeight={700} color={c.color} sx={{ mt: 0.5, whiteSpace: "nowrap" }}>Rs. {fmtLKR(c.value)}</Typography>
+                  <Typography variant="h6" fontWeight={700} color={c.color} sx={{ mt: 0.5, whiteSpace: "nowrap" }}>{currencySymbol} {fmtLKR(c.value)}</Typography>
                   <Typography variant="caption" color="text.secondary">{c.count}</Typography>
                 </CardContent>
               </Card>
@@ -536,8 +538,8 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                         <TableCell>Supplier Invoice</TableCell>
                         <TableCell><TableSortLabel active={outSortField === "supplier_invoice_date"} direction={outSortField === "supplier_invoice_date" ? outSortDir : "asc"} onClick={() => handleOutSort("supplier_invoice_date")}>Date</TableSortLabel></TableCell>
                         <TableCell><TableSortLabel active={outSortField === "payment_type"} direction={outSortField === "payment_type" ? outSortDir : "asc"} onClick={() => handleOutSort("payment_type")}>Type</TableSortLabel></TableCell>
-                        <TableCell align="right">Total (Rs.)</TableCell>
-                        <TableCell align="right">Paid (Rs.)</TableCell>
+                        <TableCell align="right">{`Total (${currencySymbol})`}</TableCell>
+                        <TableCell align="right">{`Paid (${currencySymbol})`}</TableCell>
                         <TableCell align="right"><TableSortLabel active={outSortField === "balance_due"} direction={outSortField === "balance_due" ? outSortDir : "asc"} onClick={() => handleOutSort("balance_due")}>Balance Due</TableSortLabel></TableCell>
                         <TableCell>Due Date</TableCell>
                         <TableCell align="center"><TableSortLabel active={outSortField === "days_overdue"} direction={outSortField === "days_overdue" ? outSortDir : "asc"} onClick={() => handleOutSort("days_overdue")}>Overdue</TableSortLabel></TableCell>
@@ -578,7 +580,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                 </TableContainer>
                 <Box sx={{ px: 2, py: 1.25, borderTop: "1px solid", borderColor: "divider", display: "flex", justifyContent: "space-between", bgcolor: "grey.50" }}>
                   <Typography variant="body2" color="text.secondary">{filteredOut.length} invoice{filteredOut.length !== 1 ? "s" : ""}</Typography>
-                  <Typography variant="subtitle1" fontWeight={700} color="error.main">Outstanding: Rs. {fmtLKR(outSummary.total_outstanding)}</Typography>
+                  <Typography variant="subtitle1" fontWeight={700} color="error.main">Outstanding: {currencySymbol} {fmtLKR(outSummary.total_outstanding)}</Typography>
                 </Box>
               </Paper>
             )}

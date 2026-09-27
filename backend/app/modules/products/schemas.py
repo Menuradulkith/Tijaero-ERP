@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import date, datetime
 
-from app.common.base_schemas import TijaeroBaseSchema
+from app.common.base_schemas import TijaeroBaseSchema, VersionedSchema
 from app.modules.products.price_tier_schemas import PriceTierOut
 
 class CategoryBase(BaseModel):
@@ -21,8 +21,11 @@ class CategoryUpdate(BaseModel):
     memo: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = None
     active: Optional[bool] = None
+    # Optimistic-concurrency check — see ProductUpdate.expected_version.
+    expected_updated_at: Optional[datetime] = None
+    expected_version: Optional[str] = None
 
-class Category(CategoryBase, TijaeroBaseSchema):
+class Category(CategoryBase, TijaeroBaseSchema, VersionedSchema):
     id: int
     created_date: datetime
     created_at: datetime
@@ -46,8 +49,11 @@ class BrandUpdate(BaseModel):
     brand_code: Optional[str] = Field(None, max_length=4)
     description: Optional[str] = None
     active: Optional[bool] = None
+    # Optimistic-concurrency check — see ProductUpdate.expected_version.
+    expected_updated_at: Optional[datetime] = None
+    expected_version: Optional[str] = None
 
-class Brand(BrandBase, TijaeroBaseSchema):
+class Brand(BrandBase, TijaeroBaseSchema, VersionedSchema):
     id: int
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -73,7 +79,9 @@ class ProductBase(BaseModel):
     image_url: Optional[str] = None
 
 class ProductCreate(ProductBase):
-    pass
+    # Optional initial minimum selling price, recorded as a MinimumPrice
+    # history row in the same transaction as the product itself.
+    minimum_selling_price: Optional[float] = Field(None, ge=0)
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=255)
@@ -88,9 +96,23 @@ class ProductUpdate(BaseModel):
     cost_price: Optional[float] = Field(None, ge=0)
     category_id: Optional[int] = None
     items_brand_id: Optional[int] = None
-    image_url: Optional[str] = None
+    # image_url is intentionally absent: the upload/remove image endpoints
+    # are its only writers, so a form save can't revert a just-uploaded image.
+    # When set, a new MinimumPrice history row is written in the same
+    # transaction as the product update (only if the value changed).
+    minimum_selling_price: Optional[float] = Field(None, ge=0)
+    # The `updated_at` the client last saw. If it no longer matches the row,
+    # the update is rejected with a 409 instead of silently overwriting a
+    # newer change. Omitted → no check (backward compatible).
+    expected_updated_at: Optional[datetime] = None
+    # Preferred over expected_updated_at: the exact `version` token from the
+    # response (full precision, so same-second changes are caught too).
+    expected_version: Optional[str] = None
 
-class Product(ProductBase, TijaeroBaseSchema):
+# Fields on the update schemas that aren't real columns.
+NON_COLUMN_UPDATE_FIELDS = {"expected_updated_at", "expected_version", "minimum_selling_price"}
+
+class Product(ProductBase, TijaeroBaseSchema, VersionedSchema):
     id: int
     created_date: date
     added_date: datetime

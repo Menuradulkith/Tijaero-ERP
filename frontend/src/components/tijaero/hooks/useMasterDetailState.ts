@@ -1,11 +1,10 @@
 /**
  * useMasterDetailState - Custom hook for Tijaero-style master-detail state management
- * 
+ *
  * This hook encapsulates all the common state logic used across master-detail pages:
  * - Search and sort functionality
  * - Selection state
  * - Edit/Create mode
- * - Favorites management
  * - Form data handling
  */
 
@@ -19,7 +18,6 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
   const {
     initialFormData,
     resetFormFromItem,
-    favoritesKey,
     defaultSortField,
     initialSortField,
     confirmUnsavedChanges,
@@ -41,19 +39,6 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
   // Edit State
   const [isEditing, setIsEditing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-
-  // Favorites State (persisted to localStorage)
-  const [favorites, setFavorites] = useState<number[]>(() => {
-    if (favoritesKey) {
-      try {
-        const stored = localStorage.getItem(favoritesKey);
-        return stored ? JSON.parse(stored) : [];
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  });
 
   // Form State
   const [formData, setFormData] = useState<TCreate>(initialFormData);
@@ -88,23 +73,6 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
     }
     return () => setDiscardFn(null);
   }, [isEditing, isCreating, initialFormData, onDiscard, setDiscardFn]);
-
-  // Persist favorites to localStorage
-  useEffect(() => {
-    if (favoritesKey) {
-      localStorage.setItem(favoritesKey, JSON.stringify(favorites));
-    }
-  }, [favorites, favoritesKey]);
-
-  // Toggle favorite
-  const toggleFavorite = useCallback((id: number, e?: React.MouseEvent) => {
-    if (e) {
-      e.stopPropagation();
-    }
-    setFavorites((prev) =>
-      prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
-    );
-  }, []);
 
   // Update single form field
   const updateFormField = useCallback(<K extends keyof TCreate>(field: K, value: TCreate[K]) => {
@@ -215,11 +183,7 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
     isCreating,
     setIsCreating,
     hasChanges,
-    
-    // Favorites
-    favorites,
-    toggleFavorite,
-    
+
     // Form
     formData,
     setFormData,

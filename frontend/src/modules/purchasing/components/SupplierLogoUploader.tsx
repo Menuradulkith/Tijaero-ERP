@@ -50,6 +50,17 @@ export default function SupplierLogoUploader({
 
   const isDraftMode = !supplier;
 
+  // The local preview belongs to one supplier only (mirrors
+  // ProductImageUploader): clear it when a different supplier is shown, and
+  // remember which one is current so a late response for supplier A doesn't
+  // touch supplier B's preview/spinner.
+  const currentSupplierIdRef = useRef<number | undefined>(supplier?.id);
+  useEffect(() => {
+    currentSupplierIdRef.current = supplier?.id;
+    setPreviewUrl(null);
+    setUploading(false);
+  }, [supplier?.id]);
+
   // In draft mode, derive the preview straight from the picked File so it
   // survives re-renders without needing a separately-tracked object URL.
   const draftPreviewUrl = useMemo(
@@ -85,19 +96,25 @@ export default function SupplierLogoUploader({
       return;
     }
 
+    const supplierId = supplier!.id;
     const objectUrl = URL.createObjectURL(file);
     setPreviewUrl(objectUrl);
     setUploading(true);
     try {
-      const updated = await suppliersApi.uploadLogo(supplier!.id, file);
+      const updated = await suppliersApi.uploadLogo(supplierId, file);
+      // onUpdated guards its own selection; always let it run.
       onUpdated?.(updated);
       showSuccessToast("Logo uploaded");
     } catch (err) {
       showErrorToast(handleApiError(err, "Failed to upload logo"));
-      setPreviewUrl(null);
     } finally {
+      // Hand display back to the saved logo_path (the object URL is revoked
+      // below, so keeping it as the preview would show a dead blob).
+      if (currentSupplierIdRef.current === supplierId) {
+        setPreviewUrl(null);
+        setUploading(false);
+      }
       URL.revokeObjectURL(objectUrl);
-      setUploading(false);
     }
   };
 
@@ -106,16 +123,19 @@ export default function SupplierLogoUploader({
       onDraftFileChange?.(null);
       return;
     }
+    const supplierId = supplier!.id;
     setUploading(true);
     try {
-      const updated = await suppliersApi.removeLogo(supplier!.id);
-      setPreviewUrl(null);
+      const updated = await suppliersApi.removeLogo(supplierId);
       onUpdated?.(updated);
       showSuccessToast("Logo removed");
     } catch (err) {
       showErrorToast(handleApiError(err, "Failed to remove logo"));
     } finally {
-      setUploading(false);
+      if (currentSupplierIdRef.current === supplierId) {
+        setPreviewUrl(null);
+        setUploading(false);
+      }
     }
   };
 

@@ -14,7 +14,7 @@ import {
   Autocomplete,
 } from "@mui/material";
 import { productsApi, categoriesApi, brandsApi } from "../api";
-import { Product, ProductCreate } from "../types";
+import { Product, ProductCreate, ProductUpdate } from "../types";
 import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
 interface ProductDialogProps {
@@ -114,7 +114,7 @@ export default function ProductDialog({
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: ProductCreate }) =>
+    mutationFn: ({ id, data }: { id: number; data: ProductUpdate }) =>
       productsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
@@ -123,12 +123,27 @@ export default function ProductDialog({
     },
     onError: () => {
       showErrorToast("Failed to update product");
+      // On a 409 (changed by someone else) or 404 (deleted), the list is
+      // out of date — refresh it so reopening the dialog shows current data.
+      queryClient.invalidateQueries({ queryKey: ["products"] });
     },
   });
 
   const onSubmit = (data: ProductCreate) => {
     if (isEdit && product) {
-      updateMutation.mutate({ id: product.id, data });
+      // item_code is immutable after creation; image_url is owned by the
+      // image upload endpoints. The version lets the backend reject a stale save.
+      const updateData: Partial<ProductCreate> = { ...data };
+      delete updateData.item_code;
+      delete updateData.image_url;
+      updateMutation.mutate({
+        id: product.id,
+        data: {
+          ...updateData,
+          expected_updated_at: product.updated_at,
+          expected_version: product.version,
+        },
+      });
     } else {
       createMutation.mutate(data);
     }

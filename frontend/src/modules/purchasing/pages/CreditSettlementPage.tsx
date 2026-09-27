@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useCurrencyStore } from "@/state/currencyStore";
 import {
   Box,
   TextField,
@@ -52,6 +53,7 @@ import {
   showSuccessToast,
   useTConfirmDialog,
   PURCHASING_PAYMENT_METHOD,
+  getPaymentTermsLabel,
 } from "@/components/tijaero";
 
 import {
@@ -71,7 +73,7 @@ import {
 const SORT_OPTIONS: SortOption[] = [
   { value: "company_name", label: "Name" },
   { value: "max_credit_limit", label: "Credit Limit" },
-  { value: "credit_days", label: "Credit Days" },
+  { value: "credit_days", label: "Payment Terms" },
   { value: "created_at", label: "Creation Date" },
 ];
 
@@ -117,6 +119,7 @@ const INITIAL_PAYMENT_FORM: PaymentFormData = {
 type ViewMode = "supplier" | "po";
 
 export default function CreditSettlementPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   // Data state
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -309,7 +312,7 @@ export default function CreditSettlementPage() {
 
     const confirmed = await confirmDialog.confirm({
       title: "Confirm Payment",
-      message: `Record payment of Rs. ${fmtLKR(paymentForm.payment_amount)} for PO ${selectedPO.po_no}?`,
+      message: `Record payment of ${currencySymbol} ${fmtLKR(paymentForm.payment_amount)} for PO ${selectedPO.po_no}?`,
       confirmText: "Submit Payment",
     });
 
@@ -476,7 +479,7 @@ export default function CreditSettlementPage() {
                     {supplier.max_credit_limit > 0 && (
                       <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
                         <Chip
-                          label={`${supplier.credit_days} days`}
+                          label={getPaymentTermsLabel(supplier.credit_days)}
                           size="small"
                           color="info"
                           sx={{ height: 18, fontSize: "0.65rem" }}
@@ -508,7 +511,7 @@ export default function CreditSettlementPage() {
               </Box>
             ) : undefined}
             statusChip={!isSelected && supplier.max_credit_limit > 0
-              ? { label: `${supplier.credit_days}d`, color: "info" }
+              ? { label: getPaymentTermsLabel(supplier.credit_days), color: "info" }
               : undefined
             }
           />
@@ -546,9 +549,9 @@ export default function CreditSettlementPage() {
           <Grid item xs={6} sm={3}>
             <Card variant="outlined">
               <CardContent sx={{ textAlign: "center", py: 1.5 }}>
-                <Typography variant="caption" color="text.secondary">Credit Days</Typography>
+                <Typography variant="caption" color="text.secondary">Payment Terms</Typography>
                 <Typography variant="h5" color="primary.main">
-                  {selectedSupplier?.credit_days || 0}
+                  {getPaymentTermsLabel(selectedSupplier?.credit_days)}
                 </Typography>
               </CardContent>
             </Card>
@@ -871,8 +874,8 @@ export default function CreditSettlementPage() {
               error={paymentForm.payment_amount > (selectedPO?.remaining_amount || 0)}
               helperText={
                 paymentForm.payment_amount > (selectedPO?.remaining_amount || 0)
-                  ? `Cannot exceed Rs. ${fmtLKR(selectedPO?.remaining_amount || 0)}`
-                  : `Maximum: Rs. ${fmtLKR(selectedPO?.remaining_amount || 0)}`
+                  ? `Cannot exceed ${currencySymbol} ${fmtLKR(selectedPO?.remaining_amount || 0)}`
+                  : `Maximum: ${currencySymbol} ${fmtLKR(selectedPO?.remaining_amount || 0)}`
               }
               InputProps={{
                 inputProps: { min: 0, max: selectedPO?.remaining_amount || 0, step: 0.01 },
@@ -959,7 +962,7 @@ export default function CreditSettlementPage() {
         chips={
           selectedSupplier && viewMode === "supplier"
             ? [
-                { label: `${selectedSupplier.credit_days} Credit Days`, variant: "outlined" as const },
+                { label: `Terms: ${getPaymentTermsLabel(selectedSupplier.credit_days)}`, variant: "outlined" as const },
                 { label: `Limit: ${fmtLKR(selectedSupplier.max_credit_limit)}`, variant: "outlined" as const },
               ]
             : selectedPO

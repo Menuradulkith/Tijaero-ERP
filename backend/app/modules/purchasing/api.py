@@ -327,7 +327,7 @@ def upload_supplier_logo(
 
     relative_path = save_image(file, subdir="suppliers")
     supplier_service = service.SupplierService(db)
-    return supplier_service.update_logo(supplier_id, relative_path)
+    return supplier_service.update_logo(supplier_id, relative_path, user_id=current_user.id)
 
 
 @router.delete(
@@ -340,7 +340,7 @@ def remove_supplier_logo(
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
 ):
     supplier_service = service.SupplierService(db)
-    return supplier_service.remove_logo(supplier_id)
+    return supplier_service.remove_logo(supplier_id, user_id=current_user.id)
 
 
 @router.get(

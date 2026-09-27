@@ -62,6 +62,7 @@ import { usePermission } from "@/auth/permissions";
 import { supplierPaymentsApi, suppliersApi, supplierCreditsSettleApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
 import { SupplierPayment, Supplier, SupplierCreditsSettle } from "@/modules/purchasing/types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 
 const SORT_OPTIONS: SortOption[] = [
@@ -93,6 +94,7 @@ const getPaymentStatusProps = (status: string) => {
 };
 
 export default function PaymentApprovalsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const location = useLocation();
   const canViewSuppliers = usePermission("suppliers", "view");
@@ -365,7 +367,7 @@ export default function PaymentApprovalsPage() {
     if (isLargePayment) {
       const confirmed = await confirmDialog.confirm({
         title: "Large Payment Verification",
-        message: `This is a large payment of Rs. ${fmtLKR(selectedPayment.payment_amount)}. Are you sure you want to verify this payment?`,
+        message: `This is a large payment of ${currencySymbol} ${fmtLKR(selectedPayment.payment_amount)}. Are you sure you want to verify this payment?`,
         confirmText: "Verify Anyway",
         cancelText: "Cancel",
         confirmColor: "warning",
@@ -476,7 +478,7 @@ export default function PaymentApprovalsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        Rs. {fmtLKR(payment.payment_amount)}
+                        {currencySymbol} {fmtLKR(payment.payment_amount)}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Amount)
@@ -502,7 +504,7 @@ export default function PaymentApprovalsPage() {
             }
             secondaryText={
               !isSelected
-                ? `${getSupplierName(payment.supplier_id)} - Rs. ${fmtLKR(payment.payment_amount)}`
+                ? `${getSupplierName(payment.supplier_id)} - ${currencySymbol} ${fmtLKR(payment.payment_amount)}`
                 : undefined
             }
             statusChip={!isSelected ? statusProps : undefined}
@@ -615,7 +617,7 @@ export default function PaymentApprovalsPage() {
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell>Description</TableCell>
-                      <TableCell align="right">Amount (Rs.)</TableCell>
+                      <TableCell align="right">{`Amount (${currencySymbol})`}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>

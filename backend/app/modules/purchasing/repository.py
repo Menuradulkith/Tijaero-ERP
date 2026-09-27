@@ -11,18 +11,51 @@ class SupplierRepository:
     def __init__(self, db: Session):
         self.db = db
     
+    # create/update/delete only flush — SupplierService owns the transaction
+    # and commits once (with the audit row and any credit recalculation), so
+    # a failure part-way can't leave half-saved changes behind.
     def create(self, supplier: schemas.SupplierCreate) -> models.Supplier:
+        data = supplier.model_dump()
         db_supplier = models.Supplier(
-            **supplier.model_dump(),
-            date_joined=tz.now()
+            **data,
+            date_joined=tz.now(),
+            # A brand-new supplier has no credit used yet, so the full limit
+            # is available. (Previously both stayed NULL until the first
+            # save or credit event, which broke the deactivate check.)
+            initial_credit_amount=data.get("max_credit_limit") or 0,
+            left_credit_amount=data.get("max_credit_limit") or 0,
         )
         self.db.add(db_supplier)
-        self.db.commit()
-        self.db.refresh(db_supplier)
+        self.db.flush()
         return db_supplier
     
     def get_by_id(self, supplier_id: int) -> Optional[models.Supplier]:
         return self.db.query(models.Supplier).filter(models.Supplier.id == supplier_id).first()
+
+    def lock_for_document(self, *supplier_ids: Optional[int]) -> None:
+        """Lock supplier rows before checking they're active and creating a
+        document (PO, GRN, payment) against them.
+
+        SupplierService.update_supplier locks the same row before its
+        deactivate checks, so a deactivation and a new document for the same
+        supplier serialize: no inactive supplier with a fresh pending PO.
+        FOR NO KEY UPDATE rather than a shared lock on purpose: these flows go
+        on to recalculate the credit balance (FOR UPDATE on the same row), and
+        two shared holders both upgrading would deadlock. NO KEY UPDATE still
+        makes these requests wait for each other and for a deactivation, but
+        doesn't block unrelated inserts elsewhere that merely reference the
+        supplier (their FK checks take KEY SHARE). Locked in id order so a PO
+        naming two suppliers can't deadlock against another. Callers that
+        also lock a PO must lock the PO first (see create_payment)."""
+        ids = sorted({sid for sid in supplier_ids if sid})
+        if ids:
+            (
+                self.db.query(models.Supplier.id)
+                .filter(models.Supplier.id.in_(ids))
+                .order_by(models.Supplier.id)
+                .with_for_update(key_share=True)
+                .all()
+            )
     
     def get_all(self, filters: schemas.SupplierListFilter) -> List[models.Supplier]:
         query = self.db.query(models.Supplier)
@@ -92,18 +125,17 @@ class SupplierRepository:
         if db_supplier:
             # expected_updated_at is a concurrency-check field only (see
             # SupplierService.update_supplier) — it isn't a real column.
-            update_data = supplier_update.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
+            update_data = supplier_update.model_dump(exclude_unset=True, exclude={"expected_updated_at", "expected_version"})
             for field, value in update_data.items():
                 setattr(db_supplier, field, value)
-            self.db.commit()
-            self.db.refresh(db_supplier)
+            self.db.flush()
         return db_supplier
-    
+
     def delete(self, supplier_id: int) -> bool:
         db_supplier = self.get_by_id(supplier_id)
         if db_supplier:
             self.db.delete(db_supplier)
-            self.db.commit()
+            self.db.flush()
             return True
         return False
 
@@ -127,21 +159,47 @@ class SupplierPaymentMethodRepository:
         )
 
     def _clear_default(self, supplier_id: int, exclude_id: Optional[int] = None) -> None:
+        # Same shape as SupplierProductRepository._clear_preferred: lock the
+        # supplier row so concurrent "make default" requests serialize, and
+        # don't commit — the clear and the caller's insert/update must land
+        # together, or a failure in between leaves no default at all.
+        # uq_supplier_payment_method_default (s67) is the database backstop.
+        # FOR NO KEY UPDATE (key_share=True), not FOR UPDATE: it still
+        # serializes these requests, but doesn't block inserts elsewhere that
+        # merely reference the supplier (their FK checks take FOR KEY SHARE).
+        self.db.query(models.Supplier.id).filter(
+            models.Supplier.id == supplier_id
+        ).with_for_update(key_share=True).first()
         query = self.db.query(models.SupplierPaymentMethod).filter(
             models.SupplierPaymentMethod.supplier_id == supplier_id,
             models.SupplierPaymentMethod.is_default.is_(True),
         )
         if exclude_id is not None:
             query = query.filter(models.SupplierPaymentMethod.id != exclude_id)
-        query.update({"is_default": False})
-        self.db.commit()
+        query.update({"is_default": False}, synchronize_session=False)
+
+    def _commit_method(self) -> None:
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            from fastapi import HTTPException, status
+            from app.common.concurrency import integrity_error_detail, is_unique_violation
+
+            if not is_unique_violation(exc):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=integrity_error_detail(exc))
+
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The default payment method was changed by someone else at the same time. Refresh and try again.",
+            )
 
     def create(self, supplier_id: int, data: schemas.SupplierPaymentMethodCreate) -> models.SupplierPaymentMethod:
         if data.is_default:
             self._clear_default(supplier_id)
         db_method = models.SupplierPaymentMethod(supplier_id=supplier_id, **data.model_dump())
         self.db.add(db_method)
-        self.db.commit()
+        self._commit_method()
         self.db.refresh(db_method)
         return db_method
 
@@ -156,7 +214,7 @@ class SupplierPaymentMethodRepository:
             self._clear_default(db_method.supplier_id, exclude_id=db_method.id)
         for field, value in update_data.items():
             setattr(db_method, field, value)
-        self.db.commit()
+        self._commit_method()
         self.db.refresh(db_method)
         return db_method
 
@@ -202,10 +260,36 @@ class SupplierContactPersonRepository:
             query = query.filter(models.SupplierContactPerson.id != exclude_id)
         return query.first()
 
+    # Unique index (alembic s67) → message, for when two concurrent saves both
+    # pass SupplierContactPersonService's pre-check.
+    _UNIQUE_MESSAGES = {
+        "uq_supplier_contact_id_card": "This ID card number is already used by another contact person.",
+        "uq_supplier_contact_passport": "This passport number is already used by another contact person.",
+        "uq_supplier_contact_email": "This email is already used by another contact person.",
+    }
+
+    def _commit_contact(self) -> None:
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            from fastapi import HTTPException, status
+            from app.common.concurrency import integrity_error_detail, is_unique_violation
+
+            if not is_unique_violation(exc):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=integrity_error_detail(exc))
+            raw = str(getattr(exc, "orig", exc))
+            detail = next(
+                (msg for name, msg in self._UNIQUE_MESSAGES.items() if name in raw),
+                "This contact person duplicates an existing one.",
+            )
+            # 400, not 409: the page treats 409 as "record changed elsewhere".
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
     def create(self, supplier_id: int, data: schemas.SupplierContactPersonCreate) -> models.SupplierContactPerson:
         db_contact = models.SupplierContactPerson(supplier_id=supplier_id, **data.model_dump())
         self.db.add(db_contact)
-        self.db.commit()
+        self._commit_contact()
         self.db.refresh(db_contact)
         return db_contact
 
@@ -218,7 +302,7 @@ class SupplierContactPersonRepository:
         update_data = data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(db_contact, field, value)
-        self.db.commit()
+        self._commit_contact()
         self.db.refresh(db_contact)
         return db_contact
 
@@ -320,21 +404,50 @@ class SupplierProductRepository:
     def _clear_preferred(self, product_id: int, exclude_id: Optional[int] = None) -> None:
         # "Preferred" is scoped to the product (only one preferred supplier
         # per product), not to the supplier — unlike payment methods' default.
+        #
+        # Locks the product row first so two concurrent "make preferred"
+        # requests for the same product serialize, and deliberately does NOT
+        # commit: the clear and the caller's insert/update must land in one
+        # transaction, otherwise a failure in between leaves the product with
+        # no preferred supplier. uq_supplier_product_preferred (s66) is the
+        # database-level backstop.
+        from app.modules.products.models import Product
+
+        # FOR NO KEY UPDATE: serializes these requests without blocking FK
+        # checks (KEY SHARE) from e.g. PO item inserts, which could otherwise
+        # form a lock cycle with PO creation holding the supplier.
+        self.db.query(Product.id).filter(Product.id == product_id).with_for_update(key_share=True).first()
         query = self.db.query(models.SupplierProduct).filter(
             models.SupplierProduct.product_id == product_id,
             models.SupplierProduct.is_preferred.is_(True),
         )
         if exclude_id is not None:
             query = query.filter(models.SupplierProduct.id != exclude_id)
-        query.update({"is_preferred": False})
-        self.db.commit()
+        query.update({"is_preferred": False}, synchronize_session=False)
+
+    def _commit_mapping(self) -> None:
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            from fastapi import HTTPException, status
+            from app.common.concurrency import integrity_error_detail, is_unique_violation
+
+            if not is_unique_violation(exc):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=integrity_error_detail(exc))
+
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This product was changed by someone else at the same time "
+                       "(duplicate supplier or preferred supplier). Refresh and try again.",
+            )
 
     def create(self, supplier_id: int, data: schemas.SupplierProductCreate) -> models.SupplierProduct:
         if data.is_preferred:
             self._clear_preferred(data.product_id)
         db_mapping = models.SupplierProduct(supplier_id=supplier_id, **data.model_dump())
         self.db.add(db_mapping)
-        self.db.commit()
+        self._commit_mapping()
         self.db.refresh(db_mapping)
         return self._stamp_display_fields([db_mapping])[0]
 
@@ -349,7 +462,7 @@ class SupplierProductRepository:
             self._clear_preferred(db_mapping.product_id, exclude_id=db_mapping.id)
         for field, value in update_data.items():
             setattr(db_mapping, field, value)
-        self.db.commit()
+        self._commit_mapping()
         self.db.refresh(db_mapping)
         return self._stamp_display_fields([db_mapping])[0]
 

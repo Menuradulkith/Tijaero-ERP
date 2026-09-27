@@ -27,6 +27,7 @@ import {
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import TrendingFlatIcon from "@mui/icons-material/TrendingFlat";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 export interface TStatCardProps {
   /** Card title */
@@ -79,7 +80,8 @@ const formatNumber = (value: string | number, isCurrency = false): string => {
   if (isNaN(num)) return String(value);
 
   if (isCurrency) {
-    return `Rs. ${new Intl.NumberFormat("en-LK", {
+    const { symbol, locale } = useCurrencyStore.getState();
+    return `${symbol} ${new Intl.NumberFormat(locale, {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(num)}`;

@@ -26,8 +26,6 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   ArrowBack as ArrowBackIcon,
-  Star as StarIcon,
-  StarBorder as StarOutlineIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
@@ -46,11 +44,13 @@ import {
   type TDataGridColumn,
   fmtLKR,
   TActivityHistoryPanel,
+  useRowSelection,
 } from "@/components/tijaero";
 
 import { bankDepositsApi } from "@/modules/finance/api";
 import { BankDeposit, BankDepositCreate } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 interface Branch {
   branch_code: string;
@@ -81,6 +81,7 @@ const resetFormFromItem = (item: BankDeposit): Partial<BankDepositCreate> => ({
 });
 
 export default function BankDepositsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   // Filter state - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -92,16 +93,15 @@ export default function BankDepositsPage() {
     selectedItem,
     setSelectedItem,
     isCreating,
-    favorites,
-    toggleFavorite,
     formData,
     handleSelectItem,
   } = useMasterDetailState<BankDeposit, Partial<BankDepositCreate>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem,
-    favoritesKey: "bank_deposits_favorites",
     defaultSortField: "created_date",
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Status section title, rather than shown inline.
@@ -187,23 +187,6 @@ export default function BankDepositsPage() {
   const depositColumns: TDataGridColumn<BankDepositRow>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<BankDepositRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "id",
         header: "Deposit No",
         width: 130,
@@ -224,7 +207,7 @@ export default function BankDepositsPage() {
         width: 140,
         align: "right",
         headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<BankDepositRow>) => `Rs. ${fmtLKR(Number(params.row.deposits_amount || 0))}`,
+        renderCell: (params: GridRenderCellParams<BankDepositRow>) => `${currencySymbol} ${fmtLKR(Number(params.row.deposits_amount || 0))}`,
       },
       {
         field: "invoice_no",
@@ -268,7 +251,7 @@ export default function BankDepositsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectWithCheck]
+    [handleSelectWithCheck, currencySymbol]
   );
 
   // Browse mode: a full-width table of every bank deposit (shown when
@@ -287,6 +270,9 @@ export default function BankDepositsPage() {
           emptyMessage="No bank deposits found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -334,8 +320,6 @@ export default function BankDepositsPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedItem.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
     </Paper>
@@ -355,8 +339,6 @@ export default function BankDepositsPage() {
         isCreating={isCreating}
         createTitle="New Bank Deposit"
         noSelectionTitle="Select a Deposit"
-        isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
-        onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
 
       {/* Actions disabled - read-only mode */}
@@ -519,7 +501,7 @@ export default function BankDepositsPage() {
             onClick={() => {
               if (!filteredDeposits.length) return;
               const headers = ["Date", "Bank", "Branch", "Amount", "Status", "Remarks"];
-              const rows = filteredDeposits.map((d: BankDeposit) => [
+              const rows = rowSelection.pick(filteredDeposits).map((d: BankDeposit) => [
                 d.created_date ?? "",
                 d.bank_name ?? "",
                 d.branch_code ?? "",

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fmtLKR } from "@/components/tijaero";
+import { useCurrencyStore } from "@/state/currencyStore";
 import {
   Box,
   Typography,
@@ -21,6 +22,7 @@ import { reportingApi } from "@/modules/reporting/api";
 import { SalesReportRequest } from "@/modules/reporting/types";
 
 export default function SalesReportPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const [filters, setFilters] = useState<SalesReportRequest>({
     start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()
@@ -111,7 +113,7 @@ export default function SalesReportPage() {
                     Total Sales
                   </Typography>
                   <Typography variant="h4" fontWeight="bold">
-                    Rs. {report.total_sales.toFixed(2)}
+                    {currencySymbol} {report.total_sales.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -147,7 +149,7 @@ export default function SalesReportPage() {
                     Avg Order Value
                   </Typography>
                   <Typography variant="h4" fontWeight="bold">
-                    Rs. {report.average_order_value.toFixed(2)}
+                    {currencySymbol} {report.average_order_value.toFixed(2)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -164,7 +166,7 @@ export default function SalesReportPage() {
                   <TableRow>
                     <TableCell>Product Name</TableCell>
                     <TableCell align="right">Quantity Sold</TableCell>
-                    <TableCell align="right">Revenue (Rs.)</TableCell>
+                    <TableCell align="right">{`Revenue (${currencySymbol})`}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -194,7 +196,7 @@ export default function SalesReportPage() {
                   <TableRow>
                     <TableCell>Branch Code</TableCell>
                     <TableCell align="right">Orders</TableCell>
-                    <TableCell align="right">Revenue (Rs.)</TableCell>
+                    <TableCell align="right">{`Revenue (${currencySymbol})`}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>

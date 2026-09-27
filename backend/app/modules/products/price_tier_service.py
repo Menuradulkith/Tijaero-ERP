@@ -13,9 +13,14 @@ class PriceTierService:
     # Helpers
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _get_product_or_404(self, db: Session, product_id: int):
+    def _get_product_or_404(self, db: Session, product_id: int, lock: bool = False):
         from app.modules.products.models import Product
-        product = db.query(Product).filter(Product.id == product_id).first()
+        query = db.query(Product).filter(Product.id == product_id)
+        if lock:
+            # Serializes tier changes per product, so "keep at least one
+            # (active) tier" checks can't both pass for two concurrent requests.
+            query = query.with_for_update(key_share=True)
+        product = query.first()
         if not product:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -116,6 +121,7 @@ class PriceTierService:
 
     def toggle_active(self, db: Session, product_id: int, tier_id: int, is_active: bool, user_id: int) -> ProductPriceTier:
         """Activate or deactivate a tier. Prevents deactivating the last active tier."""
+        self._get_product_or_404(db, product_id, lock=True)
         tier = self._get_tier_or_404(db, product_id, tier_id)
 
         if not is_active:
@@ -144,6 +150,7 @@ class PriceTierService:
 
     def delete_tier(self, db: Session, product_id: int, tier_id: int) -> dict:
         """Soft-delete by deactivating. Hard-delete only if no invoice/quote items reference it."""
+        self._get_product_or_404(db, product_id, lock=True)
         tier = self._get_tier_or_404(db, product_id, tier_id)
 
         # Check if any invoice items reference this tier
@@ -174,8 +181,18 @@ class PriceTierService:
                 detail="Cannot delete the only price tier for this product.",
             )
 
-        db.delete(tier)
-        db.commit()
+        from sqlalchemy.exc import IntegrityError
+
+        try:
+            db.delete(tier)
+            db.commit()
+        except IntegrityError:
+            # An invoice/quote line started using it after the check above.
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete this price tier — it was just used by another record. Deactivate it instead.",
+            )
         return {"detail": "Price tier deleted successfully."}
 
 

@@ -12,8 +12,10 @@ import {
 } from "@mui/material";
 import { reportingApi } from "@/modules/reporting/api";
 import { HRReportRequest } from "@/modules/reporting/types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 export default function HRReportPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const [filters, setFilters] = useState<HRReportRequest>({
     start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()
@@ -98,7 +100,7 @@ export default function HRReportPage() {
                   Total Payroll
                 </Typography>
                 <Typography variant="h4" fontWeight="bold">
-                  Rs. {report.total_payroll.toFixed(2)}
+                  {currencySymbol} {report.total_payroll.toFixed(2)}
                 </Typography>
               </CardContent>
             </Card>
@@ -110,7 +112,7 @@ export default function HRReportPage() {
                   Reimbursements
                 </Typography>
                 <Typography variant="h4" fontWeight="bold">
-                  Rs. {report.total_reimbursements.toFixed(2)}
+                  {currencySymbol} {report.total_reimbursements.toFixed(2)}
                 </Typography>
               </CardContent>
             </Card>
@@ -122,7 +124,7 @@ export default function HRReportPage() {
                   Deductions
                 </Typography>
                 <Typography variant="h4" fontWeight="bold">
-                  Rs. {report.total_deductions.toFixed(2)}
+                  {currencySymbol} {report.total_deductions.toFixed(2)}
                 </Typography>
               </CardContent>
             </Card>

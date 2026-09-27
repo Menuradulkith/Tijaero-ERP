@@ -64,6 +64,7 @@ import {
 import { fmtLKR, TPageSkeleton, TStatusChip } from "@/components/tijaero";
 import { useReferenceData, BranchRef } from "@/hooks";
 import { purchasingStatsApi } from "@/modules/purchasing/api";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 const PAYMENT_LABELS: Record<string, string> = {
   cash: "Cash",
@@ -84,6 +85,7 @@ const PAYMENT_COLORS: Record<string, string> = {
 export default function PurchasingDashboard() {
   const navigate = useNavigate();
   const theme = useTheme();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
 
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
@@ -221,8 +223,8 @@ export default function PurchasingDashboard() {
         <Grid item xs={12} sm={6} md={3}>
           <KpiSparkCard
             title="Month Spending"
-            value={`Rs. ${fmtLKR(stats.current_month_po_value)}`}
-            subtitle={`Last month: Rs. ${fmtLKR(stats.last_month_po_value)}`}
+            value={`${currencySymbol} ${fmtLKR(stats.current_month_po_value)}`}
+            subtitle={`Last month: ${currencySymbol} ${fmtLKR(stats.last_month_po_value)}`}
             icon={<TrendingUpIcon />}
             color="warning"
             trend={trends.value}
@@ -294,7 +296,7 @@ export default function PurchasingDashboard() {
                     formatter={(v: number | undefined, n: string | undefined) => {
                       const num = v ?? 0;
                       return n === "Spending"
-                        ? ([`Rs. ${fmtLKR(num)}`, n] as [string, string])
+                        ? ([`${currencySymbol} ${fmtLKR(num)}`, n] as [string, string])
                         : ([num, n ?? ""] as [number, string]);
                     }}
                     contentStyle={{
@@ -457,7 +459,7 @@ export default function PurchasingDashboard() {
                       variant="body2"
                       sx={{ fontWeight: 700, color: "warning.dark", whiteSpace: "nowrap" }}
                     >
-                      Rs. {fmtLKR(s.value)}
+                      {currencySymbol} {fmtLKR(s.value)}
                     </Typography>
                   </ListItem>
                 ))}

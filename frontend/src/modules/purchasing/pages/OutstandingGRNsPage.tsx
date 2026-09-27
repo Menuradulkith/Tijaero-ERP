@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { exportToCSV } from "@/utils/csvExport";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { useNavigate } from "react-router-dom";
 import {
   Autocomplete,
@@ -64,6 +65,7 @@ type SortField =
   | "branch_code";
 
 export default function OutstandingGRNsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const navigate = useNavigate();
 
   // Filters
@@ -186,7 +188,7 @@ export default function OutstandingGRNsPage() {
       "Supplier",
       "Supplier Invoice No",
       "Qty Received",
-      "Amount (Rs.)",
+      `Amount (${currencySymbol})`,
       "Days Since GRN",
       "Branch",
     ];
@@ -251,7 +253,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
 <div class="meta">${supplierLabel} | ${branchLabel} | Generated ${new Date().toLocaleString()}</div>
 <div class="summary">
   <div class="sc"><div class="lbl">Total GRNs</div><div class="val" style="color:#1976d2">${summary.totalGRNs}</div></div>
-  <div class="sc"><div class="lbl">Total Outstanding</div><div class="val" style="color:#ed6c02">Rs. ${fmtLKR(summary.totalAmount)}</div></div>
+  <div class="sc"><div class="lbl">Total Outstanding</div><div class="val" style="color:#ed6c02">${currencySymbol} ${fmtLKR(summary.totalAmount)}</div></div>
   <div class="sc"><div class="lbl">Suppliers</div><div class="val">${summary.supplierCount}</div></div>
   <div class="sc"><div class="lbl">&gt;30 Days Old</div><div class="val" style="color:#c62828">${summary.oldCount}</div></div>
 </div>
@@ -259,7 +261,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
 <th>Qty</th><th>Amount</th><th>Age</th><th>Branch</th></tr></thead>
 <tbody>${rowsHtml}
 <tr style="background:#f5f5f5;font-weight:bold"><td colspan="5" style="text-align:right">TOTAL:</td>
-<td style="text-align:right">${summary.totalQty}</td><td style="text-align:right">Rs. ${fmtLKR(summary.totalAmount)}</td>
+<td style="text-align:right">${summary.totalQty}</td><td style="text-align:right">${currencySymbol} ${fmtLKR(summary.totalAmount)}</td>
 <td colspan="2"></td></tr>
 </tbody></table>
 <script>window.onload=function(){window.print()}</script></body></html>`);
@@ -402,7 +404,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                   Total Outstanding
                 </Typography>
                 <Typography variant="h6" color="warning.dark">
-                  Rs. {fmtLKR(summary.totalAmount)}
+                  {currencySymbol} {fmtLKR(summary.totalAmount)}
                 </Typography>
               </CardContent>
             </Card>
@@ -433,7 +435,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                 </Typography>
                 {summary.oldAmount > 0 && (
                   <Typography variant="caption" color="error.dark">
-                    Rs. {fmtLKR(summary.oldAmount)}
+                    {currencySymbol} {fmtLKR(summary.oldAmount)}
                   </Typography>
                 )}
               </CardContent>
@@ -516,7 +518,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                         }
                         onClick={() => handleSort("remaining_amount")}
                       >
-                        Amount (Rs.)
+                        {`Amount (${currencySymbol})`}
                       </TableSortLabel>
                     </TableCell>
                     <TableCell align="center">
@@ -636,7 +638,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                     <TableCell align="right">{summary.totalQty}</TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold" color="primary.main">
-                        Rs. {fmtLKR(summary.totalAmount)}
+                        {currencySymbol} {fmtLKR(summary.totalAmount)}
                       </Typography>
                     </TableCell>
                     <TableCell colSpan={3} />

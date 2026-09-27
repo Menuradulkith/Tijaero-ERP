@@ -43,6 +43,17 @@ export default function ProductImageUploader({
 
   const isDraftMode = !product;
 
+  // The local preview belongs to one product only. Clear it when a different
+  // product is shown, so product B never displays product A's in-flight or
+  // failed upload, and remember which product is current so a late upload
+  // response for A doesn't touch B's preview/spinner.
+  const currentProductIdRef = useRef<number | undefined>(product?.id);
+  useEffect(() => {
+    currentProductIdRef.current = product?.id;
+    setPreviewUrl(null);
+    setUploading(false);
+  }, [product?.id]);
+
   // In draft mode, derive the preview straight from the picked File so it
   // survives re-renders without needing a separately-tracked object URL.
   const draftPreviewUrl = useMemo(
@@ -78,19 +89,25 @@ export default function ProductImageUploader({
       return;
     }
 
+    const productId = product!.id;
     const objectUrl = URL.createObjectURL(file);
     setPreviewUrl(objectUrl);
     setUploading(true);
     try {
-      const updated = await productsApi.uploadImage(product!.id, file);
+      const updated = await productsApi.uploadImage(productId, file);
+      // onUpdated guards its own selection; always let it run.
       onUpdated?.(updated);
       showSuccessToast("Image uploaded");
     } catch (err) {
       showErrorToast(handleApiError(err, "Failed to upload image"));
-      setPreviewUrl(null);
     } finally {
+      // Hand display back to the saved image_url (the object URL is revoked
+      // below, so keeping it as the preview would show a dead blob).
+      if (currentProductIdRef.current === productId) {
+        setPreviewUrl(null);
+        setUploading(false);
+      }
       URL.revokeObjectURL(objectUrl);
-      setUploading(false);
     }
   };
 
@@ -99,16 +116,19 @@ export default function ProductImageUploader({
       onDraftFileChange?.(null);
       return;
     }
+    const productId = product!.id;
     setUploading(true);
     try {
-      const updated = await productsApi.removeImage(product!.id);
-      setPreviewUrl(null);
+      const updated = await productsApi.removeImage(productId);
       onUpdated?.(updated);
       showSuccessToast("Image removed");
     } catch (err) {
       showErrorToast(handleApiError(err, "Failed to remove image"));
     } finally {
-      setUploading(false);
+      if (currentProductIdRef.current === productId) {
+        setPreviewUrl(null);
+        setUploading(false);
+      }
     }
   };
 

@@ -20,8 +20,6 @@ import HistoryIcon from "@mui/icons-material/History";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
@@ -75,6 +73,7 @@ import {
     modernTableStyles,
     useCrudMutation,
     useMasterDetailState,
+    useRowSelection,
     useTConfirmDialog,
     TActivityHistoryPanel,
     SelectableListItem,
@@ -82,6 +81,7 @@ import {
 import { formatDateTimeReadable } from "@/utils/formatters";
 
 import { useReferenceData } from "@/hooks";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { saleReturnsApi, salesApi } from "../api";
 import {
     Invoice,
@@ -173,6 +173,7 @@ const resetFormFromReturn = (ret: SaleReturn | SaleReturnWithItems): SaleReturnC
 });
 
 export default function SaleReturnsPage() {
+    const currencySymbol = useCurrencyStore((s) => s.symbol);
     const queryClient = useQueryClient();
     const [lineItems, setLineItems] = useState<ReturnLineItem[]>([]);
     const [formStep, setFormStep] = useState(0);
@@ -211,8 +212,6 @@ export default function SaleReturnsPage() {
         setIsEditing,
         isCreating,
         setIsCreating,
-        favorites,
-        toggleFavorite,
         formData,
         setFormData,
         handleSelectItem: handleSelectReturn,
@@ -222,7 +221,6 @@ export default function SaleReturnsPage() {
     } = useMasterDetailState<SaleReturn, SaleReturnCreate>({
         initialFormData: INITIAL_FORM_DATA,
         resetFormFromItem: resetFormFromReturn,
-        favoritesKey: "sale_returns_favorites",
         defaultSortField: "added_date",
         confirmUnsavedChanges: () => confirmDialog.confirm({
             title: "Discard Changes",
@@ -234,6 +232,8 @@ export default function SaleReturnsPage() {
         extraDirty: lineItems.length > 0,
         onDiscard: () => { setLineItems([]); setFormStep(0); },
     });
+
+    const rowSelection = useRowSelection();
 
     // Activity History is opened on demand from a detail icon next to the
     // Status & Dates section title, rather than shown inline.
@@ -436,27 +436,10 @@ export default function SaleReturnsPage() {
         [filteredReturns] // eslint-disable-line react-hooks/exhaustive-deps
     );
 
-    // The Favorite star column plus real-data columns — sorting is done via
-    // the grid's own column header menu, not a separate "Sort by" control.
+    // Sorting is done via the grid's own column header menu, not a separate
+    // "Sort by" control.
     const saleReturnColumns: TDataGridColumn<SaleReturnRow>[] = useMemo(
         () => [
-            {
-                field: "favorite",
-                header: "",
-                width: 48,
-                sortable: false,
-                align: "center",
-                headerAlign: "center",
-                renderCell: (params: GridRenderCellParams<SaleReturnRow>) => (
-                    <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-                        {favorites.includes(params.row.id) ? (
-                            <StarIcon fontSize="small" color="warning" />
-                        ) : (
-                            <StarOutlineIcon fontSize="small" color="action" />
-                        )}
-                    </IconButton>
-                ),
-            },
             {
                 field: "sale_return_no",
                 header: "Return No",
@@ -492,7 +475,7 @@ export default function SaleReturnsPage() {
                 align: "right",
                 headerAlign: "right",
                 renderCell: (params: GridRenderCellParams<SaleReturnRow>) =>
-                    `Rs. ${fmtLKR(params.row.total_refund || 0)}`,
+                    `${currencySymbol} ${fmtLKR(params.row.total_refund || 0)}`,
             },
             {
                 field: "view",
@@ -516,7 +499,7 @@ export default function SaleReturnsPage() {
                 ),
             },
         ],
-        [favorites, toggleFavorite, handleSelectReturnWithItems] // eslint-disable-line react-hooks/exhaustive-deps
+        [handleSelectReturnWithItems] // eslint-disable-line react-hooks/exhaustive-deps
     );
 
     // Cancelling out of "New Return" should return to the browse table, not
@@ -677,7 +660,7 @@ export default function SaleReturnsPage() {
             "Total Refund"
         ];
 
-        const rows = filteredReturns.map(ret => [
+        const rows = rowSelection.pick(filteredReturns).map(ret => [
             ret.sale_return_no || `RET-${ret.id}`,
             getInvoiceNo(ret),
             getBranchDisplay(ret.branch_code),
@@ -766,6 +749,9 @@ export default function SaleReturnsPage() {
                     emptyMessage="No sale returns found"
                     autoHeight={false}
                     height="100%"
+                    selectionMode="multiple"
+                    selectedRows={rowSelection.selectedRows}
+                    onSelectionChange={rowSelection.setSelectedRows}
                 />
             </Box>
         </Box>
@@ -825,8 +811,6 @@ export default function SaleReturnsPage() {
                             </Box>
                         </Box>
                     }
-                    isFavorite={favorites.includes(selectedReturn.id)}
-                    onToggleFavorite={(e) => toggleFavorite(selectedReturn.id, e)}
                 />
             )}
         </Paper>
@@ -847,8 +831,6 @@ export default function SaleReturnsPage() {
                 isCreating={isCreating}
                 createTitle="New Sale Return"
                 noSelectionTitle="Select a Return"
-                isFavorite={selectedReturn ? favorites.includes(selectedReturn.id) : false}
-                onToggleFavorite={selectedReturn ? (e) => toggleFavorite(selectedReturn.id, e) : undefined}
             />
 
             <ActionToolbar
@@ -1064,19 +1046,19 @@ export default function SaleReturnsPage() {
                                             <Box>
                                                 <Typography variant="caption" color="text.secondary">Subtotal</Typography>
                                                 <Typography variant="body2" fontWeight={500}>
-                                                    Rs. {fmtLKR(selectedReturn.subtotal || 0)}
+                                                    {currencySymbol} {fmtLKR(selectedReturn.subtotal || 0)}
                                                 </Typography>
                                             </Box>
                                             <Box>
                                                 <Typography variant="caption" color="text.secondary">Tax Refund</Typography>
                                                 <Typography variant="body2" fontWeight={500}>
-                                                    Rs. {fmtLKR(selectedReturn.tax_refund || 0)}
+                                                    {currencySymbol} {fmtLKR(selectedReturn.tax_refund || 0)}
                                                 </Typography>
                                             </Box>
                                             <Box>
                                                 <Typography variant="caption" color="text.secondary">Total Refund</Typography>
                                                 <Typography variant="h6" color="warning.main" fontWeight={600}>
-                                                    Rs. {fmtLKR(selectedReturn.total_refund || 0)}
+                                                    {currencySymbol} {fmtLKR(selectedReturn.total_refund || 0)}
                                                 </Typography>
                                             </Box>
                                             <Box>
@@ -1095,7 +1077,7 @@ export default function SaleReturnsPage() {
                                                 <Box>
                                                     <Typography variant="caption" color="text.secondary">Refund Amount</Typography>
                                                     <Typography variant="body2" fontWeight={500}>
-                                                        Rs. {fmtLKR(selectedReturn.refund_amount || 0)}
+                                                        {currencySymbol} {fmtLKR(selectedReturn.refund_amount || 0)}
                                                     </Typography>
                                                 </Box>
                                                 <Box>
@@ -1219,7 +1201,7 @@ export default function SaleReturnsPage() {
                                                             <TableCell>{getProductName(inv.product_id) || `Product #${inv.product_id}`}</TableCell>
                                                             <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{inv.barcode || "—"}</TableCell>
                                                             <TableCell align="right">{inv.quantity}</TableCell>
-                                                            <TableCell align="right">Rs. {fmtLKR(Number(inv.selling_price))}</TableCell>
+                                                            <TableCell align="right">{currencySymbol} {fmtLKR(Number(inv.selling_price))}</TableCell>
                                                             <TableCell>
                                                                 {alreadyAdded
                                                                     ? <Chip label="Added" size="small" color="success" sx={{ height: 18, fontSize: "0.65rem" }} />
@@ -1373,7 +1355,7 @@ export default function SaleReturnsPage() {
                                                             )}
                                                         </TableCell>
                                                         <TableCell align="right">
-                                                            {`Rs. ${fmtLKR(Number(item.sold_price) || 0)}`}
+                                                            {`${currencySymbol} ${fmtLKR(Number(item.sold_price) || 0)}`}
                                                         </TableCell>
                                                         <TableCell align="right">
                                                             {(isEditing || isCreating) ? (
@@ -1386,7 +1368,7 @@ export default function SaleReturnsPage() {
                                                                     inputProps={{ min: 0, step: 0.01 }}
                                                                 />
                                                             ) : (
-                                                                `Rs. ${fmtLKR(Number(item.return_price) || 0)}`
+                                                                `${currencySymbol} ${fmtLKR(Number(item.return_price) || 0)}`
                                                             )}
                                                         </TableCell>
                                                         {(isEditing || isCreating) && (
@@ -1406,7 +1388,7 @@ export default function SaleReturnsPage() {
                                                     <Typography fontWeight="bold">Total Return:</Typography>
                                                 </TableCell>
                                                 <TableCell align="right">
-                                                    <Typography fontWeight="bold">Rs. {fmtLKR(calculateTotal() || 0)}</Typography>
+                                                    <Typography fontWeight="bold">{currencySymbol} {fmtLKR(calculateTotal() || 0)}</Typography>
                                                 </TableCell>
                                                 {(isEditing || isCreating) && <TableCell />}
                                             </TableRow>
@@ -1442,7 +1424,7 @@ export default function SaleReturnsPage() {
                                         <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
                                             <Typography variant="body2" color="text.secondary">Total Return:</Typography>
                                             <Typography variant="h6" fontWeight="bold" color="primary.main">
-                                                Rs. {fmtLKR(calculateTotal() || 0)}
+                                                {currencySymbol} {fmtLKR(calculateTotal() || 0)}
                                             </Typography>
                                         </Box>
                                     </Paper>

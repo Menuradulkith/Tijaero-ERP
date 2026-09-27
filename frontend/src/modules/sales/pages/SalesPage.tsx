@@ -103,6 +103,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import { paymentCardsApi, salesApi } from "../api";
 import { commissionsApi, commissionPaymentsApi } from "../commission-api";
 import { quotationApi } from "../quotation-api";
+import { useCurrencyStore } from "@/state/currencyStore";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import { Invoice, InvoiceCreate, PaymentCard } from "../types";
 
@@ -224,6 +225,7 @@ const emptyInvoiceForm: Partial<InvoiceCreate> = {
 };
 
 export default function SalesPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -826,7 +828,7 @@ export default function SalesPage() {
         align: "right",
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<InvoiceRow>) =>
-          `Rs. ${fmtLKR(params.row.total_amount)}`,
+          `${currencySymbol} ${fmtLKR(params.row.total_amount)}`,
       },
       {
         field: "payment_status",
@@ -1365,7 +1367,7 @@ export default function SalesPage() {
 
     if (!isBalanced) {
       showErrorToast(
-        `Cannot save: Total payments entered (Rs. ${fmtLKR(entered)}) must equal the grand total (Rs. ${fmtLKR(checkGrandTotal)}). Remaining: Rs. ${fmtLKR(remaining)}`
+        `Cannot save: Total payments entered (${currencySymbol} ${fmtLKR(entered)}) must equal the grand total (${currencySymbol} ${fmtLKR(checkGrandTotal)}). Remaining: ${currencySymbol} ${fmtLKR(remaining)}`
       );
       return;
     }
@@ -1491,20 +1493,20 @@ export default function SalesPage() {
           if (validation.credit_check) {
             detailLines.push({
               label: "Credit Limit",
-              value: `Rs. ${fmtLKR(Number(validation.credit_check.max_credit_limit || 0))}`,
+              value: `${currencySymbol} ${fmtLKR(Number(validation.credit_check.max_credit_limit || 0))}`,
             });
             detailLines.push({
               label: "Current Outstanding",
-              value: `Rs. ${fmtLKR(Number(validation.credit_check.current_outstanding || 0))}`,
+              value: `${currencySymbol} ${fmtLKR(Number(validation.credit_check.current_outstanding || 0))}`,
             });
             detailLines.push({
               label: "This Order",
-              value: `Rs. ${fmtLKR(Number(validation.credit_check.new_credit_amount || 0))}`,
+              value: `${currencySymbol} ${fmtLKR(Number(validation.credit_check.new_credit_amount || 0))}`,
             });
             if (validation.credit_check.will_exceed_limit) {
               detailLines.push({
                 label: "Exceeds by",
-                value: `Rs. ${fmtLKR(Number(validation.credit_check.excess_amount || 0))}`,
+                value: `${currencySymbol} ${fmtLKR(Number(validation.credit_check.excess_amount || 0))}`,
                 color: "error.main",
                 strong: true,
               });
@@ -1546,11 +1548,11 @@ export default function SalesPage() {
           if (validation.credit_check) {
             detailLines.push({
               label: "Credit Limit",
-              value: `Rs. ${fmtLKR(Number(validation.credit_check.max_credit_limit || 0))}`,
+              value: `${currencySymbol} ${fmtLKR(Number(validation.credit_check.max_credit_limit || 0))}`,
             });
             detailLines.push({
               label: "Available Credit",
-              value: `Rs. ${fmtLKR(Number(validation.credit_check.available_credit || 0))}`,
+              value: `${currencySymbol} ${fmtLKR(Number(validation.credit_check.available_credit || 0))}`,
             });
             if (validation.credit_check.overdue_count > 0) {
               detailLines.push({
@@ -2057,7 +2059,7 @@ export default function SalesPage() {
       if (response.valid) {
         setCouponValidation(response);
         showSuccessToast(
-          `Coupon applied! Discount: Rs. ${fmtLKR(response.calculated_discount || 0)}`,
+          `Coupon applied! Discount: ${currencySymbol} ${fmtLKR(response.calculated_discount || 0)}`,
         );
       } else {
         setCouponError(response.message);
@@ -2117,7 +2119,7 @@ export default function SalesPage() {
           ]);
           setVoucherCode(""); // Clear input for next voucher
           showSuccessToast(
-            `Voucher added! Balance: Rs. ${fmtLKR(response.balance || 0)}`,
+            `Voucher added! Balance: ${currencySymbol} ${fmtLKR(response.balance || 0)}`,
           );
         }
       } else {
@@ -2351,7 +2353,7 @@ export default function SalesPage() {
           <TextField
             label="Credit Amount"
             size="small"
-            value={`Rs. ${fmtLKR(state.selectedItem?.credit_amount || 0)}`}
+            value={`${currencySymbol} ${fmtLKR(state.selectedItem?.credit_amount || 0)}`}
             disabled
           />
         </FormSection>
@@ -2456,11 +2458,11 @@ export default function SalesPage() {
                   <TableRow sx={modernTableStyles.headerRow}>
                     <TableCell sx={{ width: 110 }}>Barcode</TableCell>
                     <TableCell sx={{ width: 200 }}>Product</TableCell>
-                    <TableCell align="right" sx={{ width: 120 }}>Unit Price (Rs.)</TableCell>
+                    <TableCell align="right" sx={{ width: 120 }}>{`Unit Price (${currencySymbol})`}</TableCell>
                     <TableCell align="right" sx={{ width: 70 }}>Disc %</TableCell>
                     <TableCell align="center" sx={{ width: 80 }}>Warranty</TableCell>
                     <TableCell sx={{ width: 120 }}>Remark</TableCell>
-                    <TableCell align="right" sx={{ width: 140 }}>Net Amount (Rs.)</TableCell>
+                    <TableCell align="right" sx={{ width: 140 }}>{`Net Amount (${currencySymbol})`}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -2581,32 +2583,32 @@ export default function SalesPage() {
                     {fullInvoice.cash_amount > 0 && (
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2" color="text.secondary">Cash Payment</Typography>
-                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.cash_amount)}</Typography>
+                        <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(fullInvoice.cash_amount)}</Typography>
                       </Box>
                     )}
                     {fullInvoice.card_visa_amount > 0 && (
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2" color="text.secondary">Card Payment (Visa)</Typography>
-                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.card_visa_amount)}</Typography>
+                        <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(fullInvoice.card_visa_amount)}</Typography>
                       </Box>
                     )}
                     {fullInvoice.card_mastercard_amount > 0 && (
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2" color="text.secondary">Card Payment (Mastercard)</Typography>
-                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.card_mastercard_amount)}</Typography>
+                        <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(fullInvoice.card_mastercard_amount)}</Typography>
                       </Box>
                     )}
                     {fullInvoice.card_amex_amount > 0 && (
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2" color="text.secondary">Card Payment (Amex)</Typography>
-                        <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.card_amex_amount)}</Typography>
+                        <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(fullInvoice.card_amex_amount)}</Typography>
                       </Box>
                     )}
                     {fullInvoice.cheque_amount > 0 && (
                       <Box>
                         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="body2" color="text.secondary">Cheque Payment</Typography>
-                          <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.cheque_amount)}</Typography>
+                          <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(fullInvoice.cheque_amount)}</Typography>
                         </Box>
                         {(fullInvoice.cheque_number || fullInvoice.cheque_bank || fullInvoice.cheque_date) && (
                           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}>
@@ -2621,7 +2623,7 @@ export default function SalesPage() {
                       <Box>
                         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                           <Typography variant="body2" color="text.secondary">Bank Transfer</Typography>
-                          <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.bank_transfer_amount)}</Typography>
+                          <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(fullInvoice.bank_transfer_amount)}</Typography>
                         </Box>
                         {(fullInvoice.bank_name || fullInvoice.bank_transfer_ref) && (
                           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}>
@@ -2634,19 +2636,19 @@ export default function SalesPage() {
                     {fullInvoice.credit_amount > 0 && (
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2" color="warning.main" fontWeight="medium">Credit (Owed)</Typography>
-                        <Typography variant="body2" fontWeight="bold" color="warning.main">Rs. {fmtLKR(fullInvoice.credit_amount)}</Typography>
+                        <Typography variant="body2" fontWeight="bold" color="warning.main">{currencySymbol} {fmtLKR(fullInvoice.credit_amount)}</Typography>
                       </Box>
                     )}
                     {fullInvoice.gift_voucher_amount > 0 && (
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2" color="secondary.main">Gift Voucher</Typography>
-                        <Typography variant="body2" fontWeight="medium" color="secondary.main">Rs. {fmtLKR(fullInvoice.gift_voucher_amount)}</Typography>
+                        <Typography variant="body2" fontWeight="medium" color="secondary.main">{currencySymbol} {fmtLKR(fullInvoice.gift_voucher_amount)}</Typography>
                       </Box>
                     )}
                     {fullInvoice.credit_note_amount > 0 && (
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2" color="success.main">Credit Note Redeemed</Typography>
-                        <Typography variant="body2" fontWeight="medium" color="success.main">Rs. {fmtLKR(fullInvoice.credit_note_amount)}</Typography>
+                        <Typography variant="body2" fontWeight="medium" color="success.main">{currencySymbol} {fmtLKR(fullInvoice.credit_note_amount)}</Typography>
                       </Box>
                     )}
                   </Box>
@@ -2674,22 +2676,22 @@ export default function SalesPage() {
                         <>
                           <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                             <Typography variant="body2" color="text.secondary">Gross Total</Typography>
-                            <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(displayGrossTotal)}</Typography>
+                            <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(displayGrossTotal)}</Typography>
                           </Box>
                           {displayItemDiscounts > 0 && (
                             <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                               <Typography variant="body2" color="error.main">Item Discounts</Typography>
-                              <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(displayItemDiscounts)}</Typography>
+                              <Typography variant="body2" color="error.main" fontWeight="medium">-{currencySymbol} {fmtLKR(displayItemDiscounts)}</Typography>
                             </Box>
                           )}
                           <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                             <Typography variant="body2" color="text.secondary">Subtotal</Typography>
-                            <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(displaySubtotal)}</Typography>
+                            <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(displaySubtotal)}</Typography>
                           </Box>
                           {fullInvoice.cupon_amount > 0 && (
                             <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                               <Typography variant="body2" color="error.main">Coupon Discount</Typography>
-                              <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(fullInvoice.cupon_amount)}</Typography>
+                              <Typography variant="body2" color="error.main" fontWeight="medium">-{currencySymbol} {fmtLKR(fullInvoice.cupon_amount)}</Typography>
                             </Box>
                           )}
                           {fullInvoice.discount_amount > 0 && (
@@ -2697,7 +2699,7 @@ export default function SalesPage() {
                               <Typography variant="body2" color="error.main">
                                 Invoice Discount {fullInvoice.discount_percent > 0 ? `(${fullInvoice.discount_percent}%)` : ""}
                               </Typography>
-                              <Typography variant="body2" color="error.main" fontWeight="medium">-Rs. {fmtLKR(fullInvoice.discount_amount)}</Typography>
+                              <Typography variant="body2" color="error.main" fontWeight="medium">-{currencySymbol} {fmtLKR(fullInvoice.discount_amount)}</Typography>
                             </Box>
                           )}
                           {fullInvoice.tax_amount > 0 && (
@@ -2705,28 +2707,28 @@ export default function SalesPage() {
                               <Typography variant="body2" color="text.secondary">
                                 Tax ({fullInvoice.tax_rate}%) {isTaxInclusive ? "(Included)" : ""}
                               </Typography>
-                              <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.tax_amount)}</Typography>
+                              <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(fullInvoice.tax_amount)}</Typography>
                             </Box>
                           )}
                           {fullInvoice.service_charge_amount > 0 && (
                             <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                               <Typography variant="body2" color="text.secondary">Service Charge ({(fullInvoice.service_charge_rate * 100).toFixed(1)}%)</Typography>
-                              <Typography variant="body2" fontWeight="medium">Rs. {fmtLKR(fullInvoice.service_charge_amount)}</Typography>
+                              <Typography variant="body2" fontWeight="medium">{currencySymbol} {fmtLKR(fullInvoice.service_charge_amount)}</Typography>
                             </Box>
                           )}
                           <Divider sx={{ my: 0.5 }} />
                           <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                             <Typography variant="subtitle2" fontWeight="bold">Grand Total</Typography>
-                            <Typography variant="subtitle2" fontWeight="bold">Rs. {fmtLKR(fullInvoice.grand_total)}</Typography>
+                            <Typography variant="subtitle2" fontWeight="bold">{currencySymbol} {fmtLKR(fullInvoice.grand_total)}</Typography>
                           </Box>
                           <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                             <Typography variant="body2" fontWeight="medium" color="success.main">Amount Paid</Typography>
-                            <Typography variant="body2" fontWeight="medium" color="success.main">Rs. {fmtLKR(fullInvoice.paid_amount)}</Typography>
+                            <Typography variant="body2" fontWeight="medium" color="success.main">{currencySymbol} {fmtLKR(fullInvoice.paid_amount)}</Typography>
                           </Box>
                           {fullInvoice.balance_due > 0 && (
                             <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                               <Typography variant="body2" fontWeight="medium" color="error.main">Balance Due</Typography>
-                              <Typography variant="body2" fontWeight="medium" color="error.main">Rs. {fmtLKR(fullInvoice.balance_due)}</Typography>
+                              <Typography variant="body2" fontWeight="medium" color="error.main">{currencySymbol} {fmtLKR(fullInvoice.balance_due)}</Typography>
                             </Box>
                           )}
                         </>
@@ -2778,7 +2780,7 @@ export default function SalesPage() {
                     <Grid item xs={12} sm={4} sx={{ textAlign: { sm: "right" } }}>
                       <Typography variant="body2" color="text.secondary">Commission Amount</Typography>
                       <Typography variant="h6" fontWeight="bold" color="primary.main">
-                        Rs. {fmtLKR(invoiceCommission ? Number(invoiceCommission.commission_amount) : (fullInvoice.grand_total * ((agent?.commission_rate || 0) / 100)))}
+                        {currencySymbol} {fmtLKR(invoiceCommission ? Number(invoiceCommission.commission_amount) : (fullInvoice.grand_total * ((agent?.commission_rate || 0) / 100)))}
                       </Typography>
                     </Grid>
                   </Grid>
@@ -2931,7 +2933,7 @@ export default function SalesPage() {
                 }}
                 helperText={
                   manualCommissionRate != null && manualCommissionRate > 0
-                    ? `Commission: Rs. ${fmtLKR(calcOrderTotals().grandTotal * (manualCommissionRate / 100))} — created as pending for approval`
+                    ? `Commission: ${currencySymbol} ${fmtLKR(calcOrderTotals().grandTotal * (manualCommissionRate / 100))} — created as pending for approval`
                     : "Assign the agent commission rate for this order"
                 }
               />
@@ -2977,7 +2979,7 @@ export default function SalesPage() {
                     Credit Limit
                   </Typography>
                   <Typography variant="body2" fontWeight={500}>
-                    Rs. {fmtLKR(customerCreditStatus.max_credit_limit || 0)}
+                    {currencySymbol} {fmtLKR(customerCreditStatus.max_credit_limit || 0)}
                   </Typography>
                 </Box>
                 <Box>
@@ -2989,7 +2991,7 @@ export default function SalesPage() {
                     fontWeight={500}
                     color="error.main"
                   >
-                    Rs. {fmtLKR(customerCreditStatus.outstanding_credit || 0)}
+                    {currencySymbol} {fmtLKR(customerCreditStatus.outstanding_credit || 0)}
                   </Typography>
                 </Box>
                 <Box>
@@ -3005,7 +3007,7 @@ export default function SalesPage() {
                         : "error.main"
                     }
                   >
-                    Rs. {fmtLKR(customerCreditStatus.available_credit || 0)}
+                    {currencySymbol} {fmtLKR(customerCreditStatus.available_credit || 0)}
                   </Typography>
                 </Box>
                 <Box>
@@ -3023,7 +3025,7 @@ export default function SalesPage() {
                 >
                   <Typography variant="caption" color="error.contrastText">
                     ⚠️ {customerCreditStatus.overdue_count} overdue invoice(s) -
-                    Rs. {fmtLKR(customerCreditStatus.total_overdue_amount || 0)}
+                    {currencySymbol} {fmtLKR(customerCreditStatus.total_overdue_amount || 0)}
                   </Typography>
                 </Box>
               )}
@@ -3132,10 +3134,10 @@ export default function SalesPage() {
                                       {productName}
                                     </Typography>
                                     <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
-                                      {item.quantity} × Rs. {fmtLKR(item.selling_price)}
+                                      {item.quantity} × {currencySymbol} {fmtLKR(item.selling_price)}
                                     </Typography>
                                     <Typography variant="caption" fontWeight={600} color="primary.main" sx={{ whiteSpace: "nowrap" }}>
-                                      = Rs. {fmtLKR(lineTotal)}
+                                      = {currencySymbol} {fmtLKR(lineTotal)}
                                     </Typography>
                                   </Box>
                                 );
@@ -3147,7 +3149,7 @@ export default function SalesPage() {
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" fontWeight={500}>
-                            Rs.{" "}
+                            {currencySymbol}{" "}
                             {fmtLKR(
                               sale.grand_total ||
                                 sale.cash_amount +
@@ -4158,8 +4160,8 @@ export default function SalesPage() {
                     >
                       {couponValidation.discount_type === "PERCENT"
                         ? `${couponValidation.discount_value}% off`
-                        : `Rs. ${fmtLKR(couponValidation.discount_value || 0)} off`}
-                      {" - Discount: Rs. "}
+                        : `${currencySymbol} ${fmtLKR(couponValidation.discount_value || 0)} off`}
+                      {` - Discount: ${currencySymbol} `}
                       {fmtLKR(couponValidation.calculated_discount || 0)}
                     </Typography>
                   </Box>
@@ -4246,7 +4248,7 @@ export default function SalesPage() {
                       InputProps={{
                         endAdornment: (
                           <InputAdornment position="end">
-                            {discountType === "percent" ? "%" : "Rs."}
+                            {discountType === "percent" ? "%" : currencySymbol}
                           </InputAdornment>
                         ),
                       }}
@@ -4268,7 +4270,7 @@ export default function SalesPage() {
                           color="warning.dark"
                           fontWeight="medium"
                         >
-                          = Rs.{" "}
+                          = {currencySymbol}{" "}
                           {fmtLKR(calcOrderTotals().invoiceDiscount)}
                         </Typography>
                         <IconButton
@@ -4331,7 +4333,7 @@ export default function SalesPage() {
                         {effectiveTaxRate > 0 && (
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                             <Typography variant="body2" color="info.dark" fontWeight="medium">
-                              = Rs. {fmtLKR(calcOrderTotals().taxAmount)}
+                              = {currencySymbol} {fmtLKR(calcOrderTotals().taxAmount)}
                             </Typography>
                             <IconButton size="small" color="error" onClick={() => setTaxRate(0)} sx={{ p: 0.5 }}>
                               <DeleteIcon fontSize="small" />
@@ -4504,7 +4506,7 @@ export default function SalesPage() {
                             size="small"
                           />
                           <Typography variant="caption" color="text.secondary">
-                            Full Value: Rs.{" "}
+                            {`Full Value: ${currencySymbol}`}{" "}
                             {fmtLKR(voucher.validation.balance || 0)}
                             {voucher.validation.expiry_date &&
                               ` • Expires: ${new Date(voucher.validation.expiry_date).toLocaleDateString()}`}
@@ -4529,12 +4531,12 @@ export default function SalesPage() {
                           color="info.dark"
                           fontWeight="bold"
                         >
-                          Applying: Rs. {fmtLKR(voucher.amountToRedeem)}
+                          {`Applying: ${currencySymbol}`} {fmtLKR(voucher.amountToRedeem)}
                         </Typography>
                         {(voucher.validation.balance || 0) >
                           voucher.amountToRedeem && (
                           <Typography variant="caption" color="warning.main">
-                            (One-time use - Rs.{" "}
+                            {`(One-time use - ${currencySymbol}`}{" "}
                             {fmtLKR(
                               (voucher.validation.balance || 0) -
                                 voucher.amountToRedeem,
@@ -4559,7 +4561,7 @@ export default function SalesPage() {
                       color="success.dark"
                       fontWeight="bold"
                     >
-                      Total Voucher Payment: Rs.{" "}
+                      {`Total Voucher Payment: ${currencySymbol}`}{" "}
                       {fmtLKR(
                         appliedVouchers.reduce(
                           (sum, v) => sum + Number(v.amountToRedeem),
@@ -4605,7 +4607,7 @@ export default function SalesPage() {
                   color="text.secondary"
                   sx={{ display: "block", mb: 2 }}
                 >
-                  Available Balance: Rs. {fmtLKR(availableCreditBalance)}
+                  Available Balance: {currencySymbol} {fmtLKR(availableCreditBalance)}
                 </Typography>
 
                 {availableCreditBalance > 0 ? (
@@ -4632,7 +4634,7 @@ export default function SalesPage() {
                       }}
                       InputProps={{
                         startAdornment: (
-                          <InputAdornment position="start">Rs.</InputAdornment>
+                          <InputAdornment position="start">{currencySymbol}</InputAdornment>
                         ),
                         inputProps: {
                           min: 0,
@@ -4640,7 +4642,7 @@ export default function SalesPage() {
                           step: 0.01,
                         },
                       }}
-                      helperText={`Max: Rs. ${fmtLKR(
+                      helperText={`Max: ${currencySymbol} ${fmtLKR(
                         Math.min(
                           availableCreditBalance,
                           Math.max(0, calcOrderTotals().afterVoucher),
@@ -4662,7 +4664,7 @@ export default function SalesPage() {
                           color="success.dark"
                           fontWeight="bold"
                         >
-                          Credit Note Applied: Rs. {fmtLKR(creditNoteAmount)}
+                          Credit Note Applied: {currencySymbol} {fmtLKR(creditNoteAmount)}
                         </Typography>
                       </Box>
                     )}
@@ -4732,7 +4734,7 @@ export default function SalesPage() {
                     ))}
                   </TextField>
                   <TextField
-                    size="small" type="number" label="Amount (Rs.)"
+                    size="small" type="number" label={`Amount (${currencySymbol})`}
                     value={row.amount}
                     onChange={(e) => handlePaymentAmountChange(row.id, parseFloat(e.target.value) || 0)}
                     sx={{ width: 160 }}
@@ -4843,7 +4845,7 @@ export default function SalesPage() {
                         Available Credit Days: <strong>{customerCreditStatus?.credit_days ?? 0} days</strong>
                       </Typography>
                       <Typography variant="body2" color="info.dark" fontWeight="medium">
-                        Available Credit: <strong>Rs. {customerCreditStatus ? fmtLKR(customerCreditStatus.available_credit) : "0.00"}</strong>
+                        Available Credit: <strong>{currencySymbol} {customerCreditStatus ? fmtLKR(customerCreditStatus.available_credit) : "0.00"}</strong>
                       </Typography>
                     </Box>
 
@@ -4877,7 +4879,7 @@ export default function SalesPage() {
                           <Chip
                             color="primary"
                             variant="outlined"
-                            label={`Monthly Amount: Rs. ${fmtLKR(monthlyAmt)} / mo`}
+                            label={`Monthly Amount: ${currencySymbol} ${fmtLKR(monthlyAmt)} / mo`}
                             sx={{ fontWeight: "bold" }}
                           />
                         );
@@ -4901,13 +4903,13 @@ export default function SalesPage() {
                   <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
                     <Typography variant="body2" color="text.secondary">Total Entered:</Typography>
                     <Typography variant="body2" fontWeight="bold" color={isBalanced ? "success.main" : "warning.main"}>
-                      Rs. {fmtLKR(entered)}
+                      {currencySymbol} {fmtLKR(entered)}
                     </Typography>
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                     <Typography variant="body2" color="text.secondary">Remaining:</Typography>
                     <Typography variant="body2" fontWeight="bold" color={isBalanced ? "success.main" : "error.main"}>
-                      {remaining > 0.01 ? `Rs. ${fmtLKR(remaining)}` : remaining < -0.01 ? `- Rs. ${fmtLKR(Math.abs(remaining))} (overpaid)` : "✔ Fully paid"}
+                      {remaining > 0.01 ? `${currencySymbol} ${fmtLKR(remaining)}` : remaining < -0.01 ? `- ${currencySymbol} ${fmtLKR(Math.abs(remaining))} (overpaid)` : "✔ Fully paid"}
                     </Typography>
                   </Box>
                 </Box>
@@ -4949,7 +4951,7 @@ export default function SalesPage() {
                   Gross Total:
                 </Typography>
                 <Typography variant="body1" fontWeight="medium">
-                  Rs. {fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateGrossTotal() / (1 + effectiveTaxRate / 100) : calculateGrossTotal())}
+                  {currencySymbol} {fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateGrossTotal() / (1 + effectiveTaxRate / 100) : calculateGrossTotal())}
                 </Typography>
               </Box>
 
@@ -4966,7 +4968,7 @@ export default function SalesPage() {
                     Item Discounts:
                   </Typography>
                   <Typography variant="body1" fontWeight="medium" color="error.main">
-                    - Rs. {fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateTotalItemDiscounts() / (1 + effectiveTaxRate / 100) : calculateTotalItemDiscounts())}
+                    - {currencySymbol} {fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateTotalItemDiscounts() / (1 + effectiveTaxRate / 100) : calculateTotalItemDiscounts())}
                   </Typography>
                 </Box>
               )}
@@ -4983,7 +4985,7 @@ export default function SalesPage() {
                   Subtotal:
                 </Typography>
                 <Typography variant="body1" fontWeight="medium">
-                  Rs. {fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateLineItemsTotal() / (1 + effectiveTaxRate / 100) : calculateLineItemsTotal())}
+                  {currencySymbol} {fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? calculateLineItemsTotal() / (1 + effectiveTaxRate / 100) : calculateLineItemsTotal())}
                 </Typography>
               </Box>
 
@@ -5005,7 +5007,7 @@ export default function SalesPage() {
                       fontWeight="medium"
                       color="error.main"
                     >
-                      - Rs. {fmtLKR(couponValidation.calculated_discount ?? 0)}
+                      - {currencySymbol} {fmtLKR(couponValidation.calculated_discount ?? 0)}
                     </Typography>
                   </Box>
                 )}
@@ -5031,7 +5033,7 @@ export default function SalesPage() {
                     fontWeight="medium"
                     color="error.main"
                   >
-                    - Rs. {fmtLKR(calcOrderTotals().invoiceDiscount)}
+                    - {currencySymbol} {fmtLKR(calcOrderTotals().invoiceDiscount)}
                   </Typography>
                 </Box>
               )}
@@ -5053,7 +5055,7 @@ export default function SalesPage() {
                     fontWeight="medium"
                     color="info.main"
                   >
-                    Rs. {fmtLKR(calcOrderTotals().taxAmount)}
+                    {currencySymbol} {fmtLKR(calcOrderTotals().taxAmount)}
                   </Typography>
                 </Box>
               )}
@@ -5079,7 +5081,7 @@ export default function SalesPage() {
                       fontWeight="medium"
                       color="secondary.main"
                     >
-                      - Rs.{" "}
+                      - {currencySymbol}{" "}
                       {fmtLKR(
                         appliedVouchers.reduce(
                           (sum, v) => sum + Number(v.amountToRedeem),
@@ -5107,7 +5109,7 @@ export default function SalesPage() {
                     fontWeight="medium"
                     color="success.main"
                   >
-                    - Rs. {fmtLKR(calcOrderTotals().appliedCreditNote)}
+                    - {currencySymbol} {fmtLKR(calcOrderTotals().appliedCreditNote)}
                   </Typography>
                 </Box>
               )}
@@ -5131,7 +5133,7 @@ export default function SalesPage() {
                       fontWeight="medium"
                       color="warning.main"
                     >
-                      + Rs. {fmtLKR(calcOrderTotals().serviceCharge)}
+                      + {currencySymbol} {fmtLKR(calcOrderTotals().serviceCharge)}
                     </Typography>
                   </Box>
                 )}
@@ -5151,7 +5153,7 @@ export default function SalesPage() {
                   Total Amount to Pay{taxMode === "inclusive" && effectiveTaxRate > 0 ? " (incl. taxes)" : ""}:
                 </Typography>
                 <Typography variant="h4" fontWeight="bold" color="primary.main">
-                  Rs. {fmtLKR(calcOrderTotals().grandTotal)}
+                  {currencySymbol} {fmtLKR(calcOrderTotals().grandTotal)}
                 </Typography>
               </Box>
             </Box>
@@ -5176,7 +5178,7 @@ export default function SalesPage() {
                   </Typography>
                   {baseRate > 0 && manualCommissionRate === null && manualCommissionAmount === null && (
                     <Typography variant="caption" color="text.secondary">
-                      Default: {baseRate}% × Rs. {fmtLKR(totals.grandTotal)} = Rs. {fmtLKR(calculatedAmt)}
+                      Default: {baseRate}% × {currencySymbol} {fmtLKR(totals.grandTotal)} = {currencySymbol} {fmtLKR(calculatedAmt)}
                     </Typography>
                   )}
                 </Box>
@@ -5201,7 +5203,7 @@ export default function SalesPage() {
                   />
                   <TextField
                     size="small"
-                    label="Commission Amount (Rs.)"
+                    label={`Commission Amount (${currencySymbol})`}
                     type="number"
                     value={manualCommissionAmount !== null ? manualCommissionAmount : effectiveAmt.toFixed(2)}
                     onChange={(e) => {
@@ -5209,7 +5211,7 @@ export default function SalesPage() {
                     }}
                     inputProps={{ min: 0, step: 0.01 }}
                     sx={{ width: 200 }}
-                    InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                    InputProps={{ startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment> }}
                   />
                   {(manualCommissionRate !== null || manualCommissionAmount !== null) && (
                     <Button
@@ -5220,7 +5222,7 @@ export default function SalesPage() {
                     </Button>
                   )}
                   <Chip
-                    label={`Commission: Rs. ${fmtLKR(effectiveAmt)}`}
+                    label={`Commission: ${currencySymbol} ${fmtLKR(effectiveAmt)}`}
                     color="primary"
                     size="small"
                     variant="outlined"

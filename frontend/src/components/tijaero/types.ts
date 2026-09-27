@@ -106,10 +106,6 @@ export interface SearchableListProps<T extends BaseEntity> {
   emptyMessage?: string;
   /** Width of the panel (default: 280) */
   width?: number;
-  /** Favorite item ids */
-  favorites?: number[];
-  /** Favorite toggle callback */
-  onToggleFavorite?: (id: number, e: React.MouseEvent) => void;
   /** Custom list header */
   listHeader?: ReactNode;
   /** Hide the built-in search input box (default: false) */
@@ -139,10 +135,6 @@ export interface SelectableListItemProps {
   primaryText: ReactNode;
   /** Secondary text content */
   secondaryText?: ReactNode;
-  /** Whether the item is favorited */
-  isFavorite?: boolean;
-  /** Favorite toggle callback */
-  onToggleFavorite?: (e?: React.MouseEvent) => void;
   /** Status chip configuration */
   statusChip?: ChipConfig;
   /** Additional chips */
@@ -182,10 +174,6 @@ export interface DetailPanelHeaderProps {
   noSelectionTitle?: string;
   /** Status chips */
   chips?: ChipConfig[];
-  /** Whether item is favorite */
-  isFavorite?: boolean;
-  /** Favorite toggle callback */
-  onToggleFavorite?: (e: React.MouseEvent) => void;
   /** Custom header actions */
   actions?: ReactNode;
   /** Custom styles */
@@ -299,8 +287,6 @@ export interface UseMasterDetailStateOptions<T extends BaseEntity, TCreate> {
   initialFormData: TCreate;
   /** Function to reset form data from selected item */
   resetFormFromItem?: (item: T) => TCreate;
-  /** Storage key for favorites (localStorage) */
-  favoritesKey?: string;
   /** Default sort field */
   defaultSortField?: string;
   /** Alias for defaultSortField */
@@ -335,11 +321,7 @@ export interface UseMasterDetailStateReturn<T extends BaseEntity, TCreate> {
   isCreating: boolean;
   setIsCreating: (creating: boolean) => void;
   readonly hasChanges: boolean;
-  
-  // Favorites
-  favorites: number[];
-  toggleFavorite: (id: number, e?: React.MouseEvent) => void;
-  
+
   // Form
   formData: TCreate;
   setFormData: React.Dispatch<React.SetStateAction<TCreate>>;

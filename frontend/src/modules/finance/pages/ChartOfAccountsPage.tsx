@@ -30,8 +30,6 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AddIcon from "@mui/icons-material/Add";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -58,6 +56,7 @@ import {
   useCrudMutation,
   TActivityHistoryPanel,
   TDataGrid,
+  useRowSelection,
   type TDataGridColumn,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
@@ -141,8 +140,6 @@ export default function ChartOfAccountsPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectAccount,
@@ -152,7 +149,6 @@ export default function ChartOfAccountsPage() {
   } = useMasterDetailState<ChartOfAccount, AccountFormData>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromAccount,
-    favoritesKey: "chart_of_accounts_favorites",
     defaultSortField: "account_code",
     confirmUnsavedChanges: () =>
       confirmDialog.confirm({
@@ -167,6 +163,8 @@ export default function ChartOfAccountsPage() {
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
+  const rowSelection = useRowSelection();
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
@@ -358,23 +356,6 @@ export default function ChartOfAccountsPage() {
 
   const accountColumns: TDataGridColumn<AccountRow>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<AccountRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "account_code", header: "Account Code", width: 140 },
       { field: "account_name", header: "Account Name", flex: 1, minWidth: 200 },
       {
@@ -423,7 +404,7 @@ export default function ChartOfAccountsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectAccount]
+    [handleSelectAccount]
   );
 
   // Browse mode: a full-width table of every account (shown when nothing is
@@ -437,6 +418,9 @@ export default function ChartOfAccountsPage() {
           columns={accountColumns}
           loading={isLoading}
           onRowClick={(row) => handleSelectAccount(row)}
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No accounts found"
@@ -505,8 +489,6 @@ export default function ChartOfAccountsPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedAccount.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedAccount.id, e)}
         />
       )}
     </Paper>
@@ -859,7 +841,7 @@ export default function ChartOfAccountsPage() {
                   "Active",
                 ]}
                 rows={() =>
-                  filteredAccounts.map((a) => [
+                  rowSelection.pick(filteredAccounts).map((a) => [
                     a.account_code || "",
                     a.account_name || "",
                     a.account_type || "",

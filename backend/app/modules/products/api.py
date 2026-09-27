@@ -136,7 +136,7 @@ def upload_product_image(
     from app.common.file_storage import save_image
 
     relative_path = save_image(file, subdir="products")
-    return service.product_service.update_image(db, product_id, relative_path)
+    return service.product_service.update_image(db, product_id, relative_path, user_id=current_user.id)
 
 
 @router.delete(
@@ -150,7 +150,7 @@ def remove_product_image(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
 ):
-    return service.product_service.remove_image(db, product_id)
+    return service.product_service.remove_image(db, product_id, user_id=current_user.id)
 
 
 @router.get(

@@ -21,7 +21,7 @@ router = APIRouter(
 def get_reference_data(
     include: str = Query(
         "branches",
-        description="Comma-separated list of data to include: branches,categories,brands,locations,products,countries,suppliers,customers,employees,sales_stock",
+        description="Comma-separated list of data to include: branches,categories,brands,locations,products,countries,currencies,suppliers,customers,employees,sales_stock",
     ),
     products_limit: int = Query(
         500, ge=1, le=2000, description="Max products to return"
@@ -118,6 +118,21 @@ def get_reference_data(
         countries = country_service.get_all()
         result["countries"] = [
             {"id": c.id, "name": c.name, "iso": c.iso} for c in countries
+        ]
+
+    if "currencies" in includes:
+        # Read-only list for dropdowns (e.g. Supplier.default_currency) —
+        # deliberately not gated behind settings.view like
+        # GET /settings/currencies, since any authenticated user filling in
+        # a form with a currency picker needs this, not just Settings admins.
+        # Currency management (create/update/delete/set active) stays under
+        # /settings/currencies, unaffected.
+        from app.modules.settings.service import CurrencyService
+
+        currencies = CurrencyService(db).list_currencies(active_only=True)
+        result["currencies"] = [
+            {"id": c.id, "code": c.code, "name": c.name, "symbol": c.symbol}
+            for c in currencies
         ]
 
     if "suppliers" in includes:

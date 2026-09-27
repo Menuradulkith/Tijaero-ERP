@@ -51,6 +51,7 @@ import { KpiSparkCard } from '@/components/dashboard';
 import { cashbookApi, bankDepositsApi, expensesApi } from '../api';
 import { CashbookEntry } from '../types';
 import { useReferenceData } from '@/hooks';
+import { useCurrencyStore } from '@/state/currencyStore';
 
 // Stat Card Component - Similar to other dashboards
 interface StatCardProps {
@@ -270,6 +271,7 @@ const surfaceCardSx = {
 
 export default function FinanceDashboard() {
   const navigate = useNavigate();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const [branchCode, setBranchCode] = useState<string | null>(null);
 
   // Fetch reference data for branches
@@ -552,7 +554,7 @@ export default function FinanceDashboard() {
           <KpiSparkCard
             title="Pending Deposits"
             value={summary.pendingDepositsCount}
-            subtitle={`Total: Rs. ${fmtLKR(summary.pendingDepositsAmount)}`}
+            subtitle={`Total: ${currencySymbol} ${fmtLKR(summary.pendingDepositsAmount)}`}
             icon={<PendingIcon />}
             color="warning"
             onClick={() => navigate('/finance/bank-deposits')}
@@ -660,7 +662,7 @@ export default function FinanceDashboard() {
                   <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
                   <RechartsTooltip
-                    formatter={(value) => value !== undefined ? `Rs. ${fmtLKR(Number(value))}` : ''}
+                    formatter={(value) => value !== undefined ? `${currencySymbol} ${fmtLKR(Number(value))}` : ''}
                   />
                   <Legend />
                   <Bar dataKey="in" name="Money In" fill={CHART_COLORS.moneyIn} />
@@ -706,7 +708,7 @@ export default function FinanceDashboard() {
                     ))}
                   </Pie>
                   <RechartsTooltip
-                    formatter={(value) => value !== undefined ? `Rs. ${fmtLKR(Number(value))}` : ''}
+                    formatter={(value) => value !== undefined ? `${currencySymbol} ${fmtLKR(Number(value))}` : ''}
                   />
                 </PieChart>
               </ResponsiveContainer>

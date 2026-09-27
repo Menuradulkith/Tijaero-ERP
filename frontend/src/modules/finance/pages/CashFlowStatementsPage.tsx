@@ -60,6 +60,7 @@ import {
   TActivityHistoryPanel,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 import { cashFlowStatementsApi } from "@/modules/finance/api";
 import type {
@@ -93,6 +94,7 @@ const getStatusColor = (status: CashFlowStatementStatus) => {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function CashFlowStatementsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const confirmDialog = useConfirmDialog();
 
   // State
@@ -308,7 +310,7 @@ export default function CashFlowStatementsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption" fontWeight={600}>
-                        Closing: Rs. {fmtLKR(stmt.closing_cash_balance)}
+                        Closing: {currencySymbol} {fmtLKR(stmt.closing_cash_balance)}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Balance)

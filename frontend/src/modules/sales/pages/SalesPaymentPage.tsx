@@ -66,6 +66,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { format } from "date-fns";
 import { salesApi } from "../api";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { customersApi } from "@/modules/customers/api";
 import { useReferenceData } from "@/hooks";
 import { fmtLKR, showErrorToast, TPageSkeleton, TConfirmDialog, useCrudMutation, useTConfirmDialog } from "@/components/tijaero";
@@ -99,6 +100,7 @@ const paymentMethodsConfig = [
 ];
 
 export default function SalesPaymentPage() {
+    const currencySymbol = useCurrencyStore((s) => s.symbol);
     const { invoiceId } = useParams<{ invoiceId: string }>();
     const navigate = useNavigate();
     const [currentTab, setCurrentTab] = useState(0);
@@ -195,7 +197,7 @@ export default function SalesPaymentPage() {
     // Handle payment submission
     const handleProcessPayment = () => {
         if (!isPaymentComplete) {
-            showErrorToast(`Payment incomplete. Remaining: Rs. ${remainingAmount.toFixed(2)}`);
+            showErrorToast(`Payment incomplete. Remaining: ${currencySymbol} ${remainingAmount.toFixed(2)}`);
             return;
         }
 
@@ -217,13 +219,13 @@ export default function SalesPaymentPage() {
 
         // Warn on overpayment
         if (remainingAmount < -0.01) {
-            showErrorToast(`Overpayment detected: Rs. ${fmtLKR(Math.abs(remainingAmount))} excess. Please adjust payment amounts.`);
+            showErrorToast(`Overpayment detected: ${currencySymbol} ${fmtLKR(Math.abs(remainingAmount))} excess. Please adjust payment amounts.`);
             return;
         }
 
         paymentConfirmDialog.open(
             "Confirm Payment",
-            `Are you sure you want to process payment of Rs. ${fmtLKR(invoiceTotal)} for invoice ${invoice?.invoice_no}? This action cannot be reversed.`,
+            `Are you sure you want to process payment of ${currencySymbol} ${fmtLKR(invoiceTotal)} for invoice ${invoice?.invoice_no}? This action cannot be reversed.`,
             () => processPaymentMutation.mutate()
         );
     };
@@ -306,7 +308,7 @@ export default function SalesPaymentPage() {
                         </Box>
                     </Box>
                     <Chip
-                        label={`Total: Rs. ${fmtLKR(invoiceTotal)}`}
+                        label={`Total: ${currencySymbol} ${fmtLKR(invoiceTotal)}`}
                         color="primary"
                         sx={{ fontSize: "1.1rem", fontWeight: 700, px: 2, py: 3 }}
                     />
@@ -444,7 +446,7 @@ export default function SalesPaymentPage() {
                                                                         </InputAdornment>
                                                                     ),
                                                                     endAdornment: (
-                                                                        <InputAdornment position="end">Rs.</InputAdornment>
+                                                                        <InputAdornment position="end">{currencySymbol}</InputAdornment>
                                                                     ),
                                                                 }}
                                                                 sx={{
@@ -582,15 +584,15 @@ export default function SalesPaymentPage() {
                                                 Invoice Total
                                             </Typography>
                                             <Typography variant="h6" fontWeight={700}>
-                                                Rs. {fmtLKR(invoiceTotal)}
-                                            </Typography>
+                                                {currencySymbol} {fmtLKR(invoiceTotal)}
+</Typography>
                                         </Grid>
                                         <Grid item xs={4}>
                                             <Typography variant="body2" color="text.secondary">
                                                 Payment Entered
                                             </Typography>
                                             <Typography variant="h6" fontWeight={700} color="primary.main">
-                                                Rs. {fmtLKR(totalPaymentEntered)}
+                                                {currencySymbol} {fmtLKR(totalPaymentEntered)}
                                             </Typography>
                                         </Grid>
                                         <Grid item xs={4}>
@@ -602,7 +604,7 @@ export default function SalesPaymentPage() {
                                                 fontWeight={700}
                                                 color={isPaymentComplete ? "success.main" : "warning.main"}
                                             >
-                                                Rs. {fmtLKR(Math.abs(remainingAmount))}
+                                                {currencySymbol} {fmtLKR(Math.abs(remainingAmount))}
                                             </Typography>
                                         </Grid>
                                     </Grid>
@@ -694,7 +696,7 @@ export default function SalesPaymentPage() {
                                                         />
                                                     </TableCell>
                                                     <TableCell align="right">
-                                                        Rs. {fmtLKR(payment.payment_amount)}
+                                                        {currencySymbol} {fmtLKR(payment.payment_amount)}
                                                     </TableCell>
                                                     <TableCell>{payment.remarks || "-"}</TableCell>
                                                 </TableRow>
@@ -725,10 +727,10 @@ export default function SalesPaymentPage() {
                                                     <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                                                     <TableCell align="right">{item.quantity}</TableCell>
                                                     <TableCell align="right">
-                                                        Rs. {fmtLKR(item.selling_price)}
+                                                        {currencySymbol} {fmtLKR(item.selling_price)}
                                                     </TableCell>
                                                     <TableCell align="right">
-                                                        Rs. {fmtLKR(item.quantity * item.selling_price)}
+                                                        {currencySymbol} {fmtLKR(item.quantity * item.selling_price)}
                                                     </TableCell>
                                                 </TableRow>
                                             );
@@ -738,7 +740,7 @@ export default function SalesPaymentPage() {
                                                 <strong>Total:</strong>
                                             </TableCell>
                                             <TableCell align="right">
-                                                <strong>Rs. {fmtLKR(invoiceTotal)}</strong>
+                                                <strong>{currencySymbol} {fmtLKR(invoiceTotal)}</strong>
                                             </TableCell>
                                         </TableRow>
                                     </TableBody>
@@ -801,7 +803,7 @@ export default function SalesPaymentPage() {
                                             Credit Limit
                                         </Typography>
                                         <Typography variant="body1" fontWeight={600} color="primary.main">
-                                            Rs. {fmtLKR(customer.max_credit_limit)}
+                                            {currencySymbol} {fmtLKR(customer.max_credit_limit)}
                                         </Typography>
                                     </Box>
                                 )}
@@ -854,7 +856,7 @@ export default function SalesPaymentPage() {
                                                 </Typography>
                                             </Box>
                                             <Typography variant="body1" fontWeight={700} sx={{ color: method.color }}>
-                                                Rs. {fmtLKR(entry.amount)}
+                                                {currencySymbol} {fmtLKR(entry.amount)}
                                             </Typography>
                                         </Box>
                                     );
@@ -910,7 +912,7 @@ export default function SalesPaymentPage() {
                             Payment for invoice <strong>{invoice.invoice_no}</strong> has been processed successfully.
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                            Total Amount: Rs. {fmtLKR(invoiceTotal)}
+                            Total Amount: {currencySymbol} {fmtLKR(invoiceTotal)}
                         </Typography>
                     </Box>
                 </DialogContent>

@@ -58,6 +58,9 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
   const canSave = saveDisabled !== undefined ? !saveDisabled : isFormValid;
   // Support both endActions and customActions
   const customEnd = endActions ?? customActions;
+  // While a save is in flight, every action that would change or discard the
+  // form is disabled too — otherwise e.g. Cancel resets the form, then the
+  // save's success handler lands on top of the reset (or on another record).
 
   return (
     <Box
@@ -79,9 +82,11 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
       {/* Add New Button */}
       {canCreate && handleAdd && (
         <Tooltip title="Add New">
-          <IconButton size="small" onClick={handleAdd} color="primary">
-            <AddIcon />
-          </IconButton>
+          <span>
+            <IconButton size="small" onClick={handleAdd} color="primary" disabled={isSaving}>
+              <AddIcon />
+            </IconButton>
+          </span>
         </Tooltip>
       )}
 
@@ -91,7 +96,7 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
           <span>
             <IconButton
               size="small"
-              disabled={!hasItem || isCreating}
+              disabled={!hasItem || isCreating || isSaving}
               onClick={onDuplicate}
             >
               <ContentCopyIcon />
@@ -106,7 +111,7 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
           <span>
             <IconButton
               size="small"
-              disabled={!hasItem || isCreating}
+              disabled={!hasItem || isCreating || isSaving}
               onClick={onDelete}
               color="error"
             >
@@ -151,6 +156,7 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
               color="error"
               startIcon={<CancelIcon />}
               onClick={onCancel}
+              disabled={isSaving}
             >
               {isCreating ? "Cancel New" : "Cancel"}
             </Button>

@@ -5,8 +5,6 @@
 import HistoryIcon from "@mui/icons-material/History";
 import SecurityIcon from "@mui/icons-material/Security";
 import SearchIcon from "@mui/icons-material/Search";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -40,6 +38,7 @@ import {
     TExportButton,
     TPageSkeleton,
     useMasterDetailState,
+    useRowSelection,
     handleApiError,
     showErrorToast,
     showSuccessToast,
@@ -87,8 +86,6 @@ export default function GroupsPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectGroup,
@@ -98,9 +95,10 @@ export default function GroupsPage() {
   } = useMasterDetailState<Group, GroupCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromGroup,
-    favoritesKey: "groups_favorites",
     defaultSortField: "name",
   });
+
+  const rowSelection = useRowSelection();
 
   useEffect(() => {
     loadData();
@@ -313,23 +311,6 @@ export default function GroupsPage() {
 
   const groupColumns: TDataGridColumn<GroupRow>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<GroupRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "name", header: "Name", flex: 1, minWidth: 220 },
       {
         field: "permissions_count",
@@ -360,7 +341,7 @@ export default function GroupsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectGroup]
+    [handleSelectGroup]
   );
 
   const groupsTablePanel = (
@@ -376,6 +357,9 @@ export default function GroupsPage() {
           emptyMessage="No roles found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -436,8 +420,6 @@ export default function GroupsPage() {
                 </Box>
               </Box>
             }
-            isFavorite={favorites.includes(selectedGroup.id)}
-            onToggleFavorite={(e) => toggleFavorite(selectedGroup.id, e)}
           />
         </Box>
       )}
@@ -459,8 +441,6 @@ export default function GroupsPage() {
         isCreating={isCreating}
         createTitle="New Role"
         noSelectionTitle="Select a Role"
-        isFavorite={selectedGroup ? favorites.includes(selectedGroup.id) : false}
-        onToggleFavorite={selectedGroup ? (e) => toggleFavorite(selectedGroup.id, e) : undefined}
         actions={
           selectedGroup && !isCreating ? (
             <Tooltip title="View activity history">
@@ -641,7 +621,7 @@ export default function GroupsPage() {
                 filename="roles"
                 headers={["Role Name", "Permissions Count"]}
                 rows={() =>
-                  filteredGroups.map((g) => [g.name || "", g.permissions?.length ?? 0])
+                  rowSelection.pick(filteredGroups).map((g) => [g.name || "", g.permissions?.length ?? 0])
                 }
                 disabled={filteredGroups.length === 0}
               />

@@ -20,8 +20,6 @@ import {
   LocalAtm as CashIcon,
   Search as SearchIcon,
   Clear as ClearIcon,
-  Star as StarIcon,
-  StarBorder as StarOutlineIcon,
   ArrowBack as ArrowBackIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
@@ -41,11 +39,13 @@ import {
   type TDataGridColumn,
   fmtLKR,
   TActivityHistoryPanel,
+  useRowSelection,
 } from "@/components/tijaero";
 
 import { cashPaymentsApi } from "@/modules/finance/api";
 import { CashPayment } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 interface Branch {
   branch_code: string;
@@ -76,6 +76,7 @@ const resetFormFromItem = (item: CashPayment): Partial<CashPayment> => ({
 });
 
 export default function CashPaymentsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   // Filter state - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -86,16 +87,15 @@ export default function CashPaymentsPage() {
     selectedItem,
     setSelectedItem,
     isCreating,
-    favorites,
-    toggleFavorite,
     formData,
     handleSelectItem,
   } = useMasterDetailState<CashPayment, Partial<CashPayment>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem,
-    favoritesKey: "cash_payments_favorites",
     defaultSortField: "created_date_time",
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Metadata & Audit section title, rather than shown inline. The cash
@@ -180,23 +180,6 @@ export default function CashPaymentsPage() {
   const paymentColumns: TDataGridColumn<CashPaymentRow>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<CashPaymentRow>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "id",
         header: "Payment No",
         width: 120,
@@ -224,7 +207,7 @@ export default function CashPaymentsPage() {
         width: 140,
         align: "right",
         headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<CashPaymentRow>) => `Rs. ${fmtLKR(Number(params.row.amount || 0))}`,
+        renderCell: (params: GridRenderCellParams<CashPaymentRow>) => `${currencySymbol} ${fmtLKR(Number(params.row.amount || 0))}`,
       },
       {
         field: "invoice_no",
@@ -254,7 +237,7 @@ export default function CashPaymentsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectWithCheck]
+    [handleSelectWithCheck, currencySymbol]
   );
 
   // Browse mode: a full-width table of every cash payment (shown when
@@ -273,6 +256,9 @@ export default function CashPaymentsPage() {
           emptyMessage="No cash payments found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -320,8 +306,6 @@ export default function CashPaymentsPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedItem.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
     </Paper>
@@ -341,8 +325,6 @@ export default function CashPaymentsPage() {
         isCreating={isCreating}
         createTitle="New Cash Payment"
         noSelectionTitle="Select a Cash Payment"
-        isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
-        onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
 
       {/* Actions disabled - read-only mode */}
@@ -479,7 +461,7 @@ export default function CashPaymentsPage() {
             filename={`cash_payments_${new Date().toISOString().split("T")[0]}`}
             headers={["ID", "Invoice No", "Customer", "Amount", "Branch", "Date", "Remarks"]}
             rows={() =>
-              filteredPayments.map((p) => [
+              rowSelection.pick(filteredPayments).map((p) => [
                 p.id,
                 p.invoice_no || "",
                 p.customer_name || `Customer #${p.customer_id}`,

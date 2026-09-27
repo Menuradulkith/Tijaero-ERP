@@ -35,8 +35,6 @@ import {
   Clear as ClearIcon,
   Add as AddIcon,
   ArrowBack as ArrowBackIcon,
-  Star as StarIcon,
-  StarBorder as StarOutlineIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
@@ -50,6 +48,7 @@ import {
   SelectableListItem,
   handleApiError,
   useMasterDetailState,
+  useRowSelection,
   showErrorToast,
   showSuccessToast,
   TDetailSkeleton,
@@ -73,6 +72,7 @@ import {
   SupplierAdvancePaymentCreate,
 } from "@/modules/purchasing/types";
 import { useReferenceData } from "@/hooks";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 // Types
 interface Branch {
@@ -119,6 +119,7 @@ const resetFormFromItem = (item: SupplierAdvancePayment): Partial<SupplierAdvanc
 });
 
 export default function SupplierAdvancePaymentsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const confirmDialog = useConfirmDialog();
   const queryClient = useQueryClient();
   const canViewSuppliers = usePermission("suppliers", "view");
@@ -151,8 +152,6 @@ export default function SupplierAdvancePaymentsPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem,
@@ -161,7 +160,6 @@ export default function SupplierAdvancePaymentsPage() {
   } = useMasterDetailState<SupplierAdvancePayment, Partial<SupplierAdvancePaymentCreate>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromItem,
-    favoritesKey: "supplier_advance_payments_favorites",
     defaultSortField: "created_at",
     confirmUnsavedChanges: () =>
       confirmDialog.confirm({
@@ -172,6 +170,8 @@ export default function SupplierAdvancePaymentsPage() {
         confirmColor: "warning",
       }),
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Tracking section title, rather than shown inline.
@@ -376,7 +376,7 @@ export default function SupplierAdvancePaymentsPage() {
   const handleReturnSubmit = useCallback(async () => {
     if (!selectedItem || !returnAmount || returnAmount <= 0) return;
     if (returnAmount > remainingForReturn + 0.001) {
-      showErrorToast(`Return amount cannot exceed remaining balance Rs. ${fmtLKR(remainingForReturn)}`);
+      showErrorToast(`Return amount cannot exceed remaining balance ${currencySymbol} ${fmtLKR(remainingForReturn)}`);
       return;
     }
     setReturningAdvance(true);
@@ -453,7 +453,7 @@ export default function SupplierAdvancePaymentsPage() {
       }
 
       if (formData.original_amount && formData.original_amount > selectedPO.remaining_amount) {
-        showErrorToast(`Advance amount cannot exceed PO remaining amount: Rs. ${fmtLKR(selectedPO.remaining_amount)}`);
+        showErrorToast(`Advance amount cannot exceed PO remaining amount: ${currencySymbol} ${fmtLKR(selectedPO.remaining_amount)}`);
         return;
       }
 
@@ -507,23 +507,6 @@ export default function SupplierAdvancePaymentsPage() {
   const advanceColumns: TDataGridColumn<SupplierAdvancePayment>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "advance_no",
         header: "Ref No",
         flex: 1,
@@ -554,7 +537,7 @@ export default function SupplierAdvancePaymentsPage() {
         align: "right",
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) =>
-          `Rs. ${fmtLKR(Number(params.row.original_amount || 0))}`,
+          `${currencySymbol} ${fmtLKR(Number(params.row.original_amount || 0))}`,
       },
       {
         field: "is_fully_applied",
@@ -577,7 +560,7 @@ export default function SupplierAdvancePaymentsPage() {
         align: "right",
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) =>
-          `Rs. ${fmtLKR(Number(params.row.remaining_amount || 0))}`,
+          `${currencySymbol} ${fmtLKR(Number(params.row.remaining_amount || 0))}`,
       },
       {
         field: "view",
@@ -601,7 +584,7 @@ export default function SupplierAdvancePaymentsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, getSupplierName, handleSelectWithCheck]
+    [getSupplierName, handleSelectWithCheck, currencySymbol]
   );
 
   // Whether we're showing a single advance's detail view (selected or being
@@ -623,6 +606,9 @@ export default function SupplierAdvancePaymentsPage() {
           emptyMessage="No supplier advance payments found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -682,8 +668,6 @@ export default function SupplierAdvancePaymentsPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedItem.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedItem.id, e)}
         />
       )}
     </Paper>
@@ -706,8 +690,6 @@ export default function SupplierAdvancePaymentsPage() {
         isCreating={isCreating}
         createTitle="New Supplier Advance Payment"
         noSelectionTitle="Select an Advance Payment"
-        isFavorite={selectedItem ? favorites.includes(selectedItem.id) : false}
-        onToggleFavorite={selectedItem ? (e) => toggleFavorite(selectedItem.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -749,7 +731,7 @@ export default function SupplierAdvancePaymentsPage() {
               <Autocomplete
                 size="small"
                 options={eligibleAdvancePOs}
-                getOptionLabel={(option) => `${option.po_no} - ${option.supplier_name} - Rs. ${fmtLKR(option.remaining_amount)} Remaining`}
+                getOptionLabel={(option) => `${option.po_no} - ${option.supplier_name} - ${currencySymbol} ${fmtLKR(option.remaining_amount)} Remaining`}
                 value={selectedPOOption}
                 onChange={(_, newValue) => {
                   setFormData((prev) => ({
@@ -856,7 +838,7 @@ export default function SupplierAdvancePaymentsPage() {
                 error={hasError("original_amount")}
                 helperText={getFieldError("original_amount")}
                 InputProps={{
-                  startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                  startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment>,
                 }}
                 inputProps={{ min: 0, step: 0.01 }}
               />
@@ -891,14 +873,14 @@ export default function SupplierAdvancePaymentsPage() {
                 <TextField
                   label="Original Amount"
                   size="small"
-                  value={`Rs. ${fmtLKR(trackingOriginalAmount)}`}
+                  value={`${currencySymbol} ${fmtLKR(trackingOriginalAmount)}`}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
                 <TextField
                   label="Applied Amount"
                   size="small"
-                  value={`Rs. ${fmtLKR(trackingAppliedAmount)}`}
+                  value={`${currencySymbol} ${fmtLKR(trackingAppliedAmount)}`}
                   disabled
                   InputProps={{ readOnly: true }}
                   sx={{
@@ -910,7 +892,7 @@ export default function SupplierAdvancePaymentsPage() {
                 <TextField
                   label="Remaining Amount"
                   size="small"
-                  value={`Rs. ${fmtLKR(trackingRemainingAmount)}`}
+                  value={`${currencySymbol} ${fmtLKR(trackingRemainingAmount)}`}
                   disabled
                   InputProps={{ readOnly: true }}
                   sx={{
@@ -934,7 +916,7 @@ export default function SupplierAdvancePaymentsPage() {
                     <TextField
                       label="Returned Amount"
                       size="small"
-                      value={`Rs. ${fmtLKR(Number(detailAdvance.returned_amount))}`}
+                      value={`${currencySymbol} ${fmtLKR(Number(detailAdvance.returned_amount))}`}
                       disabled
                       InputProps={{ readOnly: true }}
                       sx={{ "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: "#c62828" } }}
@@ -1092,7 +1074,7 @@ export default function SupplierAdvancePaymentsPage() {
                   "Created",
                 ]}
                 rows={() =>
-                  filteredAdvances.map((adv) => [
+                  rowSelection.pick(filteredAdvances).map((adv) => [
                     adv.advance_no || "",
                     adv.supplier_name || "",
                     adv.payment_date || "",
@@ -1126,7 +1108,7 @@ export default function SupplierAdvancePaymentsPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Record money returned by the supplier for advance{" "}
             <strong>{selectedItem?.advance_no}</strong>. Available to return:{" "}
-            <strong>Rs. {fmtLKR(remainingForReturn)}</strong>
+            <strong>{currencySymbol} {fmtLKR(remainingForReturn)}</strong>
           </Typography>
           <Divider sx={{ mb: 2 }} />
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -1137,9 +1119,9 @@ export default function SupplierAdvancePaymentsPage() {
               value={returnAmount}
               onChange={(e) => setReturnAmount(parseFloat(e.target.value) || "")}
               required
-              InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+              InputProps={{ startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment> }}
               inputProps={{ min: 0.01, max: remainingForReturn, step: 0.01 }}
-              helperText={`Max: Rs. ${fmtLKR(remainingForReturn)}`}
+              helperText={`Max: ${currencySymbol} ${fmtLKR(remainingForReturn)}`}
               fullWidth
             />
             <TextField

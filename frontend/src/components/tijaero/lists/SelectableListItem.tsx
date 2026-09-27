@@ -1,11 +1,10 @@
 /**
  * SelectableListItem - Tijaero-style list item component
- * 
+ *
  * Provides a consistent list item with:
  * - Selection highlighting
  * - Primary and secondary text
  * - Status chips
- * - Favorite toggle
  * - Custom end actions
  */
 
@@ -14,12 +13,9 @@ import {
   ListItemButton,
   ListItemText,
   Typography,
-  IconButton,
   Box,
   Chip,
 } from "@mui/material";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import { SelectableListItemProps } from "../types";
 
 export const SelectableListItem: React.FC<SelectableListItemProps> = ({
@@ -27,20 +23,11 @@ export const SelectableListItem: React.FC<SelectableListItemProps> = ({
   onClick,
   primaryText,
   secondaryText,
-  isFavorite,
-  onToggleFavorite,
   statusChip,
   chips,
   endAction,
   sx,
 }) => {
-  const handleToggleFavorite = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onToggleFavorite) {
-      onToggleFavorite(e);
-    }
-  };
-
   return (
     <ListItemButton
       selected={isSelected}
@@ -116,25 +103,6 @@ export const SelectableListItem: React.FC<SelectableListItemProps> = ({
       />
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
         {endAction}
-        {onToggleFavorite && (
-          <IconButton
-            size="small"
-            onClick={handleToggleFavorite}
-            sx={{
-              color: isSelected
-                ? "inherit"
-                : isFavorite
-                ? "warning.main"
-                : "action.disabled",
-            }}
-          >
-            {isFavorite ? (
-              <StarIcon fontSize="small" />
-            ) : (
-              <StarOutlineIcon fontSize="small" />
-            )}
-          </IconButton>
-        )}
       </Box>
     </ListItemButton>
   );

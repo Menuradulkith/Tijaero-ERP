@@ -29,6 +29,7 @@ import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
 import { useAuthStore } from "@/state/authStore";
 import { calculatePercentageChange } from "@/utils/calculations";
 import { formatRelativeTime } from "@/utils/formatters";
+import { useCurrencyStore } from "@/state/currencyStore";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import AssignmentIcon from "@mui/icons-material/Assignment";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
@@ -158,6 +159,7 @@ function ApprovalRow({
    ═══════════════════════════════════════════════════════════════════════════ */
 
 export default function DashboardPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const navigate = useNavigate();
   const theme = useTheme();
   const user = useAuthStore((s) => s.user);
@@ -342,7 +344,7 @@ export default function DashboardPage() {
                 <Grid item xs={12} sm={6} lg={3}>
                   <KpiSparkCard
                     title="Sales Today"
-                    value={`Rs. ${fmtLKR(metrics?.total_sales_today || 0)}`}
+                    value={`${currencySymbol} ${fmtLKR(metrics?.total_sales_today || 0)}`}
                     subtitle={`${metrics?.total_orders_today || 0} orders`}
                     icon={<MonetizationOnIcon />}
                     color="success"
@@ -353,7 +355,7 @@ export default function DashboardPage() {
                 <Grid item xs={12} sm={6} lg={3}>
                   <KpiSparkCard
                     title="Sales This Month"
-                    value={`Rs. ${fmtLKR(metrics?.total_sales_month || 0)}`}
+                    value={`${currencySymbol} ${fmtLKR(metrics?.total_sales_month || 0)}`}
                     subtitle={`${metrics?.total_orders_month || 0} orders`}
                     icon={<TrendingUpIcon />}
                     color="primary"
@@ -511,7 +513,7 @@ export default function DashboardPage() {
                             name: string | undefined,
                           ) => {
                             if (name === "sales")
-                              return [`Rs. ${fmtLKR(Number(value))}`, "Sales"];
+                              return [`${currencySymbol} ${fmtLKR(Number(value))}`, "Sales"];
                             return [value, "Orders"];
                           }}
                         />
@@ -569,11 +571,11 @@ export default function DashboardPage() {
                       <BreakdownDonut
                         data={financialDonut}
                         centerLabel="Net"
-                        centerValue={`Rs. ${fmtLKR(
+                        centerValue={`${currencySymbol} ${fmtLKR(
                           (metrics?.total_sales_month || 0) -
                             (metrics?.total_purchases_month || 0),
                         )}`}
-                        formatValue={(v) => `Rs. ${fmtLKR(v)}`}
+                        formatValue={(v) => `${currencySymbol} ${fmtLKR(v)}`}
                         height={190}
                       />
                       <Stack
@@ -585,7 +587,7 @@ export default function DashboardPage() {
                       >
                         <Chip
                           size="small"
-                          label={`Receivables: Rs. ${fmtLKR(metrics?.total_credit_outstanding || 0)}`}
+                          label={`Receivables: ${currencySymbol} ${fmtLKR(metrics?.total_credit_outstanding || 0)}`}
                           sx={{
                             bgcolor: "error.50",
                             color: "error.main",
@@ -595,7 +597,7 @@ export default function DashboardPage() {
                         />
                         <Chip
                           size="small"
-                          label={`Payables: Rs. ${fmtLKR(metrics?.total_supplier_credit || 0)}`}
+                          label={`Payables: ${currencySymbol} ${fmtLKR(metrics?.total_supplier_credit || 0)}`}
                           sx={{
                             bgcolor: "warning.50",
                             color: "warning.dark",

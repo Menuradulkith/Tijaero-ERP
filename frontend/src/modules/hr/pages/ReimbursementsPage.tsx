@@ -68,6 +68,8 @@ import {
     TStatusChip,
     useConfirmDialog,
     useMasterDetailState,
+    useRowSelection,
+    fmtLKR,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -77,6 +79,7 @@ import type {
     ReimbursementCreate,
     ReimbursementItemCreate,
 } from "@/modules/hr/types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -122,6 +125,7 @@ const resetFormFromItem = (item: Reimbursement): ReimbursementFormData => ({
 export default function ReimbursementsPage() {
   const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   // Filter states - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
@@ -188,7 +192,6 @@ export default function ReimbursementsPage() {
   } = useMasterDetailState<Reimbursement, ReimbursementFormData>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem,
-    favoritesKey: "reimbursements_favorites",
     defaultSortField: "claim_date",
     confirmUnsavedChanges: () =>
       confirmDialog.confirm({
@@ -203,6 +206,8 @@ export default function ReimbursementsPage() {
       setLineItems([]);
     },
   });
+
+  const rowSelection = useRowSelection();
 
   // Set default branch when creating new reimbursement
   useEffect(() => {
@@ -652,6 +657,9 @@ export default function ReimbursementsPage() {
           emptyMessage="No reimbursement claims found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1435,7 +1443,7 @@ export default function ReimbursementsPage() {
                   "Payment Status",
                 ]}
                 rows={() =>
-                  filteredItems.map((r) => [
+                  rowSelection.pick(filteredItems).map((r) => [
                     r.reimbursement_no || "",
                     r.employee_id || "",
                     r.employee_name || "",
@@ -1468,10 +1476,8 @@ export default function ReimbursementsPage() {
           <Typography variant="body2" sx={{ mb: 2 }}>
             Claimed amount:{" "}
             <strong>
-              Rs.{" "}
-              {Number(selectedItem?.total_amount || 0).toLocaleString("en-LK", {
-                minimumFractionDigits: 2,
-              })}
+              {currencySymbol}{" "}
+              {fmtLKR(selectedItem?.total_amount || 0)}
             </strong>
           </Typography>
           <TextField

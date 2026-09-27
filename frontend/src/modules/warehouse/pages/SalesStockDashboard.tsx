@@ -9,6 +9,7 @@
 import apiClient from "@/api/client";
 import { usePermission } from "@/auth/permissions";
 import { fmtLKR } from "@/components/tijaero";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { KpiSparkCard } from "@/components/dashboard";
 import { LocationRef, REFERENCE_DATA_PRESETS, useReferenceData } from "@/hooks";
 import { productImageUrl, salesStockApi } from "@/modules/inventory/api";
@@ -189,6 +190,7 @@ const StockDetailsPanel = ({
   isOpen,
   onClose,
 }: StockDetailsPanelProps) => {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   // Fetch real tracking data from API when panel is open
   const { data: trackingEvents, isLoading: trackingLoading } = useQuery<
     StockTrackingEvent[]
@@ -499,7 +501,7 @@ const StockDetailsPanel = ({
                           )}
                           {evt.extra.selling_price != null && (
                             <Chip
-                              label={`Rs. ${Number(evt.extra.selling_price).toFixed(2)}`}
+                              label={`${currencySymbol} ${Number(evt.extra.selling_price).toFixed(2)}`}
                               size="small"
                               color="success"
                               variant="outlined"
@@ -508,7 +510,7 @@ const StockDetailsPanel = ({
                           )}
                           {evt.extra.return_price != null && (
                             <Chip
-                              label={`Return: Rs. ${Number(evt.extra.return_price).toFixed(2)}`}
+                              label={`Return: ${currencySymbol} ${Number(evt.extra.return_price).toFixed(2)}`}
                               size="small"
                               color="warning"
                               variant="outlined"
@@ -556,6 +558,7 @@ const StockDetailsPanel = ({
 
 // Main Component
 export default function SalesStockDashboard() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   // Whether the current user may see cost/buying price
   const canViewCost = usePermission("cost_price", "view");
 
@@ -1133,9 +1136,9 @@ export default function SalesStockDashboard() {
                   <TableCell>GRN No</TableCell>
                   <TableCell>Received Date</TableCell>
                   {canViewCost && (
-                    <TableCell align="right">Cost Price (Rs.)</TableCell>
+                    <TableCell align="right">{`Cost Price (${currencySymbol})`}</TableCell>
                   )}
-                  <TableCell align="right">Selling Price (Rs.)</TableCell>
+                  <TableCell align="right">{`Selling Price (${currencySymbol})`}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>

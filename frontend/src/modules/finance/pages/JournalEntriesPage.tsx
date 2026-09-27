@@ -13,8 +13,6 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import HistoryIcon from "@mui/icons-material/History";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import UndoIcon from "@mui/icons-material/Undo";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
@@ -68,6 +66,7 @@ import {
   TSearchableSelect,
   TExportButton,
   useMasterDetailState,
+  useRowSelection,
   modernTableStyles,
   TConfirmDialog,
   useConfirmDialog,
@@ -184,8 +183,6 @@ export default function JournalEntriesPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectJE,
@@ -195,7 +192,6 @@ export default function JournalEntriesPage() {
   } = useMasterDetailState<JournalEntry, JEFormData>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromJE,
-    favoritesKey: "journal_entries_favorites",
     defaultSortField: "entry_date",
     confirmUnsavedChanges: () =>
       confirmDialog.confirm({
@@ -208,6 +204,8 @@ export default function JournalEntriesPage() {
     extraDirty: lineItems.length > 0,
     onDiscard: () => { setLineItems([]); },
   });
+
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -435,23 +433,6 @@ export default function JournalEntriesPage() {
   // column header menu, not a separate "Sort by" control.
   const jeColumns: TDataGridColumn<JournalEntry>[] = useMemo(
     () => [
-      {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<JournalEntry>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
       { field: "journal_entry_no", header: "JE No", flex: 1, minWidth: 140 },
       {
         field: "entry_date",
@@ -519,7 +500,7 @@ export default function JournalEntriesPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectJE]
+    [handleSelectJE]
   );
 
   // Whether we're showing a single journal entry's detail view (selected or
@@ -540,6 +521,9 @@ export default function JournalEntriesPage() {
           emptyMessage="No journal entries found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -601,8 +585,6 @@ export default function JournalEntriesPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedJE.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedJE.id, e)}
         />
       )}
     </Paper>
@@ -1097,7 +1079,7 @@ export default function JournalEntriesPage() {
                 filename={`journal_entries_${new Date().toISOString().split("T")[0]}`}
                 headers={["JE No", "Date", "Description", "Total Debit", "Total Credit", "Status", "Reversed", "Branch"]}
                 rows={() =>
-                  filteredEntries.map((e) => [
+                  rowSelection.pick(filteredEntries).map((e) => [
                     e.journal_entry_no || "",
                     e.entry_date || "",
                     e.description || "",

@@ -3,13 +3,14 @@ from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
 
-from app.common.base_schemas import TijaeroBaseSchema, AuditSchema, format_datetime
-from app.common.enums import PurchaseOrderStatus, DocumentStatus
+from app.common.base_schemas import TijaeroBaseSchema, AuditSchema, VersionedSchema, format_datetime
+from app.common.enums import PurchaseOrderStatus, DocumentStatus, SupplierTaxArea, SupplierPaymentMethodType
 
 class SupplierBase(BaseModel):
     company_name: str = Field(..., min_length=1)
     company_registration_number: Optional[str] = None
     tax_registration_number: Optional[str] = None
+    tax_area: Optional[SupplierTaxArea] = None
     company_website: Optional[str] = None
     # Address and payment terms live in their own sections of the create
     # form and are filled in after the supplier's main details are saved, so
@@ -32,6 +33,10 @@ class SupplierBase(BaseModel):
     max_credit_limit: Decimal = Decimal("0")
     active: bool = True
     country_id: Optional[int] = None
+    # Manually-set planning default (days) — see models.Supplier.lead_time_days.
+    lead_time_days: Optional[int] = Field(default=None, ge=0)
+    # 3-letter ISO 4217 code (e.g. "LKR", "USD") — see models.Supplier.default_currency.
+    default_currency: Optional[str] = Field(default=None, max_length=3)
 
 class SupplierCreate(SupplierBase):
     pass
@@ -40,6 +45,7 @@ class SupplierUpdate(BaseModel):
     company_name: Optional[str] = Field(default=None, min_length=1)
     company_registration_number: Optional[str] = None
     tax_registration_number: Optional[str] = None
+    tax_area: Optional[SupplierTaxArea] = None
     company_website: Optional[str] = None
     billing_address_line1: Optional[str] = None
     billing_address_line2: Optional[str] = None
@@ -58,13 +64,18 @@ class SupplierUpdate(BaseModel):
     max_credit_limit: Optional[Decimal] = None
     active: Optional[bool] = None
     country_id: Optional[int] = None
+    lead_time_days: Optional[int] = Field(default=None, ge=0)
+    default_currency: Optional[str] = Field(default=None, max_length=3)
     # Optimistic concurrency check: the `updated_at` the client last saw for
     # this supplier. If omitted, no check is performed (backward compatible).
     # If it no longer matches the current row, the update is rejected with a
     # 409 instead of silently overwriting someone else's more recent change.
     expected_updated_at: Optional[datetime] = None
+    # Preferred over expected_updated_at: the exact `version` token from the
+    # Supplier response (full precision, catches same-second changes too).
+    expected_version: Optional[str] = None
 
-class Supplier(SupplierBase, AuditSchema):
+class Supplier(SupplierBase, AuditSchema, VersionedSchema):
     id: int
     date_joined: datetime
     left_credit_amount: Optional[Decimal] = None
@@ -140,12 +151,48 @@ class SupplierContactPerson(SupplierContactPersonBase, AuditSchema):
 
 
 class SupplierPaymentMethodBase(BaseModel):
-    method_type: str  # cash, bank_transfer, cheque
+    method_type: SupplierPaymentMethodType
     bank_name: Optional[str] = None
     account_number: Optional[str] = None
     account_holder_name: Optional[str] = None
+    # Bank-transfer-only wire details.
+    branch: Optional[str] = None
+    bank_branch_code: Optional[str] = None
+    swift_code: Optional[str] = None
+    correspondent_bank_name: Optional[str] = None
+    correspondent_bank_swift_code: Optional[str] = None
+    # Direct Debit / ACH only (reuses bank_name/bank_branch_code/
+    # account_number/account_holder_name above for the mandate's bank).
+    mandate_reference: Optional[str] = None
+    mandate_date: Optional[date] = None
+    # Letter of Credit only.
+    lc_number: Optional[str] = None
+    issuing_bank_name: Optional[str] = None
+    advising_bank_name: Optional[str] = None
+    lc_amount: Optional[Decimal] = Field(default=None, ge=0)
+    lc_currency: Optional[str] = Field(default=None, max_length=3)
+    lc_type: Optional[str] = None
+    lc_issue_date: Optional[date] = None
+    lc_expiry_date: Optional[date] = None
+    latest_shipment_date: Optional[date] = None
+    # Credit Card only — PCI-DSS: never accept/store the full PAN, only the
+    # last 4 digits for display/identification.
+    card_type: Optional[str] = None
+    card_last4: Optional[str] = Field(default=None, max_length=4)
+    card_expiry: Optional[str] = Field(default=None, max_length=7)  # "MM/YYYY"
+    cardholder_name: Optional[str] = None
+    # Digital Wallet only.
+    wallet_provider: Optional[str] = None
+    wallet_id: Optional[str] = None
     is_default: bool = False
     active: bool = True
+
+    @field_validator("card_last4")
+    @classmethod
+    def _validate_card_last4(cls, v: Optional[str]) -> Optional[str]:
+        if v and not v.isdigit():
+            raise ValueError("card_last4 must contain only digits")
+        return v
 
 
 class SupplierPaymentMethodCreate(SupplierPaymentMethodBase):
@@ -153,10 +200,32 @@ class SupplierPaymentMethodCreate(SupplierPaymentMethodBase):
 
 
 class SupplierPaymentMethodUpdate(BaseModel):
-    method_type: Optional[str] = None
+    method_type: Optional[SupplierPaymentMethodType] = None
     bank_name: Optional[str] = None
     account_number: Optional[str] = None
     account_holder_name: Optional[str] = None
+    branch: Optional[str] = None
+    bank_branch_code: Optional[str] = None
+    swift_code: Optional[str] = None
+    correspondent_bank_name: Optional[str] = None
+    correspondent_bank_swift_code: Optional[str] = None
+    mandate_reference: Optional[str] = None
+    mandate_date: Optional[date] = None
+    lc_number: Optional[str] = None
+    issuing_bank_name: Optional[str] = None
+    advising_bank_name: Optional[str] = None
+    lc_amount: Optional[Decimal] = Field(default=None, ge=0)
+    lc_currency: Optional[str] = Field(default=None, max_length=3)
+    lc_type: Optional[str] = None
+    lc_issue_date: Optional[date] = None
+    lc_expiry_date: Optional[date] = None
+    latest_shipment_date: Optional[date] = None
+    card_type: Optional[str] = None
+    card_last4: Optional[str] = Field(default=None, max_length=4)
+    card_expiry: Optional[str] = Field(default=None, max_length=7)
+    cardholder_name: Optional[str] = None
+    wallet_provider: Optional[str] = None
+    wallet_id: Optional[str] = None
     is_default: Optional[bool] = None
     active: Optional[bool] = None
 

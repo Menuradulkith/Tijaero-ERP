@@ -78,7 +78,13 @@ export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
       <Box
         sx={{
           px: 1.5,
-          py: 1,
+          // Explicit pt/pb rather than py: the small MUI inputs in the
+          // title slot (search box, filter dropdowns) visually sit closer
+          // to their own top edge than their bottom (floating label eats
+          // into the perceived top gap), so an equal py reads as more
+          // space above than below — trim pt to compensate.
+          pt: 0,
+          pb: 0.8,
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",

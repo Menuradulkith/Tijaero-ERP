@@ -8,8 +8,6 @@ import PersonIcon from "@mui/icons-material/Person";
 import HistoryIcon from "@mui/icons-material/History";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Avatar,
@@ -49,6 +47,7 @@ import {
   TStatusFilter,
   useCrudMutation,
   useMasterDetailState,
+  useRowSelection,
   useTConfirmDialog,
   TActivityHistoryPanel,
   TDataGrid,
@@ -145,8 +144,6 @@ export default function CustomersPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectCustomer,
@@ -156,9 +153,13 @@ export default function CustomersPage() {
   } = useMasterDetailState<Customer, CustomerCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromCustomer,
-    favoritesKey: "customers_favorites",
     defaultSortField: "customer_name",
   });
+
+  // Server-side export (see handleExportCSV below); row selection here only
+  // narrows what's ticked in the grid, since the export endpoint exports
+  // everything matching the current filters, not a specific id list.
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -355,23 +356,6 @@ export default function CustomersPage() {
   const customerColumns: TDataGridColumn<Customer>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<Customer>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "customer_name",
         header: "Name",
         flex: 1,
@@ -442,7 +426,7 @@ export default function CustomersPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectCustomer]
+    [handleSelectCustomer]
   );
 
   const customerTablePanel = (
@@ -458,6 +442,9 @@ export default function CustomersPage() {
           emptyMessage="No customers found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -517,8 +504,6 @@ export default function CustomersPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedCustomer.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedCustomer.id, e)}
         />
       )}
     </Paper>
@@ -571,14 +556,6 @@ export default function CustomersPage() {
                   : []),
               ]
             : []
-        }
-        isFavorite={
-          selectedCustomer ? favorites.includes(selectedCustomer.id) : false
-        }
-        onToggleFavorite={
-          selectedCustomer
-            ? (e) => toggleFavorite(selectedCustomer.id, e)
-            : undefined
         }
       />
 

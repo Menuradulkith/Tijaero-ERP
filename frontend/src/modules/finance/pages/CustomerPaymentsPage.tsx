@@ -96,6 +96,7 @@ import apiClient from "@/api/client";
 import { useQuery } from "@tanstack/react-query";
 import { settingsApi } from "@/modules/settings/api";
 import { usePermission } from "@/auth/permissions";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 // Configuration
 interface SortOption {
@@ -179,6 +180,7 @@ const STEPS = ["Select Invoices", "Payment Details", "Review & Post"];
 type ViewMode = "overview" | "documents" | "payment" | "review";
 
 export default function CustomerPaymentsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -724,7 +726,7 @@ export default function CustomerPaymentsPage() {
     // Calculate total from split payments
     const totalFromSplit = splitPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
     
-    const confirmMessage = `Receive payment of Rs. ${fmtLKR(totalFromSplit)} from ${selectedCustomer.customer_name}?`;
+    const confirmMessage = `Receive payment of ${currencySymbol} ${fmtLKR(totalFromSplit)} from ${selectedCustomer.customer_name}?`;
 
     const confirmed = await confirmDialog.confirm({
       title: "Receive Payment",
@@ -818,7 +820,7 @@ export default function CustomerPaymentsPage() {
           `Bank transfer payment submitted for verification. Amount will be applied after finance manager approval.`
         );
       } else {
-        showSuccessToast(`Payment of Rs. ${fmtLKR(totalFromSplit)} received successfully!`);
+        showSuccessToast(`Payment of ${currencySymbol} ${fmtLKR(totalFromSplit)} received successfully!`);
       }
 
       // Refresh data and reset
@@ -949,7 +951,7 @@ export default function CustomerPaymentsPage() {
                     )}
                     {outstanding > 0 && (
                       <Typography variant="caption" color="warning.main">
-                        Outstanding: Rs. {fmtLKR(outstanding)}
+                        Outstanding: {currencySymbol} {fmtLKR(outstanding)}
                       </Typography>
                     )}
                   </>
@@ -1036,7 +1038,7 @@ export default function CustomerPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption" color="text.secondary">Credit Limit</Typography>
                     <Typography variant="h6">
-                      Rs. {fmtLKR(selectedCustomer?.max_credit_limit || 0)}
+                      {currencySymbol} {fmtLKR(selectedCustomer?.max_credit_limit || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -1046,7 +1048,7 @@ export default function CustomerPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption" color="text.secondary">Available</Typography>
                     <Typography variant="h6" color="success.main">
-                      Rs. {fmtLKR(creditStatus?.available_credit || 0)}
+                      {currencySymbol} {fmtLKR(creditStatus?.available_credit || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -1056,7 +1058,7 @@ export default function CustomerPaymentsPage() {
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                     <Typography variant="caption">Outstanding</Typography>
                     <Typography variant="h6" color="warning.dark">
-                      Rs. {fmtLKR(creditStatus?.outstanding_credit || 0)}
+                      {currencySymbol} {fmtLKR(creditStatus?.outstanding_credit || 0)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -1094,7 +1096,7 @@ export default function CustomerPaymentsPage() {
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Total Outstanding</Typography>
                   <Typography variant="h6" color="warning.dark">
-                    Rs. {fmtLKR(totalOutstanding)}
+                    {currencySymbol} {fmtLKR(totalOutstanding)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1114,7 +1116,7 @@ export default function CustomerPaymentsPage() {
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
                   <Typography variant="caption">Overdue Amount</Typography>
                   <Typography variant="h6" color={overdueInvoices.length > 0 ? "error.dark" : "text.secondary"}>
-                    Rs. {fmtLKR(overdueInvoices.reduce((sum, d) => sum + d.balance_due, 0))}
+                    {currencySymbol} {fmtLKR(overdueInvoices.reduce((sum, d) => sum + d.balance_due, 0))}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1177,9 +1179,9 @@ export default function CustomerPaymentsPage() {
                   <TableCell>Invoice No.</TableCell>
                   <TableCell>Date</TableCell>
                   <TableCell>Due Date</TableCell>
-                  <TableCell align="right">Total (Rs.)</TableCell>
-                  <TableCell align="right">Paid (Rs.)</TableCell>
-                  <TableCell align="right">Balance Due (Rs.)</TableCell>
+                  <TableCell align="right">Total ({currencySymbol})</TableCell>
+                  <TableCell align="right">Paid ({currencySymbol})</TableCell>
+                  <TableCell align="right">Balance Due ({currencySymbol})</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Branch</TableCell>
                 </TableRow>
@@ -1285,7 +1287,7 @@ export default function CustomerPaymentsPage() {
               value={Number(fifoAmount)}
               onChange={(e) => setFifoAmount(Number(e.target.value))}
               InputProps={{
-                startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment>,
               }}
               sx={{ width: 200 }}
             />
@@ -1354,12 +1356,12 @@ export default function CustomerPaymentsPage() {
                     </TableCell>
                     <TableCell align="right">
                       <Typography variant="body2" color="text.secondary">
-                        Rs. {fmtLKR(inv.credit_amount)}
+                        {currencySymbol} {fmtLKR(inv.credit_amount)}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Typography fontWeight="bold">
-                        Rs. {fmtLKR(inv.balance_due)}
+                        {currencySymbol} {fmtLKR(inv.balance_due)}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -1387,13 +1389,13 @@ export default function CustomerPaymentsPage() {
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Typography variant="subtitle1">
             {useFIFO
-              ? `FIFO Amount: Rs. ${fmtLKR(fifoAmount)}`
+              ? `FIFO Amount: ${currencySymbol} ${fmtLKR(fifoAmount)}`
               : `Selected: ${selectedInvoiceIds.size} invoices`}
           </Typography>
           <Typography variant="h6" color="primary.main">
             {useFIFO
               ? `Will allocate to ${allocateFIFO(fifoAmount).length} invoice(s)`
-              : `Total: Rs. ${fmtLKR(outstandingInvoices
+              : `Total: ${currencySymbol} ${fmtLKR(outstandingInvoices
                 .filter((d) => selectedInvoiceIds.has(d.id))
                 .reduce((sum, d) => sum + d.balance_due, 0))}`}
           </Typography>
@@ -1470,7 +1472,7 @@ export default function CustomerPaymentsPage() {
                       value={Number(line.allocated_amount)}
                       onChange={(e) => handleLineAmountChange(line.id, Number(e.target.value))}
                       InputProps={{
-                        startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                        startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment>,
                       }}
                       inputProps={{
                         min: 0,
@@ -1495,7 +1497,7 @@ export default function CustomerPaymentsPage() {
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h6" fontWeight="bold" color="primary.main">
-                    Rs. {fmtLKR(totalPaymentAmount)}
+                    {currencySymbol} {fmtLKR(totalPaymentAmount)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -1556,13 +1558,13 @@ export default function CustomerPaymentsPage() {
                 <TextField
                   size="small"
                   type="number"
-                  label="Amount (Rs.) *"
+                  label={`Amount (${currencySymbol}) *`}
                   value={row.amount}
                   onChange={(e) => updateSplitRow(row.id, { amount: Number(e.target.value) || 0 })}
                   sx={{ width: 160 }}
                   InputProps={{
                     startAdornment: (
-                      <InputAdornment position="start">Rs.</InputAdornment>
+                      <InputAdornment position="start">{currencySymbol}</InputAdornment>
                     ),
                   }}
                   inputProps={{ min: 0, step: 0.01 }}
@@ -1760,13 +1762,13 @@ export default function CustomerPaymentsPage() {
                 <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
                   <Typography variant="body2" color="text.secondary">Total Entered:</Typography>
                   <Typography variant="body2" fontWeight="bold" color={isBalanced ? "success.main" : "warning.main"}>
-                    Rs. {fmtLKR(entered)}
+                    {currencySymbol} {fmtLKR(entered)}
                   </Typography>
                 </Box>
                 <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                   <Typography variant="body2" color="text.secondary">Remaining:</Typography>
                   <Typography variant="body2" fontWeight="bold" color={isBalanced ? "success.main" : "error.main"}>
-                    {remaining > 0.01 ? `Rs. ${fmtLKR(remaining)}` : remaining < -0.01 ? `- Rs. ${fmtLKR(Math.abs(remaining))} (overpaid)` : "✓ Fully paid"}
+                    {remaining > 0.01 ? `${currencySymbol} ${fmtLKR(remaining)}` : remaining < -0.01 ? `- ${currencySymbol} ${fmtLKR(Math.abs(remaining))} (overpaid)` : "✓ Fully paid"}
                   </Typography>
                 </Box>
                 {!isBalanced && (
@@ -1806,11 +1808,11 @@ export default function CustomerPaymentsPage() {
                     }}
                   >
                     <Typography variant="body2" fontWeight="bold" color="info.dark">
-                      Service Charge ({cardServiceChargePercent}%): + Rs.{" "}
+                      Service Charge ({cardServiceChargePercent}%): + {currencySymbol}{" "}
                       {fmtLKR(totalServiceCharge)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Applied to card payment amount of Rs. {fmtLKR(cardBase)}
+                      Applied to card payment amount of {currencySymbol} {fmtLKR(cardBase)}
                     </Typography>
                   </Box>
                 )}
@@ -1887,7 +1889,7 @@ export default function CustomerPaymentsPage() {
                         row.method}
                       :
                     </strong>{" "}
-                    Rs. {fmtLKR(row.amount)}
+                    {currencySymbol} {fmtLKR(row.amount)}
                   </Typography>
                   {row.method === "cheque" && row.cheque_number && (
                     <Typography variant="caption" color="text.secondary">
@@ -1906,7 +1908,7 @@ export default function CustomerPaymentsPage() {
                           <Typography variant="caption" color="text.secondary" display="block">
                             Card Ref: {row.card_ref_number}
                             {row.card_holder_name && `, Holder: ${row.card_holder_name}`}
-                            {` | Base: Rs. ${fmtLKR(baseAmt)} | Fee (${pct}%): Rs. ${fmtLKR(scAmt)}`}
+                            {` | Base: ${currencySymbol} ${fmtLKR(baseAmt)} | Fee (${pct}%): ${currencySymbol} ${fmtLKR(scAmt)}`}
                           </Typography>
                         );
                       }
@@ -1960,11 +1962,11 @@ export default function CustomerPaymentsPage() {
                       }}
                     >
                       <Typography variant="body2" fontWeight="bold" color="info.dark">
-                        Service Charge ({cardServiceChargePercent}%): + Rs.{" "}
+                        Service Charge ({cardServiceChargePercent}%): + {currencySymbol}{" "}
                         {fmtLKR(totalServiceCharge)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        Applied to card payment base of Rs. {fmtLKR(totalCardAmountBase)} (Total swiped: Rs. {fmtLKR(totalCardAmountInclusive)})
+                        Applied to card payment base of {currencySymbol} {fmtLKR(totalCardAmountBase)} (Total swiped: {currencySymbol} {fmtLKR(totalCardAmountInclusive)})
                       </Typography>
                     </Box>
                   );
@@ -1994,9 +1996,9 @@ export default function CustomerPaymentsPage() {
                 <TableRow>
                   <TableCell>Invoice No.</TableCell>
                   <TableCell>Due Date</TableCell>
-                  <TableCell align="right">Balance Due (Rs.)</TableCell>
-                  <TableCell align="right">Payment (Rs.)</TableCell>
-                  <TableCell align="right">Remaining After (Rs.)</TableCell>
+                  <TableCell align="right">Balance Due ({currencySymbol})</TableCell>
+                  <TableCell align="right">Payment ({currencySymbol})</TableCell>
+                  <TableCell align="right">Remaining After ({currencySymbol})</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -2034,7 +2036,7 @@ export default function CustomerPaymentsPage() {
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h6" fontWeight="bold" color="text.primary">
-                    Rs. {fmtLKR(basePaymentAmount)}
+                    {currencySymbol} {fmtLKR(basePaymentAmount)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -2050,7 +2052,7 @@ export default function CustomerPaymentsPage() {
                   </TableCell>
                   <TableCell align="right">
                     <Typography variant="subtitle2" fontWeight="bold" color="warning.dark">
-                      + Rs. {fmtLKR(serviceChargeAmount)}
+                      + {currencySymbol} {fmtLKR(serviceChargeAmount)}
                     </Typography>
                   </TableCell>
                   <TableCell />
@@ -2064,7 +2066,7 @@ export default function CustomerPaymentsPage() {
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h5" fontWeight="bold" color="primary.main">
-                    Rs. {fmtLKR(totalPaymentFromSplit)}
+                    {currencySymbol} {fmtLKR(totalPaymentFromSplit)}
                   </Typography>
                 </TableCell>
                 <TableCell />
@@ -2137,11 +2139,11 @@ export default function CustomerPaymentsPage() {
             ? [
               { label: `${outstandingInvoices.length} Open Invoices`, variant: "outlined" as const },
               ...(totalOutstanding > 0
-                ? [{ label: `Rs. ${fmtLKR(totalOutstanding)} Outstanding`, color: "warning" as const }]
+                ? [{ label: `${currencySymbol} ${fmtLKR(totalOutstanding)} Outstanding`, color: "warning" as const }]
                 : []),
             ]
             : viewMode !== "overview"
-              ? [{ label: `Rs. ${fmtLKR(totalPaymentAmount)}`, color: "primary" as const }]
+              ? [{ label: `${currencySymbol} ${fmtLKR(totalPaymentAmount)}`, color: "primary" as const }]
               : []
         }
       />

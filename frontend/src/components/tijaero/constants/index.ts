@@ -100,6 +100,92 @@ export const CARD_TYPE = [
 ] as const;
 
 // =============================================================================
+// SUPPLIER
+// =============================================================================
+
+// A supplier's tax treatment classification — standard ERP "fiscal
+// position" concept (cf. Odoo's Fiscal Position, SAP tax classification).
+// Values must match backend app.common.enums.SupplierTaxArea exactly.
+export const SUPPLIER_TAX_AREA = [
+  { value: 'domestic_standard', label: 'Domestic (Standard-Rated)' },
+  { value: 'domestic_zero_rated', label: 'Domestic (Zero-Rated)' },
+  { value: 'domestic_exempt', label: 'Domestic (Exempt)' },
+  { value: 'export', label: 'Export' },
+  { value: 'import', label: 'Import' },
+] as const;
+
+// Standard ERP payment terms (cf. SAP/Odoo/NetSuite) — each maps to a fixed
+// number of days added to the invoice/GRN date to get the due date
+// (Supplier.credit_days is still stored as that plain integer; this list is
+// purely a frontend entry convenience). "Custom" isn't itself a day count —
+// picking it reveals a plain number input for terms outside this list.
+// Deliberately excludes End of Month / split-payment terms: those aren't a
+// fixed day-offset from a single date, and the app's due-date calculations
+// (credit_service.py) have no way to represent them.
+export const SUPPLIER_PAYMENT_TERMS = [
+  { value: 0, label: 'Due on Receipt' },
+  { value: 15, label: 'Net 15' },
+  { value: 30, label: 'Net 30' },
+  { value: 45, label: 'Net 45' },
+  { value: 60, label: 'Net 60' },
+  { value: 90, label: 'Net 90' },
+] as const;
+/** Sentinel for the dropdown's "Custom" option — never sent to the backend;
+ * the day count itself (formData.credit_days) is what's actually stored. */
+export const SUPPLIER_PAYMENT_TERMS_CUSTOM = 'custom' as const;
+
+/** Display label for a supplier's credit_days value — e.g. 30 -> "Net 30",
+ * 0 -> "Due on Receipt", or "Net {n}" for a custom day count outside the
+ * standard list. Deliberately not getChoiceLabel: that helper treats a
+ * falsy `value` as "no value", which would blank out 0 ("Due on Receipt"),
+ * a real, valid term here. */
+export function getPaymentTermsLabel(creditDays: number | null | undefined): string {
+  if (creditDays == null) return '-';
+  const match = SUPPLIER_PAYMENT_TERMS.find((t) => t.value === creditDays);
+  return match ? match.label : `Net ${creditDays}`;
+}
+
+// A supplier's saved/standing payment method type (master data — "how this
+// supplier is set up to be paid"), not a one-off transaction payment method
+// (that's SUPPLIER_PAYMENT_METHOD above, a separate, unrelated concept used
+// on the Supplier Payments recording screen). Values must match backend
+// app.common.enums.SupplierPaymentMethodType exactly. Digital Wallet is
+// included even though it's a weaker fit as standing master data (vs.
+// per-transaction), per explicit product decision.
+export const SUPPLIER_SAVED_PAYMENT_METHOD_TYPE = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'cheque', label: 'Cheque' },
+  { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'direct_debit', label: 'Direct Debit / ACH' },
+  { value: 'letter_of_credit', label: 'Letter of Credit' },
+  { value: 'credit_card', label: 'Credit Card' },
+  { value: 'digital_wallet', label: 'Digital Wallet' },
+] as const;
+
+export const SUPPLIER_PAYMENT_CARD_TYPE = [
+  { value: 'visa', label: 'Visa' },
+  { value: 'mastercard', label: 'Mastercard' },
+  { value: 'amex', label: 'American Express' },
+  { value: 'other', label: 'Other' },
+] as const;
+
+// Standard Letter of Credit classifications.
+export const SUPPLIER_LC_TYPE = [
+  { value: 'sight', label: 'Sight' },
+  { value: 'usance', label: 'Usance' },
+  { value: 'irrevocable', label: 'Irrevocable' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'unconfirmed', label: 'Unconfirmed' },
+] as const;
+
+export const SUPPLIER_WALLET_PROVIDER = [
+  { value: 'paypal', label: 'PayPal' },
+  { value: 'payoneer', label: 'Payoneer' },
+  { value: 'wise', label: 'Wise' },
+  { value: 'other', label: 'Other' },
+] as const;
+
+// =============================================================================
 // EXPENSES
 // =============================================================================
 
@@ -314,6 +400,12 @@ export type CardType = typeof CARD_TYPE[number]['value'];
 export type ExpensesMethod = typeof EXPENSES_METHOD[number]['value'];
 export type ProductItemType = typeof PRODUCT_ITEM_TYPE[number]['value'];
 export type ProductUom = typeof PRODUCT_UOM[number]['value'];
+export type SupplierTaxArea = typeof SUPPLIER_TAX_AREA[number]['value'];
+export type SupplierPaymentTermDays = typeof SUPPLIER_PAYMENT_TERMS[number]['value'];
+export type SupplierSavedPaymentMethodType = typeof SUPPLIER_SAVED_PAYMENT_METHOD_TYPE[number]['value'];
+export type SupplierPaymentCardType = typeof SUPPLIER_PAYMENT_CARD_TYPE[number]['value'];
+export type SupplierLcType = typeof SUPPLIER_LC_TYPE[number]['value'];
+export type SupplierWalletProvider = typeof SUPPLIER_WALLET_PROVIDER[number]['value'];
 export type ServiceJobStatus = typeof SERVICE_JOB_STATUS[number]['value'];
 export type ServiceJobFaultType = typeof SERVICE_JOB_FAULT_TYPE[number]['value'];
 

@@ -57,6 +57,7 @@ import type {
   IncomeStatementSection,
   IncomeStatementLineItem,
 } from "../types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -116,6 +117,7 @@ function SectionTable({
 
 export default function IncomeStatementPage() {
   const navigate = useNavigate();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   const [fiscalYear, setFiscalYear] = useState(currentYear);
   const [fiscalPeriod, setFiscalPeriod] = useState(0);
@@ -155,7 +157,7 @@ export default function IncomeStatementPage() {
   // ── CSV Export ───────────────────────────────────────────────────────────
   const handleExportCSV = () => {
     if (!report) return;
-    const lines: string[][] = [["Account Code", "Account Name", "Amount (Rs.)"]];
+    const lines: string[][] = [["Account Code", "Account Name", `Amount (${currencySymbol})`]];
     const addSection = (s: IncomeStatementSection) => {
       lines.push([`--- ${s.section_name} ---`, "", ""]);
       s.items.forEach((i) => lines.push([i.account_code, i.account_name, Math.abs(Number(i.amount)).toFixed(2)]));
@@ -191,7 +193,7 @@ export default function IncomeStatementPage() {
         : "";
 
     const subtotalRow = (label: string, val: number, bold = false) =>
-      `<tr style="background:#f5f5f5"><td></td><td style="font-weight:${bold ? 800 : 600};font-size:${bold ? "14px" : "13px"}">${label}</td><td style="text-align:right;font-weight:${bold ? 800 : 700};font-size:${bold ? "14px" : "13px"};color:${val >= 0 ? "#2e7d32" : "#c62828"}">${val < 0 ? "(" : ""}Rs. ${fmtLKR(Math.abs(val))}${val < 0 ? ")" : ""}</td></tr>`;
+      `<tr style="background:#f5f5f5"><td></td><td style="font-weight:${bold ? 800 : 600};font-size:${bold ? "14px" : "13px"}">${label}</td><td style="text-align:right;font-weight:${bold ? 800 : 700};font-size:${bold ? "14px" : "13px"};color:${val >= 0 ? "#2e7d32" : "#c62828"}">${val < 0 ? "(" : ""}${currencySymbol} ${fmtLKR(Math.abs(val))}${val < 0 ? ")" : ""}</td></tr>`;
 
     win.document.write(`<!DOCTYPE html><html><head><title>Income Statement</title>
 <style>body{font-family:Segoe UI,sans-serif;padding:20px;max-width:800px;margin:0 auto}h1{color:#1976d2;text-align:center;border-bottom:2px solid #1976d2;padding-bottom:10px}
@@ -287,7 +289,7 @@ ${subtotalRow("Net Income", Number(report.net_income), true)}
                     <CardContent sx={{ py: 1.5, textAlign: "center" }}>
                       <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>{c.label}</Typography>
                       <Typography variant="h6" fontWeight={c.bold ? 800 : 700} color={c.color} sx={{ mt: 0.5, fontFamily: "monospace" }}>
-                        Rs. {fmtLKR(Math.abs(Number(c.value)))}
+                        {currencySymbol} {fmtLKR(Math.abs(Number(c.value)))}
                       </Typography>
                       {Number(c.value) < 0 && <Chip label="Loss" size="small" color="error" sx={{ mt: 0.5, height: 18, fontSize: "0.65rem" }} />}
                     </CardContent>
@@ -316,7 +318,7 @@ ${subtotalRow("Net Income", Number(report.net_income), true)}
                     <TableRow sx={{ "& th": { fontWeight: 700, textTransform: "uppercase", fontSize: "0.7rem", color: "text.secondary" } }}>
                       <TableCell sx={{ width: 100 }}>Code</TableCell>
                       <TableCell>Account</TableCell>
-                      <TableCell align="right" sx={{ pr: 3 }}>Amount (Rs.)</TableCell>
+                      <TableCell align="right" sx={{ pr: 3 }}>{`Amount (${currencySymbol})`}</TableCell>
                     </TableRow>
                   </TableHead>
                 </Table>
@@ -331,7 +333,7 @@ ${subtotalRow("Net Income", Number(report.net_income), true)}
                 <Box sx={{ px: 2, py: 1, bgcolor: "grey.100", display: "flex", justifyContent: "space-between", borderTop: "2px solid", borderBottom: "2px solid", borderColor: "divider" }}>
                   <Typography variant="subtitle2" fontWeight={700}>Gross Profit</Typography>
                   <Typography variant="subtitle2" fontWeight={700} color={Number(report.gross_profit) >= 0 ? "success.main" : "error.main"} sx={{ fontFamily: "monospace" }}>
-                    Rs. {fmtLKR(Math.abs(Number(report.gross_profit)))}
+                    {currencySymbol} {fmtLKR(Math.abs(Number(report.gross_profit)))}
                   </Typography>
                 </Box>
 
@@ -342,7 +344,7 @@ ${subtotalRow("Net Income", Number(report.net_income), true)}
                 <Box sx={{ px: 2, py: 1, bgcolor: "grey.100", display: "flex", justifyContent: "space-between", borderTop: "2px solid", borderBottom: "2px solid", borderColor: "divider" }}>
                   <Typography variant="subtitle2" fontWeight={700}>Operating Income</Typography>
                   <Typography variant="subtitle2" fontWeight={700} color={Number(report.operating_income) >= 0 ? "success.main" : "error.main"} sx={{ fontFamily: "monospace" }}>
-                    Rs. {fmtLKR(Math.abs(Number(report.operating_income)))}
+                    {currencySymbol} {fmtLKR(Math.abs(Number(report.operating_income)))}
                   </Typography>
                 </Box>
 
@@ -360,7 +362,7 @@ ${subtotalRow("Net Income", Number(report.net_income), true)}
                     {Number(report.net_income) >= 0 ? "Net Income" : "Net Loss"}
                   </Typography>
                   <Typography variant="h6" fontWeight={800} color={netIncomeColor} sx={{ fontFamily: "monospace" }}>
-                    {Number(report.net_income) < 0 && "("}Rs. {fmtLKR(Math.abs(Number(report.net_income)))}{Number(report.net_income) < 0 && ")"}
+                    {Number(report.net_income) < 0 && "("}{currencySymbol} {fmtLKR(Math.abs(Number(report.net_income)))}{Number(report.net_income) < 0 && ")"}
                   </Typography>
                 </Box>
               </TableContainer>

@@ -12,6 +12,9 @@ export interface Category {
   updated_by?: number;
   created_by_name?: string;
   updated_by_name?: string;
+  // Full-precision change token from the backend; echo it back as
+  // expected_version when saving (see app.common.concurrency.version_token).
+  version?: string;
 }
 
 export interface CategoryCreate {
@@ -28,6 +31,11 @@ export interface CategoryUpdate {
   memo?: string;
   description?: string;
   active?: boolean;
+  // Optimistic-concurrency check: the `version` the client last saw
+  // (preferred, exact) or its updated_at (second precision). The backend
+  // rejects the save with a 409 if the record changed since.
+  expected_updated_at?: string;
+  expected_version?: string;
 }
 
 export interface Brand {
@@ -42,6 +50,9 @@ export interface Brand {
   updated_by?: number;
   created_by_name?: string;
   updated_by_name?: string;
+  // Full-precision change token from the backend; echo it back as
+  // expected_version when saving (see app.common.concurrency.version_token).
+  version?: string;
 }
 
 export interface BrandCreate {
@@ -56,6 +67,11 @@ export interface BrandUpdate {
   brand_code?: string;
   description?: string;
   active?: boolean;
+  // Optimistic-concurrency check: the `version` the client last saw
+  // (preferred, exact) or its updated_at (second precision). The backend
+  // rejects the save with a 409 if the record changed since.
+  expected_updated_at?: string;
+  expected_version?: string;
 }
 
 export interface Product {
@@ -88,6 +104,9 @@ export interface Product {
   // company name, so the browse table can show them without a per-row fetch.
   minimum_selling_price?: number | null;
   preferred_supplier_name?: string | null;
+  // Full-precision change token from the backend; echo it back as
+  // expected_version when saving (see app.common.concurrency.version_token).
+  version?: string;
 }
 
 export interface PriceTier {
@@ -149,6 +168,8 @@ export interface ProductCreate {
   category_id: number;
   items_brand_id: number;
   image_url?: string;
+  // Initial minimum selling price, saved in the same transaction as the product.
+  minimum_selling_price?: number;
 }
 
 export interface ProductUpdate {
@@ -164,7 +185,16 @@ export interface ProductUpdate {
   cost_price?: number;
   category_id?: number;
   items_brand_id?: number;
-  image_url?: string;
+  // No image_url: the upload/remove image endpoints are its only writers, so
+  // a form save can't revert a just-uploaded image.
+  // Saved as a new minimum-price history row, in the same transaction as the
+  // product update, only when it differs from the current value.
+  minimum_selling_price?: number;
+  // Optimistic-concurrency check: the `version` the client last saw
+  // (preferred, exact) or its updated_at (second precision). The backend
+  // rejects the save with a 409 if the record changed since.
+  expected_updated_at?: string;
+  expected_version?: string;
 }
 
 // Product with related details

@@ -1,5 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
+from sqlalchemy.exc import IntegrityError
+from contextlib import contextmanager
 from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal
@@ -15,20 +17,7 @@ from app.modules.finance.gl_posting_service import record_gl_commit_failure
 DAILY_PO_LIMIT_PER_BRANCH = 5
 
 
-def _normalize_timestamp_for_compare(dt: Optional[datetime]) -> Optional[datetime]:
-    """Make a DB-naive-local and a client-sent-aware `updated_at` comparable.
-
-    Audit timestamps are stored naive (already local wall-clock time, per
-    app.core.timezone), but the API serializes them with a UTC offset
-    attached (see format_datetime), so a value round-tripped from the client
-    comes back timezone-aware. Also truncate to whole seconds, matching the
-    precision format_datetime actually sends the client (sub-second changes
-    within the same second are not distinguishable to a caller either way)."""
-    if dt is None:
-        return None
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(tz.LOCAL_TZ).replace(tzinfo=None)
-    return dt.replace(microsecond=0)
+from app.common.concurrency import ensure_not_stale, integrity_error_detail, is_unique_violation
 
 # Fields that must be unique across all suppliers, and their user-facing labels.
 SUPPLIER_UNIQUE_FIELDS = {
@@ -36,6 +25,13 @@ SUPPLIER_UNIQUE_FIELDS = {
     "company_registration_number": "Company registration number",
     "tax_registration_number": "Tax/VAT number",
     "email": "Email",
+}
+# The database indexes backing them (alembic s67) → the same labels.
+SUPPLIER_UNIQUE_INDEXES = {
+    "uq_supplier_company_name": "Company name",
+    "uq_supplier_company_reg_no": "Company registration number",
+    "uq_supplier_tax_reg_no": "Tax/VAT number",
+    "uq_supplier_email": "Email",
 }
 
 class SupplierService:
@@ -78,18 +74,44 @@ class SupplierService:
             s.created_by_name = name_map.get(s.created_by)
             s.updated_by_name = name_map.get(s.updated_by)
 
+    @contextmanager
+    def _duplicate_guard(self):
+        """Wrap a write (flushes and the commit); turn a unique-index
+        violation — a concurrent duplicate that slipped past
+        _check_duplicate_fields — into a 400 naming the field. 400, not 409:
+        the page treats 409 as "changed by someone else"."""
+        try:
+            yield
+        except IntegrityError as exc:
+            self.repo.db.rollback()
+            if not is_unique_violation(exc):
+                # e.g. the selected country was just deleted — not a duplicate.
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=integrity_error_detail(exc))
+            raw = str(getattr(exc, "orig", exc))
+            label = next(
+                (lbl for index_name, lbl in SUPPLIER_UNIQUE_INDEXES.items() if index_name in raw),
+                None,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{label} is already used by another supplier." if label
+                else "This supplier duplicates an existing one.",
+            )
+
     def create_supplier(self, supplier: schemas.SupplierCreate, created_by: Optional[int] = None) -> models.Supplier:
         self._check_duplicate_fields(supplier)
-        created = self.repo.create(supplier)
-        log_audit(
-            self.repo.db,
-            user_id=created_by or 0,
-            action="create",
-            entity_type="supplier",
-            entity_id=created.id,
-            changes={"company_name": created.company_name},
-        )
-        self.repo.db.commit()
+        with self._duplicate_guard():
+            created = self.repo.create(supplier)
+            log_audit(
+                self.repo.db,
+                user_id=created_by or 0,
+                action="create",
+                entity_type="supplier",
+                entity_id=created.id,
+                changes={"company_name": created.company_name},
+            )
+            self.repo.db.commit()
+        self.repo.db.refresh(created)
         self._attach_user_names([created])
         return created
 
@@ -143,38 +165,67 @@ class SupplierService:
             for e in entries
         ]
 
-    def update_logo(self, supplier_id: int, relative_path: str) -> models.Supplier:
+    def _set_logo(self, supplier_id: int, new_path: Optional[str], user_id: Optional[int]) -> models.Supplier:
+        """Shared by upload/remove (mirrors ProductService._set_image):
+
+        - Row lock: concurrent uploads serialize, so the second deletes the
+          first's file instead of orphaning it.
+        - Direct UPDATE with updated_at / updated_by set to themselves: the
+          supplier form never writes logo_path, so a logo change can't be
+          lost by a form save, and it must not make open edit forms fail the
+          stale check — nor refresh their version token without refreshing
+          their fields, which would let a stale save slip through.
+        - Audit row, so it still appears in Activity History."""
         from app.common.file_storage import delete_file
 
-        supplier = self.repo.get_by_id(supplier_id)
+        db = self.repo.db
+        supplier = (
+            db.query(models.Supplier)
+            .filter(models.Supplier.id == supplier_id)
+            .with_for_update(key_share=True)
+            .first()
+        )
         if not supplier:
+            db.rollback()
+            # The upload endpoint saved the file before calling us.
+            if new_path:
+                delete_file(new_path)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier with id {supplier_id} not found"
             )
-        old_logo_path = supplier.logo_path
-        supplier.logo_path = relative_path
-        self.repo.db.commit()
-        self.repo.db.refresh(supplier)
-        if old_logo_path and old_logo_path != relative_path:
-            delete_file(old_logo_path)
-        return supplier
-
-    def remove_logo(self, supplier_id: int) -> models.Supplier:
-        from app.common.file_storage import delete_file
-
-        supplier = self.repo.get_by_id(supplier_id)
-        if not supplier:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Supplier with id {supplier_id} not found"
+        old_path = supplier.logo_path
+        db.query(models.Supplier).filter(models.Supplier.id == supplier_id).update(
+            {
+                "logo_path": new_path,
+                "updated_at": models.Supplier.updated_at,
+                "updated_by": models.Supplier.updated_by,
+            },
+            synchronize_session=False,
+        )
+        changes = diff_changes({"logo_path": old_path}, {"logo_path": new_path})
+        if changes:
+            log_audit(
+                db,
+                user_id=user_id or 0,
+                action="update",
+                entity_type="supplier",
+                entity_id=supplier_id,
+                changes=changes,
             )
-        old_logo_path = supplier.logo_path
-        supplier.logo_path = None
-        self.repo.db.commit()
-        self.repo.db.refresh(supplier)
-        delete_file(old_logo_path)
+        db.commit()
+        db.refresh(supplier)
+        if old_path and old_path != new_path:
+            delete_file(old_path)
+        supplier.average_lead_time_days = self.repo.get_average_lead_times([supplier_id]).get(supplier_id)
+        self._attach_user_names([supplier])
         return supplier
+
+    def update_logo(self, supplier_id: int, relative_path: str, user_id: Optional[int] = None) -> models.Supplier:
+        return self._set_logo(supplier_id, relative_path, user_id)
+
+    def remove_logo(self, supplier_id: int, user_id: Optional[int] = None) -> models.Supplier:
+        return self._set_logo(supplier_id, None, user_id)
     
     def list_suppliers(self, filters: schemas.SupplierListFilter) -> List[models.Supplier]:
         suppliers = self.repo.get_all(filters)
@@ -184,46 +235,52 @@ class SupplierService:
         self._attach_user_names(suppliers)
         return suppliers
 
-    def update_supplier(self, supplier_id: int, supplier_update: schemas.SupplierUpdate, updated_by: Optional[int] = None) -> models.Supplier:
-        if supplier_update.active is False:
-            supplier = self.repo.get_by_id(supplier_id)
-            if not supplier:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Supplier with id {supplier_id} not found"
-                )
-            
-            # Use the same session (self.repo.db) to avoid TOCTOU race conditions
-            pending_orders = self.repo.db.query(models.PurchasingOrder).filter(
-                (models.PurchasingOrder.first_suppliers_id == supplier_id) | 
-                (models.PurchasingOrder.second_suppliers_id == supplier_id),
-                models.PurchasingOrder.status.in_([
-                    PurchaseOrderStatus.PENDING,
-                    PurchaseOrderStatus.APPROVED,
-                    PurchaseOrderStatus.PENDING_APPROVAL,
-                ])
-            ).count()
-            
-            if pending_orders > 0:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot deactivate supplier '{supplier.company_name}': {pending_orders} pending purchase order(s) exist. Complete or cancel all pending orders first."
-                )
+    def _ensure_can_deactivate(self, supplier: models.Supplier) -> None:
+        """Must run while holding the supplier row lock: PO / payment / GRN
+        creation take a shared lock on the supplier (see
+        lock_active_supplier), so no new document can appear between these
+        checks and the deactivation committing."""
+        db = self.repo.db
+        pending_orders = db.query(models.PurchasingOrder).filter(
+            (models.PurchasingOrder.first_suppliers_id == supplier.id) |
+            (models.PurchasingOrder.second_suppliers_id == supplier.id),
+            models.PurchasingOrder.status.in_([
+                PurchaseOrderStatus.PENDING,
+                PurchaseOrderStatus.APPROVED,
+                PurchaseOrderStatus.PENDING_APPROVAL,
+            ])
+        ).count()
+        if pending_orders > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot deactivate supplier '{supplier.company_name}': {pending_orders} pending purchase order(s) exist. Complete or cancel all pending orders first."
+            )
 
-            if supplier.left_credit_amount and supplier.left_credit_amount < supplier.initial_credit_amount:
-                outstanding = supplier.initial_credit_amount - supplier.left_credit_amount
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot deactivate supplier '{supplier.company_name}': Outstanding credit balance of Rs. {outstanding:,.2f}. Settle all dues first."
-                )
-        
+        # Computed live from the documents. The old check compared the stored
+        # left_credit_amount, which is floored at 0 — so a supplier whose
+        # credit was fully used (0, falsy) slipped through, and a NULL
+        # initial_credit_amount crashed the comparison.
+        from app.modules.purchasing.credit_service import SupplierCreditService
+        owed = SupplierCreditService().calculate_amount_owed(db, supplier.id)
+        if owed > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot deactivate supplier '{supplier.company_name}': Outstanding balance of {owed:,.2f} is still owed to this supplier. Settle all dues first."
+            )
+
+    def update_supplier(self, supplier_id: int, supplier_update: schemas.SupplierUpdate, updated_by: Optional[int] = None) -> models.Supplier:
         # Snapshot the fields the request actually touched (exclude_unset) so
         # the audit log only lists what the user genuinely changed, not the
         # entire form the frontend happens to submit on every save.
-        self._check_duplicate_fields(supplier_update, exclude_id=supplier_id)
-
-        submitted_fields = supplier_update.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
-        before = self.repo.get_by_id(supplier_id)
+        submitted_fields = supplier_update.model_dump(exclude_unset=True, exclude={"expected_updated_at", "expected_version"})
+        # Row lock first: the stale check, the deactivate checks and the write
+        # must not interleave with a concurrent save, PO or payment.
+        before = (
+            self.repo.db.query(models.Supplier)
+            .filter(models.Supplier.id == supplier_id)
+            .with_for_update(key_share=True)
+            .first()
+        )
         if not before:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -234,70 +291,112 @@ class SupplierService:
         # overwriting a change someone else made after this client loaded the
         # record (the "lost update" problem — two editors, second save wins
         # with no warning). Only enforced when the client actually sends
-        # expected_updated_at, so older/other callers are unaffected.
-        if supplier_update.expected_updated_at is not None:
-            if _normalize_timestamp_for_compare(before.updated_at) != _normalize_timestamp_for_compare(supplier_update.expected_updated_at):
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Supplier '{before.company_name}' was modified by someone else since you loaded it. Refresh and try again."
-                )
+        # expected_version / expected_updated_at, so older/other callers are
+        # unaffected.
+        ensure_not_stale(
+            before.updated_at,
+            supplier_update.expected_updated_at,
+            f"Supplier '{before.company_name}'",
+            supplier_update.expected_version,
+        )
+
+        if supplier_update.active is False and before.active:
+            self._ensure_can_deactivate(before)
+
+        self._check_duplicate_fields(supplier_update, exclude_id=supplier_id)
 
         before_values = {field: getattr(before, field) for field in submitted_fields}
 
-        supplier = self.repo.update(supplier_id, supplier_update)
-        if not supplier:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Supplier with id {supplier_id} not found"
-            )
+        # One commit for the field changes, credit recalculation and audit
+        # row. Previously these were three commits, so a failure in a later
+        # step returned an error for changes that had in fact been saved.
+        with self._duplicate_guard():
+            supplier = self.repo.update(supplier_id, supplier_update)
+            changes = diff_changes(before_values, submitted_fields)
 
-        changes = diff_changes(before_values, submitted_fields)
+            # When max_credit_limit changes, recalculate left_credit_amount
+            if supplier_update.max_credit_limit is not None:
+                from app.modules.purchasing.credit_service import SupplierCreditService
+                supplier.initial_credit_amount = supplier.max_credit_limit
+                SupplierCreditService().update_supplier_credit_balance(self.repo.db, supplier_id)
 
-        # When max_credit_limit changes, recalculate left_credit_amount
-        if supplier_update.max_credit_limit is not None:
-            from app.modules.purchasing.credit_service import SupplierCreditService
-            credit_service = SupplierCreditService()
-            supplier.initial_credit_amount = supplier.max_credit_limit
-            credit_service.update_supplier_credit_balance(self.repo.db, supplier_id)
+            if changes:
+                log_audit(
+                    self.repo.db,
+                    user_id=updated_by or 0,
+                    action="update",
+                    entity_type="supplier",
+                    entity_id=supplier.id,
+                    changes=changes,
+                )
             self.repo.db.commit()
-            self.repo.db.refresh(supplier)
-
-        if changes:
-            log_audit(
-                self.repo.db,
-                user_id=updated_by or 0,
-                action="update",
-                entity_type="supplier",
-                entity_id=supplier.id,
-                changes=changes,
-            )
-            self.repo.db.commit()
-
+        self.repo.db.refresh(supplier)
+        supplier.average_lead_time_days = self.repo.get_average_lead_times([supplier_id]).get(supplier_id)
         self._attach_user_names([supplier])
         return supplier
 
     def delete_supplier(self, supplier_id: int, deleted_by: Optional[int] = None) -> bool:
-        supplier = self.repo.get_by_id(supplier_id)
+        from app.common.file_storage import delete_file
+
+        db = self.repo.db
+        supplier = (
+            db.query(models.Supplier)
+            .filter(models.Supplier.id == supplier_id)
+            .with_for_update()
+            .first()
+        )
         if not supplier:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Supplier with id {supplier_id} not found"
             )
         company_name = supplier.company_name
-        if not self.repo.delete(supplier_id):
+        logo_path = supplier.logo_path
+
+        # Friendly pre-check for the common references. The FK constraints are
+        # still the real guard (see the IntegrityError handler below).
+        from app.modules.purchasing.invoice_models import PurchaseInvoice as _PurchaseInvoice
+        usage = []
+        po_count = db.query(models.PurchasingOrder).filter(
+            (models.PurchasingOrder.first_suppliers_id == supplier_id) |
+            (models.PurchasingOrder.second_suppliers_id == supplier_id)
+        ).count()
+        if po_count:
+            usage.append(f"purchase orders ({po_count})")
+        invoice_count = db.query(_PurchaseInvoice).filter(_PurchaseInvoice.supplier_id == supplier_id).count()
+        if invoice_count:
+            usage.append(f"purchase invoices ({invoice_count})")
+        payment_count = db.query(models.SupplierPayment).filter(
+            models.SupplierPayment.supplier_id == supplier_id
+        ).count()
+        if payment_count:
+            usage.append(f"payments ({payment_count})")
+        if usage:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Supplier with id {supplier_id} not found"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete supplier '{company_name}'. It is used in: {', '.join(usage)}. Deactivate the supplier instead."
             )
-        log_audit(
-            self.repo.db,
-            user_id=deleted_by or 0,
-            action="delete",
-            entity_type="supplier",
-            entity_id=supplier_id,
-            changes={"company_name": company_name},
-        )
-        self.repo.db.commit()
+
+        try:
+            self.repo.delete(supplier_id)
+            log_audit(
+                db,
+                user_id=deleted_by or 0,
+                action="delete",
+                entity_type="supplier",
+                entity_id=supplier_id,
+                changes={"company_name": company_name},
+            )
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete supplier '{company_name}' because other records still reference it. Deactivate the supplier instead."
+            )
+        # Only after the delete has committed — a failed delete keeps its logo.
+        if logo_path:
+            delete_file(logo_path)
         return True
 
 class SupplierPaymentMethodService:
@@ -518,6 +617,7 @@ class PurchasingOrderService:
                 detail=limit_check.message
             )
         
+        self.supplier_repo.lock_for_document(order.first_suppliers_id, order.second_suppliers_id)
         first_supplier = self.supplier_repo.get_by_id(order.first_suppliers_id)
         if not first_supplier:
             raise HTTPException(
@@ -644,6 +744,7 @@ class PurchasingOrderService:
             )
         
         # If updating suppliers, verify they are active
+        self.supplier_repo.lock_for_document(order_update.first_suppliers_id, order_update.second_suppliers_id)
         if order_update.first_suppliers_id is not None:
             first_supplier = self.supplier_repo.get_by_id(order_update.first_suppliers_id)
             if not first_supplier:
@@ -1347,6 +1448,7 @@ class GoodReceivedNoteService:
                 detail=f"Purchase order {grn.purchasingorders_id} not found"
             )
 
+        repository.SupplierRepository(self.db).lock_for_document(po.first_suppliers_id, po.second_suppliers_id)
         first_supplier = self.db.query(models.Supplier).filter(
             models.Supplier.id == po.first_suppliers_id
         ).first()
@@ -2200,6 +2302,15 @@ class SupplierPaymentService:
             self.db.rollback()
     
     def create_payment(self, payment: schemas.SupplierPaymentCreate, created_by: int = None) -> models.SupplierPayment:
+        # Lock order must match GRN creation / PO approval, which lock the PO
+        # first and the supplier second. Locking the supplier first here and
+        # then touching the PO (the payment's FK to it) would deadlock with a
+        # concurrent GRN on the same PO.
+        if payment.purchasing_order_id:
+            self.db.query(models.PurchasingOrder.id).filter(
+                models.PurchasingOrder.id == payment.purchasing_order_id
+            ).with_for_update().first()
+        self.supplier_repo.lock_for_document(payment.supplier_id)
         supplier = self.supplier_repo.get_by_id(payment.supplier_id)
         if not supplier:
             raise HTTPException(
@@ -2499,7 +2610,13 @@ class SupplierAdvancePaymentService:
         self.order_repo = repository.PurchasingOrderRepository(db)
     
     def create_advance(self, data: schemas.SupplierAdvancePaymentCreate, created_by: Optional[int] = None) -> models.SupplierAdvancePayment:
-        # Validate supplier exists and is active
+        # Validate supplier exists and is active. PO first, then supplier —
+        # same lock order as GRN creation / PO approval (see create_payment).
+        if data.purchasing_order_id:
+            self.db.query(models.PurchasingOrder.id).filter(
+                models.PurchasingOrder.id == data.purchasing_order_id
+            ).with_for_update().first()
+        self.supplier_repo.lock_for_document(data.supplier_id)
         supplier = self.supplier_repo.get_by_id(data.supplier_id)
         if not supplier:
             raise HTTPException(

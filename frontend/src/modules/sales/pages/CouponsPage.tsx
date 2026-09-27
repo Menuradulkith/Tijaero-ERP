@@ -12,8 +12,6 @@ import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import StarIcon from "@mui/icons-material/Star";
-import StarOutlineIcon from "@mui/icons-material/StarBorder";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Avatar,
@@ -58,6 +56,7 @@ import {
   TSearchableSelect,
   useCrudMutation,
   useMasterDetailState,
+  useRowSelection,
   useTConfirmDialog,
   modernTableStyles,
   TDataGrid,
@@ -69,6 +68,7 @@ import { exportToCSV } from "@/utils/csvExport";
 import DownloadIcon from "@mui/icons-material/FileDownload";
 
 import { usePermission } from "@/auth/permissions";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { couponsApi } from "@/modules/customers/api";
 import { CustomerCuponCodes, CustomerCuponCodesCreate } from "@/modules/customers/types";
 import { productsApi } from "@/modules/inventory/api";
@@ -83,7 +83,7 @@ const STATUS_OPTIONS = [
 
 const DISCOUNT_TYPE_OPTIONS = [
   { value: "PERCENT", label: "Percentage (%)" },
-  { value: "AMOUNT", label: "Fixed Amount (Rs.)" },
+  { value: "AMOUNT", label: "Fixed Amount" },
 ];
 
 const INITIAL_FORM_DATA: CustomerCuponCodesCreate = {
@@ -127,6 +127,7 @@ const getCouponStatus = (coupon: CustomerCuponCodes): string => {
 };
 
 export default function CouponsPage() {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const canViewProducts = usePermission("products", "view");
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
@@ -149,8 +150,6 @@ export default function CouponsPage() {
     setIsEditing,
     isCreating,
     setIsCreating,
-    favorites,
-    toggleFavorite,
     formData,
     setFormData,
     handleSelectItem: handleSelectCoupon,
@@ -160,9 +159,10 @@ export default function CouponsPage() {
   } = useMasterDetailState<CustomerCuponCodes, CustomerCuponCodesCreate>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromCoupon,
-    favoritesKey: "coupons_favorites",
     defaultSortField: "cupon_code",
   });
+
+  const rowSelection = useRowSelection();
 
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
@@ -263,7 +263,7 @@ export default function CouponsPage() {
       "Status"
     ];
 
-    const rows = filteredCoupons.map(coupon => [
+    const rows = rowSelection.pick(filteredCoupons).map(coupon => [
       coupon.cupon_code,
       coupon.description || "",
       coupon.discount_type,
@@ -388,23 +388,6 @@ export default function CouponsPage() {
   const couponColumns: TDataGridColumn<(typeof couponRows)[number]>[] = useMemo(
     () => [
       {
-        field: "favorite",
-        header: "",
-        width: 48,
-        sortable: false,
-        align: "center",
-        headerAlign: "center",
-        renderCell: (params: GridRenderCellParams<(typeof couponRows)[number]>) => (
-          <IconButton size="small" onClick={(e) => toggleFavorite(params.row.id, e)}>
-            {favorites.includes(params.row.id) ? (
-              <StarIcon fontSize="small" color="warning" />
-            ) : (
-              <StarOutlineIcon fontSize="small" color="action" />
-            )}
-          </IconButton>
-        ),
-      },
-      {
         field: "cupon_code",
         header: "Coupon Code",
         flex: 1,
@@ -427,7 +410,7 @@ export default function CouponsPage() {
         renderCell: (params: GridRenderCellParams<(typeof couponRows)[number]>) =>
           params.row.discount_type === "PERCENT"
             ? `${params.row.discount_value}%`
-            : `Rs. ${params.row.discount_value.toLocaleString()}`,
+            : `${currencySymbol} ${params.row.discount_value.toLocaleString()}`,
       },
       {
         field: "created_date",
@@ -486,7 +469,7 @@ export default function CouponsPage() {
         ),
       },
     ],
-    [favorites, toggleFavorite, handleSelectCoupon]
+    [handleSelectCoupon]
   );
 
   const couponTablePanel = (
@@ -502,6 +485,9 @@ export default function CouponsPage() {
           emptyMessage="No coupons found"
           autoHeight={false}
           height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -561,8 +547,6 @@ export default function CouponsPage() {
               </Box>
             </Box>
           }
-          isFavorite={favorites.includes(selectedCoupon.id)}
-          onToggleFavorite={(e) => toggleFavorite(selectedCoupon.id, e)}
         />
       )}
     </Paper>
@@ -584,8 +568,6 @@ export default function CouponsPage() {
         isCreating={isCreating}
         createTitle="New Coupon"
         noSelectionTitle="Select a Coupon"
-        isFavorite={selectedCoupon ? favorites.includes(selectedCoupon.id) : false}
-        onToggleFavorite={selectedCoupon ? (e) => toggleFavorite(selectedCoupon.id, e) : undefined}
       />
 
       <ActionToolbar
@@ -660,13 +642,13 @@ export default function CouponsPage() {
               >
                 {DISCOUNT_TYPE_OPTIONS.map((opt) => (
                   <MenuItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                    {opt.value === "AMOUNT" ? `Fixed Amount (${currencySymbol})` : opt.label}
                   </MenuItem>
                 ))}
               </TextField>
               <TextField
                 size="small"
-                label={formData.discount_type === "PERCENT" ? "Discount %" : "Discount Amount (Rs.)"}
+                label={formData.discount_type === "PERCENT" ? "Discount %" : `Discount Amount (${currencySymbol})`}
                 type="number"
                 value={formData.discount_value}
                 onChange={(e) =>
@@ -682,7 +664,7 @@ export default function CouponsPage() {
               />
               <TextField
                 size="small"
-                label="Minimum Invoice Amount (Rs.)"
+                label={`Minimum Invoice Amount (${currencySymbol})`}
                 type="number"
                 value={formData.minimum_invoice_amount || 0}
                 onChange={(e) =>
@@ -809,7 +791,7 @@ export default function CouponsPage() {
                     <Typography variant="h4">
                       {selectedCoupon.discount_type === "PERCENT"
                         ? `${selectedCoupon.discount_value}%`
-                        : `Rs.${selectedCoupon.discount_value}`}
+                        : `${currencySymbol}${selectedCoupon.discount_value}`}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       Discount
@@ -853,7 +835,7 @@ export default function CouponsPage() {
                             <TableCell>{usage.invoice_no || `#${usage.invoice_id}`}</TableCell>
                             <TableCell>{usage.customer_name || `Customer #${usage.customer_id}`}</TableCell>
                             <TableCell align="right">
-                              Rs. {fmtLKR(usage.discount_amount)}
+                              {currencySymbol} {fmtLKR(usage.discount_amount)}
                             </TableCell>
                           </TableRow>
                         ))}
