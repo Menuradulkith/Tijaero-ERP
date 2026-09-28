@@ -9,7 +9,6 @@ from app.common.base_schemas import TijaeroBaseSchema
 
 class QuoteTypeEnum(str, Enum):
     QUOTATION = "quotation"
-    PROFORMA = "proforma"
 
 
 class QuoteStatusEnum(str, Enum):
@@ -129,7 +128,7 @@ class SalesQuoteBase(BaseModel):
     expected_delivery_date: Optional[date] = None
 
     # Quote specific
-    is_estimate: bool = True  # True for quotation, False for proforma
+    is_estimate: bool = True
     payment_terms: Optional[str] = None
     delivery_terms: Optional[str] = None
 
@@ -206,6 +205,8 @@ class SalesQuote(TijaeroBaseSchema):
     status: QuoteStatusEnum
     approval: bool
     approval_id: Optional[int] = None
+    approved_by: Optional[int] = None
+    approved_by_name: Optional[str] = None
     special: bool = False
     sys_code: Optional[int] = None
     is_estimate: bool = True
@@ -240,7 +241,7 @@ class SalesQuote(TijaeroBaseSchema):
     tax_mode: str = "none"
     tax_rate: float = 0
 
-    # Advance payment linked to this proforma
+    # Advance payment linked to this quotation
     advance_payment_id: Optional[int] = None
     advance_amount: Optional[float] = None
 
@@ -254,6 +255,15 @@ class SalesQuoteWithItems(SalesQuote):
     items: List[SalesQuoteItem] = []
 
 
+class RelatedPurchaseOrderSummary(BaseModel):
+    """One PO generated from this quotation, for the quote's traceability panel"""
+
+    id: int
+    purchasing_order_no: str
+    status: str
+    supplier_name: Optional[str] = None
+
+
 class SalesQuoteDetail(SalesQuoteWithItems):
     """Schema for detailed sales quote with related data"""
 
@@ -261,6 +271,7 @@ class SalesQuoteDetail(SalesQuoteWithItems):
     customer_agent_name: Optional[str] = None
     sale_rep_name: Optional[str] = None
     converted_invoice_no: Optional[str] = None
+    related_purchase_orders: List[RelatedPurchaseOrderSummary] = []
 
 
 class SalesQuoteList(BaseModel):
@@ -409,23 +420,6 @@ class CreatePOFromQuoteResponse(BaseModel):
     quote_no: str
     purchasing_order_id: int
     purchasing_order_no: str
-    message: str
-
-
-# ==================== Proforma Toggle Schema ====================
-
-
-class ToggleProformaRequest(BaseModel):
-    """Request to toggle proforma invoice status"""
-    is_proforma: bool
-
-
-class ToggleProformaResponse(BaseModel):
-    """Response after toggling proforma status"""
-    quote_id: int
-    quote_no: str
-    is_proforma: bool
-    quote_type: str
     message: str
 
 

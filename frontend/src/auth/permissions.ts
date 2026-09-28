@@ -32,11 +32,9 @@ export const PERMISSIONS = {
   QUOTATIONS_CREATE: { resource: "quotations", action: "create" },
   QUOTATIONS_UPDATE: { resource: "quotations", action: "update" },
   QUOTATIONS_DELETE: { resource: "quotations", action: "delete" },
-  // Proforma Invoices
-  PROFORMA_INVOICES_VIEW: { resource: "proforma_invoices", action: "view" },
-  PROFORMA_INVOICES_CREATE: { resource: "proforma_invoices", action: "create" },
-  PROFORMA_INVOICES_UPDATE: { resource: "proforma_invoices", action: "update" },
-  PROFORMA_INVOICES_DELETE: { resource: "proforma_invoices", action: "delete" },
+  // Quotation Approvals
+  QUOTATION_APPROVALS_VIEW: { resource: "quotation_approvals", action: "view" },
+  QUOTATION_APPROVALS_APPROVE: { resource: "quotation_approvals", action: "approve" },
   // Sales Orders
   SALES_ORDERS_VIEW: { resource: "sales_orders", action: "view" },
   SALES_ORDERS_CREATE: { resource: "sales_orders", action: "create" },

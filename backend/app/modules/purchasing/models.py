@@ -232,6 +232,11 @@ class PurchasingOrder(Base, AuditMixin):
     payment_method = Column(String(30), nullable=False)
     purchasing_order_date = Column(Date, nullable=False)
     good_received_note_date = Column(Date, nullable=False)
+    # Optional "needed by" date for the whole order — one per PO, set from
+    # the product-first PO creation wizard's per-supplier-group Required
+    # Date field (Step 2). Distinct from good_received_note_date, which is
+    # the expected delivery date computed from the supplier's lead time.
+    required_date = Column(Date, nullable=True)
     remarks = Column(Text)
     credit_date = Column(Integer)
     created_date = Column(Date, nullable=False)
@@ -241,6 +246,12 @@ class PurchasingOrder(Base, AuditMixin):
     approval_id = Column(Integer, ForeignKey("approvals.id"))
     status = Column(String(30), nullable=False, default="pending", index=True)
     sales_quote_id = Column(Integer, ForeignKey("sales_quotes.id"), nullable=True)  # Link to source quotation
+    # Set when this PO was created as part of a multi-supplier product-first
+    # checkout (see PurchasingOrderService.create_order_batch) — every PO
+    # produced by that single checkout shares the same UUID here, so the UI
+    # can show "part of the same purchase" and link the siblings. NULL for
+    # POs created the normal single-supplier way.
+    purchase_batch_id = Column(String(36), nullable=True, index=True)
     created_by = Column(Integer, nullable=True)
     updated_by = Column(Integer, nullable=True)
 
@@ -251,6 +262,24 @@ class PurchasingOrder(Base, AuditMixin):
     good_received_notes = relationship("GoodReceivedNote", back_populates="purchasing_order")
     payments = relationship("SupplierPayment", back_populates="purchasing_order")
     sales_quote = relationship("SalesQuote", foreign_keys=[sales_quote_id], backref="purchasing_orders")
+
+    @property
+    def total_amount(self):
+        """Not a stored column — derived from line items so it stays in
+        sync automatically. Every response path (create, get, list, batch
+        create) picks this up via Pydantic's from_attributes, since it reads
+        like any other model attribute."""
+        from decimal import Decimal
+        return sum(
+            (Decimal(str(item.quantity)) * item.unit_price for item in self.items),
+            Decimal("0.00"),
+        )
+
+    @property
+    def total_quantity(self):
+        """Sum of every line item's quantity — shown as a single "Quantity"
+        column value for the whole PO in the browse table."""
+        return sum((item.quantity for item in self.items), 0)
 
 class PurchasingOrderItems(Base, AuditMixin):
     __tablename__ = "purchasing_order_items"
@@ -264,12 +293,42 @@ class PurchasingOrderItems(Base, AuditMixin):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     purchasingorders_id = Column(Integer, ForeignKey("purchasing_orders.id"), nullable=False)
     added_date = Column(TIMESTAMP, nullable=False)
+    # Links this line back to the exact SalesQuoteItem it fulfills, when this
+    # PO was created from a Sales Quotation. NULL for manually-created POs.
+    quote_item_id = Column(Integer, ForeignKey("sales_quote_items.id"), nullable=True, index=True)
 
     product = relationship("Product", back_populates="purchasing_order_items")
     purchasing_order = relationship("PurchasingOrder", back_populates="items")
+    quote_item = relationship("SalesQuoteItem", foreign_keys=[quote_item_id], backref="purchasing_order_items")
     good_received_items = relationship("GoodReceivedItems", back_populates="purchasing_order_item")
     sales_stock_items = relationship("SalesStock", back_populates="purchasing_order_item")
     company_asset_items = relationship("CompanyAssets", back_populates="purchasing_order_item")
+
+
+class ProcurementQueueItem(Base, AuditMixin):
+    """
+    A quotation item with a supplier already chosen (via the Sales Quotation
+    page's "Select Products & Suppliers for Procurement" dialog) but no
+    Purchase Order created for it yet. Feeds the central TOP page, which
+    aggregates queued items across every quotation, grouped by supplier, so
+    POs can be batch-created instead of one quotation at a time.
+
+    Row is deleted automatically once a PurchasingOrder is actually created
+    for the item (see PurchasingOrderService._fulfill_quote_items) — this
+    table only ever holds "chosen, not yet ordered" lines.
+    """
+    __tablename__ = "procurement_queue_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    quote_item_id = Column(Integer, ForeignKey("sales_quote_items.id"), nullable=False, unique=True, index=True)
+    supplier_id = Column(Integer, ForeignKey("supplier.id"), nullable=False, index=True)
+    quantity = Column(Integer, nullable=False)
+    unit_price = Column(Numeric(60, 2), nullable=False)
+    added_date = Column(TIMESTAMP, nullable=False)
+
+    quote_item = relationship("SalesQuoteItem")
+    supplier = relationship("Supplier")
+
 
 class PurchasingReturn(Base, AuditMixin):
     __tablename__ = "purchasing_return"

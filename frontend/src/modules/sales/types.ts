@@ -105,7 +105,7 @@ export interface InvoiceCreate {
   agent_commission_amount?: number;
   items: InvoiceItemCreate[];
   credit_terms?: string;
-  // Source proforma/quotation link
+  // Source quotation link
   source_quote_id?: number;
   source_quote_type?: string;
   // Customer advance payment link

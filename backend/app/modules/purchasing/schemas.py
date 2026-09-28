@@ -273,6 +273,9 @@ class PurchasingOrderItemBase(BaseModel):
     unit_price: Decimal
     warrenty_month: str
     remark: Optional[str] = None
+    # Set when this line was sourced from a Sales Quotation — links back to
+    # the exact SalesQuoteItem it fulfills.
+    quote_item_id: Optional[int] = None
 
 class PurchasingOrderItemCreate(PurchasingOrderItemBase):
     pass
@@ -290,11 +293,16 @@ class PurchasingOrderBase(BaseModel):
     payment_method: str
     purchasing_order_date: date
     good_received_note_date: date
+    # Optional "needed by" date for the order as a whole — set per supplier
+    # group in the product-first PO creation wizard's Step 2. Distinct from
+    # good_received_note_date, which is the expected delivery date computed
+    # from the supplier's lead time.
+    required_date: Optional[date] = None
     remarks: Optional[str] = None
     credit_date: Optional[int] = None
     first_suppliers_id: int
     second_suppliers_id: Optional[int] = None
-    sales_quote_id: Optional[int] = None  # Link to source proforma/quotation
+    sales_quote_id: Optional[int] = None  # Link to source quotation
 
 class PurchasingOrderCreate(PurchasingOrderBase):
     items: List[PurchasingOrderItemCreate]
@@ -305,6 +313,7 @@ class PurchasingOrderUpdate(BaseModel):
     payment_method: Optional[str] = None
     purchasing_order_date: Optional[date] = None
     good_received_note_date: Optional[date] = None
+    required_date: Optional[date] = None
     remarks: Optional[str] = None
     credit_date: Optional[int] = None
     first_suppliers_id: Optional[int] = None
@@ -324,9 +333,16 @@ class PurchasingOrder(PurchasingOrderBase, TijaeroBaseSchema):
     status: PurchaseOrderStatus = PurchaseOrderStatus.PENDING
     total_amount: Decimal = Decimal("0.00")
     paid_amount: Decimal = Decimal("0.00")
+    # Derived from line items (see PurchasingOrder.total_quantity on the
+    # model) — shown as a browse-table column.
+    total_quantity: int = 0
     sales_quote_id: Optional[int] = None
+    sales_quote_no: Optional[str] = None  # Populated from sales_quote relationship
     supplier_name: Optional[str] = None  # Populated from first_supplier relationship
-    
+    # Set when this PO was created as part of a multi-supplier product-first
+    # checkout — every sibling PO from that same checkout shares this value.
+    purchase_batch_id: Optional[str] = None
+
     @field_validator('status', mode='before')
     @classmethod
     def default_status(cls, v):
@@ -334,6 +350,53 @@ class PurchasingOrder(PurchasingOrderBase, TijaeroBaseSchema):
 
 class PurchasingOrderWithItems(PurchasingOrder):
     items: List[PurchasingOrderItem] = []
+
+
+class PurchasingOrderBatchCreate(BaseModel):
+    """
+    Product-first, multi-supplier PO checkout: the frontend groups the
+    lines the user added by the supplier chosen for each product, and sends
+    one group per supplier here. The backend creates one PurchasingOrder per
+    group, all tagged with the same freshly-generated purchase_batch_id, in
+    a single transaction (all-or-nothing).
+    """
+    groups: List[PurchasingOrderCreate] = Field(..., min_length=1)
+
+
+class PurchasingOrderBatchResponse(BaseModel):
+    purchase_batch_id: str
+    orders: List[PurchasingOrderWithItems]
+
+
+# ==================== Procurement Queue (TOP page) ====================
+
+
+class ProcurementQueueItemCreate(BaseModel):
+    quote_item_id: int
+    supplier_id: int
+    quantity: int = Field(..., gt=0)
+    unit_price: Decimal = Field(..., ge=0)
+
+
+class ProcurementQueueItemBatchCreate(BaseModel):
+    items: List[ProcurementQueueItemCreate] = Field(..., min_length=1)
+
+
+class ProcurementQueueItem(BaseModel):
+    """One queued line, enriched for display on the TOP page."""
+    id: int
+    quote_item_id: int
+    quote_id: int
+    quote_no: str
+    branch_code: str
+    supplier_id: int
+    supplier_name: Optional[str] = None
+    product_id: int
+    product_name: Optional[str] = None
+    quantity: int
+    unit_price: Decimal
+    added_date: datetime
+
 
 class PurchasingReturnItemBase(BaseModel):
     product_id: int

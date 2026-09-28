@@ -31,6 +31,7 @@ def _serialize_order_with_user_fields(
     approved_by: Optional[int],
     user_name_map: Dict[int, str],
     supplier_name_map: Optional[Dict[int, str]] = None,
+    sales_quote_no_map: Optional[Dict[int, str]] = None,
 ) -> Dict[str, Any]:
     payload = schemas.PurchasingOrder.model_validate(order).model_dump()
     payload["created_by"] = created_by
@@ -39,6 +40,8 @@ def _serialize_order_with_user_fields(
     payload["approved_by_name"] = user_name_map.get(approved_by) if approved_by else None
     if supplier_name_map and order.first_suppliers_id:
         payload["supplier_name"] = supplier_name_map.get(order.first_suppliers_id)
+    if sales_quote_no_map and order.sales_quote_id:
+        payload["sales_quote_no"] = sales_quote_no_map.get(order.sales_quote_id)
     return payload
 
 
@@ -98,6 +101,7 @@ def _enrich_purchase_orders_with_user_fields(
             else None,
             user_name_map=user_name_map,
             supplier_name_map=_get_supplier_name_map(db, orders),
+            sales_quote_no_map=_get_sales_quote_no_map(db, orders),
         )
         for order in orders
     ]
@@ -110,6 +114,17 @@ def _get_supplier_name_map(db: Session, orders) -> Dict[int, str]:
         return {}
     rows = db.query(Supplier.id, Supplier.company_name).filter(Supplier.id.in_(supplier_ids)).all()
     return {r.id: r.company_name for r in rows}
+
+
+def _get_sales_quote_no_map(db: Session, orders) -> Dict[int, str]:
+    """Batch-lookup quote numbers for POs sourced from a Sales Quotation."""
+    from app.modules.sales.quotation_models import SalesQuote
+
+    quote_ids = list({o.sales_quote_id for o in orders if o.sales_quote_id})
+    if not quote_ids:
+        return {}
+    rows = db.query(SalesQuote.id, SalesQuote.quote_no).filter(SalesQuote.id.in_(quote_ids)).all()
+    return {r.id: r.quote_no for r in rows}
 
 
 def _enrich_grns(db: Session, grns: List[Any]) -> List[Dict[str, Any]]:
@@ -552,6 +567,93 @@ def create_purchase_order(
         exclude_user_id=current_user.id,
     )
     return created
+
+
+@router.post(
+    "/orders/batch",
+    response_model=schemas.PurchasingOrderBatchResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_purchase_order_batch(
+    payload: schemas.PurchasingOrderBatchCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_CREATE)),
+):
+    """
+    Product-first, multi-supplier PO checkout: the frontend has already
+    grouped the cart's line items by the supplier chosen for each product,
+    and sends one group per supplier here. Creates one PurchasingOrder per
+    group in a single transaction, all tagged with the same purchase_batch_id.
+    """
+    for group in payload.groups:
+        if not validate_branch_access(current_user, group.branch_code):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to branch: {group.branch_code}",
+            )
+
+    order_service = service.PurchasingOrderService(db)
+    batch_id, created_orders = order_service.create_order_batch(
+        payload.groups, created_by=current_user.id
+    )
+
+    from app.modules.notifications import dispatcher as notify
+
+    po_numbers = ", ".join(o.purchasing_order_no for o in created_orders)
+    notify.branch(
+        created_orders[0].branch_code,
+        title="Purchase Orders Created",
+        message=f"{len(created_orders)} purchase order(s) created from one purchase: {po_numbers}.",
+        notification_type=notify.INFO,
+        category=notify.PURCHASING,
+        action_url="/purchasing/orders",
+        exclude_user_id=current_user.id,
+    )
+
+    return schemas.PurchasingOrderBatchResponse(purchase_batch_id=batch_id, orders=created_orders)
+
+
+# ==================== Procurement Queue (TOP page) ====================
+
+
+@router.post(
+    "/procurement-queue",
+    response_model=List[schemas.ProcurementQueueItem],
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_CREATE))],
+)
+def add_to_procurement_queue(
+    payload: schemas.ProcurementQueueItemBatchCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_CREATE)),
+):
+    """Queue quotation items (with a supplier already chosen) for the TOP
+    page, ahead of actually creating purchase orders for them."""
+    queue_service = service.ProcurementQueueService(db)
+    queue_service.add_to_queue(payload.items, added_by=current_user.id)
+    return queue_service.list_queue()
+
+
+@router.get(
+    "/procurement-queue",
+    response_model=List[schemas.ProcurementQueueItem],
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
+)
+def list_procurement_queue(
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    return service.ProcurementQueueService(db).list_queue(branch_codes=user_branches)
+
+
+@router.delete(
+    "/procurement-queue/{queue_item_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_CREATE))],
+)
+def remove_from_procurement_queue(queue_item_id: int, db: Session = Depends(get_db)):
+    service.ProcurementQueueService(db).remove_from_queue(queue_item_id)
+    return None
 
 
 @router.get(

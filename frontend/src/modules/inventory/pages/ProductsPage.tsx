@@ -9,7 +9,6 @@ import {
     MasterDetailLayout,
     PRODUCT_ITEM_TYPE,
     PRODUCT_UOM,
-    SelectableListItem,
     showErrorToast,
     TabConfig,
     TAutocomplete,
@@ -18,13 +17,14 @@ import {
     type TDataGridColumn,
     TExportButton,
     useRowSelection,
-    TSectionNav,
+    TTabs,
+    TTabPanel,
+    type TTabConfig,
     TStatusFilter,
     useConfirmDialog,
   useCrudMutation,
     useMasterDetailState,
     TActivityHistoryPanel,
-    type TSectionNavItem,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { useCurrencyStore } from "@/state/currencyStore";
@@ -56,7 +56,6 @@ import {
     IconButton,
     InputAdornment,
     MenuItem,
-    Paper,
     Switch,
     TextField,
     Tooltip,
@@ -99,9 +98,10 @@ const isConflict = (error: unknown) =>
 const isNotFound = (error: unknown) =>
   axios.isAxiosError(error) && error.response?.status === 404;
 
-const PRODUCT_SECTION_NAV_ITEMS: TSectionNavItem[] = [
-  { key: "pricing", label: "Pricing", icon: <PricingIcon fontSize="small" /> },
-  { key: "suppliers", label: "Suppliers", icon: <SuppliersIcon fontSize="small" /> },
+const PRODUCT_DETAIL_TABS: TTabConfig[] = [
+  { id: "general", label: "General", icon: <InventoryIcon fontSize="small" /> },
+  { id: "pricing", label: "Pricing", icon: <PricingIcon fontSize="small" /> },
+  { id: "suppliers", label: "Suppliers", icon: <SuppliersIcon fontSize="small" /> },
 ];
 
 const PRODUCT_ACTIVE_FILTER_OPTIONS = [
@@ -252,17 +252,11 @@ export default function ProductsPage({
   // updateProductMutation.onSuccess.
   const [minPriceInput, setMinPriceInput] = useState<number | "">("");
 
-  // Detail panel section navigation (Pricing / Suppliers), shown below the
-  // selected product in the master list — null shows the default "Main"
-  // content (Basic Info + Classification + Status + Record Info).
+  // Which of the General / Pricing / Suppliers tabs is active, shown in the
+  // detail header below the breadcrumb+title.
   const [activeProductSection, setActiveProductSection] = useState<
-    "pricing" | "suppliers" | null
-  >(null);
-  const handleProductSectionNavChange = useCallback((key: string) => {
-    setActiveProductSection((prev) =>
-      prev === key ? null : (key as "pricing" | "suppliers"),
-    );
-  }, []);
+    "general" | "pricing" | "suppliers"
+  >("general");
 
   // Supplier mappings staged while creating a new product — there's no
   // product id yet to attach them to, so they're held here and pushed to
@@ -1344,12 +1338,12 @@ export default function ProductsPage({
     brandState.setIsCreating(false);
   };
 
-  // Reset the detail panel back to "Main" (no section selected) whenever a
+  // Reset the detail panel's active tab back to "General" whenever a
   // different product is selected or a new one is started — but not when
   // just toggling Edit/Cancel on the same record, so the user isn't yanked
   // away from what they're reviewing.
   useEffect(() => {
-    setActiveProductSection(null);
+    setActiveProductSection("general");
   }, [productState.selectedItem?.id, productState.isCreating]);
 
   const handleNewBrand = () => {
@@ -1493,106 +1487,6 @@ export default function ProductsPage({
   // section nav — the same card+nav the old list panel showed for whichever
   // row was selected, just without the rest of the list beside it. A "Back
   // to Products" link returns to the table.
-  const singleProductPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToProducts}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Products
-        </Button>
-      </Box>
-      {productState.isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box
-            onClick={() => setActiveProductSection(null)}
-            sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1, cursor: "pointer" }}
-          >
-            <ProductAvatarCircle productName={productState.formData.name} size={40} />
-            <Typography variant="caption" color="text.secondary">
-              New Product
-            </Typography>
-          </Box>
-          <TSectionNav
-            items={PRODUCT_SECTION_NAV_ITEMS}
-            activeKey={activeProductSection}
-            onChange={handleProductSectionNavChange}
-            variant="inline"
-          />
-        </Box>
-      ) : (
-        productState.selectedItem && (
-          <Box>
-            <SelectableListItem
-              id={productState.selectedItem.id}
-              isSelected
-              onClick={() => setActiveProductSection(null)}
-              primaryText={
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-                  <ProductAvatarCircle
-                    productName={productState.selectedItem.name}
-                    imageUrl={productState.selectedItem.image_url}
-                  />
-                  <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span>{productState.selectedItem.item_code}</span>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Item Code)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {productState.selectedItem.name}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Name)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                      <Chip
-                        label={productState.selectedItem.active ? "Active" : "Inactive"}
-                        size="small"
-                        color={productState.selectedItem.active ? "success" : "default"}
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                      {productState.selectedItem.website_active && (
-                        <Chip label="Web" size="small" color="info" sx={{ height: 18, fontSize: "0.65rem" }} />
-                      )}
-                    </Box>
-                  </Box>
-                </Box>
-              }
-            />
-            <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-              <TSectionNav
-                items={PRODUCT_SECTION_NAV_ITEMS}
-                activeKey={activeProductSection}
-                onChange={handleProductSectionNavChange}
-                variant="inline"
-              />
-            </Box>
-          </Box>
-        )
-      )}
-    </Paper>
-  );
-
   // Detail panel content is unchanged from before the redesign — same
   // header, ActionToolbar, FormSections, mutations, validation.
   const productDetailPanel = (
@@ -1634,6 +1528,16 @@ export default function ProductsPage({
                 ]
               : undefined
           }
+          tabsSlot={
+            (productState.selectedItem || productState.isCreating) && (
+              <TTabs
+                tabs={PRODUCT_DETAIL_TABS}
+                activeTab={activeProductSection}
+                onChange={(id) => setActiveProductSection(id as typeof activeProductSection)}
+                showDivider={false}
+              />
+            )
+          }
         />
 
         <ActionToolbar
@@ -1672,7 +1576,7 @@ export default function ProductsPage({
             <EmptyState message="Select a product from the list or create a new one" />
           ) : (
             <>
-              {activeProductSection === null && (
+              <TTabPanel value={activeProductSection} index="general" padding={0}>
                 <>
                   {/* Show inactive warning */}
                   {productState.selectedItem &&
@@ -2002,9 +1906,9 @@ export default function ProductsPage({
                       </FormSection>
                     )}
                 </>
-              )}
+              </TTabPanel>
 
-              {activeProductSection === "pricing" && (
+              <TTabPanel value={activeProductSection} index="pricing" padding={0} sx={{ pt: 2 }}>
                 <FormSection title="Pricing" isLast>
                   <TextField
                     label="Cost Price"
@@ -2141,10 +2045,10 @@ export default function ProductsPage({
                     }}
                   />
                 </FormSection>
-              )}
+              </TTabPanel>
 
               {/* ── Suppliers (vendor pricelist) ─────────────────────────── */}
-              {activeProductSection === "suppliers" && (
+              <TTabPanel value={activeProductSection} index="suppliers" padding={0} sx={{ pt: 2 }}>
                 <FormSection title="Suppliers" isLast>
                   <Box sx={{ gridColumn: "1 / -1" }}>
                     {productState.isCreating ? (
@@ -2163,7 +2067,7 @@ export default function ProductsPage({
                     )}
                   </Box>
                 </FormSection>
-              )}
+              </TTabPanel>
             </>
           )}
         </Box>
@@ -2192,73 +2096,6 @@ export default function ProductsPage({
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current category (or
-  // the "New Category" placeholder while creating). No section-nav for now
-  // (sub sections may be added later). A "Back to Categories" link returns
-  // to the table.
-  const singleCategoryPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToCategories}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Categories
-        </Button>
-      </Box>
-      {categoryState.isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main" }}>
-              <CategoryIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Category
-            </Typography>
-          </Box>
-        </Box>
-      ) : categoryState.selectedItem && (
-        <Box>
-          <SelectableListItem
-            id={categoryState.selectedItem.id}
-            isSelected
-            onClick={() => {}}
-            primaryText={
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-                <Avatar sx={{ bgcolor: "primary.main" }}>
-                  <CategoryIcon fontSize="small" />
-                </Avatar>
-                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                  <span>{categoryState.selectedItem.name}</span>
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    {categoryState.selectedItem.category_code}
-                  </Typography>
-                </Box>
-              </Box>
-            }
-          />
-        </Box>
-      )}
-    </Paper>
-  );
-
-  // Detail mode: Categories have no section-nav, so there's nothing beyond
-  // the mini panel above — just the unchanged detail content full-width.
   const categoryDetailPanel = (
     <Box
       sx={{
@@ -2508,73 +2345,6 @@ export default function ProductsPage({
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current brand (or the
-  // "New Brand" placeholder while creating). No section-nav for now (sub
-  // sections may be added later). A "Back to Brands" link returns to the
-  // table.
-  const singleBrandPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToBrands}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Brands
-        </Button>
-      </Box>
-      {brandState.isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main" }}>
-              <BrandIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Brand
-            </Typography>
-          </Box>
-        </Box>
-      ) : brandState.selectedItem && (
-        <Box>
-          <SelectableListItem
-            id={brandState.selectedItem.id}
-            isSelected
-            onClick={() => {}}
-            primaryText={
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-                <Avatar sx={{ bgcolor: "primary.main" }}>
-                  <BrandIcon fontSize="small" />
-                </Avatar>
-                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                  <span>{brandState.selectedItem.brand_name}</span>
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    {brandState.selectedItem.brand_code}
-                  </Typography>
-                </Box>
-              </Box>
-            }
-          />
-        </Box>
-      )}
-    </Paper>
-  );
-
-  // Detail mode: Brands have no section-nav, so there's nothing beyond the
-  // mini panel above — just the unchanged detail content full-width.
   const brandDetailPanel = (
     <Box
       sx={{
@@ -2792,7 +2562,16 @@ export default function ProductsPage({
         title={pageTitle}
         titleSlot={
           activeTab === 0 ? (
-            isProductDetailMode ? undefined : (
+            isProductDetailMode ? (
+              <Button
+                size="small"
+                startIcon={<ArrowBackIcon fontSize="small" />}
+                onClick={handleBackToProducts}
+                sx={{ textTransform: "none" }}
+              >
+                Back to Products
+              </Button>
+            ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -2861,7 +2640,16 @@ export default function ProductsPage({
             </Box>
             )
           ) : activeTab === 1 ? (
-            isCategoryDetailMode ? undefined : (
+            isCategoryDetailMode ? (
+              <Button
+                size="small"
+                startIcon={<ArrowBackIcon fontSize="small" />}
+                onClick={handleBackToCategories}
+                sx={{ textTransform: "none" }}
+              >
+                Back to Categories
+              </Button>
+            ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -2897,7 +2685,16 @@ export default function ProductsPage({
             </Box>
             )
           ) : (
-            isBrandDetailMode ? undefined : (
+            isBrandDetailMode ? (
+              <Button
+                size="small"
+                startIcon={<ArrowBackIcon fontSize="small" />}
+                onClick={handleBackToBrands}
+                sx={{ textTransform: "none" }}
+              >
+                Back to Brands
+              </Button>
+            ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -3057,14 +2854,14 @@ export default function ProductsPage({
           : {})}
         {...(activeTab === 0
           ? isProductDetailMode
-            ? { masterPanel: singleProductPanel, detailPanel: productDetailPanel }
+            ? { children: productDetailPanel }
             : { children: productTablePanel }
           : activeTab === 1
             ? isCategoryDetailMode
-              ? { masterPanel: singleCategoryPanel, detailPanel: categoryDetailPanel }
+              ? { children: categoryDetailPanel }
               : { children: categoryTablePanel }
             : isBrandDetailMode
-              ? { masterPanel: singleBrandPanel, detailPanel: brandDetailPanel }
+              ? { children: brandDetailPanel }
               : { children: brandTablePanel })}
       />
 

@@ -529,6 +529,8 @@ def approve_request(
                 required_perm = Permissions.COMMISSION_PAYMENT_APPROVAL_APPROVE
             elif approval_type == "commission_approval":
                 required_perm = Permissions.COMMISSION_APPROVAL_APPROVE
+            elif approval_type == "sales_quote":
+                required_perm = Permissions.QUOTATION_APPROVAL_APPROVE
 
     # Check permission (allow if user has the specific permission OR the general common:update)
     if not (
@@ -638,6 +640,8 @@ def reject_request(
                 required_perm = Permissions.COMMISSION_PAYMENT_APPROVAL_APPROVE
             elif approval_type == "commission_approval":
                 required_perm = Permissions.COMMISSION_APPROVAL_APPROVE
+            elif approval_type == "sales_quote":
+                required_perm = Permissions.QUOTATION_APPROVAL_APPROVE
 
     # Check permission (allow if user has the specific permission OR the general common:update)
     if not (

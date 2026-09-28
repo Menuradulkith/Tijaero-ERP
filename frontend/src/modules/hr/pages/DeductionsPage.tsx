@@ -233,60 +233,6 @@ export default function DeductionsPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current deduction
-  // (or the "New Deduction" placeholder while creating) plus a
-  // "Back to Deductions" link that returns to the table.
-  const singleDeductionPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={handleBackToDeductions} sx={{ textTransform: "none" }}>
-          Back to Deductions
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-              <MoneyOffIcon color="primary" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Deduction
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedItem && (
-        <SelectableListItem
-          id={selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-                <MoneyOffIcon color="primary" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>Deduction #{selectedItem.id} • Employee #{selectedItem.employee_id}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   // Detail mode: the existing detail content, unchanged, shown full-width.
   const detailContent = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -334,7 +280,16 @@ export default function DeductionsPage() {
       <MasterDetailLayout
         title="Salary Deductions"
         titleSlot={
-          isDetailMode ? undefined : (
+          isDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToDeductions}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Deductions
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -381,7 +336,7 @@ export default function DeductionsPage() {
         onRefresh={refetch}
         isLoading={isLoading}
         {...(isDetailMode
-          ? { masterPanel: singleDeductionPanel, detailPanel: detailContent }
+          ? { children: detailContent }
           : { children: tablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

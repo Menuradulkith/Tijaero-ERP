@@ -485,67 +485,6 @@ export default function CommissionPaymentsPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current payment (or the
-  // "New Payment" placeholder while creating) plus a "Back to Commission
-  // Payments" link that returns to the table.
-  const singlePaymentPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToPayments}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Commission Payments
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ width: 40, height: 40 }}>
-              <PaymentIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Commission Payment
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedPayment && (
-        <SelectableListItem
-          id={selectedPayment.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ width: 36, height: 36 }}>
-                <PaymentIcon fontSize="small" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{selectedPayment.payment_no}</span>
-                </Box>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   // Detail Panel
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -925,7 +864,16 @@ export default function CommissionPaymentsPage() {
       <MasterDetailLayout
         title="Commission Payments"
         titleSlot={
-          isPaymentDetailMode ? undefined : (
+          isPaymentDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToPayments}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Commission Payments
+          </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -1024,7 +972,7 @@ export default function CommissionPaymentsPage() {
           )
         }
         {...(isPaymentDetailMode
-          ? { masterPanel: singlePaymentPanel, detailPanel }
+          ? { children: detailPanel }
           : { children: paymentsTablePanel })}
       />
     </>

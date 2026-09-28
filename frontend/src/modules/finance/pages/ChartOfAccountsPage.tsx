@@ -433,67 +433,6 @@ export default function ChartOfAccountsPage() {
 
   // ─── Detail Panel ──────────────────────────────────────────────────────────
 
-  // Detail mode: a narrow left panel showing only the current account (or the
-  // "New Account" placeholder while creating) plus a "Back to Chart of
-  // Accounts" link that returns to the table.
-  const singleAccountPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToAccounts}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Chart of Accounts
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ width: 40, height: 40 }}>
-              <AccountTreeIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Account
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedAccount && (
-        <SelectableListItem
-          id={selectedAccount.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ width: 36, height: 36 }}>
-                <AccountTreeIcon fontSize="small" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{`${selectedAccount.account_code} - ${selectedAccount.account_name}`}</span>
-                </Box>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -745,7 +684,16 @@ export default function ChartOfAccountsPage() {
         title="Chart of Accounts"
         icon={<AccountTreeIcon color="primary" />}
         titleSlot={
-          isAccountDetailMode ? undefined : (
+          isAccountDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToAccounts}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Chart of Accounts
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -857,7 +805,7 @@ export default function ChartOfAccountsPage() {
           )
         }
         {...(isAccountDetailMode
-          ? { masterPanel: singleAccountPanel, detailPanel }
+          ? { children: detailPanel }
           : { children: accountTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

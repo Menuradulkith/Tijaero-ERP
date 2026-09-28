@@ -241,60 +241,6 @@ export default function EmployeeAssetsPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current assignment
-  // (or the "New Assignment" placeholder while creating) plus a
-  // "Back to Employee Assets" link that returns to the table.
-  const singleAssetPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={handleBackToAssets} sx={{ textTransform: "none" }}>
-          Back to Employee Assets
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-              <DevicesIcon color="primary" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Asset Assignment
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedItem && (
-        <SelectableListItem
-          id={selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-                <DevicesIcon color="primary" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedItem.employee_id} • Asset #{selectedItem.asset_id}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   // Detail mode: the existing detail content, unchanged, shown full-width.
   const detailContent = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -345,7 +291,16 @@ export default function EmployeeAssetsPage() {
       <MasterDetailLayout
         title="Employee Assets"
         titleSlot={
-          isDetailMode ? undefined : (
+          isDetailMode ? (
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={handleBackToAssets}
+              sx={{ textTransform: "none" }}
+            >
+              Back to Employee Assets
+            </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -391,7 +346,7 @@ export default function EmployeeAssetsPage() {
         onRefresh={refetch}
         isLoading={isLoading}
         {...(isDetailMode
-          ? { masterPanel: singleAssetPanel, detailPanel: detailContent }
+          ? { children: detailContent }
           : { children: tablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

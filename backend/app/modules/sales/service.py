@@ -1617,7 +1617,7 @@ class SalesService:
                     f"GL posting for advance application failed for invoice {invoice.invoice_no}: {e}"
                 )
         
-        # Update linked proforma/quotation status to so_created when SO is created from proforma
+        # Update the linked quotation's status to so_created when an SO is created from it
         source_quote_id = getattr(invoice_data, 'source_quote_id', None)
         if source_quote_id:
             try:
@@ -1631,7 +1631,7 @@ class SalesService:
                     linked_quote.status = QStatus.SO_CREATED.value
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).warning(f"Failed to update linked proforma status: {e}")
+                logging.getLogger(__name__).warning(f"Failed to update linked quotation status: {e}")
 
         log_audit(
             db,

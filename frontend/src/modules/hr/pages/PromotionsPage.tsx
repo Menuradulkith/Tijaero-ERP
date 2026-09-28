@@ -6,7 +6,7 @@
  */
 import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, IconButton, Paper, TextField, Tooltip, Typography } from "@mui/material";
+import { Avatar, Box, Button, IconButton, TextField, Tooltip, Typography } from "@mui/material";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -20,7 +20,6 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SelectableListItem,
   TConfirmDialog,
   TDetailSkeleton,
   TExportButton,
@@ -230,65 +229,6 @@ export default function PromotionsPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current promotion
-  // record (or the "New Promotion" placeholder while creating) plus a
-  // "Back to Promotions" link that returns to the table.
-  const singlePromotionPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToPromotions}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Promotions
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-              <TrendingUpIcon color="primary" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Promotion
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedItem && (
-        <SelectableListItem
-          id={selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-                <TrendingUpIcon color="primary" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedItem.employee_id} → {selectedItem.designation}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -333,10 +273,22 @@ export default function PromotionsPage() {
     <>
       <MasterDetailLayout
         title="Promotions"
+        titleSlot={
+          isPromotionDetailMode ? (
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={handleBackToPromotions}
+              sx={{ textTransform: "none" }}
+            >
+              Back to Promotions
+            </Button>
+          ) : undefined
+        }
         onRefresh={refetch}
         isLoading={isLoading}
         {...(isPromotionDetailMode
-          ? { masterPanel: singlePromotionPanel, detailPanel }
+          ? { children: detailPanel }
           : { children: promotionTablePanel })}
         headerActions={
           isPromotionDetailMode ? undefined : (

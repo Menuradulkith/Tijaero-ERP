@@ -614,65 +614,6 @@ export default function SupplierAdvancePaymentsPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current advance
-  // payment (or the "New Advance" placeholder while creating). A "Back to
-  // Supplier Advances" link returns to the table.
-  const singleAdvancePanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToAdvances}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Supplier Advances
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
-              <WalletIcon />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Advance
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedItem && (
-        <SelectableListItem
-          id={selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
-                <WalletIcon />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedItem.advance_no || `ADV-${selectedItem.id}`}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   // Detail panel
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -1001,7 +942,16 @@ export default function SupplierAdvancePaymentsPage() {
       <MasterDetailLayout
         title="Supplier Advance Payments"
         titleSlot={
-          isAdvanceDetailMode ? undefined : (
+          isAdvanceDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToAdvances}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Supplier Advances
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -1093,7 +1043,7 @@ export default function SupplierAdvancePaymentsPage() {
           )
         }
         {...(isAdvanceDetailMode
-          ? { masterPanel: singleAdvancePanel, detailPanel }
+          ? { children: detailPanel }
           : { children: advanceTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

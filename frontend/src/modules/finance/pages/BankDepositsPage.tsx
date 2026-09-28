@@ -8,13 +8,11 @@ import { exportToCSV } from "@/utils/csvExport";
 import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
-  Avatar,
   Box,
   Button,
   Chip,
   IconButton,
   InputAdornment,
-  Paper,
   TextField,
   Tooltip,
   Typography,
@@ -35,7 +33,6 @@ import {
   DetailPanelHeader,
   FormSection,
   EmptyState,
-  SelectableListItem,
   useMasterDetailState,
   TDetailSkeleton,
   TBranchFilter,
@@ -278,53 +275,6 @@ export default function BankDepositsPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current bank deposit.
-  // A "Back to Bank Deposits" link returns to the table.
-  const singleDepositPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToDeposits}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Bank Deposits
-        </Button>
-      </Box>
-      {selectedItem && (
-        <SelectableListItem
-          id={selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
-                <BankIcon />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedItem.bank_name || `Deposit #${selectedItem.id}`}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -450,7 +400,16 @@ export default function BankDepositsPage() {
     <MasterDetailLayout
       title="Bank Deposits"
       titleSlot={
-        isDepositDetailMode ? undefined : (
+        isDepositDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToDeposits}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Bank Deposits
+          </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -519,7 +478,7 @@ export default function BankDepositsPage() {
       onRefresh={refetch}
       isLoading={isLoading}
       {...(isDepositDetailMode
-        ? { masterPanel: singleDepositPanel, detailPanel }
+        ? { children: detailPanel }
         : { children: depositTablePanel })}
     />
 

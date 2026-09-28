@@ -26,7 +26,6 @@ import {
   IconButton,
   InputAdornment,
   Tooltip,
-  Chip,
 } from "@mui/material";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -34,14 +33,16 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 // Import tijaero components
 import {
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
+  ActionToolbar,
   DetailPanelHeader,
   FormSection,
   EmptyState,
@@ -50,12 +51,14 @@ import {
   TStatusFilter,
   RETURN_STATUS_FILTER_OPTIONS,
   getStatusProps,
-  SortOption,
   TDetailSkeleton,
   showErrorToast,
   modernTableStyles,
   useCrudMutation,
+  useRowSelection,
   TActivityHistoryPanel,
+  TDataGrid,
+  type TDataGridColumn,
 } from "@/components/tijaero";
 
 import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
@@ -64,20 +67,17 @@ import ApproverAuthDialog from "../../purchasing/components/ApproverAuthDialog";
 // OPTIMIZED: Removed productsApi, branchApi imports - using aggregated endpoint
 import { PurchasingReturn, PurchasingReturnWithItems, GoodReceivedNote } from "@/modules/purchasing/types";
 
-const SORT_OPTIONS: SortOption[] = [
-  { value: "added_date", label: "Date" },
-  { value: "purchasing_return_no", label: "Return Number" },
-];
-
-// Status options are now imported from common components (RETURN_STATUS_OPTIONS)
-// getStatusChipProps is now imported from common components
+// A return row as shown in the browse table, with the GRN number looked up
+// and attached directly so the table's own column-header sort orders by
+// the displayed number rather than the raw GRN id.
+type ReturnApprovalRow = PurchasingReturn & { grn_display_no: string };
 
 export default function PurchaseReturnApprovalsPage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("added_date");
   const [selectedReturn, setSelectedReturn] = useState<PurchasingReturnWithItems | null>(null);
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -159,17 +159,15 @@ export default function PurchaseReturnApprovalsPage() {
       );
     });
 
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
     filtered.sort((a, b) => {
-      if (sortField === "purchasing_return_no") {
-        const diff = (a.purchasing_return_no || "").localeCompare(b.purchasing_return_no || "");
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
       const timeDiff = new Date(b.added_date).getTime() - new Date(a.added_date).getTime();
       return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;
-  }, [returns, searchQuery, sortField, grnMap, filterStatus, filterBranch]);
+  }, [returns, searchQuery, grnMap, filterStatus, filterBranch]);
 
   // Handle selection
   const handleSelectReturn = useCallback(async (ret: PurchasingReturn) => {
@@ -181,12 +179,10 @@ export default function PurchaseReturnApprovalsPage() {
     }
   }, []);
 
-  // Auto-select first return
-  useEffect(() => {
-    if (filteredReturns.length > 0 && !selectedReturn) {
-      handleSelectReturn(filteredReturns[0]);
-    }
-  }, [filteredReturns, selectedReturn, handleSelectReturn]);
+  // Returns to the browse table from the detail view.
+  const handleBackToReturnApprovals = useCallback(() => {
+    setSelectedReturn(null);
+  }, []);
 
   // Approve mutation
   const approveMutation = useCrudMutation({
@@ -248,87 +244,112 @@ export default function PurchaseReturnApprovalsPage() {
     return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
   };
 
-  // Master Panel
-  const masterPanel = (
-    <SearchableList
-      items={filteredReturns}
-      isLoading={isLoading}
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedReturn}
-      emptyMessage="No returns found"
-      renderItem={(ret, isSelected) => {
-        const returnGrn = grnMap.get(ret.goodreceivednote_id);
-        const statusChip = getStatusProps(ret.status || "draft", "purchaseReturn");
-        return (
-          <SelectableListItem
-            key={ret.id}
-            id={ret.id}
-            isSelected={isSelected}
-            onClick={() => handleSelectReturn(ret)}
-            primaryText={
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{ret.purchasing_return_no || `PR-${ret.id}`}</span>
-                  {isSelected && (
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Return No)
-                    </Typography>
-                  )}
-                </Box>
-                {isSelected && (
-                  <>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {returnGrn?.good_received_no || "Unknown GRN"}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (GRN)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {new Date(ret.added_date).toLocaleDateString()}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Date)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {currencySymbol} {fmtLKR(selectedReturn?.items?.reduce((sum, item) => sum + Number(item.return_price), 0) || 0)}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Amount)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                      <Chip
-                        label={statusChip.label}
-                        size="small"
-                        color={statusChip.color}
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                    </Box>
-                  </>
-                )}
-              </Box>
-            }
-            secondaryText={
-              !isSelected
-                ? `${getGRNNumber(ret.goodreceivednote_id)} - ${new Date(ret.added_date || "").toLocaleDateString()}`
-                : undefined
-            }
-            statusChip={!isSelected ? statusChip : undefined}
-          />
-        );
-      }}
-    />
+  // The table sorts by whichever column the user clicks; the GRN column
+  // displays a looked-up number rather than the raw GRN id, so it needs
+  // that number as its own field for the grid to sort on correctly.
+  const returnRows = useMemo(
+    () =>
+      filteredReturns.map((ret) => ({
+        ...ret,
+        grn_display_no: getGRNNumber(ret.goodreceivednote_id),
+      })),
+    [filteredReturns, grnMap] // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  const returnColumns: TDataGridColumn<ReturnApprovalRow>[] = useMemo(
+    () => [
+      {
+        field: "purchasing_return_no",
+        header: "Return Number",
+        flex: 1,
+        minWidth: 170,
+        renderCell: (params: GridRenderCellParams<ReturnApprovalRow>) => (
+          <Typography variant="body2" fontWeight={600}>
+            {params.row.purchasing_return_no || `PR-${params.row.id}`}
+          </Typography>
+        ),
+      },
+      {
+        field: "grn_display_no",
+        header: "GRN",
+        flex: 1,
+        minWidth: 150,
+      },
+      {
+        field: "supplier_name",
+        header: "Supplier",
+        flex: 1,
+        minWidth: 180,
+      },
+      {
+        field: "branch_code",
+        header: "Branch",
+        width: 110,
+      },
+      {
+        field: "added_date",
+        header: "Return Date",
+        type: "date",
+        width: 130,
+      },
+      {
+        field: "status",
+        header: "Status",
+        type: "status",
+        statusMap: "purchaseReturn",
+        width: 150,
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ReturnApprovalRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectReturn(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectReturn]
+  );
+
+  // Browse mode: a full-width table of every return matching the current
+  // filters (default view when nothing is selected).
+  const returnTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<ReturnApprovalRow>
+          rows={returnRows}
+          columns={returnColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectReturn(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No returns found"
+          autoHeight={false}
+          height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
+        />
+      </Box>
+    </Box>
+  );
+
+  // Whether we're showing a single return's detail view instead of the
+  // browse table.
+  const isReturnApprovalDetailMode = !!selectedReturn;
 
   // Detail Panel
   const detailPanel = (
@@ -352,37 +373,41 @@ export default function PurchaseReturnApprovalsPage() {
         }
       />
 
-      {/* Approval Actions */}
+      {/* Approve/Reject, grouped together on the right like the
+          Cancel New / Next pairing on the PO creation wizard's toolbar. */}
       {selectedReturn && selectedIsPending && (
-        <Box
-          sx={{
-            display: "flex",
-            gap: 1,
-            p: 1,
-            borderBottom: 1,
-            borderColor: "divider",
-            bgcolor: "background.paper",
-          }}
-        >
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<CheckCircleIcon />}
-            onClick={handleApprove}
-            disabled={approveMutation.isPending}
-          >
-            Approve
-          </Button>
-          <Button
-            variant="outlined"
-            color="error"
-            startIcon={<CancelIcon />}
-            onClick={() => setRejectDialogOpen(true)}
-            disabled={rejectMutation.isPending}
-          >
-            Reject
-          </Button>
-        </Box>
+        <ActionToolbar
+          hasSelectedItem
+          isCreating={false}
+          isEditing={false}
+          canCreate={false}
+          canDuplicate={false}
+          canDelete={false}
+          endActions={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Button
+                size="small"
+                variant="contained"
+                color="primary"
+                startIcon={<CheckCircleIcon />}
+                onClick={handleApprove}
+                disabled={approveMutation.isPending}
+              >
+                Approve
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<CancelIcon />}
+                onClick={() => setRejectDialogOpen(true)}
+                disabled={rejectMutation.isPending}
+              >
+                Reject
+              </Button>
+            </Box>
+          }
+        />
       )}
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -601,40 +626,52 @@ export default function PurchaseReturnApprovalsPage() {
       title="Purchase Return Approvals"
       icon={<FactCheckIcon color="primary" />}
       titleSlot={
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
-          <TextField
+        isReturnApprovalDetailMode ? (
+          <Button
             size="small"
-            placeholder="Search returns..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" color="action" />
-                </InputAdornment>
-              ),
-            }}
-            sx={{ width: 220, flexShrink: 0 }}
-          />
-          <Box sx={{ width: 160, flexShrink: 0 }}>
-            <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToReturnApprovals}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Return Approvals
+          </Button>
+        ) : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              placeholder="Search returns..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ width: 220, flexShrink: 0 }}
+            />
+            <Box sx={{ width: 160, flexShrink: 0 }}>
+              <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
+            </Box>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
+              <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+            </Box>
+            {(searchQuery || filterStatus || filterBranch) && (
+              <Tooltip title="Clear filters">
+                <IconButton size="small" onClick={handleClearFilters}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
           </Box>
-          <Box sx={{ width: 160, flexShrink: 0 }}>
-            <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
-          </Box>
-          {(searchQuery || filterStatus || filterBranch) && (
-            <Tooltip title="Clear filters">
-              <IconButton size="small" onClick={handleClearFilters}>
-                <ClearIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Box>
+        )
       }
       onRefresh={() => refetch()}
       isLoading={isLoading}
-      masterPanel={masterPanel}
-      detailPanel={detailPanel}
+      {...(isReturnApprovalDetailMode
+        ? { children: detailPanel }
+        : { children: returnTablePanel })}
     />
   );
 }

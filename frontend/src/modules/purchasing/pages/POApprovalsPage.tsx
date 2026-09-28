@@ -27,7 +27,6 @@ import {
   IconButton,
   InputAdornment,
   Tooltip,
-  Chip,
 } from "@mui/material";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -35,29 +34,35 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 // Import tijaero components
 import {
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
+  ActionToolbar,
   DetailPanelHeader,
   FormSection,
   EmptyState,
   fmtLKR,
+  getPaymentTermsLabel,
   TBranchFilter,
   TStatusFilter,
   PO_STATUS_FILTER_OPTIONS,
   getStatusProps,
-  SortOption,
   showErrorToast,
+  showSuccessToast,
   modernTableStyles,
   TConfirmDialog,
   useCrudMutation,
   useTConfirmDialog,
+  useRowSelection,
   TActivityHistoryPanel,
+  TDataGrid,
+  type TDataGridColumn,
 } from "@/components/tijaero";
 // ConfirmDialog now uses TConfirmDialog from tijaero
 
@@ -69,21 +74,18 @@ import { useReferenceData } from "@/hooks";
 import { PurchasingOrder, PurchasingOrderWithItems, Supplier } from "@/modules/purchasing/types";
 import { Product } from "@/modules/inventory/types";
 
-const SORT_OPTIONS: SortOption[] = [
-  { value: "added_date", label: "Date" },
-  { value: "purchasing_order_no", label: "Order Number" },
-];
-
-// Status options are now imported from common components (PO_STATUS_OPTIONS)
-// getStatusChipProps is now imported from common components
+// A PO row as shown in the browse table, with the supplier name looked up
+// and attached directly so the table's own column-header sort orders by
+// the displayed name rather than the raw supplier id.
+type POApprovalRow = PurchasingOrder & { supplier_display_name: string };
 
 export default function POApprovalsPage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("added_date");
   const [selectedOrder, setSelectedOrder] = useState<PurchasingOrderWithItems | null>(null);
+  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -102,15 +104,11 @@ export default function POApprovalsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
-
-  // Item remark modal
-  const [itemRemarkModalOpen, setItemRemarkModalOpen] = useState(false);
-  const [selectedItemRemark, setSelectedItemRemark] = useState("");
-
-  const handleOpenItemRemarkModal = (remark: string) => {
-    setSelectedItemRemark(remark || "");
-    setItemRemarkModalOpen(true);
-  };
+  // Whether the Approve/Reject flow currently in progress (auth dialog,
+  // reject-reason dialog) targets the single selected order's detail view,
+  // or every row ticked in the browse table.
+  const [bulkActionActive, setBulkActionActive] = useState(false);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
   const handleOpenPurchaseOrder = useCallback(() => {
     if (!selectedOrder) return;
@@ -189,17 +187,15 @@ export default function POApprovalsPage() {
       );
     });
 
+    // Default order before the user sorts a column in the table itself
+    // (the table's own column-header sort takes over from there).
     filtered.sort((a, b) => {
-      if (sortField === "purchasing_order_no") {
-        const diff = a.purchasing_order_no.localeCompare(b.purchasing_order_no);
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
       const timeDiff = new Date(b.added_date).getTime() - new Date(a.added_date).getTime();
       return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
     });
 
     return filtered;
-  }, [orders, searchQuery, sortField, supplierMap, filterStatus, filterBranch]);
+  }, [orders, searchQuery, supplierMap, filterStatus, filterBranch]);
 
   // Handle selection
   const handleSelectOrder = useCallback(async (order: PurchasingOrder) => {
@@ -211,19 +207,18 @@ export default function POApprovalsPage() {
     }
   }, []);
 
-  // Auto-select first order
-  useEffect(() => {
-    if (filteredOrders.length > 0 && !selectedOrder) {
-      handleSelectOrder(filteredOrders[0]);
-    }
-  }, [filteredOrders, selectedOrder, handleSelectOrder]);
+  // Returns to the browse table from the detail view.
+  const handleBackToApprovals = useCallback(() => {
+    setSelectedOrder(null);
+  }, []);
 
-  // Approve mutation
+  // Approve mutation. `silent` skips the per-item success toast for bulk
+  // approvals, which show one summary toast instead once the batch finishes.
   const approveMutation = useCrudMutation({
-    mutationFn: ({ approvalId, credentials }: { approvalId: number; poId: number; credentials?: any }) =>
+    mutationFn: ({ approvalId, credentials }: { approvalId: number; poId: number; credentials?: any; silent?: boolean }) =>
       approvalsApi.approve(approvalId, undefined, credentials),
     invalidateQueryKeys: [["purchase-orders"], ["purchaseOrders"]],
-    successMessage: "Purchase order approved successfully",
+    getSuccessMessage: (_data, { silent }) => (silent ? undefined : "Purchase order approved successfully"),
     errorMessage: "Failed to approve order",
     onSuccess: (_data, { poId }) => {
       queryClient.setQueryData<PurchasingOrder[]>(["purchase-orders"], (prev) =>
@@ -233,12 +228,12 @@ export default function POApprovalsPage() {
     },
   });
 
-  // Reject mutation
+  // Reject mutation (see `silent` note above).
   const rejectMutation = useCrudMutation({
-    mutationFn: ({ approvalId, remarks }: { approvalId: number; poId: number; remarks: string }) =>
+    mutationFn: ({ approvalId, remarks }: { approvalId: number; poId: number; remarks: string; silent?: boolean }) =>
       approvalsApi.reject(approvalId, remarks),
     invalidateQueryKeys: [["purchase-orders"], ["purchaseOrders"]],
-    successMessage: "Purchase order rejected",
+    getSuccessMessage: (_data, { silent }) => (silent ? undefined : "Purchase order rejected"),
     errorMessage: "Failed to reject order",
     onSuccess: (_data, { poId, remarks }) => {
       queryClient.setQueryData<PurchasingOrder[]>(["purchase-orders"], (prev) =>
@@ -252,39 +247,41 @@ export default function POApprovalsPage() {
     },
   });
 
+  // Runs the shared credit-limit and after-hours checks for one order ahead
+  // of approval, given just the fields both a full detail order and a plain
+  // browse-table row have in common. Returns false if the user backs out.
+  const runPreApproveChecks = useCallback(
+    async (order: { id: number; payment_method?: string; first_suppliers_id: number }, totalAmount: number) => {
+      const isCreditPayment = order.payment_method?.toLowerCase() === "credit";
+      if (isCreditPayment && order.first_suppliers_id) {
+        try {
+          const creditCheck = await purchaseOrdersApi.checkCredit(order.first_suppliers_id, totalAmount, order.id);
+          if (creditCheck.requires_approval) {
+            const supplierName = supplierMap.get(order.first_suppliers_id)?.company_name || "Unknown";
+            const confirmed = await creditWarningDialog.confirm({
+              title: "⚠️ Credit Limit Warning",
+              message: `Supplier: ${supplierName}\nCredit Limit: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.max_credit_limit)}\nCurrent Outstanding: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.current_outstanding)}\nAvailable Credit: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.available_credit)}\nThis Order: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.po_value)}\nExceeds by: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.excess_amount)}\n\n${creditCheck.message}`,
+              confirmText: "Approve Anyway",
+              cancelText: "Cancel",
+              confirmColor: "warning",
+            });
+            if (!confirmed) return false;
+          }
+        } catch {
+          showErrorToast("Failed to check credit limit. Please try again.");
+          return false;
+        }
+      }
+      return true;
+    },
+    [supplierMap, creditWarningDialog, currencySymbol]
+  );
+
   const handleApprove = async () => {
     if (!selectedOrder) return;
 
-    // Check if it's a credit order and validate credit limit
-    const isCreditPayment = selectedOrder.payment_method?.toLowerCase() === "credit";
-    if (isCreditPayment && selectedOrder.first_suppliers_id) {
-      const totalAmount = (selectedOrder.items || []).reduce((sum: number, item: any) => sum + (item.quantity * item.unit_price), 0);
-
-      try {
-        const creditCheck = await purchaseOrdersApi.checkCredit(selectedOrder.first_suppliers_id, totalAmount, selectedOrder.id);
-
-        // Show warning modal if requires approval
-        if (creditCheck.requires_approval) {
-          const supplier = supplierMap.get(selectedOrder.first_suppliers_id);
-          const supplierName = supplier?.company_name || 'Unknown';
-
-          const confirmed = await creditWarningDialog.confirm({
-            title: "⚠️ Credit Limit Warning",
-            message: `Supplier: ${supplierName}\nCredit Limit: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.max_credit_limit)}\nCurrent Outstanding: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.current_outstanding)}\nAvailable Credit: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.available_credit)}\nThis Order: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.po_value)}\nExceeds by: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.excess_amount)}\n\n${creditCheck.message}`,
-            confirmText: "Approve Anyway",
-            cancelText: "Cancel",
-            confirmColor: "warning",
-          });
-
-          if (!confirmed) {
-            return; // User cancelled
-          }
-        }
-      } catch {
-        showErrorToast("Failed to check credit limit. Please try again.");
-        return;
-      }
-    }
+    const totalAmount = (selectedOrder.items || []).reduce((sum: number, item: any) => sum + (item.quantity * item.unit_price), 0);
+    if (!(await runPreApproveChecks(selectedOrder, totalAmount))) return;
 
     // Check if it's after 6pm (18:00)
     const currentHour = new Date().getHours();
@@ -308,16 +305,73 @@ export default function POApprovalsPage() {
     }
 
     // Instead of immediately mutating, open the step-up auth dialog
+    setBulkActionActive(false);
     setAuthDialogOpen(true);
   };
 
-  const handleAuthSubmit = (username: string, password: string) => {
+  // Bulk approve: same checks as the single-order flow, run for every
+  // ticked pending row, then one shared step-up auth dialog covers the
+  // whole batch.
+  const handleBulkApproveClick = async () => {
+    if (selectedPendingRows.length === 0) return;
+
+    const currentHour = new Date().getHours();
+    if (currentHour >= 18) {
+      const confirmed = await confirmDialog.confirm({
+        title: "After-Hours Approval Warning",
+        message: `It is currently after 6:00 PM (now: ${new Date().toLocaleTimeString()}). Approving purchase orders after business hours is not recommended. Do you want to approve anyway?`,
+        confirmText: "Approve Anyway",
+        cancelText: "Cancel",
+        confirmColor: "warning",
+      });
+      if (!confirmed) return;
+    }
+
+    for (const row of selectedPendingRows) {
+      if (!(await runPreApproveChecks(row, row.total_amount))) return;
+    }
+
+    if (selectedPendingRows.some((row) => !row.approval_id)) {
+      showErrorToast("One or more selected orders have no approval record. Please contact support.");
+      return;
+    }
+
+    setBulkActionActive(true);
+    setAuthDialogOpen(true);
+  };
+
+  const handleAuthSubmit = async (username: string, password: string) => {
+    const credentials = { approver_username: username, approver_password: password };
+
+    if (bulkActionActive) {
+      setIsBulkProcessing(true);
+      try {
+        for (const row of selectedPendingRows) {
+          if (!row.approval_id) continue;
+          await approveMutation.mutateAsync({
+            approvalId: row.approval_id,
+            poId: row.id,
+            credentials,
+            silent: true,
+          });
+        }
+        showSuccessToast(`${selectedPendingRows.length} purchase order(s) approved successfully`);
+        rowSelection.clearSelection();
+        setAuthDialogOpen(false);
+      } catch {
+        showErrorToast("Failed to approve one or more orders. Please check their status and try again.");
+      } finally {
+        setIsBulkProcessing(false);
+      }
+      return;
+    }
+
     if (!selectedOrder || !selectedOrder.approval_id) return;
     approveMutation.mutate(
-      { 
-        approvalId: selectedOrder.approval_id, 
-        poId: selectedOrder.id, 
-        credentials: { approver_username: username, approver_password: password } 
+      {
+        approvalId: selectedOrder.approval_id,
+        poId: selectedOrder.id,
+        credentials,
       },
       {
         onSuccess: () => setAuthDialogOpen(false),
@@ -326,7 +380,36 @@ export default function POApprovalsPage() {
   };
 
   const handleReject = () => {
-    if (selectedOrder && rejectReason.trim()) {
+    if (!rejectReason.trim()) return;
+
+    if (bulkActionActive) {
+      if (selectedPendingRows.length === 0) return;
+      setIsBulkProcessing(true);
+      (async () => {
+        try {
+          for (const row of selectedPendingRows) {
+            if (!row.approval_id) continue;
+            await rejectMutation.mutateAsync({
+              approvalId: row.approval_id,
+              poId: row.id,
+              remarks: rejectReason,
+              silent: true,
+            });
+          }
+          showSuccessToast(`${selectedPendingRows.length} purchase order(s) rejected`);
+          rowSelection.clearSelection();
+          setRejectDialogOpen(false);
+          setRejectReason("");
+        } catch {
+          showErrorToast("Failed to reject one or more orders. Please check their status and try again.");
+        } finally {
+          setIsBulkProcessing(false);
+        }
+      })();
+      return;
+    }
+
+    if (selectedOrder) {
       if (!selectedOrder.approval_id) {
         showErrorToast("This order has no approval record.");
         return;
@@ -339,6 +422,16 @@ export default function POApprovalsPage() {
     }
   };
 
+  const handleBulkRejectClick = () => {
+    if (selectedPendingRows.length === 0) return;
+    if (selectedPendingRows.some((row) => !row.approval_id)) {
+      showErrorToast("One or more selected orders have no approval record. Please contact support.");
+      return;
+    }
+    setBulkActionActive(true);
+    setRejectDialogOpen(true);
+  };
+
   const supplier = selectedOrder ? supplierMap.get(selectedOrder.first_suppliers_id) : null;
   const selectedIsPending = (selectedOrder?.status || "").toLowerCase() === "pending_approval";
 
@@ -347,89 +440,138 @@ export default function POApprovalsPage() {
     return s ? s.company_name || "Unknown" : "Unknown";
   };
 
-  // Master Panel
-  const masterPanel = (
-    <SearchableList
-      items={filteredOrders}
-      isLoading={isLoading}
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      hideSearch
-      sortOptions={SORT_OPTIONS}
-      sortField={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedOrder}
-      emptyMessage="No orders found"
-      renderItem={(order, isSelected) => {
-        const orderSupplier = supplierMap.get(order.first_suppliers_id);
-        const statusChip = getStatusProps(order.status || "draft", "purchaseOrder");
-        return (
-          <SelectableListItem
-            key={order.id}
-            id={order.id}
-            isSelected={isSelected}
-            onClick={() => handleSelectOrder(order)}
-            primaryText={
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{order.purchasing_order_no}</span>
-                  {isSelected && (
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (PO No)
-                    </Typography>
-                  )}
-                </Box>
-                {isSelected && (
-                  <>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {orderSupplier?.company_name || "Unknown Supplier"}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Supplier)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {new Date(order.purchasing_order_date).toLocaleDateString()}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Date)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {currencySymbol} {isSelected && selectedOrder?.items
-                          ? fmtLKR(selectedOrder.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0))
-                          : fmtLKR(order.total_amount || 0)}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Amount)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                      <Chip
-                        label={statusChip.label}
-                        size="small"
-                        color={statusChip.color}
-                        sx={{ height: 18, fontSize: "0.65rem" }}
-                      />
-                    </Box>
-                  </>
-                )}
-              </Box>
-            }
-            secondaryText={
-              !isSelected
-                ? `${getSupplierName(order.first_suppliers_id)} - ${new Date(order.purchasing_order_date || "").toLocaleDateString()}`
-                : undefined
-            }
-            statusChip={!isSelected ? statusChip : undefined}
-          />
-        );
-      }}
-    />
+  // The table sorts by whichever column the user clicks; the Supplier
+  // column displays a looked-up name rather than the raw supplier id, so it
+  // needs that name as its own field for the grid to sort on correctly.
+  const orderRows = useMemo(
+    () =>
+      filteredOrders.map((order) => ({
+        ...order,
+        supplier_display_name: getSupplierName(order.first_suppliers_id),
+      })),
+    [filteredOrders, supplierMap] // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // Rows currently ticked in the browse table, restricted to ones actually
+  // pending approval (approve/reject only make sense for those). The
+  // "select all" header checkbox produces an "exclude" model (every row
+  // except whatever's in `ids`), not "include" (just the ticked ones), so
+  // both have to be handled here.
+  const selectedPendingRows = useMemo(() => {
+    const { type, ids } = rowSelection.selectedRows;
+    const isSelected = type === "include" ? (id: number) => ids.has(id) : (id: number) => !ids.has(id);
+    if (type === "include" && ids.size === 0) return [];
+    return orderRows.filter(
+      (row) => isSelected(row.id) && (row.status || "").toLowerCase() === "pending_approval",
+    );
+  }, [rowSelection.selectedRows, orderRows]);
+
+  const orderColumns: TDataGridColumn<POApprovalRow>[] = useMemo(
+    () => [
+      {
+        field: "purchasing_order_no",
+        header: "PO Number",
+        flex: 1,
+        minWidth: 170,
+        renderCell: (params: GridRenderCellParams<POApprovalRow>) => (
+          <Typography variant="body2" fontWeight={600}>
+            {params.row.purchasing_order_no || `PO-${params.row.id}`}
+          </Typography>
+        ),
+      },
+      {
+        field: "supplier_display_name",
+        header: "Supplier",
+        flex: 1,
+        minWidth: 180,
+      },
+      {
+        field: "branch_code",
+        header: "Branch",
+        width: 110,
+      },
+      {
+        field: "purchasing_order_date",
+        header: "Order Date",
+        type: "date",
+        width: 130,
+      },
+      {
+        field: "required_date",
+        header: "GRN Date",
+        type: "date",
+        width: 130,
+      },
+      {
+        field: "status",
+        header: "Status",
+        type: "status",
+        statusMap: "purchaseOrder",
+        width: 150,
+      },
+      {
+        field: "total_quantity",
+        header: "Quantity",
+        type: "number",
+        width: 100,
+      },
+      {
+        field: "total_amount",
+        header: "Total",
+        type: "currency",
+        width: 140,
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<POApprovalRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectOrder(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectOrder]
+  );
+
+  // Browse mode: a full-width table of every order matching the current
+  // filters (default view when nothing is selected).
+  const orderTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<POApprovalRow>
+          rows={orderRows}
+          columns={orderColumns}
+          loading={isLoading}
+          onRowClick={(row) => handleSelectOrder(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No orders found"
+          autoHeight={false}
+          height="100%"
+          selectionMode="multiple"
+          selectedRows={rowSelection.selectedRows}
+          onSelectionChange={rowSelection.setSelectedRows}
+        />
+      </Box>
+    </Box>
+  );
+
+  // Whether we're showing a single order's detail view instead of the
+  // browse table.
+  const isPOApprovalDetailMode = !!selectedOrder;
 
   // Detail Panel
   const detailPanel = (
@@ -443,18 +585,6 @@ export default function POApprovalsPage() {
         title={selectedOrder?.purchasing_order_no || ""}
         titleIcon={<FactCheckIcon color="primary" />}
         noSelectionTitle="Select an Order to Review"
-        actions={
-          selectedOrder ? (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ShoppingCartIcon />}
-              onClick={handleOpenPurchaseOrder}
-            >
-              Open PO
-            </Button>
-          ) : undefined
-        }
         chips={
           selectedOrder
             ? (() => {
@@ -465,37 +595,53 @@ export default function POApprovalsPage() {
         }
       />
 
-      {/* Approval Actions */}
-      {selectedOrder && selectedIsPending && (
-        <Box
-          sx={{
-            display: "flex",
-            gap: 1,
-            p: 1,
-            borderBottom: 1,
-            borderColor: "divider",
-            bgcolor: "background.paper",
-          }}
-        >
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<CheckCircleIcon />}
-            onClick={handleApprove}
-            disabled={approveMutation.isPending}
-          >
-            Approve
-          </Button>
-          <Button
-            variant="outlined"
-            color="error"
-            startIcon={<CancelIcon />}
-            onClick={() => setRejectDialogOpen(true)}
-            disabled={rejectMutation.isPending}
-          >
-            Reject
-          </Button>
-        </Box>
+      {/* Open PO + Approve/Reject, grouped together on the right like the
+          Cancel New / Next pairing on the PO creation wizard's toolbar. */}
+      {selectedOrder && (
+        <ActionToolbar
+          hasSelectedItem
+          isCreating={false}
+          isEditing={false}
+          canCreate={false}
+          canDuplicate={false}
+          canDelete={false}
+          endActions={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<ShoppingCartIcon />}
+                onClick={handleOpenPurchaseOrder}
+              >
+                Open PO
+              </Button>
+              {selectedIsPending && (
+                <>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="primary"
+                    startIcon={<CheckCircleIcon />}
+                    onClick={handleApprove}
+                    disabled={approveMutation.isPending}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    startIcon={<CancelIcon />}
+                    onClick={() => setRejectDialogOpen(true)}
+                    disabled={rejectMutation.isPending}
+                  >
+                    Reject
+                  </Button>
+                </>
+              )}
+            </Box>
+          }
+        />
       )}
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -512,8 +658,26 @@ export default function POApprovalsPage() {
                 value={new Date(selectedOrder.purchasing_order_date).toLocaleDateString()}
                 disabled
               />
+              <TextField
+                label="GRN Date"
+                size="small"
+                value={
+                  selectedOrder.good_received_note_date
+                    ? new Date(selectedOrder.good_received_note_date).toLocaleDateString()
+                    : ""
+                }
+                disabled
+              />
               <TextField label="Branch" size="small" value={selectedOrder.branch_code} disabled />
               <TextField label="Payment Method" size="small" value={selectedOrder.payment_method} disabled />
+              {selectedOrder.payment_method?.toLowerCase() === "credit" && (
+                <TextField
+                  label="Payment Term"
+                  size="small"
+                  value={getPaymentTermsLabel(supplier?.credit_days)}
+                  disabled
+                />
+              )}
               <TextField label="Status" size="small" value={selectedOrder.status} disabled />
             </FormSection>
 
@@ -533,7 +697,6 @@ export default function POApprovalsPage() {
                       <TableCell>Product</TableCell>
                       <TableCell align="right">Quantity</TableCell>
                       <TableCell align="right">{`Unit Price (${currencySymbol})`}</TableCell>
-                      <TableCell>Remark</TableCell>
                       <TableCell align="right">{`Total (${currencySymbol})`}</TableCell>
                     </TableRow>
                   </TableHead>
@@ -548,24 +711,12 @@ export default function POApprovalsPage() {
                           <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                           <TableCell align="right">{item.quantity}</TableCell>
                           <TableCell align="right">{fmtLKR(item.unit_price)}</TableCell>
-                          <TableCell>
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                              <Typography variant="body2" sx={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {item.remark || "-"}
-                              </Typography>
-                              <Tooltip title="View Remark">
-                                <IconButton size="small" onClick={() => handleOpenItemRemarkModal(item.remark || "")}>
-                                  <MenuBookIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
-                          </TableCell>
                           <TableCell align="right">{fmtLKR(item.quantity * item.unit_price)}</TableCell>
                         </TableRow>
                       );
                     })}
                     <TableRow sx={modernTableStyles.footerRow}>
-                      <TableCell colSpan={4} align="right">
+                      <TableCell colSpan={3} align="right">
                         <strong>Total Amount:</strong>
                       </TableCell>
                       <TableCell align="right">
@@ -618,11 +769,23 @@ export default function POApprovalsPage() {
       </Box>
 
       {/* Reject Dialog */}
-      <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Reject Purchase Order</DialogTitle>
+      <Dialog
+        open={rejectDialogOpen}
+        onClose={() => {
+          setRejectDialogOpen(false);
+          setBulkActionActive(false);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          {bulkActionActive ? `Reject ${selectedPendingRows.length} Purchase Orders` : "Reject Purchase Order"}
+        </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Please provide a reason for rejecting this purchase order.
+            {bulkActionActive
+              ? `Please provide a reason for rejecting these ${selectedPendingRows.length} purchase orders.`
+              : "Please provide a reason for rejecting this purchase order."}
           </Typography>
           <TextField
             autoFocus
@@ -635,14 +798,21 @@ export default function POApprovalsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setRejectDialogOpen(false);
+              setBulkActionActive(false);
+            }}
+          >
+            Cancel
+          </Button>
           <Button
             variant="contained"
             color="error"
             onClick={handleReject}
-            disabled={!rejectReason.trim() || rejectMutation.isPending}
+            disabled={!rejectReason.trim() || rejectMutation.isPending || isBulkProcessing}
           >
-            {rejectMutation.isPending ? "Rejecting..." : "Reject Order"}
+            {rejectMutation.isPending || isBulkProcessing ? "Rejecting..." : "Reject Order"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -677,68 +847,79 @@ export default function POApprovalsPage() {
         title="PO Approvals"
         icon={<FactCheckIcon color="primary" />}
         titleSlot={
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
-            <TextField
+          isPOApprovalDetailMode ? (
+            <Button
               size="small"
-              placeholder="Search orders..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon fontSize="small" color="action" />
-                  </InputAdornment>
-                ),
-              }}
-              sx={{ width: 220, flexShrink: 0 }}
-            />
-            <Box sx={{ width: 170, flexShrink: 0 }}>
-              <TStatusFilter options={PO_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={handleBackToApprovals}
+              sx={{ textTransform: "none" }}
+            >
+              Back to PO Approvals
+            </Button>
+          ) : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search orders..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 220, flexShrink: 0 }}
+              />
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TStatusFilter options={PO_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
+              </Box>
+              <Box sx={{ width: 160, flexShrink: 0 }}>
+                <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+              </Box>
+              {(searchQuery || filterStatus || filterBranch) && (
+                <Tooltip title="Clear filters">
+                  <IconButton size="small" onClick={handleClearFilters}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
             </Box>
-            <Box sx={{ width: 160, flexShrink: 0 }}>
-              <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+          )
+        }
+        headerActions={
+          !isPOApprovalDetailMode && selectedPendingRows.length > 0 ? (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Button
+                size="small"
+                variant="contained"
+                color="primary"
+                startIcon={<CheckCircleIcon />}
+                onClick={handleBulkApproveClick}
+                disabled={isBulkProcessing}
+              >
+                Approve ({selectedPendingRows.length})
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<CancelIcon />}
+                onClick={handleBulkRejectClick}
+                disabled={isBulkProcessing}
+              >
+                Reject ({selectedPendingRows.length})
+              </Button>
             </Box>
-            {(searchQuery || filterStatus || filterBranch) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
-          </Box>
+          ) : undefined
         }
         onRefresh={() => refetch()}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
+        {...(isPOApprovalDetailMode
+          ? { children: detailPanel }
+          : { children: orderTablePanel })}
       />
-
-      {/* Item Remark Modal */}
-      <Dialog
-        open={itemRemarkModalOpen}
-        onClose={() => setItemRemarkModalOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <MenuBookIcon />
-          Item Remark
-        </DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            multiline
-            rows={4}
-            label="Remark"
-            value={selectedItemRemark}
-            disabled
-            sx={{ mt: 1 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setItemRemarkModalOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Confirm Dialogs */}
       <TConfirmDialog {...confirmDialog.dialogProps} />
@@ -746,9 +927,13 @@ export default function POApprovalsPage() {
 
       <ApproverAuthDialog
         open={authDialogOpen}
-        onClose={() => setAuthDialogOpen(false)}
+        title={bulkActionActive ? `Approver Login required (${selectedPendingRows.length} orders)` : undefined}
+        onClose={() => {
+          setAuthDialogOpen(false);
+          setBulkActionActive(false);
+        }}
         onSubmit={handleAuthSubmit}
-        loading={approveMutation.isPending}
+        loading={approveMutation.isPending || isBulkProcessing}
       />
 
       <TActivityHistoryPanel

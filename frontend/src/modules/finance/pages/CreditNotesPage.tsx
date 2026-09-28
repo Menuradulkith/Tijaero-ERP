@@ -251,58 +251,6 @@ export default function CreditNotesPage() {
     setSelectedItem(null);
   }, [setSelectedItem]);
 
-  // Detail mode: a narrow left panel showing only the current credit note,
-  // plus a "Back to Credit Notes" link that returns to the table.
-  const singleCreditNotePanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToCreditNotes}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Credit Notes
-        </Button>
-      </Box>
-      {selectedItem && (
-        <SelectableListItem
-          id={selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ width: 36, height: 36 }}>
-                <CreditNoteIcon fontSize="small" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{`CN-${selectedItem.id}`}</span>
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Credit Note No)
-                  </Typography>
-                </Box>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -413,7 +361,16 @@ export default function CreditNotesPage() {
       <MasterDetailLayout
         title="Credit Notes"
         titleSlot={
-          isCreditNoteDetailMode ? undefined : (
+          isCreditNoteDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToCreditNotes}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Credit Notes
+          </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -471,7 +428,7 @@ export default function CreditNotesPage() {
           )
         }
         {...(isCreditNoteDetailMode
-          ? { masterPanel: singleCreditNotePanel, detailPanel }
+          ? { children: detailPanel }
           : { children: creditNoteTablePanel })}
       />
 

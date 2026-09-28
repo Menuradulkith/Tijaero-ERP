@@ -19,7 +19,7 @@ class EmailLog(Base, AuditMixin):
     __tablename__ = "communication_email_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    document_type = Column(String(50), nullable=False) # e.g. quotation, proforma, sales-order, invoice
+    document_type = Column(String(50), nullable=False) # e.g. quotation, sales-order, invoice
     document_id = Column(Integer, nullable=False)
     display_id = Column(String(200), nullable=True, index=True)
     to_email = Column(String(255), nullable=False)

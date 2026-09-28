@@ -3060,10 +3060,9 @@ TOOLS: List[ToolSpec] = [
     ),
     ToolSpec(
         name="list_quotations",
-        description="List quotations / proforma invoices. quote_type: quotation or proforma.",
+        description="List quotations.",
         parameters=_params(
             {
-                "quote_type": {"type": "string", "description": "quotation or proforma"},
                 "branch_code": _BRANCH_PROP,
                 "limit": _LIMIT_PROP,
             }
@@ -3073,7 +3072,7 @@ TOOLS: List[ToolSpec] = [
     ),
     ToolSpec(
         name="get_quotation",
-        description="Full details of one quotation / proforma including line items.",
+        description="Full details of one quotation including line items.",
         parameters=_params({"quote_id": {"type": "integer"}}, ["quote_id"]),
         permission=Permissions.QUOTATION_VIEW,
         handler=_t_get_quotation,
@@ -3106,10 +3105,9 @@ TOOLS: List[ToolSpec] = [
     ),
     ToolSpec(
         name="create_quotation",
-        description="Create a quotation or proforma invoice. WRITE ACTION — queues a confirmation the user must approve in the UI. Requires branch_code, customer_id, valid_until and items. Look up product IDs and the customer first.",
+        description="Create a quotation. WRITE ACTION — queues a confirmation the user must approve in the UI. Requires branch_code, customer_id, valid_until and items. Look up product IDs and the customer first.",
         parameters=_params(
             {
-                "quote_type": {"type": "string", "enum": ["quotation", "proforma"]},
                 "branch_code": {"type": "string"},
                 "customer_id": {"type": "integer"},
                 "valid_until": {"type": "string", "description": "ISO date YYYY-MM-DD the quote is valid until"},

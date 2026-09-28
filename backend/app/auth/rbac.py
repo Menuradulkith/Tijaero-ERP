@@ -92,11 +92,9 @@ class Permissions:
     QUOTATION_CREATE = ("quotations", "create")
     QUOTATION_UPDATE = ("quotations", "update")
     QUOTATION_DELETE = ("quotations", "delete")
-    # Proforma Invoices
-    PROFORMA_INVOICE_VIEW = ("proforma_invoices", "view")
-    PROFORMA_INVOICE_CREATE = ("proforma_invoices", "create")
-    PROFORMA_INVOICE_UPDATE = ("proforma_invoices", "update")
-    PROFORMA_INVOICE_DELETE = ("proforma_invoices", "delete")
+    # Quotation Approvals
+    QUOTATION_APPROVAL_VIEW = ("quotation_approvals", "view")
+    QUOTATION_APPROVAL_APPROVE = ("quotation_approvals", "approve")
     # Sales Orders
     SALES_ORDER_VIEW = ("sales_orders", "view")
     SALES_ORDER_CREATE = ("sales_orders", "create")

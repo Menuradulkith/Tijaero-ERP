@@ -310,65 +310,6 @@ export default function EmployeesPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current employee
-  // (or the "New Employee" placeholder while creating) plus a
-  // "Back to Employees" link that returns to the table.
-  const singleEmployeePanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToEmployees}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Employees
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-              <PersonIcon color="primary" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Employee
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedEmployee && (
-        <SelectableListItem
-          id={selectedEmployee.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-                <PersonIcon color="primary" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedEmployee.full_name}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -469,7 +410,16 @@ export default function EmployeesPage() {
       <MasterDetailLayout
         title="Employees"
         titleSlot={
-          isEmployeeDetailMode ? undefined : (
+          isEmployeeDetailMode ? (
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={handleBackToEmployees}
+              sx={{ textTransform: "none" }}
+            >
+              Back to Employees
+            </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -525,7 +475,7 @@ export default function EmployeesPage() {
         onRefresh={refetch}
         isLoading={isLoading}
         {...(isEmployeeDetailMode
-          ? { masterPanel: singleEmployeePanel, detailPanel }
+          ? { children: detailPanel }
           : { children: employeeTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

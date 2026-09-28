@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import SuppliersPage from "./pages/SuppliersPage";
 import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
+import TopPage from "./pages/TopPage";
 import PurchaseReturnsPage from "./pages/PurchaseReturnsPage";
 import GoodReceivedNotesPage from "./pages/GoodReceivedNotesPage";
 import PurchaseInvoicesPage from "./pages/PurchaseInvoicesPage";
@@ -17,6 +18,7 @@ export default function PurchasingRoutes() {
       <Route index element={<ProtectedRoute resource="purchasing_dashboard" action="view"><PurchasingDashboard /></ProtectedRoute>} />
       <Route path="suppliers" element={<ProtectedRoute resource="suppliers" action="view"><SuppliersPage /></ProtectedRoute>} />
       <Route path="orders" element={<ProtectedRoute resource="purchase_orders" action="view"><PurchaseOrdersPage /></ProtectedRoute>} />
+      <Route path="top" element={<ProtectedRoute resource="purchase_orders" action="create"><TopPage /></ProtectedRoute>} />
       <Route path="grn" element={<ProtectedRoute resource="grn" action="view"><GoodReceivedNotesPage /></ProtectedRoute>} />
       <Route path="invoices" element={<ProtectedRoute resource="purchase_orders" action="view"><PurchaseInvoicesPage /></ProtectedRoute>} />
       <Route path="invoices/outstanding-grns" element={<ProtectedRoute resource="purchase_orders" action="view"><OutstandingGRNsPage /></ProtectedRoute>} />

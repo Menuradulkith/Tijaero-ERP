@@ -334,3 +334,271 @@ class TestPurchasingRBAC:
         }
         resp = client.post("/api/v1/purchasing/orders", json=body)
         assert resp.status_code == 403
+
+    def test_total_amount_is_computed_from_line_items(
+        self, client, make_user, make_branch, make_supplier, make_product
+    ):
+        """Regression: PurchasingOrder has no total_amount column of its own
+        — it must be derived from line items in the API response, not left
+        at the schema's Decimal("0.00") default (which showed every PO's
+        total as 0 in the browse table)."""
+        branch = make_branch()
+        supplier = make_supplier()
+        product = make_product()
+        _user, token = make_user(
+            permissions=[("purchase_orders", "create"), ("purchase_orders", "view")],
+            branches=[branch],
+        )
+        client.headers.update({"Authorization": f"Bearer {token}"})
+
+        body = {
+            "branch_code": branch.branch_code,
+            "payment_method": "non_credit",
+            "purchasing_order_date": date.today().isoformat(),
+            "good_received_note_date": date.today().isoformat(),
+            "first_suppliers_id": supplier.id,
+            "items": [
+                {"product_id": product.id, "quantity": 3, "unit_price": "150.00", "warrenty_month": "12"},
+                {"product_id": product.id, "quantity": 2, "unit_price": "25.50", "warrenty_month": "12"},
+            ],
+        }
+        expected_total = 3 * 150.00 + 2 * 25.50
+
+        create_resp = client.post("/api/v1/purchasing/orders", json=body)
+        assert create_resp.status_code == 201, create_resp.text
+        assert float(create_resp.json()["total_amount"]) == expected_total
+
+        order_id = create_resp.json()["id"]
+
+        get_resp = client.get(f"/api/v1/purchasing/orders/{order_id}")
+        assert get_resp.status_code == 200
+        assert float(get_resp.json()["total_amount"]) == expected_total
+
+        list_resp = client.get("/api/v1/purchasing/orders")
+        assert list_resp.status_code == 200
+        listed = next(o for o in list_resp.json() if o["id"] == order_id)
+        assert float(listed["total_amount"]) == expected_total
+
+    def test_total_quantity_is_computed_and_required_date_is_order_level(
+        self, client, make_user, make_branch, make_supplier, make_product
+    ):
+        """total_quantity sums every line's quantity. required_date is a
+        single field on the order itself (set once per generated PO, e.g.
+        per supplier group in the product-first creation wizard) — not
+        derived from line items."""
+        branch = make_branch()
+        supplier = make_supplier()
+        product = make_product()
+        _user, token = make_user(
+            permissions=[("purchase_orders", "create"), ("purchase_orders", "view")],
+            branches=[branch],
+        )
+        client.headers.update({"Authorization": f"Bearer {token}"})
+
+        needed_by = date.today()
+
+        body = {
+            "branch_code": branch.branch_code,
+            "payment_method": "non_credit",
+            "purchasing_order_date": date.today().isoformat(),
+            "good_received_note_date": date.today().isoformat(),
+            "required_date": needed_by.isoformat(),
+            "first_suppliers_id": supplier.id,
+            "items": [
+                {"product_id": product.id, "quantity": 3, "unit_price": "100.00", "warrenty_month": "0"},
+                {"product_id": product.id, "quantity": 5, "unit_price": "100.00", "warrenty_month": "0"},
+                {"product_id": product.id, "quantity": 2, "unit_price": "100.00", "warrenty_month": "0"},
+            ],
+        }
+
+        create_resp = client.post("/api/v1/purchasing/orders", json=body)
+        assert create_resp.status_code == 201, create_resp.text
+        payload = create_resp.json()
+        assert payload["total_quantity"] == 3 + 5 + 2
+        assert payload["required_date"] == needed_by.isoformat()
+
+        list_resp = client.get("/api/v1/purchasing/orders")
+        assert list_resp.status_code == 200
+        listed = next(o for o in list_resp.json() if o["id"] == payload["id"])
+        assert listed["total_quantity"] == 10
+        assert listed["required_date"] == needed_by.isoformat()
+
+    def test_required_date_is_null_when_not_set(
+        self, db, make_branch, make_supplier, make_product
+    ):
+        branch = make_branch()
+        supplier = make_supplier()
+        product = make_product()
+        svc = service.PurchasingOrderService(db)
+
+        order = svc.create_order(
+            _po_create(branch.branch_code, supplier.id, product.id), created_by=1
+        )
+        assert order.required_date is None
+        assert order.total_quantity == 2  # _po_create's default qty
+
+
+# --------------------------------------------------------------------------- #
+# Purchase Orders — product-first, multi-supplier batch checkout
+# --------------------------------------------------------------------------- #
+class TestPurchaseOrderBatchCreate:
+    def test_happy_path_creates_one_po_per_supplier(
+        self, db, make_branch, make_supplier, make_product
+    ):
+        branch = make_branch()
+        supplier_a = make_supplier()
+        supplier_b = make_supplier()
+        rice = make_product()
+        oil = make_product()
+        svc = service.PurchasingOrderService(db)
+
+        groups = [
+            _po_create(branch.branch_code, supplier_a.id, rice.id, qty=50, unit_price="220.00"),
+            _po_create(branch.branch_code, supplier_b.id, oil.id, qty=10, unit_price="900.00"),
+        ]
+
+        batch_id, orders = svc.create_order_batch(groups, created_by=1)
+
+        assert batch_id
+        assert len(orders) == 2
+        assert {o.first_suppliers_id for o in orders} == {supplier_a.id, supplier_b.id}
+        assert all(o.purchase_batch_id == batch_id for o in orders)
+        assert all(o.status == PurchaseOrderStatus.PENDING_APPROVAL for o in orders)
+        assert all(o.approval_id is not None for o in orders)
+        assert all(o.purchasing_order_no.startswith("PO-") for o in orders)
+        # Distinct PO numbers, one per created order.
+        assert len({o.purchasing_order_no for o in orders}) == 2
+
+    def test_inactive_supplier_in_one_group_rolls_back_whole_batch(
+        self, db, make_branch, make_supplier, make_product
+    ):
+        """If any group in the batch is invalid, no PO from the batch should
+        be created — the checkout is all-or-nothing."""
+        branch = make_branch()
+        good_supplier = make_supplier()
+        bad_supplier = make_supplier(active=False)
+        product = make_product()
+        svc = service.PurchasingOrderService(db)
+
+        groups = [
+            _po_create(branch.branch_code, good_supplier.id, product.id),
+            _po_create(branch.branch_code, bad_supplier.id, product.id),
+        ]
+
+        with pytest.raises(HTTPException) as exc:
+            svc.create_order_batch(groups, created_by=1)
+        assert exc.value.status_code == 400
+
+        # Nothing should have been persisted from the valid group either.
+        remaining = svc.check_daily_limit(branch.branch_code)
+        assert remaining.count == 0
+
+    def test_daily_limit_counts_every_po_the_batch_would_create(
+        self, db, make_branch, make_supplier, make_product
+    ):
+        from app.modules.purchasing.service import DAILY_PO_LIMIT_PER_BRANCH
+
+        branch = make_branch()
+        product = make_product()
+        svc = service.PurchasingOrderService(db)
+
+        # Fill the branch up to one below the daily limit with ordinary POs.
+        for _ in range(DAILY_PO_LIMIT_PER_BRANCH - 1):
+            svc.create_order(
+                _po_create(branch.branch_code, make_supplier().id, product.id), created_by=1
+            )
+
+        # A 2-supplier batch now exceeds the single remaining slot.
+        groups = [
+            _po_create(branch.branch_code, make_supplier().id, product.id),
+            _po_create(branch.branch_code, make_supplier().id, product.id),
+        ]
+        with pytest.raises(HTTPException) as exc:
+            svc.create_order_batch(groups, created_by=1)
+        assert exc.value.status_code == 400
+
+    def test_api_batch_endpoint_happy_path(
+        self, client, make_user, make_branch, make_supplier, make_product
+    ):
+        branch = make_branch()
+        supplier_a = make_supplier()
+        supplier_b = make_supplier()
+        rice = make_product()
+        oil = make_product()
+        _user, token = make_user(
+            permissions=[("purchase_orders", "create")], branches=[branch]
+        )
+        client.headers.update({"Authorization": f"Bearer {token}"})
+
+        body = {
+            "groups": [
+                {
+                    "branch_code": branch.branch_code,
+                    "payment_method": "non_credit",
+                    "purchasing_order_date": date.today().isoformat(),
+                    "good_received_note_date": date.today().isoformat(),
+                    "first_suppliers_id": supplier_a.id,
+                    "items": [
+                        {
+                            "product_id": rice.id,
+                            "quantity": 50,
+                            "unit_price": "220.00",
+                            "warrenty_month": "0",
+                        }
+                    ],
+                },
+                {
+                    "branch_code": branch.branch_code,
+                    "payment_method": "non_credit",
+                    "purchasing_order_date": date.today().isoformat(),
+                    "good_received_note_date": date.today().isoformat(),
+                    "first_suppliers_id": supplier_b.id,
+                    "items": [
+                        {
+                            "product_id": oil.id,
+                            "quantity": 10,
+                            "unit_price": "900.00",
+                            "warrenty_month": "0",
+                        }
+                    ],
+                },
+            ]
+        }
+        resp = client.post("/api/v1/purchasing/orders/batch", json=body)
+        assert resp.status_code == 201, resp.text
+        payload = resp.json()
+        assert payload["purchase_batch_id"]
+        assert len(payload["orders"]) == 2
+        assert {o["first_suppliers_id"] for o in payload["orders"]} == {supplier_a.id, supplier_b.id}
+        assert all(o["purchase_batch_id"] == payload["purchase_batch_id"] for o in payload["orders"])
+
+    def test_api_batch_denied_for_inaccessible_branch(
+        self, client, make_user, make_branch, make_supplier, make_product
+    ):
+        branch = make_branch()
+        supplier = make_supplier()
+        product = make_product()
+        _user, token = make_user(permissions=[("purchase_orders", "create")])  # no branch access
+        client.headers.update({"Authorization": f"Bearer {token}"})
+
+        body = {
+            "groups": [
+                {
+                    "branch_code": branch.branch_code,
+                    "payment_method": "non_credit",
+                    "purchasing_order_date": date.today().isoformat(),
+                    "good_received_note_date": date.today().isoformat(),
+                    "first_suppliers_id": supplier.id,
+                    "items": [
+                        {
+                            "product_id": product.id,
+                            "quantity": 1,
+                            "unit_price": "100.00",
+                            "warrenty_month": "0",
+                        }
+                    ],
+                }
+            ]
+        }
+        resp = client.post("/api/v1/purchasing/orders/batch", json=body)
+        assert resp.status_code == 403

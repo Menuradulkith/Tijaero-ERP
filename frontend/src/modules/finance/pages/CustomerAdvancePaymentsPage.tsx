@@ -9,14 +9,12 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
-  Avatar,
   Box,
   Button,
   Chip,
   IconButton,
   InputAdornment,
   MenuItem,
-  Paper,
   TextField,
   Tooltip,
   Typography,
@@ -39,7 +37,6 @@ import {
   FormSection,
   EmptyState,
   handleApiError,
-  SelectableListItem,
   useMasterDetailState,
   useRowSelection,
   showErrorToast,
@@ -416,67 +413,6 @@ export default function CustomerAdvancePaymentsPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current advance payment
-  // (or the "New Advance" placeholder while creating) plus a "Back to
-  // Customer Advance Payments" link that returns to the table.
-  const singleAdvancePanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToAdvances}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Customer Advance Payments
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ width: 40, height: 40 }}>
-              <WalletIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Customer Advance Payment
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedItem && (
-        <SelectableListItem
-          id={selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ width: 36, height: 36 }}>
-                <WalletIcon fontSize="small" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{selectedItem.advance_payments_no || `ADV-${selectedItem.id}`}</span>
-                </Box>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   // Detail panel
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -678,7 +614,16 @@ export default function CustomerAdvancePaymentsPage() {
       <MasterDetailLayout
         title="Customer Advance Payments"
         titleSlot={
-          isAdvanceDetailMode ? undefined : (
+          isAdvanceDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToAdvances}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Customer Advance Payments
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -724,7 +669,7 @@ export default function CustomerAdvancePaymentsPage() {
                   "Method",
                   "Created Date",
                   "Cheque Date",
-                  "Proforma Invoice ID",
+                  "Quotation",
                   "Remarks",
                 ]}
                 rows={() =>
@@ -735,7 +680,7 @@ export default function CustomerAdvancePaymentsPage() {
                     adv.payment_method || "",
                     adv.created_date || "",
                     adv.cheque_date || "",
-                    adv.proforma_invoice_id ?? "",
+                    adv.quote_id ?? "",
                     adv.remarks || "",
                   ])
                 }
@@ -745,7 +690,7 @@ export default function CustomerAdvancePaymentsPage() {
           )
         }
         {...(isAdvanceDetailMode
-          ? { masterPanel: singleAdvancePanel, detailPanel }
+          ? { children: detailPanel }
           : { children: advanceTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

@@ -583,65 +583,6 @@ export default function ReimbursementsPage() {
   );
 
   // ---------------------------------------------------------------------------
-  // RENDER: Single-reimbursement left panel (detail mode)
-  // ---------------------------------------------------------------------------
-  const renderSingleReimbursementPanel = () => (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToReimbursements}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Reimbursements
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-              <ReceiptIcon color="primary" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Reimbursement Claim
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedItem && (
-        <SelectableListItem
-          id={selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-                <ReceiptIcon color="primary" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedItem.reimbursement_no}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
-  // ---------------------------------------------------------------------------
   // RENDER: Browse Table
   // ---------------------------------------------------------------------------
   const renderTablePanel = () => (
@@ -1359,7 +1300,16 @@ export default function ReimbursementsPage() {
         title="Employee Reimbursements"
         icon={<ReceiptIcon />}
         titleSlot={
-          isReimbursementDetailMode ? undefined : (
+          isReimbursementDetailMode ? (
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={handleBackToReimbursements}
+              sx={{ textTransform: "none" }}
+            >
+              Back to Reimbursements
+            </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -1411,8 +1361,7 @@ export default function ReimbursementsPage() {
         }
         {...(isReimbursementDetailMode
           ? {
-              masterPanel: renderSingleReimbursementPanel(),
-              detailPanel: isCreating ? renderCreateForm() : renderDetailView(),
+              children: isCreating ? renderCreateForm() : renderDetailView(),
             }
           : { children: renderTablePanel() })}
         headerActions={

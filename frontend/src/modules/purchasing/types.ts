@@ -302,6 +302,8 @@ export interface PurchasingOrderItem {
   purchasingorders_id: number;
   created_date: string;
   added_date: string;
+  /** Set when this line was sourced from a Sales Quotation. */
+  quote_item_id?: number | null;
 }
 
 export interface PurchasingOrderItemCreate {
@@ -310,6 +312,9 @@ export interface PurchasingOrderItemCreate {
   unit_price: number;
   warrenty_month: string;
   remark?: string;
+  /** Links this line back to the SalesQuoteItem it fulfills, when creating
+   * purchase orders from a Sales Quotation. */
+  quote_item_id?: number | null;
 }
 
 export interface PurchasingOrder {
@@ -320,6 +325,9 @@ export interface PurchasingOrder {
   payment_method: string;
   purchasing_order_date: string;
   good_received_note_date: string;
+  /** Optional "needed by" date for the whole order — one per PO, set per
+   * supplier group in the product-first PO creation wizard's Step 2. */
+  required_date?: string | null;
   remarks?: string;
   credit_date?: number;
   first_suppliers_id: number;
@@ -333,12 +341,32 @@ export interface PurchasingOrder {
   approved_by_name?: string;
   status: string;
   total_amount: number;
+  /** Sum of every line item's quantity — derived server-side. */
+  total_quantity: number;
   paid_amount: number;
   supplier_name?: string;
+  /** Set when this PO was created as part of a multi-supplier product-first
+   * checkout — every sibling PO from that same checkout shares this value. */
+  purchase_batch_id?: string | null;
+  /** Set when this PO was created from a Sales Quotation. */
+  sales_quote_id?: number | null;
+  sales_quote_no?: string | null;
 }
 
 export interface PurchasingOrderWithItems extends PurchasingOrder {
   items: PurchasingOrderItem[];
+}
+
+// Product-first, multi-supplier PO checkout: one group per supplier, each
+// shaped exactly like a normal PurchasingOrderCreate. The backend creates
+// one PurchasingOrder per group, all tagged with a shared purchase_batch_id.
+export interface PurchasingOrderBatchCreate {
+  groups: PurchasingOrderCreate[];
+}
+
+export interface PurchasingOrderBatchResponse {
+  purchase_batch_id: string;
+  orders: PurchasingOrderWithItems[];
 }
 
 export interface PurchasingOrderCreate {
@@ -348,11 +376,13 @@ export interface PurchasingOrderCreate {
   payment_method: string;
   purchasing_order_date: string;
   good_received_note_date: string;
+  /** Optional "needed by" date for the whole order. */
+  required_date?: string | null;
   remarks?: string;
   credit_date?: number;
   first_suppliers_id: number;
   second_suppliers_id: number;
-  sales_quote_id?: number;  // Link to source proforma/quotation
+  sales_quote_id?: number;  // Link to source quotation
   items: PurchasingOrderItemCreate[];
 }
 
@@ -362,6 +392,7 @@ export interface PurchasingOrderUpdate {
   payment_method?: string;
   purchasing_order_date?: string;
   good_received_note_date?: string;
+  required_date?: string | null;
   remarks?: string;
   credit_date?: number;
   first_suppliers_id?: number;
@@ -743,6 +774,34 @@ export interface SupplierAdvancePaymentListFilter {
   date_to?: string;
   skip?: number;
   limit?: number;
+}
+
+// ==================== PROCUREMENT QUEUE ("TOP" PAGE) ====================
+// A quotation item with a supplier already chosen (via the Sales Quotation
+// page's "Select Products & Suppliers for Procurement" dialog) but no
+// Purchase Order created for it yet. Feeds the central TOP page, which
+// aggregates queued items across every quotation, grouped by supplier.
+
+export interface ProcurementQueueItemInput {
+  quote_item_id: number;
+  supplier_id: number;
+  quantity: number;
+  unit_price: number;
+}
+
+export interface ProcurementQueueItem {
+  id: number;
+  quote_item_id: number;
+  quote_id: number;
+  quote_no: string;
+  branch_code: string;
+  supplier_id: number;
+  supplier_name?: string;
+  product_id: number;
+  product_name?: string;
+  quantity: number;
+  unit_price: number;
+  added_date: string;
 }
 
 // ── Dashboard Statistics ─────────────────────────────────────────────────

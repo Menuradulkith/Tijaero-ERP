@@ -51,7 +51,7 @@ def get_email_templates(
 ):
     templates = db.query(EmailTemplate).all()
     # Initialize default templates if they don't exist
-    default_docs = ["quotation", "proforma", "sales-order", "sales-return", "invoice", "purchase-order", "purchase-return"]
+    default_docs = ["quotation", "sales-order", "sales-return", "invoice", "purchase-order", "purchase-return"]
     existing_docs = {t.document_type for t in templates}
     
     for doc in default_docs:
@@ -110,7 +110,7 @@ def get_email_draft(
     doc_display_id = str(document_id)
 
     # Look up email based on document type
-    if document_type in ["quotation", "proforma"]:
+    if document_type == "quotation":
         doc = db.query(SalesQuote).filter(SalesQuote.id == document_id).first()
         if doc:
             doc_display_id = doc.quote_no
