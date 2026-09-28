@@ -300,6 +300,7 @@ class ApprovalService:
             "payroll_batch": Permissions.PAYROLL_APPROVAL_APPROVE,
             "commission_payment": Permissions.COMMISSION_PAYMENT_APPROVAL_APPROVE,
             "commission_approval": Permissions.COMMISSION_APPROVAL_APPROVE,
+            "sales_quote": Permissions.QUOTATION_APPROVAL_APPROVE,
         }
         return mapping.get(approval_type, Permissions.COMMON_UPDATE)
 
@@ -412,6 +413,12 @@ class ApprovalService:
             PurchasingOrderService(db).approve_order(
                 reference_id, approve=True, remarks=remarks, user_id=user.id
             )
+        elif approval_type == ApprovalType.SALES_QUOTE.value:
+            from app.modules.sales.quotation_service import sales_quote_service
+
+            sales_quote_service.resolve_quote_approval(
+                db, reference_id, approve=True, remarks=remarks, user_id=user.id
+            )
         elif approval_type == ApprovalType.ITEM_TRANSFER.value:
             from app.modules.warehouse.service import ItemTransferNoteService
 
@@ -448,6 +455,12 @@ class ApprovalService:
 
             PurchasingOrderService(db).approve_order(
                 reference_id, approve=False, remarks=remarks, user_id=user.id
+            )
+        elif approval_type == ApprovalType.SALES_QUOTE.value:
+            from app.modules.sales.quotation_service import sales_quote_service
+
+            sales_quote_service.resolve_quote_approval(
+                db, reference_id, approve=False, remarks=remarks, user_id=user.id
             )
         elif approval_type == ApprovalType.ITEM_TRANSFER.value:
             from app.modules.warehouse.service import ItemTransferNoteService

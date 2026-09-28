@@ -66,7 +66,6 @@ import {
   showSuccessToast,
   showErrorToast,
   TDataGrid,
-  SelectableListItem,
   type TDataGridColumn,
 } from "@/components/tijaero";
 
@@ -630,67 +629,6 @@ export default function ItemTransferNotesPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current transfer note
-  // (or the "New Transfer Note" placeholder while creating). A "Back to Item
-  // Transfer Notes" link returns to the table.
-  const singleITNPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToITNs}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Item Transfer Notes
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main" }}>
-              <SwapHorizIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Transfer Note
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedITN && (
-        <Box>
-          <SelectableListItem
-            id={selectedITN.id}
-            isSelected
-            onClick={() => {}}
-            primaryText={
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-                <Avatar sx={{ bgcolor: "primary.main" }}>
-                  <SwapHorizIcon fontSize="small" />
-                </Avatar>
-                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                  <span>{selectedITN.item_transfer_note || `ITN-${selectedITN.id}`}</span>
-                </Box>
-              </Box>
-            }
-          />
-        </Box>
-      )}
-    </Paper>
-  );
-
   // Detail Panel
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -1141,7 +1079,16 @@ export default function ItemTransferNotesPage() {
       <MasterDetailLayout
         title="Item Transfer Notes"
         titleSlot={
-          isITNDetailMode ? undefined : (
+          isITNDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToITNs}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Item Transfer Notes
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -1220,7 +1167,7 @@ export default function ItemTransferNotesPage() {
             </>
           )
         }
-        {...(isITNDetailMode ? { masterPanel: singleITNPanel, detailPanel } : { children: itnTablePanel })}
+        {...(isITNDetailMode ? { children: detailPanel } : { children: itnTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 

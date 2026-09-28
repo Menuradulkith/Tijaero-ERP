@@ -757,65 +757,6 @@ export default function SaleReturnsPage() {
         </Box>
     );
 
-    // Detail mode: a narrow left panel showing only the current sale return
-    // (or the "New Return" placeholder while creating), with a "Back to
-    // Sale Returns" link returning to the table.
-    const singleReturnPanel = (
-        <Paper
-            elevation={0}
-            sx={{
-                width: 280,
-                minWidth: 240,
-                maxWidth: 300,
-                borderRight: 1,
-                borderColor: "divider",
-                display: "flex",
-                flexDirection: "column",
-                height: "100%",
-                overflow: "hidden",
-            }}
-        >
-            <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-                <Button
-                    size="small"
-                    startIcon={<ArrowBackIcon fontSize="small" />}
-                    onClick={handleBackToReturns}
-                    sx={{ textTransform: "none" }}
-                >
-                    Back to Sale Returns
-                </Button>
-            </Box>
-            {isCreating ? (
-                <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                        <Avatar sx={{ bgcolor: "warning.main" }}>
-                            <AssignmentReturnIcon />
-                        </Avatar>
-                        <Typography variant="caption" color="text.secondary">
-                            New Return
-                        </Typography>
-                    </Box>
-                </Box>
-            ) : selectedReturn && (
-                <SelectableListItem
-                    id={selectedReturn.id}
-                    isSelected
-                    onClick={() => {}}
-                    primaryText={
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-                            <Avatar sx={{ bgcolor: "warning.main" }}>
-                                <AssignmentReturnIcon />
-                            </Avatar>
-                            <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                                <span>{selectedReturn.sale_return_no || `RET-${selectedReturn.id}`}</span>
-                            </Box>
-                        </Box>
-                    }
-                />
-            )}
-        </Paper>
-    );
-
     const detailPanel = (
         <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <DetailPanelHeader
@@ -1442,7 +1383,16 @@ export default function SaleReturnsPage() {
             <MasterDetailLayout
                 title="Sale Returns"
                 titleSlot={
-                    isReturnDetailMode ? undefined : (
+                    isReturnDetailMode ? (
+                    <Button
+                        size="small"
+                        startIcon={<ArrowBackIcon fontSize="small" />}
+                        onClick={handleBackToReturns}
+                        sx={{ textTransform: "none" }}
+                    >
+                        Back to Sale Returns
+                    </Button>
+          ) : (
                         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
                             <TextField
                                 size="small"
@@ -1505,7 +1455,7 @@ export default function SaleReturnsPage() {
                 }}
                 isLoading={isLoading}
                 {...(isReturnDetailMode
-                    ? { masterPanel: singleReturnPanel, detailPanel }
+                    ? { children: detailPanel }
                     : { children: saleReturnsTablePanel })}
             />
 

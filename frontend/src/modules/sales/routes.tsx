@@ -4,6 +4,7 @@ import CouponsPage from "@/modules/sales/pages/CouponsPage";
 import VouchersPage from "@/modules/sales/pages/VouchersPage";
 import CustomersPage from "@/modules/sales/pages/CustomersPage";
 import QuotationsPage from "@/modules/sales/pages/QuotationsPage";
+import QuotationApprovalsPage from "@/modules/sales/pages/QuotationApprovalsPage";
 import SaleReturnsPage from "@/modules/sales/pages/SaleReturnsPage";
 import SaleReturnApprovalsPage from "@/modules/sales/pages/SaleReturnApprovalsPage";
 import SalesApprovalsPage from "@/modules/sales/pages/SalesApprovalsPage";
@@ -20,7 +21,6 @@ export default function SalesRoutes() {
       <Route index element={<ProtectedRoute resource="sales_orders" action="view"><SalesPage /></ProtectedRoute>} />
       <Route path="orders" element={<ProtectedRoute resource="sales_orders" action="view"><SalesPage /></ProtectedRoute>} />
       <Route path="quotations" element={<ProtectedRoute resource="quotations" action="view"><QuotationsPage /></ProtectedRoute>} />
-      <Route path="proforma" element={<ProtectedRoute resource="proforma_invoices" action="view"><QuotationsPage /></ProtectedRoute>} />
       <Route path="returns" element={<ProtectedRoute resource="sales_returns" action="view"><SaleReturnsPage /></ProtectedRoute>} />
       <Route path="track" element={<ProtectedRoute resource="sales_track" action="view"><SalesTrackPage /></ProtectedRoute>} />
       <Route path="dashboard" element={<ProtectedRoute resource="sales_dashboard" action="view"><SalesDashboard /></ProtectedRoute>} />
@@ -30,6 +30,7 @@ export default function SalesRoutes() {
       <Route path="agent-commissions" element={<ProtectedRoute resource="agent_commissions" action="view"><AgentCommissionsPage /></ProtectedRoute>} />
       {/* Approvals - parent hub and sub-routes */}
       <Route path="approvals" element={<SalesApprovalsPage />} />
+      <Route path="approvals/quotation-approvals" element={<ProtectedRoute resource="quotation_approvals" action="view"><QuotationApprovalsPage /></ProtectedRoute>} />
       <Route path="approvals/so-approvals" element={<ProtectedRoute resource="so_approvals" action="view"><SalesOrderApprovalsPage /></ProtectedRoute>} />
       <Route path="approvals/return-approvals" element={<ProtectedRoute resource="sales_return_approvals" action="view"><SaleReturnApprovalsPage /></ProtectedRoute>} />
       <Route path="approvals/commission-approvals" element={<ProtectedRoute resource="commission_approvals" action="view"><CommissionApprovalsPage /></ProtectedRoute>} />

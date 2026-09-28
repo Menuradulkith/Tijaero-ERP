@@ -13,7 +13,6 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Alert,
   Autocomplete,
-  Avatar,
   Box,
   Button,
   Checkbox,
@@ -43,7 +42,6 @@ import {
   FormSection,
   MasterDetailLayout,
   modernTableStyles,
-  SelectableListItem,
   showErrorToast,
   showSuccessToast,
   TBranchFilter,
@@ -602,65 +600,6 @@ export default function PurchaseInvoicesPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current invoice (or
-  // the "New Voucher" placeholder while creating). A "Back to Purchase
-  // Invoices" link returns to the table.
-  const singleInvoicePanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToInvoices}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Purchase Invoices
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
-              <ReceiptLongIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Voucher
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedInvoice && (
-        <SelectableListItem
-          id={selectedInvoice.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
-                <ReceiptLongIcon fontSize="small" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedInvoice.invoice_no}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -966,7 +905,16 @@ export default function PurchaseInvoicesPage() {
       <MasterDetailLayout
         title="Supplier Voucher Payment"
         titleSlot={
-          isInvoiceDetailMode ? undefined : (
+          isInvoiceDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToInvoices}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Purchase Invoices
+          </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -1068,7 +1016,7 @@ export default function PurchaseInvoicesPage() {
           )
         }
         {...(isInvoiceDetailMode
-          ? { masterPanel: singleInvoicePanel, detailPanel }
+          ? { children: detailPanel }
           : { children: invoiceTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

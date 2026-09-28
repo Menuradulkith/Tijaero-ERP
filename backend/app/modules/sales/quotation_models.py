@@ -9,31 +9,30 @@ from sqlalchemy.orm import relationship
 
 
 class QuoteType(str, enum.Enum):
-    QUOTATION = "quotation" 
-    PROFORMA = "proforma" 
+    QUOTATION = "quotation"
 
 
 class QuoteStatus(str, enum.Enum):
 
-    DRAFT = "draft"  
-    PENDING_APPROVAL = "pending_approval" 
+    DRAFT = "draft"
+    PENDING_APPROVAL = "pending_approval"
     SUBMITTED = "submitted"  # Sent/submitted to customer
-    UNDER_REVIEW = "under_review"  # Customer reviewing (proforma stage)
-    APPROVED = "approved" 
-    SENT = "sent" 
-    ACCEPTED = "accepted" 
-    REJECTED = "rejected" 
-    EXPIRED = "expired"  
-    CONVERTED = "converted" 
+    UNDER_REVIEW = "under_review"  # Customer reviewing
+    APPROVED = "approved"
+    SENT = "sent"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    CONVERTED = "converted"
     CONVERTED_TO_INVOICE = "converted_to_invoice"  # Successfully converted to invoice
     PARTIALLY_CONVERTED = "partially_converted"  # Legacy partial status
     PARTIALLY_PROCESSED = "partially_processed"  # Some items converted/procured
     COMPLETED = "completed"  # All items fulfilled/cancelled
     PO_CREATED = "po_created"  # PO raised from this quotation
     ITEM_RECEIVED = "item_received"  # GRN completed for linked PO
-    SO_CREATED = "so_created"  # Sales Order created from proforma
-    CANCELLED = "cancelled" 
-    REVISED = "revised" 
+    SO_CREATED = "so_created"  # Sales Order created from this quotation
+    CANCELLED = "cancelled"
+    REVISED = "revised"
 
 class DiscountType(str, enum.Enum):
     NONE = "none"
@@ -124,11 +123,6 @@ class SalesQuote(Base, AuditMixin):
     items = relationship(
         "SalesQuoteItem", back_populates="quote", cascade="all, delete-orphan"
     )
-    
-    @property
-    def is_proforma(self):
-        """Check if this quote is a proforma invoice"""
-        return self.quote_type == QuoteType.PROFORMA.value
 
 
 class SalesQuoteItem(Base, AuditMixin):

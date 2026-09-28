@@ -605,18 +605,36 @@ class PurchasingOrderService:
             message=message
         )
     
-    def create_order(self, order: schemas.PurchasingOrderCreate, created_by: int = 1) -> models.PurchasingOrder:
-        # ── Validate branch is active ──
+    def _validate_order_group(self, order: schemas.PurchasingOrderCreate) -> None:
+        """Shared validation for a single PurchasingOrderCreate — branch
+        active, suppliers exist/active, products active. Used by both
+        create_order (single PO) and create_order_batch (one PO per
+        supplier group), so a batch checkout enforces exactly the same
+        rules per resulting PO as creating it individually would."""
         from app.common.branch_validation import validate_branch_is_active
         validate_branch_is_active(self.db, order.branch_code)
 
-        limit_check = self.check_daily_limit(order.branch_code)
-        if not limit_check.can_create:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=limit_check.message
-            )
-        
+        # ── A PO sourced from a Sales Quotation requires that quotation to
+        # have been approved. `approval` (not `status`) is the gate: once
+        # some of the quote's items are converted the header status moves on
+        # to partially_processed, but `approval` stays True from the
+        # original sign-off. ──
+        if order.sales_quote_id:
+            from app.modules.sales.quotation_models import SalesQuote, QuoteStatus
+            quote = self.db.query(SalesQuote).filter(SalesQuote.id == order.sales_quote_id).first()
+            if not quote:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Quotation with id {order.sales_quote_id} not found"
+                )
+            if not quote.approval or quote.status in (
+                QuoteStatus.REJECTED.value, QuoteStatus.CANCELLED.value, QuoteStatus.REVISED.value
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot create a purchase order from quotation {quote.quote_no} — it has not been approved."
+                )
+
         self.supplier_repo.lock_for_document(order.first_suppliers_id, order.second_suppliers_id)
         first_supplier = self.supplier_repo.get_by_id(order.first_suppliers_id)
         if not first_supplier:
@@ -629,7 +647,7 @@ class PurchasingOrderService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Supplier '{first_supplier.company_name}' is inactive. Please reactivate the supplier before creating a purchase order."
             )
-        
+
         if order.second_suppliers_id:
             second_supplier = self.supplier_repo.get_by_id(order.second_suppliers_id)
             if not second_supplier:
@@ -642,7 +660,7 @@ class PurchasingOrderService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Supplier '{second_supplier.company_name}' is inactive. Please reactivate the supplier before creating a purchase order."
                 )
-        
+
         # ── Validate all products in order items are active ──
         if order.items:
             from app.modules.products.models import Product
@@ -655,15 +673,86 @@ class PurchasingOrderService:
                             detail=f"Product '{product.name}' (ID: {product.id}) is inactive. Please reactivate the product before adding it to a purchase order."
                         )
 
+        # ── Validate quote-sourced items aren't already fulfilled, and that
+        # the requested quantity doesn't exceed what's left to procure. This
+        # is the server-side guard against creating a duplicate PO for the
+        # same quotation line. ──
+        if order.items:
+            from app.modules.sales.quotation_models import SalesQuoteItem
+            for po_item in order.items:
+                quote_item_id = getattr(po_item, "quote_item_id", None)
+                if not quote_item_id:
+                    continue
+                quote_item = (
+                    self.db.query(SalesQuoteItem)
+                    .filter(SalesQuoteItem.id == quote_item_id)
+                    .with_for_update()
+                    .first()
+                )
+                if not quote_item:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Quotation item with id {quote_item_id} not found"
+                    )
+                if order.sales_quote_id and quote_item.quote_id != order.sales_quote_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Quotation item {quote_item.id} does not belong to quote {order.sales_quote_id}"
+                    )
+                if quote_item.item_status in ("po_created", "itn_created", "so_created", "completed", "cancelled"):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Quotation item {quote_item.id} already has a purchase order (status: {quote_item.item_status})."
+                    )
+                remaining = quote_item.quantity - (quote_item.converted_qty or 0)
+                if po_item.quantity > remaining:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Quotation item {quote_item.id} only has {remaining} unit(s) left to procure, but {po_item.quantity} were requested."
+                    )
+
+    def _fulfill_quote_items(self, order: schemas.PurchasingOrderCreate) -> None:
+        """Mark this order's quote-sourced items (those carrying a
+        quote_item_id) as po_created and bump their converted_qty. Called
+        only after the order/items have actually been created — validation
+        that they're eligible already ran in _validate_order_group."""
+        from app.modules.sales.quotation_models import SalesQuoteItem
+        for po_item in order.items:
+            quote_item_id = getattr(po_item, "quote_item_id", None)
+            if not quote_item_id:
+                continue
+            quote_item = self.db.query(SalesQuoteItem).filter(SalesQuoteItem.id == quote_item_id).first()
+            if not quote_item:
+                continue
+            quote_item.item_status = "po_created"
+            quote_item.converted_qty = (quote_item.converted_qty or 0) + po_item.quantity
+
+            # A PO now exists for this item — it no longer belongs in the
+            # procurement queue (TOP page), regardless of which entry point
+            # (TOP page or a quotation's own create-PO flow) created the PO.
+            self.db.query(models.ProcurementQueueItem).filter(
+                models.ProcurementQueueItem.quote_item_id == quote_item_id
+            ).delete()
+
+    def create_order(self, order: schemas.PurchasingOrderCreate, created_by: int = 1) -> models.PurchasingOrder:
+        limit_check = self.check_daily_limit(order.branch_code)
+        if not limit_check.can_create:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=limit_check.message
+            )
+
+        self._validate_order_group(order)
+
         from decimal import Decimal
         po_total = sum(
-            Decimal(str(item.quantity)) * item.unit_price 
+            Decimal(str(item.quantity)) * item.unit_price
             for item in order.items
         ) if order.items else Decimal("0")
-        
+
         # All orders start with pending_approval status (both credit and non-credit)
         initial_status = PurchaseOrderStatus.PENDING_APPROVAL
-        
+
         # For credit purchases, perform credit check to warn about limit
         if order.payment_method.lower() == "credit":
             from app.modules.purchasing.credit_service import SupplierCreditService
@@ -672,7 +761,7 @@ class PurchasingOrderService:
                 self.repo.db, order.first_suppliers_id, po_total, order.payment_method
             )
             # Note: Credit check is informational; status remains pending_approval
-        
+
         # Create the order with pending_approval status
         created_order = self.repo.create(order, initial_status=initial_status)
 
@@ -693,22 +782,129 @@ class PurchasingOrderService:
         log_audit(self.db, user_id=created_by, action="create", entity_type="purchase_order", entity_id=created_order.id, changes={"status": initial_status, "po_no": created_order.purchasing_order_no})
         self.db.commit()
 
-        # If PO was created from a proforma/quotation, record the PO link on the quote.
-        # NOTE: we do NOT change the quote header status here — only SO creation drives
-        # the header (DRAFT → SENT → PARTIALLY_PROCESSED → COMPLETED).
+        # If PO was created from a quotation, record the PO link on
+        # the quote and mark any quote-sourced items as procured (this is
+        # what drives the header to PARTIALLY_PROCESSED/COMPLETED).
         if order.sales_quote_id:
             try:
                 from app.modules.sales.quotation_models import SalesQuote
+                from app.modules.sales.quotation_service import sales_quote_service
                 linked_quote = self.db.query(SalesQuote).filter(SalesQuote.id == order.sales_quote_id).first()
                 if linked_quote:
                     linked_quote.linked_po_id = created_order.id
                     linked_quote.po_created_date = tz.now()
+                    self._fulfill_quote_items(order)
+                    sales_quote_service.recompute_quote_status(self.db, linked_quote)
                     self.db.commit()
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Failed to link PO to quote: {e}")
 
         return created_order
+
+    def create_order_batch(
+        self, groups: List[schemas.PurchasingOrderCreate], created_by: int = 1
+    ) -> tuple[str, List[models.PurchasingOrder]]:
+        """
+        Product-first, multi-supplier checkout: create one PurchasingOrder
+        per supplier group, all sharing a single freshly-generated
+        purchase_batch_id, as one all-or-nothing transaction. Mirrors
+        create_order's per-group validation and side effects (approval
+        record, audit log, credit check, quote link) but commits once at
+        the end so a failure partway through leaves no orphan POs.
+        """
+        import uuid
+        from decimal import Decimal
+
+        if not groups:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one supplier group is required")
+
+        # All groups in a single checkout share a branch in the current UI
+        # (branch is picked once, before supplier selection), so the daily
+        # limit only needs checking against that one branch — but check it
+        # against the number of POs this batch is about to create, not just 1.
+        branch_code = groups[0].branch_code
+        limit_check = self.check_daily_limit(branch_code)
+        if limit_check.remaining < len(groups):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"This purchase would create {len(groups)} purchase orders for branch "
+                    f"{branch_code}, but only {limit_check.remaining} remain today. {limit_check.message}"
+                ),
+            )
+
+        for group in groups:
+            self._validate_order_group(group)
+
+        batch_id = str(uuid.uuid4())
+        created_orders: List[models.PurchasingOrder] = []
+
+        try:
+            for group in groups:
+                po_total = sum(
+                    Decimal(str(item.quantity)) * item.unit_price for item in group.items
+                ) if group.items else Decimal("0")
+
+                if group.payment_method.lower() == "credit":
+                    from app.modules.purchasing.credit_service import SupplierCreditService
+                    SupplierCreditService().check_po_credit(
+                        self.repo.db, group.first_suppliers_id, po_total, group.payment_method
+                    )
+
+                created_order = self.repo.create(
+                    group,
+                    initial_status=PurchaseOrderStatus.PENDING_APPROVAL,
+                    batch_id=batch_id,
+                    commit=False,
+                )
+
+                approval_record = approval_service.create_approval_request(
+                    db=self.db,
+                    approval_type=ApprovalType.PURCHASE_ORDER,
+                    reference_id=created_order.id,
+                    reference_no=created_order.purchasing_order_no,
+                    branch_code=group.branch_code,
+                    requested_by=created_by,
+                    remarks="Purchase order pending approval.",
+                    approval_group="purchasing_approvers",
+                )
+                created_order.approval_id = approval_record.id
+
+                log_audit(
+                    self.db,
+                    user_id=created_by,
+                    action="create",
+                    entity_type="purchase_order",
+                    entity_id=created_order.id,
+                    changes={
+                        "status": PurchaseOrderStatus.PENDING_APPROVAL,
+                        "po_no": created_order.purchasing_order_no,
+                        "purchase_batch_id": batch_id,
+                    },
+                )
+
+                if group.sales_quote_id:
+                    from app.modules.sales.quotation_models import SalesQuote
+                    from app.modules.sales.quotation_service import sales_quote_service
+                    linked_quote = self.db.query(SalesQuote).filter(SalesQuote.id == group.sales_quote_id).first()
+                    if linked_quote:
+                        linked_quote.linked_po_id = created_order.id
+                        linked_quote.po_created_date = tz.now()
+                        self._fulfill_quote_items(group)
+                        sales_quote_service.recompute_quote_status(self.db, linked_quote)
+
+                created_orders.append(created_order)
+
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+
+        for order in created_orders:
+            self.db.refresh(order)
+
+        return batch_id, created_orders
     
     def get_order(self, order_id: int) -> models.PurchasingOrder:
         order = self.repo.get_by_id(order_id)
@@ -908,11 +1104,137 @@ class PurchasingOrderService:
         self.db.refresh(order)
         return order
 
+class ProcurementQueueService:
+    """
+    Backs the central "TOP" page: quotation items with a supplier already
+    chosen (via the Sales Quotation page's supplier-selection dialog) but no
+    Purchase Order created for them yet. Rows are plain queue entries — no
+    approval/daily-limit/credit logic lives here, that all still happens in
+    PurchasingOrderService.create_order_batch when the queued items are
+    actually turned into POs.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def add_to_queue(
+        self, items: List[schemas.ProcurementQueueItemCreate], added_by: int = 0
+    ) -> List[models.ProcurementQueueItem]:
+        from app.modules.sales.quotation_models import SalesQuoteItem
+
+        terminal_statuses = ("po_created", "itn_created", "so_created", "completed", "cancelled")
+        result: List[models.ProcurementQueueItem] = []
+
+        for item in items:
+            quote_item = self.db.query(SalesQuoteItem).filter(
+                SalesQuoteItem.id == item.quote_item_id
+            ).with_for_update().first()
+            if not quote_item:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Quotation item with id {item.quote_item_id} not found"
+                )
+            if quote_item.item_status in terminal_statuses:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Quotation item {quote_item.id} already has a purchase order (status: {quote_item.item_status})."
+                )
+            remaining = quote_item.quantity - (quote_item.converted_qty or 0)
+            if item.quantity > remaining:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Quotation item {quote_item.id} only has {remaining} unit(s) left to procure, but {item.quantity} were requested."
+                )
+
+            supplier_repo = repository.SupplierRepository(self.db)
+            supplier_repo.lock_for_document(item.supplier_id)
+            supplier = supplier_repo.get_by_id(item.supplier_id)
+            if not supplier:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Supplier with id {item.supplier_id} not found"
+                )
+            if not supplier.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Supplier '{supplier.company_name}' is inactive."
+                )
+
+            existing = self.db.query(models.ProcurementQueueItem).filter(
+                models.ProcurementQueueItem.quote_item_id == item.quote_item_id
+            ).first()
+            if existing:
+                existing.supplier_id = item.supplier_id
+                existing.quantity = item.quantity
+                existing.unit_price = item.unit_price
+                result.append(existing)
+            else:
+                queued = models.ProcurementQueueItem(
+                    quote_item_id=item.quote_item_id,
+                    supplier_id=item.supplier_id,
+                    quantity=item.quantity,
+                    unit_price=item.unit_price,
+                    added_date=tz.now(),
+                    created_by=added_by,
+                )
+                self.db.add(queued)
+                result.append(queued)
+
+        self.db.commit()
+        for row in result:
+            self.db.refresh(row)
+        return result
+
+    def list_queue(self, branch_codes: Optional[List[str]] = None) -> List[schemas.ProcurementQueueItem]:
+        from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
+        from app.modules.products.models import Product
+
+        query = (
+            self.db.query(models.ProcurementQueueItem, SalesQuoteItem, SalesQuote, Product, models.Supplier)
+            .join(SalesQuoteItem, models.ProcurementQueueItem.quote_item_id == SalesQuoteItem.id)
+            .join(SalesQuote, SalesQuoteItem.quote_id == SalesQuote.id)
+            .join(Product, SalesQuoteItem.product_id == Product.id)
+            .join(models.Supplier, models.ProcurementQueueItem.supplier_id == models.Supplier.id)
+        )
+        if branch_codes is not None:
+            query = query.filter(SalesQuote.branch_code.in_(branch_codes))
+
+        rows = query.order_by(models.ProcurementQueueItem.added_date.asc()).all()
+        return [
+            schemas.ProcurementQueueItem(
+                id=queue_item.id,
+                quote_item_id=quote_item.id,
+                quote_id=quote.id,
+                quote_no=quote.quote_no,
+                branch_code=quote.branch_code,
+                supplier_id=queue_item.supplier_id,
+                supplier_name=supplier.company_name,
+                product_id=product.id,
+                product_name=product.name,
+                quantity=queue_item.quantity,
+                unit_price=queue_item.unit_price,
+                added_date=queue_item.added_date,
+            )
+            for queue_item, quote_item, quote, product, supplier in rows
+        ]
+
+    def remove_from_queue(self, queue_item_id: int) -> None:
+        deleted = self.db.query(models.ProcurementQueueItem).filter(
+            models.ProcurementQueueItem.id == queue_item_id
+        ).delete()
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Procurement queue item with id {queue_item_id} not found"
+            )
+        self.db.commit()
+
+
 class PurchasingReturnService:
     def __init__(self, db: Session):
         self.repo = repository.PurchasingReturnRepository(db)
         self.db = db
-    
+
     def validate_barcode_for_return(
         self, 
         barcode: str, 
@@ -1446,6 +1768,12 @@ class GoodReceivedNoteService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Purchase order {grn.purchasingorders_id} not found"
+            )
+
+        if po.status not in ("approved", "partially_completed"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot create GRN: purchase order {po.purchasing_order_no} is '{po.status}', not approved."
             )
 
         repository.SupplierRepository(self.db).lock_for_document(po.first_suppliers_id, po.second_suppliers_id)

@@ -96,7 +96,10 @@ class TestQuoteCreate:
         quote = _make_quote(db, branch, customer, [_item(product.id, qty=2, price=200.0)])
 
         assert quote.id is not None
-        assert quote.status == "draft"
+        # Every new quote starts pending internal approval (mirrors Purchase
+        # Orders) rather than draft — see SalesQuoteService.create_quote.
+        assert quote.status == "pending_approval"
+        assert quote.approval_id is not None
         assert quote.quote_no
         assert len(quote.items) == 1
         # 2 * 200 = 400
@@ -230,49 +233,107 @@ class TestStatusMachine:
 # Partial SO conversion (money path)
 # --------------------------------------------------------------------------- #
 #
-# ┌─ BUG REPORT ─────────────────────────────────────────────────────────────┐
-# │ quotation_service.py:538  (SalesQuoteService.create_partial_so)           │
-# │     db.refresh(quote, [SalesQuote.items])                                 │
-# │                                                                           │
-# │ Session.refresh() requires attribute_names to be a list of STRINGS, e.g.  │
-# │     db.refresh(quote, attribute_names=["items"])                          │
-# │ Passing the InstrumentedAttribute SalesQuote.items raises                 │
-# │     KeyError  (sqlalchemy/orm/state.py: _expire_state)                    │
-# │ on SQLAlchemy 2.0.45.  This breaks ALL partial Sales Order creation.      │
-# │                                                                           │
-# │ Note: the sibling method cancel_quote() uses the correct string form      │
-# │     db.refresh(quote, attribute_names=["items"])  → works.                │
-# │                                                                           │
-# │ Fix: change line 538 to use "items" (string).  Once fixed, the xfail      │
-# │ tests below will XPASS and the markers should be removed.                 │
-# └───────────────────────────────────────────────────────────────────────────┘
-_PARTIAL_SO_BUG = pytest.mark.xfail(
-    reason="BUG quotation_service.py:538 — db.refresh(quote, [SalesQuote.items]) "
-    "passes an InstrumentedAttribute instead of the string 'items'; raises "
-    "KeyError and breaks all partial SO creation.",
-    raises=KeyError,
-    strict=True,
-)
+# create_partial_so requires (a) the quote to be approved — `approval`, not
+# `status`, is the gate a later Phase added — and (b) real physical stock:
+# it locks and consumes matching `sales_stock` rows the same way a normal
+# barcode-less POS sale does, rather than trusting item_status/converted_qty.
+# _make_quote (used by every other class in this file) deliberately leaves
+# the quote unapproved so those tests can see the pending_approval state, so
+# this class uses its own helper that approves it, and seeds real stock via
+# a minimal PO -> GRN -> sales_stock chain (mirrors test_concurrency.py)
+# instead of going through the full service layer for that setup.
+def _make_approved_quote(db, branch, customer, items):
+    quote = SERVICE.create_quote(db, _quote_create(branch.branch_code, customer.id, items))
+    return SERVICE.resolve_quote_approval(db, quote.id, approve=True, user_id=1)
 
 
-_STALE_INVOICE_SCHEMA = pytest.mark.xfail(
-    reason=(
-        "create_partial_so's invoice creation does not populate the legacy NOT-NULL "
-        "'cheque_date' column on the invoices table (stale-DB schema drift). "
-        "Run 'alembic upgrade head' or make the column nullable to enable."
-    ),
-    raises=Exception,
-    strict=True,
-)
+def _seed_stock(db, branch, location, supplier, product, qty=1, *, unit_price=100.0):
+    from datetime import datetime
+    import uuid
+
+    from app.modules.inventory.models import SalesStock
+    from app.modules.purchasing.models import (
+        GoodReceivedItems,
+        GoodReceivedNote,
+        PurchasingOrder,
+        PurchasingOrderItems,
+    )
+
+    tag = uuid.uuid4().hex[:8]
+    po = PurchasingOrder(
+        purchasing_order_no=f"PO-TEST-{tag}",
+        branch_code=branch.branch_code,
+        payment_method="cash",
+        purchasing_order_date=date.today(),
+        good_received_note_date=date.today(),
+        created_date=date.today(),
+        first_suppliers_id=supplier.id,
+        added_date=datetime.utcnow(),
+        status="approved",
+    )
+    db.add(po)
+    db.flush()
+
+    po_item = PurchasingOrderItems(
+        quantity=qty,
+        unit_price=unit_price,
+        warrenty_month="12",
+        created_date=date.today(),
+        product_id=product.id,
+        purchasingorders_id=po.id,
+        added_date=datetime.utcnow(),
+    )
+    db.add(po_item)
+    db.flush()
+
+    grn = GoodReceivedNote(
+        good_received_no=f"GRN-TEST-{tag}",
+        good_received_date=date.today(),
+        supplier_invoice_no=f"SINV-TEST-{tag}",
+        supplier_invoice_date=date.today(),
+        branch_code=branch.branch_code,
+        created_date=date.today(),
+        good_received_locations_id=location.id,
+        purchasingorders_id=po.id,
+        added_date=datetime.utcnow(),
+    )
+    db.add(grn)
+    db.flush()
+
+    for i in range(qty):
+        barcode = f"BC-TEST-{tag}-{i}"
+        db.add(GoodReceivedItems(
+            good_received_note=grn.good_received_no,
+            barcode=barcode,
+            branch_code=branch.branch_code,
+            active=True,
+            created_date=date.today(),
+            purchasing_order_items_id=po_item.id,
+            added_date=datetime.utcnow(),
+        ))
+        db.add(SalesStock(
+            product_id=product.id,
+            barcode=barcode,
+            branch_code=branch.branch_code,
+            location_id=location.id,
+            good_received_note_id=grn.id,
+            purchasing_order_items_id=po_item.id,
+            warranty_month="12",
+            status="available",
+            is_active=True,
+            added_date=datetime.utcnow(),
+        ))
+    db.flush()
 
 
 class TestPartialSO:
-    @_STALE_INVOICE_SCHEMA
     def test_convert_single_item_creates_invoice_and_completes(
-        self, db, make_branch, make_customer, make_product
+        self, db, make_branch, make_customer, make_supplier, make_location, make_product
     ):
-        branch, customer, product = make_branch(), make_customer(), make_product()
-        quote = _make_quote(db, branch, customer, [_item(product.id, qty=2)])
+        branch, customer, supplier, product = make_branch(), make_customer(), make_supplier(), make_product()
+        location = make_location(branch=branch)
+        _seed_stock(db, branch, location, supplier, product, qty=2)
+        quote = _make_approved_quote(db, branch, customer, [_item(product.id, qty=2)])
         item = quote.items[0]
 
         invoice = SERVICE.create_partial_so(
@@ -290,13 +351,24 @@ class TestPartialSO:
         assert quote.items[0].item_status == "so_created"
         assert quote.status == "completed"
 
-    @_STALE_INVOICE_SCHEMA
+        # The two physical units backing this item must now be consumed —
+        # this is the exact class of bug fixed on the stock-availability
+        # check: a status flag alone must never imply real stock.
+        from app.modules.inventory.models import SalesStock
+        remaining_available = db.query(SalesStock).filter(
+            SalesStock.product_id == product.id,
+            SalesStock.status == "available",
+        ).count()
+        assert remaining_available == 0
+
     def test_multi_item_partial_marks_partially_processed(
-        self, db, make_branch, make_customer, make_product
+        self, db, make_branch, make_customer, make_supplier, make_location, make_product
     ):
-        branch, customer = make_branch(), make_customer()
+        branch, customer, supplier = make_branch(), make_customer(), make_supplier()
+        location = make_location(branch=branch)
         p1, p2 = make_product(), make_product()
-        quote = _make_quote(db, branch, customer, [_item(p1.id), _item(p2.id)])
+        _seed_stock(db, branch, location, supplier, p1, qty=2)
+        quote = _make_approved_quote(db, branch, customer, [_item(p1.id), _item(p2.id)])
         first_item = quote.items[0]
 
         SERVICE.create_partial_so(
@@ -312,12 +384,13 @@ class TestPartialSO:
         assert "so_created" in statuses
         assert "pending" in statuses
 
-    @_STALE_INVOICE_SCHEMA
     def test_convert_already_converted_item_400(
-        self, db, make_branch, make_customer, make_product
+        self, db, make_branch, make_customer, make_supplier, make_location, make_product
     ):
-        branch, customer, product = make_branch(), make_customer(), make_product()
-        quote = _make_quote(db, branch, customer, [_item(product.id, qty=2)])
+        branch, customer, supplier, product = make_branch(), make_customer(), make_supplier(), make_product()
+        location = make_location(branch=branch)
+        _seed_stock(db, branch, location, supplier, product, qty=2)
+        quote = _make_approved_quote(db, branch, customer, [_item(product.id, qty=2)])
         item = quote.items[0]
         SERVICE.create_partial_so(
             db, quote.id,
@@ -337,10 +410,12 @@ class TestPartialSO:
         assert exc.value.status_code == 400
 
     def test_qty_exceeding_remaining_400(
-        self, db, make_branch, make_customer, make_product
+        self, db, make_branch, make_customer, make_supplier, make_location, make_product
     ):
-        branch, customer, product = make_branch(), make_customer(), make_product()
-        quote = _make_quote(db, branch, customer, [_item(product.id, qty=2)])
+        branch, customer, supplier, product = make_branch(), make_customer(), make_supplier(), make_product()
+        location = make_location(branch=branch)
+        _seed_stock(db, branch, location, supplier, product, qty=5)
+        quote = _make_approved_quote(db, branch, customer, [_item(product.id, qty=2)])
         item = quote.items[0]
         with pytest.raises(HTTPException) as exc:
             SERVICE.create_partial_so(
@@ -351,6 +426,26 @@ class TestPartialSO:
                 ),
             )
         assert exc.value.status_code == 400
+
+    def test_insufficient_real_stock_409(
+        self, db, make_branch, make_customer, make_supplier, make_location, make_product
+    ):
+        """Item_status/converted_qty say nothing was converted yet, and the
+        requested qty is within the quote line's remaining amount — but no
+        sales_stock exists at all. This must be rejected, not silently
+        allowed through on the item's bookkeeping fields alone."""
+        branch, customer, product = make_branch(), make_customer(), make_product()
+        quote = _make_approved_quote(db, branch, customer, [_item(product.id, qty=2)])
+        item = quote.items[0]
+        with pytest.raises(HTTPException) as exc:
+            SERVICE.create_partial_so(
+                db, quote.id,
+                CreatePartialSORequest(
+                    items=[PartialSOItemRequest(item_id=item.id, quantity=2)],
+                    payment_method="cash",
+                ),
+            )
+        assert exc.value.status_code == 409
 
     def test_convert_on_cancelled_quote_400(
         self, db, make_branch, make_customer, make_product

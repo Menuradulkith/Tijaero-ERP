@@ -3,9 +3,10 @@ from decimal import Decimal
 from typing import List, Optional, Tuple
 from app.core import timezone as tz
 
+from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.modules.sales.models import Invoice, InvoiceItems
 from app.modules.sales.quotation_models import (DiscountType, QuoteStatus,
-                                                QuoteType, SalesQuote,
+                                                SalesQuote,
                                                 SalesQuoteItem)
 from app.modules.sales.quotation_repository import sales_quote_repository
 from app.modules.sales.quotation_schemas import (ConvertToInvoiceRequest,
@@ -44,7 +45,33 @@ class SalesQuoteService:
     
     def get_quote_by_id(self, db: Session, quote_id: int) -> Optional[SalesQuote]:
         """Get quote by ID"""
-        return self.repository.get_by_id_with_items(db, quote_id)
+        quote = self.repository.get_by_id_with_items(db, quote_id)
+        if quote:
+            self._attach_related_purchase_orders(db, quote)
+        return quote
+
+    def _attach_related_purchase_orders(self, db: Session, quote: SalesQuote) -> None:
+        """Stamp quote.related_purchase_orders — every PO generated from this
+        quote, for the quote detail page's traceability panel."""
+        from sqlalchemy.orm import joinedload
+        from app.modules.purchasing.models import PurchasingOrder
+
+        orders = (
+            db.query(PurchasingOrder)
+            .options(joinedload(PurchasingOrder.first_supplier))
+            .filter(PurchasingOrder.sales_quote_id == quote.id)
+            .order_by(PurchasingOrder.id)
+            .all()
+        )
+        quote.related_purchase_orders = [
+            {
+                "id": po.id,
+                "purchasing_order_no": po.purchasing_order_no,
+                "status": po.status,
+                "supplier_name": po.first_supplier.company_name if po.first_supplier else None,
+            }
+            for po in orders
+        ]
     
     def get_quote_by_no(self, db: Session, quote_no: str) -> Optional[SalesQuote]:
         """Get quote by quote number"""
@@ -69,7 +96,7 @@ class SalesQuoteService:
         quote_data: SalesQuoteCreate,
         created_by: Optional[int] = None
     ) -> SalesQuote:
-        """Create a new quote (quotation or proforma)"""
+        """Create a new quote"""
         
         # ── Validate branch is active ──
         from app.common.branch_validation import validate_branch_is_active
@@ -121,7 +148,7 @@ class SalesQuoteService:
             created_date_time=now,
             valid_until=quote_data.valid_until,
             expected_delivery_date=quote_data.expected_delivery_date,
-            status=QuoteStatus.DRAFT.value,
+            status=QuoteStatus.PENDING_APPROVAL.value,
             approval=False,
             is_estimate=is_estimate,
             remarks=quote_data.remarks,
@@ -156,6 +183,22 @@ class SalesQuoteService:
         )
         db.commit()
 
+        # Every new quote starts pending approval — create the approval
+        # request the same way PurchasingOrderService.create_order does for POs.
+        approval_record = approval_service.create_approval_request(
+            db=db,
+            approval_type=ApprovalType.SALES_QUOTE,
+            reference_id=created.id,
+            reference_no=created.quote_no,
+            branch_code=created.branch_code,
+            requested_by=created_by or 0,
+            remarks="Sales quotation pending approval.",
+            approval_group="sales_quote_approvers",
+        )
+        created.approval_id = approval_record.id
+        db.commit()
+        db.refresh(created)
+
         return created
 
     def update_quote(
@@ -183,7 +226,9 @@ class SalesQuoteService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot edit quote in '{quote.status}' status"
             )
-        
+
+        was_approved = quote.status == QuoteStatus.APPROVED.value
+
         # ── Validate customer is active (if customer is being changed) ──
         update_dict = quote_data.model_dump(exclude_unset=True, exclude={'items'})
         if 'customer_id' in update_dict:
@@ -256,8 +301,38 @@ class SalesQuoteService:
             )
             db.commit()
 
+        # Editing an approved quote invalidates that approval — reset it to
+        # pending_approval and require re-approval, mirroring
+        # PurchasingOrderService.update_order's re-approval-on-edit behavior.
+        if was_approved and changed_fields:
+            from app.modules.common.models import Approvals
+
+            updated.status = QuoteStatus.PENDING_APPROVAL.value
+            if updated.approval_id:
+                approval_record = db.query(Approvals).filter(
+                    Approvals.id == updated.approval_id
+                ).with_for_update().first()
+                if approval_record:
+                    approval_record.status = ApprovalStatus.PENDING
+                    approval_record.status_changed_by = None
+                    approval_record.remark = "Re-approval required: quotation was edited after approval."
+            else:
+                approval_record = approval_service.create_approval_request(
+                    db=db,
+                    approval_type=ApprovalType.SALES_QUOTE,
+                    reference_id=updated.id,
+                    reference_no=updated.quote_no,
+                    branch_code=updated.branch_code,
+                    requested_by=user_id or 0,
+                    remarks="Re-approval required: quotation was edited after approval.",
+                    approval_group="sales_quote_approvers",
+                )
+                updated.approval_id = approval_record.id
+            db.commit()
+            db.refresh(updated)
+
         return updated
-    
+
     def delete_quote(self, db: Session, quote_id: int, user_id: Optional[int] = None) -> bool:
         """Delete a quote"""
         quote = self.repository.get_by_id(db, quote_id)
@@ -351,13 +426,108 @@ class SalesQuoteService:
         return updated
 
     def submit_for_approval(self, db: Session, quote_id: int, user_id: Optional[int] = None) -> SalesQuote:
-        """Submit quote for approval"""
-        return self.update_status(
-            db, quote_id,
-            SalesQuoteStatusUpdate(status=QuoteStatusEnum.PENDING_APPROVAL),
-            user_id=user_id
+        """Resubmit a quote for approval (e.g. after editing a rejected quote),
+        creating a fresh approval request the same way create_quote does for a
+        brand-new one."""
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quote with ID {quote_id} not found"
+            )
+
+        if not self._is_valid_status_transition(quote.status, QuoteStatus.PENDING_APPROVAL.value):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot submit quote in '{quote.status}' status for approval"
+            )
+
+        quote.status = QuoteStatus.PENDING_APPROVAL.value
+
+        approval_record = approval_service.create_approval_request(
+            db=db,
+            approval_type=ApprovalType.SALES_QUOTE,
+            reference_id=quote.id,
+            reference_no=quote.quote_no,
+            branch_code=quote.branch_code,
+            requested_by=user_id or 0,
+            remarks="Sales quotation resubmitted for approval.",
+            approval_group="sales_quote_approvers",
         )
-    
+        quote.approval_id = approval_record.id
+
+        from app.common.audit import log_audit
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="status_change",
+            entity_type="sales_quote",
+            entity_id=quote.id,
+            changes={"status": quote.status},
+        )
+        db.commit()
+        db.refresh(quote)
+        return quote
+
+    def resolve_quote_approval(
+        self, db: Session, quote_id: int, approve: bool, remarks: Optional[str] = None, user_id: int = 0
+    ) -> SalesQuote:
+        """
+        Approve or reject a pending sales quotation. Mirrors
+        PurchasingOrderService.approve_order: locks the quote and its linked
+        Approvals row and updates both together. Called only via the generic
+        approval dispatch (approval_service._dispatch_approve/_dispatch_reject),
+        never directly from a quotation-specific endpoint.
+        """
+        from app.modules.common.models import Approvals
+
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quote with ID {quote_id} not found"
+            )
+
+        if quote.status != QuoteStatus.PENDING_APPROVAL.value:
+            action_word = "approve" if approve else "reject"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot {action_word}. Quote is not pending approval. Current status: {quote.status}"
+            )
+
+        if quote.approval_id:
+            approval_record = db.query(Approvals).filter(
+                Approvals.id == quote.approval_id
+            ).with_for_update().first()
+            if approval_record and approval_record.status == ApprovalStatus.PENDING:
+                approval_record.status = ApprovalStatus.APPROVED if approve else ApprovalStatus.REJECTED
+                approval_record.status_changed_by = user_id
+                approval_record.remark = remarks or f"{'Approved' if approve else 'Rejected'} by user {user_id}"
+
+        now = tz.now()
+        if approve:
+            quote.status = QuoteStatus.APPROVED.value
+            quote.approval = True
+            quote.approved_date = now
+        else:
+            quote.status = QuoteStatus.REJECTED.value
+            quote.rejection_date = now
+            if remarks:
+                quote.rejection_reason = remarks
+
+        from app.common.audit import log_audit
+        log_audit(
+            db,
+            user_id=user_id,
+            action="approve" if approve else "reject",
+            entity_type="sales_quote",
+            entity_id=quote.id,
+            changes={"status": quote.status, "remarks": remarks},
+        )
+        db.commit()
+        db.refresh(quote)
+        return quote
+
     def submit_to_customer(self, db: Session, quote_id: int) -> SalesQuote:
         """Submit quote to customer - updates status and sets submitted_date"""
         # Lock the quote row to prevent concurrent status changes
@@ -383,7 +553,7 @@ class SalesQuoteService:
         return self.repository.update(db, quote)
     
     def mark_under_review(self, db: Session, quote_id: int) -> SalesQuote:
-        """Mark quote as under review by customer (proforma stage)"""
+        """Mark quote as under review by customer"""
         # Lock the quote row to prevent concurrent status changes
         quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
         if not quote:
@@ -399,42 +569,6 @@ class SalesQuoteService:
             )
         
         quote.status = QuoteStatus.UNDER_REVIEW.value
-        return self.repository.update(db, quote)
-    
-    def toggle_proforma(self, db: Session, quote_id: int, is_proforma: bool) -> SalesQuote:
-        """Promote a quotation to proforma invoice type (one-way: quotation → proforma only)"""
-        # Lock the quote row to prevent concurrent type/status changes
-        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
-        if not quote:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Quote with ID {quote_id} not found"
-            )
-        
-        # Only allow toggle before conversion
-        if quote.status in [QuoteStatus.CONVERTED.value, QuoteStatus.CONVERTED_TO_INVOICE.value, QuoteStatus.CANCELLED.value]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot change type in '{quote.status}' status"
-            )
-        
-        # Enforce one-way: a Quotation can be promoted to Proforma, but not the reverse
-        if not is_proforma:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A Proforma Invoice cannot be converted back to a Quotation. Create a new Quotation instead."
-            )
-        
-        # Only quotations can be promoted
-        if quote.quote_type != QuoteType.QUOTATION.value:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only a Quotation can be promoted to a Proforma Invoice."
-            )
-        
-        quote.quote_type = QuoteType.PROFORMA.value
-        quote.is_estimate = False
-        
         return self.repository.update(db, quote)
     
     def customer_approve(self, db: Session, quote_id: int, approved_by: Optional[str] = None, remarks: Optional[str] = None) -> SalesQuote:
@@ -468,13 +602,6 @@ class SalesQuoteService:
             quote.remarks = remarks
         
         return self.repository.update(db, quote)
-    
-    def approve_quote(self, db: Session, quote_id: int) -> SalesQuote:
-        """Approve a quote"""
-        return self.update_status(
-            db, quote_id,
-            SalesQuoteStatusUpdate(status=QuoteStatusEnum.APPROVED)
-        )
     
     def reject_quote(self, db: Session, quote_id: int, reason: Optional[str] = None, cancel_linked_po: bool = False, user_id: Optional[int] = None) -> SalesQuote:
         """Reject a quote with optional reason and optional PO cancellation"""
@@ -567,7 +694,7 @@ class SalesQuoteService:
     
     # ==================== Conversion to Invoice ====================
 
-    def _recompute_quote_status(self, db: Session, quote: SalesQuote) -> None:
+    def recompute_quote_status(self, db: Session, quote: SalesQuote) -> None:
         """
         Recompute the overall quote status based on item statuses.
 
@@ -631,11 +758,30 @@ class SalesQuoteService:
                 detail=f"Cannot create SO — quotation is in terminal status: {quote.status}"
             )
 
+        # A Sales Order can only be created once the quotation has been
+        # approved. `approval` (not `status`) is the gate: once some items
+        # are converted the header status moves on to partially_processed,
+        # but `approval` stays True from the original sign-off.
+        if not quote.approval:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot create SO — this quotation has not been approved yet."
+            )
+
+        from app.modules.inventory.models import SalesStock
+        from app.common.enums import StockStatus
+
         # Build a lookup of quote items by id
         item_map = {i.id: i for i in quote.items}
 
-        # Validate requested items and quantities
-        invoice_items_to_create = []
+        # Validate requested items, quantities, and — critically — real
+        # physical stock. item_status alone (po_created/itn_created) only
+        # means procurement was *initiated*, not that anything has actually
+        # arrived (see check_stock_availability above for the same class of
+        # bug). Lock the matching sales_stock rows here so two concurrent SO
+        # conversions, or an SO conversion racing a normal POS sale, can't
+        # both claim the same physical unit.
+        invoice_items_to_create = []  # (qi, [SalesStock, ...])
         for req_item in request.items:
             qi = item_map.get(req_item.item_id)
             if not qi:
@@ -650,7 +796,29 @@ class SalesQuoteService:
                     status_code=400,
                     detail=f"Requested qty {req_item.quantity} exceeds remaining qty {remaining} for item {req_item.item_id}"
                 )
-            invoice_items_to_create.append((qi, req_item.quantity))
+
+            allocated_units = (
+                db.query(SalesStock)
+                .filter(
+                    SalesStock.product_id == qi.product_id,
+                    SalesStock.branch_code == quote.branch_code,
+                    SalesStock.status == StockStatus.AVAILABLE,
+                    SalesStock.is_active == True,
+                )
+                .order_by(SalesStock.id)
+                .with_for_update(skip_locked=True)
+                .limit(req_item.quantity)
+                .all()
+            )
+            if len(allocated_units) < req_item.quantity:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Only {len(allocated_units)} unit(s) of item {req_item.item_id} are actually in "
+                        f"stock at {quote.branch_code} right now ({req_item.quantity} requested)."
+                    ),
+                )
+            invoice_items_to_create.append((qi, allocated_units))
 
         # Generate invoice number with branch code: INV-BranchCode-YYYY-XXXXX
         now = tz.now()
@@ -686,6 +854,10 @@ class SalesQuoteService:
             bank_transfer_amount=0,
             credit_amount=0,
             payment_adjustments=0,
+            # NOT NULL on the invoices table regardless of payment method —
+            # same "default to today" convention used by the normal invoice
+            # creation path (SalesService.create_invoice) for non-cheque sales.
+            cheque_date=now.date(),
             remarks=request.remarks or f"Partial SO from {quote.quote_no}",
             created_date=now.date(),
             created_date_time=now,
@@ -699,22 +871,30 @@ class SalesQuoteService:
         db.add(invoice)
         db.flush()
 
-        for qi, qty in invoice_items_to_create:
-            db.add(InvoiceItems(
-                invoice_id=invoice.id,
-                product_id=qi.product_id,
-                quantity=qty,
-                selling_price=qi.selling_price,
-                minimum_selling_price=qi.minimum_selling_price,
-                warrenty_month=qi.warrenty_month,
-                created_date=now,
-            ))
-            qi.converted_qty = (qi.converted_qty or 0) + qty
+        for qi, units in invoice_items_to_create:
+            # One InvoiceItems row per physical unit consumed — same
+            # convention as the normal barcode-less POS sale path, so every
+            # unit stays traceable/restorable on approve/cancel/return.
+            for unit in units:
+                unit.status = StockStatus.SOLD
+                unit.is_active = False
+                db.add(InvoiceItems(
+                    invoice_id=invoice.id,
+                    product_id=qi.product_id,
+                    quantity=1,
+                    selling_price=qi.selling_price,
+                    minimum_selling_price=qi.minimum_selling_price,
+                    warrenty_month=qi.warrenty_month,
+                    created_date=now,
+                    sales_stock_id=unit.id,
+                    barcode=unit.barcode,
+                ))
+            qi.converted_qty = (qi.converted_qty or 0) + len(units)
             # Mark item as so_created regardless of partial or full qty
             qi.item_status = "so_created"
 
         # Recompute overall quote status
-        self._recompute_quote_status(db, quote)
+        self.recompute_quote_status(db, quote)
         db.commit()
         db.refresh(invoice)
         return invoice
@@ -755,7 +935,7 @@ class SalesQuoteService:
         if reason:
             item.remark = (item.remark or "") + f" [Cancelled: {reason}]"
 
-        self._recompute_quote_status(db, quote)
+        self.recompute_quote_status(db, quote)
         db.commit()
         db.refresh(quote)
         return quote
@@ -788,7 +968,7 @@ class SalesQuoteService:
                 continue  # Protect po_created, itn_created, so_created, completed, cancelled
             item.item_status = "procurement"
 
-        self._recompute_quote_status(db, quote)
+        self.recompute_quote_status(db, quote)
         db.commit()
         db.refresh(quote)
         return quote
@@ -806,13 +986,24 @@ class SalesQuoteService:
         from app.modules.sales.quotation_models import SalesQuoteItem
         if not product_ids:
             return
-        for qi in db.query(SalesQuoteItem).filter(
+        matched = db.query(SalesQuoteItem).filter(
             SalesQuoteItem.quote_id == quote_id,
             SalesQuoteItem.product_id.in_(product_ids),
             SalesQuoteItem.item_status == "procurement",
-        ).all():
+        ).all()
+        if not matched:
+            return
+        for qi in matched:
             qi.item_status = "itn_created"
             qi.stock_status = "in_stock"
+
+        # Keep the quote header in sync — without this it can go stale after
+        # a transfer completes (still showing e.g. 'approved' even though an
+        # item has now progressed past pending).
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).first()
+        if quote:
+            db.refresh(quote, attribute_names=["items"])
+            self.recompute_quote_status(db, quote)
 
     def mark_items_so_created(
         self,
@@ -839,7 +1030,7 @@ class SalesQuoteService:
             if item.product_id in product_set and item.item_status not in ("so_created", "cancelled", "completed"):
                 item.item_status = "so_created"
                 item.converted_qty = item.quantity  # fully converted
-        self._recompute_quote_status(db, quote)
+        self.recompute_quote_status(db, quote)
         db.commit()
         db.refresh(quote)
         return quote
@@ -851,7 +1042,7 @@ class SalesQuoteService:
         conversion_data: ConvertToInvoiceRequest,
         converted_by: Optional[int] = None
     ) -> Invoice:
-        """Convert quote/proforma to invoice"""
+        """Convert quote to invoice"""
         # Lock the quote row to prevent concurrent conversions
         quote = db.query(SalesQuote).filter(
             SalesQuote.id == quote_id
@@ -1039,14 +1230,7 @@ class SalesQuoteService:
                 detail=f"Quote with ID {quote_id} not found"
             )
         db.refresh(original_quote, attribute_names=["items"])
-        
-        # Only quotations can have revisions
-        if original_quote.quote_type != QuoteType.QUOTATION.value:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only quotations can have revisions. For proforma, create a new document."
-            )
-        
+
         # Get next revision number
         parent_id = original_quote.parent_quote_id or original_quote.id
         next_revision = self.repository.get_next_revision_number(db, parent_id)
@@ -1245,7 +1429,18 @@ class SalesQuoteService:
         all_sufficient = True
         
         for item in quote.items:
-            remaining_qty = item.quantity - (item.converted_qty or 0)
+            # converted_qty is bumped the moment a PO or ITN is *created* for
+            # this line (see PurchasingOrderService._fulfill_quote_items /
+            # mark_quote_items_itn_created_by_product) — long before any GRN
+            # or transfer actually lands physical stock. Treating that as
+            # "already covered" here would zero out remaining_qty and make
+            # is_sufficient (0 >= 0) true, wrongly reporting an unreceived
+            # item as in_stock. Only a genuine SO conversion should reduce
+            # the physical quantity still needed.
+            if item.item_status in ("po_created", "itn_created"):
+                remaining_qty = item.quantity
+            else:
+                remaining_qty = item.quantity - (item.converted_qty or 0)
             if remaining_qty < 0:
                 remaining_qty = 0
 
@@ -1420,7 +1615,7 @@ class SalesQuoteService:
         # Update quote status based on item statuses
         quote.po_created_date = now
         quote.linked_po_id = po.id
-        self._recompute_quote_status(db, quote)
+        self.recompute_quote_status(db, quote)
         
         db.commit()
         db.refresh(po)

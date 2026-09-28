@@ -51,11 +51,9 @@ def seed_permissions():
         {"name": "create_quotations", "resource": "quotations", "action": "create", "description": "Create quotations"},
         {"name": "update_quotations", "resource": "quotations", "action": "update", "description": "Update quotations"},
         {"name": "delete_quotations", "resource": "quotations", "action": "delete", "description": "Delete quotations"},
-        # Proforma Invoices
-        {"name": "view_proforma_invoices", "resource": "proforma_invoices", "action": "view", "description": "View proforma invoices"},
-        {"name": "create_proforma_invoices", "resource": "proforma_invoices", "action": "create", "description": "Create proforma invoices"},
-        {"name": "update_proforma_invoices", "resource": "proforma_invoices", "action": "update", "description": "Update proforma invoices"},
-        {"name": "delete_proforma_invoices", "resource": "proforma_invoices", "action": "delete", "description": "Delete proforma invoices"},
+        # Quotation Approvals
+        {"name": "view_quotation_approvals", "resource": "quotation_approvals", "action": "view", "description": "View quotation approvals"},
+        {"name": "approve_quotation_approvals", "resource": "quotation_approvals", "action": "approve", "description": "Approve/reject quotations"},
         # Sales Orders
         {"name": "view_sales_orders", "resource": "sales_orders", "action": "view", "description": "View sales orders"},
         {"name": "create_sales_orders", "resource": "sales_orders", "action": "create", "description": "Create sales orders"},
@@ -463,7 +461,7 @@ def seed_permissions():
                 "view_sales_dashboard",
                 "view_customers", "create_customers", "update_customers", "delete_customers",
                 "view_quotations", "create_quotations", "update_quotations", "delete_quotations",
-                "view_proforma_invoices", "create_proforma_invoices", "update_proforma_invoices", "delete_proforma_invoices",
+                "view_quotation_approvals", "approve_quotation_approvals",
                 "view_sales_orders", "create_sales_orders", "update_sales_orders", "delete_sales_orders",
                 "view_so_approvals", "approve_so_approvals",
                 "view_sales_returns", "create_sales_returns", "update_sales_returns", "delete_sales_returns",
@@ -488,7 +486,7 @@ def seed_permissions():
                 "view_sales_dashboard",
                 "view_customers", "create_customers",
                 "view_quotations", "create_quotations",
-                "view_proforma_invoices", "create_proforma_invoices",
+                "view_quotation_approvals",
                 "view_sales_orders", "create_sales_orders",
                 "view_sales_returns", "create_sales_returns",
                 "view_sales_track",
@@ -684,7 +682,7 @@ def seed_permissions():
                 "view_sales_dashboard",
                 "view_customers", "create_customers",
                 "view_quotations", "create_quotations",
-                "view_proforma_invoices", "create_proforma_invoices",
+                "view_quotation_approvals", "approve_quotation_approvals",
                 "view_sales_orders", "create_sales_orders",
                 "view_so_approvals", "approve_so_approvals",
                 "view_sales_returns",
@@ -718,7 +716,7 @@ def seed_permissions():
             "permissions": perms(
                 "view_dashboard",
                 # Sales
-                "view_sales_dashboard", "view_customers", "view_quotations", "view_proforma_invoices",
+                "view_sales_dashboard", "view_customers", "view_quotations", "view_quotation_approvals",
                 "view_sales_orders", "view_so_approvals", "view_sales_returns", "view_sales_return_approvals",
                 "view_coupons", "view_gift_vouchers", "view_agent_commissions", "view_commission_approvals",
                 "view_sales_settings", "view_sales_track",

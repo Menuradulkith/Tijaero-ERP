@@ -13,13 +13,12 @@ import {
   RejectQuoteRequest,
   SalesQuote,
   SalesQuoteCreate,
+  SalesQuoteDetail,
   SalesQuoteList,
   SalesQuoteStatusUpdate,
   SalesQuoteUpdate,
   SalesQuoteWithItems,
   StockAvailabilityResponse,
-  ToggleProformaRequest,
-  ToggleProformaResponse
 } from "./quotation-types";
 
 const BASE_URL = "/sales/quotes";
@@ -57,18 +56,6 @@ export const quotationApi = {
   },
 
   /**
-   * Get proforma invoices only (exact pricing)
-   */
-  getProformaInvoices: async (params?: {
-    status?: QuoteStatus;
-    page?: number;
-    per_page?: number;
-  }): Promise<SalesQuoteList> => {
-    const response = await apiClient.get<SalesQuoteList>(`${BASE_URL}/proforma`, { params });
-    return response.data;
-  },
-
-  /**
    * Get quotes expiring within specified days
    */
   getExpiring: async (days: number = 7): Promise<SalesQuote[]> => {
@@ -83,13 +70,13 @@ export const quotationApi = {
   /**
    * Get quote by ID with items
    */
-  getById: async (id: number): Promise<SalesQuoteWithItems> => {
-    const response = await apiClient.get<SalesQuoteWithItems>(`${BASE_URL}/${id}`);
+  getById: async (id: number): Promise<SalesQuoteDetail> => {
+    const response = await apiClient.get<SalesQuoteDetail>(`${BASE_URL}/${id}`);
     return response.data;
   },
 
   /**
-   * Create a new quote (quotation or proforma)
+   * Create a new quote
    */
   create: async (data: SalesQuoteCreate): Promise<SalesQuoteWithItems> => {
     const response = await apiClient.post<SalesQuoteWithItems>(`${BASE_URL}/`, data);
@@ -101,14 +88,6 @@ export const quotationApi = {
    */
   createQuotation: async (data: SalesQuoteCreate): Promise<SalesQuoteWithItems> => {
     const response = await apiClient.post<SalesQuoteWithItems>(`${BASE_URL}/quotation`, data);
-    return response.data;
-  },
-
-  /**
-   * Create a new proforma invoice (exact) - shorthand
-   */
-  createProforma: async (data: SalesQuoteCreate): Promise<SalesQuoteWithItems> => {
-    const response = await apiClient.post<SalesQuoteWithItems>(`${BASE_URL}/proforma`, data);
     return response.data;
   },
 
@@ -156,23 +135,8 @@ export const quotationApi = {
     return response.data;
   },
 
-  /**
-   * Approve a quote
-   */
-  approve: async (id: number): Promise<SalesQuote> => {
-    const response = await apiClient.post<SalesQuote>(`${BASE_URL}/${id}/approve`);
-    return response.data;
-  },
-
-  /**
-   * Reject a quote
-   */
-  reject: async (id: number, reason?: string): Promise<SalesQuote> => {
-    const response = await apiClient.post<SalesQuote>(`${BASE_URL}/${id}/reject`, null, {
-      params: { reason },
-    });
-    return response.data;
-  },
+  // Approving/rejecting a quotation flows only through the generic
+  // /common/approvals dashboard now (see approvalsApi in @/modules/common/api).
 
   /**
    * Mark quote as sent to customer
@@ -219,17 +183,6 @@ export const quotationApi = {
   },
 
   /**
-   * Toggle proforma invoice status
-   */
-  toggleProforma: async (id: number, data: ToggleProformaRequest): Promise<ToggleProformaResponse> => {
-    const response = await apiClient.post<ToggleProformaResponse>(
-      `${BASE_URL}/${id}/toggle-proforma`,
-      data
-    );
-    return response.data;
-  },
-
-  /**
    * Record customer approval
    */
   customerApprove: async (id: number, data?: CustomerApprovalRequest): Promise<SalesQuote> => {
@@ -254,7 +207,7 @@ export const quotationApi = {
   // ==================== Conversion ====================
 
   /**
-   * Convert quote/proforma to invoice
+   * Convert quote to invoice
    */
   convertToInvoice: async (
     id: number,

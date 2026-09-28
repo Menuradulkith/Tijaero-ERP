@@ -298,17 +298,17 @@ class CustomerAdvancePaymentService:
                 detail=f"Customer '{customer.customer_name}' is inactive. Please reactivate the customer before creating an advance payment."
             )
 
-        # Enforce one advance per proforma
-        if advance.proforma_invoice_id:
+        # Enforce one advance per quotation
+        if advance.quote_id:
             from app.modules.customers.models import CustomerAdvancePayments as CAP
             existing = self.db.query(CAP).filter(
-                CAP.proforma_invoice_id == advance.proforma_invoice_id,
+                CAP.quote_id == advance.quote_id,
                 CAP.active == True
             ).first()
             if existing:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"An advance payment already exists for this proforma invoice."
+                    detail=f"An advance payment already exists for this quotation."
                 )
 
         db_advance = self.repo.create(advance, created_by=user_id)

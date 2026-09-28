@@ -26,8 +26,6 @@ from app.modules.sales.quotation_schemas import (
     SalesQuoteUpdate,
     SalesQuoteWithItems,
     StockAvailabilityResponse,
-    ToggleProformaRequest,
-    ToggleProformaResponse,
 )
 from app.modules.sales.quotation_service import sales_quote_service
 from app.modules.sales.schemas import InvoiceWithItems
@@ -35,6 +33,31 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 router = APIRouter()
+
+
+def _attach_approved_by(db: Session, quote) -> None:
+    """Stamp quote.approved_by/approved_by_name from the linked Approvals
+    row, mirroring purchasing/api.py's _enrich_purchase_orders_with_user_fields.
+    Only set once the approval has actually been approved (not rejected) —
+    rejections are already tracked separately via rejection_date/rejection_reason."""
+    quote.approved_by = None
+    quote.approved_by_name = None
+    if not quote.approval_id:
+        return
+
+    from app.modules.common.models import Approvals
+
+    approval = db.query(Approvals).filter(Approvals.id == quote.approval_id).first()
+    if not approval or str(approval.status).lower() != "approved" or not approval.status_changed_by:
+        return
+
+    user = db.query(User).filter(User.id == approval.status_changed_by).first()
+    if not user:
+        return
+
+    quote.approved_by = user.id
+    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    quote.approved_by_name = full_name or user.username
 
 
 # ==================== List & Search ====================
@@ -58,7 +81,7 @@ def list_quotes(
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
     """
-    Get list of all sales quotes (quotations and proforma invoices) with filtering and pagination.
+    Get list of all sales quotes with filtering and pagination.
     """
     filters = SalesQuoteFilter(
         quote_type=quote_type,
@@ -101,26 +124,6 @@ def list_quotations(
 
 
 @router.get(
-    "/proforma",
-    response_model=SalesQuoteList,
-    summary="List Proforma Invoices Only",
-    dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
-)
-def list_proforma_invoices(
-    status: Optional[QuoteStatusEnum] = Query(None),
-    page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100000),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
-):
-    """Get list of proforma invoices (exact pricing) only."""
-    filters = SalesQuoteFilter(quote_type=QuoteTypeEnum.PROFORMA, status=status)
-    quotes, total, pages = sales_quote_service.get_filtered_quotes(db, filters, page, per_page)
-    
-    return SalesQuoteList(items=quotes, total=total, page=page, per_page=per_page, pages=pages)
-
-
-@router.get(
     "/expiring",
     response_model=List[SalesQuote],
     summary="Get Expiring Quotes",
@@ -139,7 +142,7 @@ def get_expiring_quotes(
 
 @router.get(
     "/{quote_id}",
-    response_model=SalesQuoteWithItems,
+    response_model=SalesQuoteDetail,
     summary="Get Quote by ID",
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
@@ -155,10 +158,11 @@ def get_quote(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Quote with ID {quote_id} not found"
         )
+    _attach_approved_by(db, quote)
     # Enrich with advance payment info if linked
     from app.modules.customers.models import CustomerAdvancePayments
     advance = db.query(CustomerAdvancePayments).filter(
-        CustomerAdvancePayments.proforma_invoice_id == quote_id,
+        CustomerAdvancePayments.quote_id == quote_id,
         CustomerAdvancePayments.active == True
     ).first()
     if advance:
@@ -182,12 +186,7 @@ def create_quote(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
 ):
-    """
-    Create a new sales quote (quotation or proforma invoice).
-    
-    - **quote_type**: 'quotation' for estimates, 'proforma' for exact pricing
-    - **is_estimate**: automatically set based on quote_type
-    """
+    """Create a new sales quote."""
     return sales_quote_service.create_quote(db, quote_data, current_user.id)
 
 
@@ -206,24 +205,6 @@ def create_quotation(
     """Create a new quotation (estimate) - shorthand endpoint."""
     quote_data.quote_type = QuoteTypeEnum.QUOTATION
     quote_data.is_estimate = True
-    return sales_quote_service.create_quote(db, quote_data, current_user.id)
-
-
-@router.post(
-    "/proforma",
-    response_model=SalesQuoteWithItems,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create Proforma Invoice",
-    dependencies=[Depends(require_permission(*Permissions.QUOTATION_CREATE))]
-)
-def create_proforma(
-    quote_data: SalesQuoteCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
-):
-    """Create a new proforma invoice (exact pricing) - shorthand endpoint."""
-    quote_data.quote_type = QuoteTypeEnum.PROFORMA
-    quote_data.is_estimate = False
     return sales_quote_service.create_quote(db, quote_data, current_user.id)
 
 
@@ -292,35 +273,9 @@ def submit_for_approval(
     return sales_quote_service.submit_for_approval(db, quote_id, user_id=current_user.id)
 
 
-@router.post(
-    "/{quote_id}/approve",
-    response_model=SalesQuote,
-    summary="Approve Quote",
-    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
-)
-def approve_quote(
-    quote_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
-):
-    """Approve a quote."""
-    return sales_quote_service.approve_quote(db, quote_id)
-
-
-@router.post(
-    "/{quote_id}/reject",
-    response_model=SalesQuote,
-    summary="Reject Quote",
-    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
-)
-def reject_quote(
-    quote_id: int,
-    reason: Optional[str] = Query(None, description="Rejection reason"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
-):
-    """Reject a quote."""
-    return sales_quote_service.reject_quote(db, quote_id, reason, user_id=current_user.id)
+# Approving/rejecting a quotation flows only through the generic
+# /common/approvals/{id}/approve|reject dashboard (same as Purchase Orders)
+# — see approval_service._dispatch_approve/_dispatch_reject.
 
 
 @router.post(
@@ -379,34 +334,8 @@ def mark_under_review(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
-    """Mark quote as under review by customer (proforma stage)."""
+    """Mark quote as under review by customer."""
     return sales_quote_service.mark_under_review(db, quote_id)
-
-
-@router.post(
-    "/{quote_id}/toggle-proforma",
-    response_model=ToggleProformaResponse,
-    summary="Toggle Proforma Invoice",
-    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
-)
-def toggle_proforma(
-    quote_id: int,
-    data: ToggleProformaRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
-):
-    """
-    Toggle between quotation and proforma invoice type.
-    When is_proforma=true, the quote is displayed as a Proforma Invoice.
-    """
-    quote = sales_quote_service.toggle_proforma(db, quote_id, data.is_proforma)
-    return ToggleProformaResponse(
-        quote_id=quote.id,
-        quote_no=quote.quote_no,
-        is_proforma=quote.quote_type == 'proforma',
-        quote_type=quote.quote_type,
-        message=f"Quote {quote.quote_no} is now a {'Proforma Invoice' if data.is_proforma else 'Quotation'}"
-    )
 
 
 @router.post(
@@ -482,8 +411,8 @@ def convert_to_invoice(
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
 ):
     """
-    Convert quote/proforma to invoice.
-    
+    Convert quote to invoice.
+
     Quote must be in 'accepted' or 'approved' status.
     For quotations with estimate prices, all items must have exact prices set.
     """
@@ -585,7 +514,6 @@ def create_revision(
     """
     Create a new revision of a quotation.
     
-    Only quotations can have revisions. For proforma invoices, create a new document.
     The original quote will be marked as 'revised'.
     """
     original_quote = sales_quote_service.get_quote_by_id(db, quote_id)

@@ -722,70 +722,6 @@ export default function UsersPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current user (or the
-  // "New User" placeholder while creating). A "Back to Users" link returns
-  // to the table.
-  const singleUserPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToUsers}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Users
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main" }}>
-              <PersonIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New User
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedUser && (
-        <Box>
-          <SelectableListItem
-            id={selectedUser.id}
-            isSelected
-            onClick={() => {}}
-            primaryText={
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-                <Avatar sx={{ bgcolor: "primary.main" }}>
-                  <PersonIcon fontSize="small" />
-                </Avatar>
-                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                  <span>{`${selectedUser.first_name} ${selectedUser.last_name}`.trim()}</span>
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    {selectedUser.username}
-                  </Typography>
-                </Box>
-              </Box>
-            }
-          />
-        </Box>
-      )}
-    </Paper>
-  );
-
   // Detail Panel
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -1201,7 +1137,16 @@ export default function UsersPage() {
       <MasterDetailLayout
         title="Users"
         titleSlot={
-          isUserDetailMode ? undefined : (
+          isUserDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToUsers}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Users
+          </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -1312,7 +1257,7 @@ export default function UsersPage() {
             </>
           )
         }
-        {...(isUserDetailMode ? { masterPanel: singleUserPanel, detailPanel } : { children: usersTablePanel })}
+        {...(isUserDetailMode ? { children: detailPanel } : { children: usersTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 

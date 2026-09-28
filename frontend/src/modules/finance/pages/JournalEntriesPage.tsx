@@ -58,7 +58,6 @@ import {
   FormSection,
   handleApiError,
   MasterDetailLayout,
-  SelectableListItem,
   showErrorToast,
   showSuccessToast,
   TPrintButton,
@@ -531,65 +530,6 @@ export default function JournalEntriesPage() {
 
   // ─── Detail Panel ──────────────────────────────────────────────────────────
 
-  // Detail mode: a narrow left panel showing only the current journal entry
-  // (or the "New Entry" placeholder while creating). A "Back to Journal
-  // Entries" link returns to the table.
-  const singleJEPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToJournalEntries}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Journal Entries
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
-              <ReceiptLongIcon />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Entry
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedJE && (
-        <SelectableListItem
-          id={selectedJE.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
-                <ReceiptLongIcon />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedJE.journal_entry_no}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -997,7 +937,16 @@ export default function JournalEntriesPage() {
         title="Journal Entries"
         icon={<ReceiptLongIcon color="primary" />}
         titleSlot={
-          isJEDetailMode ? undefined : (
+          isJEDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToJournalEntries}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Journal Entries
+          </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -1096,7 +1045,7 @@ export default function JournalEntriesPage() {
           )
         }
         {...(isJEDetailMode
-          ? { masterPanel: singleJEPanel, detailPanel }
+          ? { children: detailPanel }
           : { children: jeTablePanel })}
       />
 

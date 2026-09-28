@@ -18,13 +18,11 @@ import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import DeleteIcon from "@mui/icons-material/Delete";
 import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
-import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
     Alert,
     Autocomplete,
-    Avatar,
     Box,
     Button,
     CircularProgress,
@@ -53,20 +51,19 @@ import ClearIcon from "@mui/icons-material/Clear";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 // Import tijaero components
 import {
     ActionToolbar,
     canPrintDocument,
-    DetailPanelHeader,
     EmptyState,
     fmtLKR,
     FormSection,
+    getPaymentTermsLabel,
     getStatusProps,
     MasterDetailLayout,
     modernTableStyles,
     PURCHASE_ORDER_PAYMENT_METHOD,
-    SelectableListItem,
     showErrorToast,
     showSuccessToast,
     showWarningToast,
@@ -89,6 +86,10 @@ import {
 
 import { useReferenceData } from "@/hooks";
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import PurchaseOrderCreateWizard, {
+  type PurchaseOrderWizardHandle,
+  type PurchaseOrderWizardState,
+} from "@/modules/purchasing/components/PurchaseOrderCreateWizard";
 // OPTIMIZED: Removed individual imports for productsApi, branchApi - using aggregated endpoint
 import {
     DailyPOLimitCheck,
@@ -105,8 +106,6 @@ import { useAuthStore } from "@/state/authStore";
 import { hasPermission } from "@/auth/permissions";
 
 // Status options are now imported from common components (PO_STATUS_OPTIONS)
-
-const FORM_STEPS = ["Select Products", "Order Information"];
 
 /** Preview the next sequential number using the same format as the backend */
 const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
@@ -188,6 +187,7 @@ export default function PurchaseOrdersPage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const user = useAuthStore((s) => s.user);
 
@@ -197,6 +197,12 @@ export default function PurchaseOrdersPage() {
   // must be quick-filled back onto that specific row.
   const [compareSuppliersFor, setCompareSuppliersFor] = useState<{ itemId: string; productId: number } | null>(null);
   const [formStep, setFormStep] = useState(0);
+
+  // The create wizard's own step/validity/submitting state, reported up via
+  // onStateChange so the ActionToolbar's Back/Next/Confirm buttons (rendered
+  // here, not inside the wizard) always reflect what it's currently showing.
+  const wizardRef = useRef<PurchaseOrderWizardHandle>(null);
+  const [wizardState, setWizardState] = useState<PurchaseOrderWizardState | null>(null);
 
   // Confirm dialog for unsaved changes and delete actions
   const confirmDialog = useTConfirmDialog();
@@ -341,6 +347,7 @@ export default function PurchaseOrdersPage() {
       }
       setLineItems([]);
       setFormStep(0);
+      setWizardState(null);
       setTouched({}); // Reset validation state
       setCreditWarning({
         show: false,
@@ -533,6 +540,7 @@ export default function PurchaseOrdersPage() {
     }));
     setLineItems([]);
     setFormStep(0);
+    setWizardState(null);
     setTouched({}); // Reset validation state
     setCreditWarning({
       show: false,
@@ -735,63 +743,6 @@ export default function PurchaseOrdersPage() {
     };
   }, [orders, location.state, approvalNavTargetId, handleSelectOrderWithItems]);
 
-  // Handle navigation from Proforma page — auto-create PO with pre-filled items
-  const proformaNavHandled = useRef(false);
-  useEffect(() => {
-    interface ProformaNavState {
-      fromProforma?: boolean;
-      proformaId?: number;
-      proformaNo?: string;
-      branchCode?: string;
-      remarks?: string;
-      items?: Array<{
-        product_id: number;
-        quantity: number;
-        unit_price: number;
-        warrenty_month: string;
-        remark: string;
-      }>;
-    }
-    const navState = location.state as ProformaNavState | null;
-    if (
-      navState?.fromProforma &&
-      navState.items &&
-      !proformaNavHandled.current
-    ) {
-      proformaNavHandled.current = true;
-
-      // Enter create mode
-      startNewOrderInternal();
-
-      // Pre-fill form data
-      setFormData((prev) => ({
-        ...prev,
-        branch_code: navState.branchCode || prev.branch_code,
-        remarks: navState.remarks || "",
-        sales_quote_id: navState.proformaId,
-      }));
-
-      // Pre-fill line items from proforma
-      const prefilledItems: OrderLineItem[] = navState.items.map(
-        (item, idx) => ({
-          _id: `proforma-${idx}-${Date.now()}`,
-          product_id: item.product_id,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          warrenty_month: item.warrenty_month || "0",
-          remark: item.remark || "",
-        }),
-      );
-      setLineItems(prefilledItems);
-
-      showSuccessToast(
-        `Creating PO from Proforma ${navState.proformaNo || ""}. Fill in supplier details and save.`,
-      );
-
-      // Clear navigation state to prevent re-triggering
-      window.history.replaceState({}, document.title);
-    }
-  }, [location.state, startNewOrderInternal, setFormData]);
 
   // Handle navigation from Suppliers page — auto-create PO for supplier
   const supplierNavHandled = useRef(false);
@@ -1188,18 +1139,6 @@ export default function PurchaseOrdersPage() {
   const isFormValid =
     isProductsStepValid && isOrderInfoStepValid && !isDailyLimitExceeded;
 
-  const handleNextStep = useCallback(() => {
-    if (formStep < FORM_STEPS.length - 1) {
-      setFormStep((prev) => prev + 1);
-    }
-  }, [formStep]);
-
-  const handlePreviousStep = useCallback(() => {
-    if (formStep > 0) {
-      setFormStep((prev) => prev - 1);
-    }
-  }, [formStep]);
-
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   const handleExportCSV = async () => {
@@ -1270,11 +1209,23 @@ export default function PurchaseOrdersPage() {
         width: 130,
       },
       {
+        field: "required_date",
+        header: "GRN Date",
+        type: "date",
+        width: 130,
+      },
+      {
         field: "status",
         header: "Status",
         type: "status",
         statusMap: "purchaseOrder",
         width: 150,
+      },
+      {
+        field: "total_quantity",
+        header: "Quantity",
+        type: "number",
+        width: 100,
       },
       {
         field: "total_amount",
@@ -1336,65 +1287,6 @@ export default function PurchaseOrdersPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current order (or the
-  // "New Order" placeholder while creating). A "Back to Purchase Orders"
-  // link returns to the table.
-  const singlePurchaseOrderPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToOrders}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Purchase Orders
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
-              <ShoppingCartIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Order
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedOrder && (
-        <SelectableListItem
-          id={selectedOrder.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
-                <ShoppingCartIcon fontSize="small" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedOrder.purchasing_order_no || `PO-${selectedOrder.id}`}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box
       sx={{
@@ -1404,58 +1296,47 @@ export default function PurchaseOrdersPage() {
         overflow: "hidden",
       }}
     >
-      <DetailPanelHeader
-        breadcrumbs={[
-          { label: "Purchasing", href: "/purchasing" },
-          { label: "Purchase Orders", href: "/purchasing/orders" },
-          ...(selectedOrder || isCreating
-            ? [
-                {
-                  label: isCreating
-                    ? "New Order"
-                    : selectedOrder?.purchasing_order_no ||
-                      `PO-${selectedOrder?.id}`,
-                },
-              ]
-            : []),
-        ]}
-        title={
-          selectedOrder
-            ? selectedOrder.purchasing_order_no || `PO-${selectedOrder.id}`
-            : ""
-        }
-        titleIcon={<ShoppingCartIcon color="primary" />}
-        isCreating={isCreating}
-        createTitle="New Purchase Order"
-        noSelectionTitle="Select an Order"
-      />
-
       <ActionToolbar
         hasSelectedItem={!!selectedOrder}
         isCreating={isCreating}
         isEditing={isEditing}
-        isSaving={isSaving}
+        isSaving={isCreating ? !!wizardState?.isSubmitting : isSaving}
         isFormValid={!!isFormValid}
         onNew={handleNewOrder}
         onDuplicate={handleDuplicate}
-        onSave={handleSave}
-        onCancel={() => handleCancel(filteredOrders)}
-        onEdit={canEdit ? handleStartEdit : undefined}
+        onSave={isCreating ? undefined : handleSave}
+        onCancel={isCreating ? undefined : () => handleCancel(filteredOrders)}
+        onEdit={!isCreating && canEdit ? handleStartEdit : undefined}
         onDelete={canDelete ? handleDelete : undefined}
         canDelete={canDelete}
         endActions={
-          isCreating && formStep === 0 ? (
-            <Button
-              size="small"
-              variant="contained"
-              onClick={handleNextStep}
-              disabled={!isProductsStepValid}
-              endIcon={<ArrowForwardIcon />}
-            >
-              Next
-            </Button>
-          ) :
-          selectedOrder && !isCreating && !isEditing ? (
+          isCreating ? (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Button
+                size="small"
+                variant="contained"
+                color="error"
+                onClick={() => handleCancel(filteredOrders)}
+                disabled={wizardState?.isSubmitting}
+              >
+                Cancel New
+              </Button>
+              {!wizardState?.isFirstStep && (
+                <Button size="small" variant="outlined" onClick={() => wizardRef.current?.goBack()} disabled={wizardState?.isSubmitting}>
+                  Back
+                </Button>
+              )}
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => (wizardState?.isLastStep ? wizardRef.current?.confirm() : wizardRef.current?.goNext())}
+                disabled={!wizardState?.canAdvance}
+                endIcon={!wizardState?.isLastStep ? <ArrowForwardIcon /> : undefined}
+              >
+                {wizardState?.primaryActionLabel ?? "Next"}
+              </Button>
+            </Box>
+          ) : selectedOrder && !isEditing ? (
             <Box sx={{ display: "flex", gap: 1 }}>
               <Tooltip title={!canPrintDocument(selectedOrder.status, ["cancelled"]) ? `Cannot email: order is ${(selectedOrder.status || "").replace(/_/g, " ")}` : "Send via Email"}>
                 <span>
@@ -1479,36 +1360,27 @@ export default function PurchaseOrdersPage() {
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
-        {!selectedOrder && !isCreating ? (
+        {isCreating ? (
+          <PurchaseOrderCreateWizard
+            ref={wizardRef}
+            onStateChange={setWizardState}
+            onCancel={() => handleCancel(filteredOrders)}
+            onCreated={(result) => {
+              setIsCreating(false);
+              setIsEditing(false);
+              setWizardState(null);
+              const firstOrder = result.orders[0];
+              if (firstOrder) {
+                setTimeout(() => handleSelectOrderWithItems(firstOrder), 0);
+              }
+            }}
+          />
+        ) : !selectedOrder ? (
           <EmptyState message="Select a purchase order from the list or create a new one" />
         ) : (
           <>
-            {/* Stepper for create mode only */}
-            {isCreating && (
-              <Stepper activeStep={formStep} sx={{ mb: 3 }}>
-                {FORM_STEPS.map((label) => (
-                  <Step key={label}>
-                    <StepLabel>{label}</StepLabel>
-                  </Step>
-                ))}
-              </Stepper>
-            )}
-
-            {/* Order Information, Dates & Payments, Remarks (step 2 in create mode; always show in view/edit mode) */}
-            {(formStep === 1 || !isCreating) && (
+            {(
               <>
-                {/* Back button in create mode only */}
-                {isCreating && (
-                  <Button
-                    variant="text"
-                    onClick={handlePreviousStep}
-                    startIcon={<ArrowBackIcon />}
-                    sx={{ mb: 2 }}
-                  >
-                    Back to Select Products
-                  </Button>
-                )}
-
                 <FormSection title="Order Information" columns={3}>
                   <TextField
                     label="Order Number"
@@ -1568,7 +1440,7 @@ export default function PurchaseOrdersPage() {
                       />
                     )}
                   />
-                  {/* Searchable Primary Supplier Dropdown */}
+                  {/* Searchable Supplier Dropdown */}
                   <Autocomplete
                     size="small"
                     options={suppliers || []}
@@ -1583,23 +1455,13 @@ export default function PurchaseOrdersPage() {
                       ) || null
                     }
                     onChange={async (_, newValue: Supplier | null) => {
-                      let computedGrnDate = formData.good_received_note_date;
-                      if (newValue?.average_lead_time_days != null) {
-                        const base = new Date(
-                          `${formData.purchasing_order_date}T00:00:00`,
-                        );
-                        base.setDate(
-                          base.getDate() +
-                            Math.round(newValue.average_lead_time_days),
-                        );
-                        computedGrnDate = base.toISOString().split("T")[0];
-                      }
                       setFormData({
                         ...formData,
                         first_suppliers_id: newValue?.id || 0,
                         credit_date:
                           newValue?.credit_days ?? formData.credit_date,
-                        good_received_note_date: computedGrnDate,
+                        // GRN date mirrors the Required Date, not the
+                        // supplier's lead time — leave it as-is here.
                       });
                       handleBlur("first_suppliers_id");
 
@@ -1632,41 +1494,10 @@ export default function PurchaseOrdersPage() {
                     renderInput={(params) => (
                       <TextField
                         {...params}
-                        label="Primary Supplier"
+                        label="Supplier"
                         required
                         error={hasError("first_suppliers_id")}
                         helperText={getFieldError("first_suppliers_id")}
-                      />
-                    )}
-                  />
-                  {/* Searchable Secondary Supplier Dropdown */}
-                  <Autocomplete
-                    size="small"
-                    options={suppliers || []}
-                    getOptionLabel={(option: Supplier) => {
-                      const name = option.company_name;
-                      return option.active ? name : `${name} (Inactive)`;
-                    }}
-                    getOptionDisabled={(option: Supplier) => !option.active}
-                    value={
-                      suppliers?.find(
-                        (s: Supplier) => s.id === formData.second_suppliers_id,
-                      ) || null
-                    }
-                    onChange={(_, newValue: Supplier | null) => {
-                      setFormData({
-                        ...formData,
-                        second_suppliers_id: newValue?.id || 0,
-                      });
-                      handleBlur("second_suppliers_id");
-                    }}
-                    disabled={!isEditing && !isCreating}
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        label="Secondary Supplier"
-                        error={hasError("second_suppliers_id")}
-                        helperText={getFieldError("second_suppliers_id")}
                       />
                     )}
                   />
@@ -1729,6 +1560,21 @@ export default function PurchaseOrdersPage() {
                   )}
 
                 <FormSection title="Dates & Payment" columns={3}>
+                  <Autocomplete
+                    size="small"
+                    options={["Non-credit", "Credit"]}
+                    value={normalizePurchaseOrderPaymentMethod(formData.payment_method)}
+                    onChange={(_, newValue) =>
+                      setFormData({
+                        ...formData,
+                        payment_method: newValue || "Non-credit",
+                      })
+                    }
+                    disabled={!isEditing && !isCreating}
+                    renderInput={(params) => (
+                      <TextField {...params} label="Payment Method" />
+                    )}
+                  />
                   <TextField
                     label="Order Date"
                     size="small"
@@ -1751,47 +1597,32 @@ export default function PurchaseOrdersPage() {
                     label="GRN Date"
                     size="small"
                     type="date"
-                    value={formData.good_received_note_date}
+                    value={formData.required_date || ""}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        good_received_note_date: e.target.value,
+                        required_date: e.target.value,
+                        // The order's GRN date always tracks this same date —
+                        // the supplier is expected to deliver by the date the
+                        // products are needed.
+                        good_received_note_date: e.target.value || formData.good_received_note_date,
                       })
                     }
-                    onBlur={() => handleBlur("good_received_note_date")}
                     disabled={!isEditing && !isCreating}
                     InputLabelProps={{ shrink: true }}
                     required
                     error={hasError("good_received_note_date")}
-                    helperText={
-                      getFieldError("good_received_note_date") ||
-                      (isCreating || isEditing
-                        ? "Auto-filled from supplier's average lead time"
-                        : "")
-                    }
+                    helperText={getFieldError("good_received_note_date")}
                   />
-                  <TextField
-                    label="Credit Days"
-                    size="small"
-                    type="number"
-                    value={formData.credit_date}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        credit_date: parseInt(e.target.value) || 0,
-                      })
-                    }
-                    onBlur={() => handleBlur("credit_date")}
-                    disabled={!isEditing && !isCreating}
-                    inputProps={{ min: 0 }}
-                    error={hasError("credit_date")}
-                    helperText={
-                      getFieldError("credit_date") ||
-                      (isCreating || isEditing
-                        ? "Auto-filled from supplier"
-                        : "")
-                    }
-                  />
+                  {normalizePurchaseOrderPaymentMethod(formData.payment_method) === "Credit" && (
+                    <TextField
+                      label="Payment Term"
+                      size="small"
+                      value={getPaymentTermsLabel(formData.credit_date)}
+                      disabled
+                      helperText="From supplier's payment terms"
+                    />
+                  )}
                 </FormSection>
 
                 {/* Credit Limit Warning */}
@@ -1846,76 +1677,60 @@ export default function PurchaseOrdersPage() {
                         />
                       </Box>
                     </FormSection>
-                    <FormSection
-                      title="Tracking"
-                      columns={2}
-                      titleAction={
-                        <Tooltip title="View activity history">
-                          <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
-                            <HistoryIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      }
-                    >
-                      <TextField
-                        label="Created Date"
-                        size="small"
-                        value={
-                          selectedOrder.added_date
-                            ? new Date(
-                                selectedOrder.added_date,
-                              ).toLocaleString()
-                            : ""
-                        }
-                        disabled
-                        InputProps={{ readOnly: true }}
-                      />
-                      <TextField
-                        label="Order Date"
-                        size="small"
-                        value={
-                          selectedOrder.created_date
-                            ? new Date(
-                                selectedOrder.created_date,
-                              ).toLocaleDateString()
-                            : ""
-                        }
-                        disabled
-                        InputProps={{ readOnly: true }}
-                      />
-                      <TextField
-                        label="Created By"
-                        size="small"
-                        value={selectedOrder.created_by_name || "-"}
-                        disabled
-                        InputProps={{ readOnly: true }}
-                      />
-                      <TextField
-                        label="Approved By"
-                        size="small"
-                        value={selectedOrder.approved_by_name || "-"}
-                        disabled
-                        InputProps={{ readOnly: true }}
-                      />
-                    </FormSection>
+
+                    {selectedOrder.purchase_batch_id && (() => {
+                      const siblingOrders = (orders || []).filter(
+                        (o) =>
+                          o.purchase_batch_id === selectedOrder.purchase_batch_id &&
+                          o.id !== selectedOrder.id,
+                      );
+                      if (siblingOrders.length === 0) return null;
+                      return (
+                        <Alert severity="info" sx={{ mb: 2 }}>
+                          <Typography variant="body2">
+                            This order is part of a multi-supplier purchase, split into{" "}
+                            {siblingOrders.length + 1} purchase orders. Other order
+                            {siblingOrders.length === 1 ? "" : "s"} from the same purchase:{" "}
+                            {siblingOrders.map((sibling, idx) => (
+                              <span key={sibling.id}>
+                                {idx > 0 && ", "}
+                                <Typography
+                                  component="span"
+                                  variant="body2"
+                                  sx={{ fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}
+                                  onClick={() => handleSelectOrderWithItems(sibling)}
+                                >
+                                  {sibling.purchasing_order_no || `PO-${sibling.id}`}
+                                </Typography>
+                              </span>
+                            ))}
+                          </Typography>
+                        </Alert>
+                      );
+                    })()}
+
+                    {selectedOrder.sales_quote_id && (
+                      <Alert severity="info" sx={{ mb: 2 }}>
+                        <Typography variant="body2">
+                          Created from Sales Quotation{" "}
+                          <Typography
+                            component="span"
+                            variant="body2"
+                            sx={{ fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}
+                            onClick={() =>
+                              navigate("/sales/quotations", {
+                                state: { selectedQuoteId: selectedOrder.sales_quote_id },
+                              })
+                            }
+                          >
+                            {selectedOrder.sales_quote_no || `Quote #${selectedOrder.sales_quote_id}`}
+                          </Typography>
+                          .
+                        </Typography>
+                      </Alert>
+                    )}
                   </>
                 )}
-
-                <FormSection title="Remarks" columns={1}>
-                  <TextField
-                    label="Remarks"
-                    size="small"
-                    value={formData.remarks}
-                    onChange={(e) =>
-                      setFormData({ ...formData, remarks: e.target.value })
-                    }
-                    disabled={!isEditing && !isCreating}
-                    multiline
-                    rows={2}
-                  />
-                </FormSection>
-
-
               </>
             )}
 
@@ -2186,6 +2001,48 @@ export default function PurchaseOrdersPage() {
                 </Box>
               </>
             )}
+
+            <FormSection title="Remarks" columns={1} sx={{ mt: 2 }}>
+              <TextField
+                label="Remarks"
+                size="small"
+                value={formData.remarks}
+                onChange={(e) =>
+                  setFormData({ ...formData, remarks: e.target.value })
+                }
+                disabled={!isEditing && !isCreating}
+                multiline
+                rows={2}
+              />
+            </FormSection>
+
+            {selectedOrder && !isCreating && (
+              <FormSection
+                title="Activity History"
+                columns={2}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Created By</Typography>
+                  <Typography variant="body2">
+                    {selectedOrder.created_by_name || "-"}
+                    {selectedOrder.added_date ? ` on ${new Date(selectedOrder.added_date).toLocaleString()}` : ""}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Approved By</Typography>
+                  <Typography variant="body2">
+                    {selectedOrder.approved_by_name || "-"}
+                  </Typography>
+                </Box>
+              </FormSection>
+            )}
           </>
         )}
       </Box>
@@ -2197,7 +2054,16 @@ export default function PurchaseOrdersPage() {
       <MasterDetailLayout
         title="Purchase Orders"
         titleSlot={
-          isPurchaseOrderDetailMode ? undefined : (
+          isPurchaseOrderDetailMode ? (
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={handleBackToOrders}
+              sx={{ textTransform: "none" }}
+            >
+              Back to Purchase Orders
+            </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -2263,7 +2129,7 @@ export default function PurchaseOrdersPage() {
         }}
         isLoading={isLoading}
         {...(isPurchaseOrderDetailMode
-          ? { masterPanel: singlePurchaseOrderPanel, detailPanel }
+          ? { children: detailPanel }
           : { children: purchaseOrderTablePanel })}
       />
 

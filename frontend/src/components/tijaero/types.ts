@@ -160,6 +160,10 @@ export interface DetailPanelHeaderProps {
   breadcrumbs: BreadcrumbItem[];
   /** Main title */
   title: string;
+  /** Replaces the title text entirely (e.g. a clickable "Back to X" link)
+   * while keeping the icon, chips, actions and tabsSlot rows unchanged.
+   * Omit to render the normal title/createTitle/noSelectionTitle text. */
+  titleSlot?: ReactNode;
   /** Title icon */
   titleIcon?: ReactNode;
   /** Alias for titleIcon */
@@ -176,6 +180,10 @@ export interface DetailPanelHeaderProps {
   chips?: ChipConfig[];
   /** Custom header actions */
   actions?: ReactNode;
+  /** Optional tab bar rendered as a second row directly under the title,
+   * inside the same header card (e.g. a <TTabs> element). Omit for pages
+   * with no in-header tabs — most callers don't pass this. */
+  tabsSlot?: ReactNode;
   /** Custom styles */
   sx?: SxProps<Theme>;
 }

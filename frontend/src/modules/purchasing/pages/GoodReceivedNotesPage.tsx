@@ -34,7 +34,6 @@ import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
   Alert,
   Autocomplete,
-  Avatar,
   Box,
   Button,
   Card,
@@ -83,7 +82,6 @@ import {
   handleApiError,
   MasterDetailLayout,
   modernTableStyles,
-  SelectableListItem,
   showErrorToast,
   showSuccessToast,
   TBranchFilter,
@@ -1461,65 +1459,6 @@ export default function GoodReceivedNotesPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current GRN (or the
-  // "New GRN" placeholder while creating). A "Back to Good Received Notes"
-  // link returns to the table.
-  const singleGRNPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToGRNs}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Good Received Notes
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
-              <ReceiptLongIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New GRN
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedGRN && (
-        <SelectableListItem
-          id={selectedGRN.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
-                <ReceiptLongIcon fontSize="small" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedGRN.good_received_no || `GRN-${selectedGRN.id}`}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -2192,7 +2131,16 @@ export default function GoodReceivedNotesPage() {
       <MasterDetailLayout
         title="Good Received Notes"
         titleSlot={
-          isGRNDetailMode ? undefined : (
+          isGRNDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToGRNs}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Good Received Notes
+          </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -2287,7 +2235,7 @@ export default function GoodReceivedNotesPage() {
         }}
         isLoading={isLoading}
         {...(isGRNDetailMode
-          ? { masterPanel: singleGRNPanel, detailPanel }
+          ? { children: detailPanel }
           : { children: grnTablePanel })}
       />
 

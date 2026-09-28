@@ -502,6 +502,21 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
             "& .MuiDataGrid-row": {
               cursor: onRowClick ? "pointer" : "default",
             },
+            // A center-aligned header's title+sort-icon container is itself
+            // centered, but the icon's reserved space still pulls the label
+            // off-center visually — pull the icon out of the flex flow so
+            // the label alone centers within the header cell.
+            "& .MuiDataGrid-columnHeader--alignCenter .MuiDataGrid-columnHeaderTitleContainer": {
+              position: "relative",
+              justifyContent: "center",
+            },
+            "& .MuiDataGrid-columnHeader--alignCenter .MuiDataGrid-columnHeaderTitleContainerContent": {
+              flex: "0 1 auto",
+            },
+            "& .MuiDataGrid-columnHeader--alignCenter .MuiDataGrid-iconButtonContainer": {
+              position: "absolute",
+              right: 0,
+            },
           }}
         />
       </Box>

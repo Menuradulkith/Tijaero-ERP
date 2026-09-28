@@ -269,55 +269,6 @@ export default function CreditPaymentsPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current credit payment,
-  // plus a "Back to Credit Payments" link that returns to the table.
-  const singlePaymentPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToPayments}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Credit Payments
-        </Button>
-      </Box>
-      {selectedItem && (
-        <SelectableListItem
-          id={selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ width: 36, height: 36 }}>
-                <CreditIcon fontSize="small" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>{selectedItem.customer_name || `Payment #${selectedItem.id}`}</span>
-                </Box>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -432,7 +383,16 @@ export default function CreditPaymentsPage() {
     <MasterDetailLayout
       title="Credit Payments"
       titleSlot={
-        isPaymentDetailMode ? undefined : (
+        isPaymentDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToPayments}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Credit Payments
+          </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -485,7 +445,7 @@ export default function CreditPaymentsPage() {
         )
       }
       {...(isPaymentDetailMode
-        ? { masterPanel: singlePaymentPanel, detailPanel }
+        ? { children: detailPanel }
         : { children: paymentTablePanel })}
     />
 

@@ -14,7 +14,6 @@ import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
-  Avatar,
   Box,
   Button,
   FormControlLabel,
@@ -61,7 +60,6 @@ import {
   modernTableStyles,
   TDataGrid,
   type TDataGridColumn,
-  SelectableListItem,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { exportToCSV } from "@/utils/csvExport";
@@ -493,65 +491,6 @@ export default function CouponsPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current coupon (or
-  // the "New Coupon" placeholder while creating), with a "Back to
-  // Coupons" link returning to the table.
-  const singleCouponPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToCoupons}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Coupons
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main" }}>
-              <LocalOfferIcon />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Coupon
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedCoupon && (
-        <SelectableListItem
-          id={selectedCoupon.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "primary.main" }}>
-                <LocalOfferIcon />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedCoupon.cupon_code}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   // Detail Panel
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -866,7 +805,16 @@ export default function CouponsPage() {
       <MasterDetailLayout
         title="Coupons"
         titleSlot={
-          isCouponDetailMode ? undefined : (
+          isCouponDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToCoupons}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Coupons
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -938,7 +886,7 @@ export default function CouponsPage() {
         onRefresh={refetch}
         isLoading={isLoading}
         {...(isCouponDetailMode
-          ? { masterPanel: singleCouponPanel, detailPanel }
+          ? { children: detailPanel }
           : { children: couponTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

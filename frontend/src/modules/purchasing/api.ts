@@ -10,6 +10,10 @@ import {
   PurchasingOrderWithItems,
   PurchasingOrderCreate,
   PurchasingOrderUpdate,
+  PurchasingOrderBatchCreate,
+  PurchasingOrderBatchResponse,
+  ProcurementQueueItem,
+  ProcurementQueueItemInput,
   PurchasingReturn,
   PurchasingReturnWithItems,
   PurchasingReturnCreate,
@@ -258,6 +262,16 @@ export const purchaseOrdersApi = {
     return response.data;
   },
 
+  /** Product-first, multi-supplier checkout: creates one PO per supplier
+   * group in a single transaction, all sharing a purchase_batch_id. */
+  createBatch: async (data: PurchasingOrderBatchCreate) => {
+    const response = await apiClient.post<PurchasingOrderBatchResponse>(
+      "/purchasing/orders/batch",
+      data
+    );
+    return response.data;
+  },
+
   update: async (id: number, data: PurchasingOrderUpdate) => {
     const response = await apiClient.patch<PurchasingOrder>(
       `/purchasing/orders/${id}`,
@@ -294,6 +308,30 @@ export const purchaseOrdersApi = {
       { params: { supplier_id: supplierId, po_value: poAmount, payment_method: "Credit", ...(poId !== undefined && { po_id: poId }) } }
     );
     return response.data;
+  },
+};
+
+// Procurement Queue API — backs the central "TOP" page. Items land here when
+// a supplier is chosen on the Sales Quotation page's procurement dialog, and
+// are removed automatically once a Purchase Order is created for them.
+export const procurementQueueApi = {
+  add: async (items: ProcurementQueueItemInput[]) => {
+    const response = await apiClient.post<ProcurementQueueItem[]>(
+      "/purchasing/procurement-queue",
+      { items }
+    );
+    return response.data;
+  },
+
+  list: async () => {
+    const response = await apiClient.get<ProcurementQueueItem[]>(
+      "/purchasing/procurement-queue"
+    );
+    return response.data;
+  },
+
+  remove: async (id: number) => {
+    await apiClient.delete(`/purchasing/procurement-queue/${id}`);
   },
 };
 

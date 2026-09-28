@@ -85,9 +85,9 @@ class Invoice(Base, AuditMixin):
     
     approval_id = Column(Integer, ForeignKey("approvals.id"))
 
-    # Source tracking - for invoices converted from quotes/proforma
+    # Source tracking - for invoices converted from quotes
     source_quote_id = Column(Integer, ForeignKey("sales_quotes.id"), nullable=True)
-    source_quote_type = Column(String(30), nullable=True)  # 'quotation' or 'proforma'
+    source_quote_type = Column(String(30), nullable=True)  # 'quotation'
 
     # Creator tracking
     created_by = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)

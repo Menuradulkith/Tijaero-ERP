@@ -233,6 +233,14 @@ export const TSteps: React.FC<TStepsProps> = ({
         alternativeLabel={alternativeLabel}
         nonLinear={nonLinear}
         connector={connector ? undefined : null}
+        sx={{
+          // Minimize the vertical footprint now that steps no longer have a
+          // description line underneath the label — MUI's defaults leave a
+          // gap sized for that second line, plus its own top/bottom padding.
+          py: 0,
+          "& .MuiStepLabel-iconContainer": { pb: 0 },
+          "& .MuiStepLabel-label": { mt: "4px !important" },
+        }}
       >
         {steps.map((step, index) => (
           <Step key={step.id} completed={step.completed} disabled={step.disabled}>
@@ -248,11 +256,6 @@ export const TSteps: React.FC<TStepsProps> = ({
             ) : (
               <StepLabel
                 error={step.error}
-                optional={
-                  step.description && (
-                    <Typography variant="caption">{step.description}</Typography>
-                  )
-                }
                 icon={step.completed ? <CheckCircleIcon color="success" /> : step.icon}
               >
                 {step.label}

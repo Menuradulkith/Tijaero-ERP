@@ -22,6 +22,7 @@ import { DetailPanelHeaderProps } from "../types";
 export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
   breadcrumbs,
   title,
+  titleSlot,
   titleIcon,
   icon,
   subtitle,
@@ -30,14 +31,9 @@ export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
   noSelectionTitle = "Select an item",
   chips,
   actions,
+  tabsSlot,
   sx,
 }) => {
-  // Support both titleIcon and icon props
-  const iconElement = titleIcon || icon;
-  
-  // Determine the display title
-  const displayTitle = isCreating ? createTitle : title || noSelectionTitle;
-
   return (
     <Box
       sx={{
@@ -50,6 +46,13 @@ export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
         ...sx,
       }}
     >
+      {/* Back button (or other titleSlot content), its own row at the top */}
+      {titleSlot && (
+        <Box sx={{ mb: 0.5 }}>
+          {titleSlot}
+        </Box>
+      )}
+
       {/* Breadcrumbs */}
       <Breadcrumbs sx={{ mb: 0.5 }}>
         {breadcrumbs.map((crumb, index) => {
@@ -74,12 +77,11 @@ export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
         })}
       </Breadcrumbs>
 
-      {/* Title Row */}
+      {/* Chips + actions row — the icon/title text is no longer shown here;
+          the "Back to X" button living in MasterDetailLayout's own header
+          bar above already identifies the page, so this row is just for
+          status chips and action buttons (print, activity history, ...). */}
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-        {iconElement}
-        <Typography variant="h6" fontWeight={600}>
-          {displayTitle}
-        </Typography>
         {subtitle && (
           <Typography variant="body2" color="text.secondary">
             ({subtitle})
@@ -104,6 +106,13 @@ export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
           </Box>
         )}
       </Box>
+
+      {/* Optional in-header tab bar */}
+      {tabsSlot && (
+        <Box sx={{ mt: 0.5, mx: -1.5 }}>
+          {tabsSlot}
+        </Box>
+      )}
     </Box>
   );
 };

@@ -53,6 +53,7 @@ export const TCurrency: React.FC<TCurrencyProps> = ({
   const activeCurrency = useCurrencyStore();
   currency = currency ?? activeCurrency.code;
   locale = locale ?? activeCurrency.locale;
+  const symbol = currency === activeCurrency.code ? activeCurrency.symbol : currency;
   // Handle null/undefined
   if (value === null || value === undefined) {
     return (
@@ -74,26 +75,19 @@ export const TCurrency: React.FC<TCurrencyProps> = ({
     );
   }
 
-  // Format currency
-  let formatted: string;
-  if (showSymbol) {
-    const formatter = new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      minimumFractionDigits: minDecimals,
-      maximumFractionDigits: maxDecimals,
-      signDisplay: showSign ? "exceptZero" : "auto",
-    });
-    formatted = formatter.format(numValue);
-  } else {
-    // Format without currency symbol (for use with headers that show currency)
-    const formatter = new Intl.NumberFormat(locale, {
-      minimumFractionDigits: minDecimals,
-      maximumFractionDigits: maxDecimals,
-      signDisplay: showSign ? "exceptZero" : "auto",
-    });
-    formatted = formatter.format(numValue);
-  }
+  // Format currency. Number formatting always goes through Intl for
+  // locale-correct grouping/decimals, but the symbol itself comes from the
+  // currency store's configured `symbol` (e.g. "Rs.") rather than Intl's
+  // `style: "currency"`, which renders the bare ISO code (e.g. "LKR") for
+  // currencies it has no localized glyph for.
+  const numberFormatter = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: minDecimals,
+    maximumFractionDigits: maxDecimals,
+    signDisplay: showSign ? "exceptZero" : "auto",
+  });
+  const formatted = showSymbol
+    ? `${symbol} ${numberFormatter.format(numValue)}`
+    : numberFormatter.format(numValue);
 
   // Determine color
   let color: string | undefined;
@@ -149,20 +143,14 @@ export const formatCurrency = (
   const activeCurrency = useCurrencyStore.getState();
   currency = currency ?? activeCurrency.code;
   locale = locale ?? activeCurrency.locale;
+  const symbol = currency === activeCurrency.code ? activeCurrency.symbol : currency;
 
-  if (withSymbol) {
-    return new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(numValue);
-  }
-
-  return new Intl.NumberFormat(locale, {
+  const formatted = new Intl.NumberFormat(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(numValue);
+
+  return withSymbol ? `${symbol} ${formatted}` : formatted;
 };
 
 /**

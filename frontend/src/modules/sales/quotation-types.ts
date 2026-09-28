@@ -1,6 +1,6 @@
 // ==================== Enums ====================
 
-export type QuoteType = 'quotation' | 'proforma';
+export type QuoteType = 'quotation';
 
 export type QuoteStatus =
   | 'draft'
@@ -88,6 +88,8 @@ export interface SalesQuote {
   status: QuoteStatus;
   approval: boolean;
   approval_id?: number;
+  approved_by?: number;
+  approved_by_name?: string;
   special: boolean;
   sys_code?: number;
 
@@ -116,7 +118,7 @@ export interface SalesQuote {
   // Rejection
   rejection_reason?: string;
 
-  // Advance payment linked to this proforma
+  // Advance payment linked to this quotation
   advance_payment_id?: number;
   advance_amount?: number;
 
@@ -128,11 +130,19 @@ export interface SalesQuoteWithItems extends SalesQuote {
   items: SalesQuoteItem[];
 }
 
+export interface RelatedPurchaseOrderSummary {
+  id: number;
+  purchasing_order_no: string;
+  status: string;
+  supplier_name?: string;
+}
+
 export interface SalesQuoteDetail extends SalesQuoteWithItems {
   customer_name?: string;
   customer_agent_name?: string;
   sale_rep_name?: string;
   converted_invoice_no?: string;
+  related_purchase_orders: RelatedPurchaseOrderSummary[];
 }
 
 // ==================== Create/Update Types ====================
@@ -303,7 +313,6 @@ export interface CreatePartialSORequest {
 
 export const QUOTE_TYPE_LABELS: Record<QuoteType, string> = {
   quotation: 'Quotation',
-  proforma: 'Proforma Invoice',
 };
 
 // ==================== Stock Availability Types ====================
@@ -345,19 +354,6 @@ export interface CreatePOFromQuoteResponse {
   message: string;
 }
 
-// ==================== Toggle Proforma Types ====================
-
-export interface ToggleProformaRequest {
-  is_proforma: boolean;
-}
-
-export interface ToggleProformaResponse {
-  quote_id: number;
-  quote_no: string;
-  is_proforma: boolean;
-  quote_type: string;
-  message: string;
-}
 
 // ==================== Reject Quote Types ====================
 

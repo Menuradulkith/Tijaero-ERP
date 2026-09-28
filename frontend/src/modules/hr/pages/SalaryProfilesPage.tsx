@@ -3,7 +3,7 @@
  */
 import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, IconButton, InputAdornment, Paper, TextField, Tooltip, Typography } from "@mui/material";
+import { Avatar, Box, Button, IconButton, InputAdornment, TextField, Tooltip, Typography } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -17,7 +17,6 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SelectableListItem,
   TConfirmDialog,
   TDataGrid,
   type TDataGridColumn,
@@ -258,63 +257,6 @@ export default function SalaryProfilesPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current salary
-  // profile (or the "New Profile" placeholder while creating) plus a
-  // "Back to Salary Profiles" link that returns to the table.
-  const singleProfilePanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={handleBackToProfiles} sx={{ textTransform: "none" }}>
-          Back to Salary Profiles
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-              <PersonIcon color="primary" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Salary Profile
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedItem && (
-        <SelectableListItem
-          id={selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-                <PersonIcon color="primary" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>
-                  {selectedItem.employee_id}
-                  {selectedItem.designation ? ` • ${selectedItem.designation}` : ""}
-                </span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   // Detail mode: the existing detail content, unchanged, shown full-width.
   const detailContent = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -381,7 +323,16 @@ export default function SalaryProfilesPage() {
       <MasterDetailLayout
         title="Salary Profiles"
         titleSlot={
-          isDetailMode ? undefined : (
+          isDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToProfiles}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Salary Profiles
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -444,7 +395,7 @@ export default function SalaryProfilesPage() {
         onRefresh={refetch}
         isLoading={isLoading}
         {...(isDetailMode
-          ? { masterPanel: singleProfilePanel, detailPanel: detailContent }
+          ? { children: detailContent }
           : { children: tablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

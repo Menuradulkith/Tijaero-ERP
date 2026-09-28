@@ -502,7 +502,13 @@ class PurchasingOrderRepository:
             next_seq = 1
         return f"{prefix}{next_seq:06d}"
     
-    def create(self, order: schemas.PurchasingOrderCreate, initial_status: str = "pending") -> models.PurchasingOrder:
+    def create(
+        self,
+        order: schemas.PurchasingOrderCreate,
+        initial_status: str = "pending",
+        batch_id: Optional[str] = None,
+        commit: bool = True,
+    ) -> models.PurchasingOrder:
         order_data = order.model_dump(exclude={'items'})
         # Server-side sequential number generation with branch code
         branch_code = order_data.get('branch_code', 'HQ')
@@ -512,13 +518,14 @@ class PurchasingOrderRepository:
             order_data['second_suppliers_id'] = None
         db_order = models.PurchasingOrder(
             **order_data,
+            purchase_batch_id=batch_id,
             status=initial_status,
             created_date=tz.today(),
             added_date=tz.now()
         )
         self.db.add(db_order)
         self.db.flush()
-        
+
         for item in order.items:
             db_item = models.PurchasingOrderItems(
                 **item.model_dump(),
@@ -527,9 +534,12 @@ class PurchasingOrderRepository:
                 added_date=tz.now()
             )
             self.db.add(db_item)
-        
-        self.db.commit()
-        self.db.refresh(db_order)
+
+        if commit:
+            self.db.commit()
+            self.db.refresh(db_order)
+        else:
+            self.db.flush()
         return db_order
     
     def get_by_id(self, order_id: int) -> Optional[models.PurchasingOrder]:

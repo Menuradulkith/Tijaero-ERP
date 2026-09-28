@@ -530,65 +530,6 @@ export default function VouchersPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current voucher (or
-  // the "New Voucher" placeholder while creating), with a "Back to
-  // Vouchers" link returning to the table.
-  const singleVoucherPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToVouchers}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Vouchers
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main" }}>
-              <ReceiptIcon />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Voucher
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedVoucher && (
-        <SelectableListItem
-          id={selectedVoucher.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "primary.main" }}>
-                <ReceiptIcon />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedVoucher.barcode_no}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   // Detail Panel
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -855,7 +796,16 @@ export default function VouchersPage() {
       <MasterDetailLayout
         title="Gift Vouchers"
         titleSlot={
-          isVoucherDetailMode ? undefined : (
+          isVoucherDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToVouchers}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Vouchers
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -924,7 +874,7 @@ export default function VouchersPage() {
         onRefresh={refetch}
         isLoading={isLoading}
         {...(isVoucherDetailMode
-          ? { masterPanel: singleVoucherPanel, detailPanel }
+          ? { children: detailPanel }
           : { children: vouchersTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

@@ -615,70 +615,6 @@ export default function BranchesPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current branch (or the
-  // "New Branch" placeholder while creating). A "Back to Branches" link
-  // returns to the table.
-  const singleBranchPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToBranches}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Branches
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main" }}>
-              <BusinessIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Branch
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedBranch && (
-        <Box>
-          <SelectableListItem
-            id={selectedBranch.id}
-            isSelected
-            onClick={() => {}}
-            primaryText={
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-                <Avatar sx={{ bgcolor: "primary.main" }}>
-                  <BusinessIcon fontSize="small" />
-                </Avatar>
-                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                  <span>{selectedBranch.branch_name}</span>
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    {selectedBranch.branch_code}
-                  </Typography>
-                </Box>
-              </Box>
-            }
-          />
-        </Box>
-      )}
-    </Paper>
-  );
-
   // Render Detail Panel
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -963,7 +899,16 @@ export default function BranchesPage() {
       <MasterDetailLayout
         title="Branches"
         titleSlot={
-          isBranchDetailMode ? undefined : (
+          isBranchDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToBranches}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Branches
+          </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -1032,7 +977,7 @@ export default function BranchesPage() {
             </>
           )
         }
-        {...(isBranchDetailMode ? { masterPanel: singleBranchPanel, detailPanel } : { children: branchTablePanel })}
+        {...(isBranchDetailMode ? { children: detailPanel } : { children: branchTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
       

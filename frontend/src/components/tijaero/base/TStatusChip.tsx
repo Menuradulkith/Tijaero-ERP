@@ -127,7 +127,7 @@ export const STATUS_MAPS = {
     closed: { label: "Closed", color: "default" as StatusColor },
   },
 
-  // Quote/Proforma status
+  // Quote status
   quoteStatus: {
     draft: { label: "Draft", color: "default" as StatusColor },
     pending_approval: { label: "Pending Approval", color: "warning" as StatusColor },

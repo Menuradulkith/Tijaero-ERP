@@ -888,67 +888,18 @@ export default function SalesPage() {
     }
   }, [filteredInvoices, state.isCreating, searchParams, setSearchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle navigation state from Proforma page (auto-select Sales Order created from proforma)
-  const navStateHandled = useRef(false);
-  useEffect(() => {
-    const navState = location.state as {
-      fromProforma?: boolean;
-      invoiceId?: number;
-      invoiceNo?: string;
-    } | null;
-    if (
-      navState?.fromProforma &&
-      navState.invoiceId &&
-      !navStateHandled.current
-    ) {
-      navStateHandled.current = true;
-      // Invalidate and refetch to ensure the newly created invoice appears
-      queryClient.invalidateQueries({ queryKey: ["sales"] });
-    }
-  }, [location.state, queryClient]);
-
-  // After invoices are (re)loaded, select the invoice from navigation state
-  const navSelectHandled = useRef(false);
-  useEffect(() => {
-    const navState = location.state as {
-      fromProforma?: boolean;
-      invoiceId?: number;
-      invoiceNo?: string;
-    } | null;
-    if (
-      navState?.fromProforma &&
-      navState.invoiceId &&
-      invoices &&
-      !navSelectHandled.current
-    ) {
-      const createdInvoice = invoices.find(
-        (inv: Invoice) => inv.id === navState.invoiceId,
-      );
-      if (createdInvoice) {
-        navSelectHandled.current = true;
-        state.setSelectedItem(createdInvoice);
-        showSuccessToast(
-          `Navigated to Sales Order ${navState.invoiceNo || createdInvoice.invoice_no} created from proforma invoice`,
-        );
-        // Clear navigation state to prevent re-triggering
-        window.history.replaceState({}, document.title);
-      }
-    }
-  }, [invoices, location.state, state]);
-
-  // Handle navigation from Proforma page: auto-create new SO with pre-filled items
-  interface ProformaNavState {
-    fromProforma?: boolean;
+  // Handle navigation from the Quotation page: auto-create a new SO with pre-filled items
+  interface QuotationNavState {
+    fromQuotation?: boolean;
     createNew?: boolean;
-    proformaId?: number;
-    proformaNo?: string;
+    quoteId?: number;
+    quoteNo?: string;
     customerId?: number;
     customer_agent_id?: number;
     branchCode?: string;
     remarks?: string;
     taxMode?: "none" | "inclusive" | "exclusive";
     taxRate?: number;
-    source_quote_type?: string;
     advance_payment_id?: number;
     advance_amount?: number;
     items?: Array<{
@@ -961,18 +912,18 @@ export default function SalesPage() {
       discount_percent?: number;
     }>;
   }
-  const proformaCreateHandled = useRef(false);
+  const quotationCreateHandled = useRef(false);
   // Capture source_quote_id + product_ids before createMutation clears lineItems/formData
   const pendingQuoteRef = useRef<{ quoteId: number; productIds: number[] } | null>(null);
   useEffect(() => {
-    const navState = location.state as ProformaNavState | null;
+    const navState = location.state as QuotationNavState | null;
     if (
-      navState?.fromProforma &&
+      navState?.fromQuotation &&
       navState.createNew &&
-      navState.proformaId &&
-      !proformaCreateHandled.current
+      navState.quoteId &&
+      !quotationCreateHandled.current
     ) {
-      proformaCreateHandled.current = true;
+      quotationCreateHandled.current = true;
 
       // Enter create mode
       state.setSelectedItem(null);
@@ -1011,12 +962,12 @@ export default function SalesPage() {
         remarks: navState.remarks || "",
         special: false,
         items: [],
-        source_quote_id: navState.proformaId,
-        source_quote_type: navState.source_quote_type || "proforma",
+        source_quote_id: navState.quoteId,
+        source_quote_type: "quotation",
         customer_advance_payments_id: navState.advance_payment_id,
       });
 
-      // Pre-fill line items from proforma (without barcodes — user scans barcodes to assign)
+      // Pre-fill line items from the quotation (without barcodes — user scans barcodes to assign)
       if (navState.items && navState.items.length > 0) {
         const prefilledItems: ItemFormData[] = navState.items.map((item) => ({
           product_id: item.product_id,
@@ -1032,7 +983,7 @@ export default function SalesPage() {
       }
 
       showSuccessToast(
-        `Creating Sales Order from ${navState.source_quote_type === 'quotation' ? 'Quotation' : 'Proforma'} ${navState.proformaNo}. Scan barcodes to assign stock items.`,
+        `Creating Sales Order from Quotation ${navState.quoteNo}. Scan barcodes to assign stock items.`,
       );
       // Clear navigation state to prevent re-triggering
       window.history.replaceState({}, document.title);
@@ -1945,9 +1896,9 @@ export default function SalesPage() {
           stockItem.product?.name ||
           "";
 
-        // === Proforma mode: assign barcode to existing pre-filled item ===
-        const isFromProforma = !!(state.formData as any).source_quote_id;
-        if (isFromProforma) {
+        // === Quotation mode: assign barcode to existing pre-filled item ===
+        const isFromQuotation = !!(state.formData as any).source_quote_id;
+        if (isFromQuotation) {
           // Find a pre-filled item matching this product that doesn't yet have a barcode
           const unassignedIdx = lineItems.findIndex(
             (item) => item.product_id === stockItem.product_id && !item.barcode,
@@ -1985,7 +1936,7 @@ export default function SalesPage() {
               );
               return;
             }
-            // Product not in proforma list — add as extra item (fall through to normal flow)
+            // Product not in the pre-filled list — add as extra item (fall through to normal flow)
           }
         }
 
@@ -3486,7 +3437,7 @@ export default function SalesPage() {
             </Grid>
           </Grid>
 
-          {/* Proforma Mode: Show assignment progress */}
+          {/* Quotation Mode: Show assignment progress */}
           {!!(state.formData as any).source_quote_id &&
             lineItems.length > 0 && (
               <Alert
@@ -3495,7 +3446,7 @@ export default function SalesPage() {
                 }
                 sx={{ mb: 2 }}
               >
-                <strong>Proforma Items:</strong>{" "}
+                <strong>Quotation Items:</strong>{" "}
                 {lineItems.filter((item) => !!item.barcode).length} /{" "}
                 {lineItems.length} items have barcodes assigned.
                 {!lineItems.every((item) => !!item.barcode)
@@ -5277,65 +5228,6 @@ export default function SalesPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current sales order
-  // (or the "New Sales Order" placeholder while creating), with a "Back to
-  // Sales" link returning to the table.
-  const singleSalesPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToSales}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Sales
-        </Button>
-      </Box>
-      {state.isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main" }}>
-              <ReceiptIcon />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Sales Order
-            </Typography>
-          </Box>
-        </Box>
-      ) : state.selectedItem && (
-        <SelectableListItem
-          id={state.selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "primary.main" }}>
-                <ReceiptIcon />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{state.selectedItem.invoice_no}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   // Detail mode: the sales order's existing form/detail content, full width.
   const salesDetailContent = (
     <Box
@@ -5427,7 +5319,16 @@ export default function SalesPage() {
       <MasterDetailLayout
         title="Sales Orders"
         titleSlot={
-          isSalesDetailMode ? undefined : (
+          isSalesDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToSales}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Sales
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -5492,7 +5393,7 @@ export default function SalesPage() {
           queryClient.invalidateQueries({ queryKey: ["payment-cards-active"] });
         }}
         {...(isSalesDetailMode
-          ? { masterPanel: singleSalesPanel, detailPanel: salesDetailContent }
+          ? { children: salesDetailContent }
           : { children: salesTablePanel })}
       />
       <TConfirmDialog {...deleteDialog.dialogProps} />

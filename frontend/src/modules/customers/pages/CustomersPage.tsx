@@ -364,72 +364,6 @@ export default function CustomersPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current customer (or
-  // the "New Customer" placeholder while creating). A "Back to Customers"
-  // link returns to the table.
-  const singleCustomerPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToCustomers}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Customers
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main" }}>
-              <PersonIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Customer
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedCustomer && (
-        <Box>
-          <SelectableListItem
-            id={selectedCustomer.id}
-            isSelected
-            onClick={() => {}}
-            primaryText={
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-                <Avatar sx={{ bgcolor: "primary.main" }}>
-                  <PersonIcon fontSize="small" />
-                </Avatar>
-                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                  <span>{`${selectedCustomer.title} ${selectedCustomer.customer_name}`}</span>
-                  {selectedCustomer.company_name && (
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      {selectedCustomer.company_name}
-                    </Typography>
-                  )}
-                </Box>
-              </Box>
-            }
-          />
-        </Box>
-      )}
-    </Paper>
-  );
-
   // Detail Panel
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -697,7 +631,16 @@ export default function CustomersPage() {
       <MasterDetailLayout
         title="Customers"
         titleSlot={
-          isCustomerDetailMode ? undefined : (
+          isCustomerDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToCustomers}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Customers
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -718,7 +661,7 @@ export default function CustomersPage() {
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        {...(isCustomerDetailMode ? { masterPanel: singleCustomerPanel, detailPanel } : { children: customerTablePanel })}
+        {...(isCustomerDetailMode ? { children: detailPanel } : { children: customerTablePanel })}
         headerActions={
           isCustomerDetailMode ? undefined : (
             <>

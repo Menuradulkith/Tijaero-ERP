@@ -667,65 +667,6 @@ export default function ExpensesPage() {
   const canEdit = selectedExpense && (selectedExpense.status === "pending" || selectedExpense.status === "rejected");
   const canDelete = selectedExpense && selectedExpense.status === "pending" ? true : false;
 
-  // Detail mode: a narrow left panel showing only the current expense (or the
-  // "New Expense" placeholder while creating). A "Back to Expenses" link
-  // returns to the table.
-  const singleExpensePanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToExpenses}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Expenses
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
-              <ReceiptLongIcon />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Expense
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedExpense && (
-        <SelectableListItem
-          id={selectedExpense.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
-                <ReceiptLongIcon />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedExpense.expenses_no || `EXP-${selectedExpense.id}`}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -1086,7 +1027,16 @@ export default function ExpensesPage() {
       <MasterDetailLayout
         title="Expenses"
         titleSlot={
-          isExpenseDetailMode ? undefined : (
+          isExpenseDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToExpenses}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Expenses
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -1171,7 +1121,7 @@ export default function ExpensesPage() {
         }}
         isLoading={isLoading}
         {...(isExpenseDetailMode
-          ? { masterPanel: singleExpensePanel, detailPanel }
+          ? { children: detailPanel }
           : { children: expenseTablePanel })}
       />
 

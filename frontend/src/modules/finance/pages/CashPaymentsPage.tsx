@@ -6,12 +6,10 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Avatar,
   Box,
   Button,
   IconButton,
   InputAdornment,
-  Paper,
   TextField,
   Tooltip,
 } from "@mui/material";
@@ -30,7 +28,6 @@ import {
   DetailPanelHeader,
   FormSection,
   EmptyState,
-  SelectableListItem,
   useMasterDetailState,
   TDetailSkeleton,
   TBranchFilter,
@@ -264,53 +261,6 @@ export default function CashPaymentsPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current cash payment.
-  // A "Back to Cash Payments" link returns to the table.
-  const singlePaymentPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToCashPayments}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Cash Payments
-        </Button>
-      </Box>
-      {selectedItem && (
-        <SelectableListItem
-          id={selectedItem.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground", color: "text.secondary" }}>
-                <CashIcon />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>{selectedItem.customer_name || `Payment #${selectedItem.id}`}</span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -424,7 +374,16 @@ export default function CashPaymentsPage() {
     <MasterDetailLayout
       title="Cash Payments"
       titleSlot={
-        isPaymentDetailMode ? undefined : (
+        isPaymentDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToCashPayments}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Cash Payments
+          </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -476,7 +435,7 @@ export default function CashPaymentsPage() {
         )
       }
       {...(isPaymentDetailMode
-        ? { masterPanel: singlePaymentPanel, detailPanel }
+        ? { children: detailPanel }
         : { children: paymentTablePanel })}
     />
 

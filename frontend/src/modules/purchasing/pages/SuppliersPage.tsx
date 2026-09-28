@@ -17,7 +17,6 @@ import {
   FormControlLabel,
   Typography,
   Chip,
-  Paper,
   IconButton,
   Alert,
   Avatar,
@@ -52,7 +51,6 @@ import { useReferenceData, type CountryRef, type CurrencyRef } from "@/hooks/use
 
 import {
   MasterDetailLayout,
-  SelectableListItem,
   DetailPanelHeader,
   ActionToolbar,
   FormSection,
@@ -66,8 +64,9 @@ import {
   TConfirmDialog,
   TDetailSkeleton,
   TStatusFilter,
-  TSectionNav,
-  type TSectionNavItem,
+  TTabs,
+  TTabPanel,
+  type TTabConfig,
   TITLE_CHOICES,
   GENDER_CHOICES,
   SUPPLIER_TAX_AREA,
@@ -245,10 +244,11 @@ const INITIAL_CONTACT_PERSON_FORM: SupplierContactPersonCreate = {
   phone: "",
 };
 
-const SUPPLIER_SECTION_NAV_ITEMS: TSectionNavItem[] = [
-  { key: "address", label: "Address", icon: <LocationOnOutlinedIcon fontSize="small" /> },
-  { key: "contactPerson", label: "Contact Person", icon: <PersonOutlineIcon fontSize="small" /> },
-  { key: "payment", label: "Payment", icon: <AccountBalanceWalletOutlinedIcon fontSize="small" /> },
+const SUPPLIER_DETAIL_TABS: TTabConfig[] = [
+  { id: "general", label: "General", icon: <BusinessIcon fontSize="small" /> },
+  { id: "address", label: "Address", icon: <LocationOnOutlinedIcon fontSize="small" /> },
+  { id: "contactPerson", label: "Contact Person", icon: <PersonOutlineIcon fontSize="small" /> },
+  { id: "payment", label: "Payment", icon: <AccountBalanceWalletOutlinedIcon fontSize="small" /> },
 ];
 
 // Lead time is always stored in days (SupplierCreate/Update.lead_time_days);
@@ -370,12 +370,9 @@ export default function SuppliersPage() {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
   };
 
-  // Detail panel section navigation (Address / Contact Person / Payment).
-  // null = no section selected, showing the default "Main" content (Company + Contact + Record Info).
-  const [activeSection, setActiveSection] = useState<"address" | "contactPerson" | "payment" | null>(null);
-  const handleSectionNavChange = useCallback((key: string) => {
-    setActiveSection((prev) => (prev === key ? null : (key as "address" | "contactPerson" | "payment")));
-  }, []);
+  // Which of the Address / Contact Person / Payment tabs is active, shown
+  // below the always-visible Company/Contact Information section.
+  const [activeSection, setActiveSection] = useState<"general" | "address" | "contactPerson" | "payment">("general");
 
   // "Same as billing" toggle for shipping address — checked whenever the
   // shipping fields are currently empty or already mirror billing, so it
@@ -436,12 +433,12 @@ export default function SuppliersPage() {
 
   const selectedCountry = countries.find((c) => c.id === formData.country_id) || null;
 
-  // Reset the detail panel back to "Main" (no section selected) whenever a
+  // Reset the detail panel's active tab back to "General" whenever a
   // different supplier is selected or a new one is started — but not when
   // just toggling Edit/Cancel on the same record, so the user isn't yanked
   // away from what they're reviewing.
   useEffect(() => {
-    setActiveSection(null);
+    setActiveSection("general");
   }, [selectedSupplier?.id, isCreating]);
 
   // Reflect whether this supplier's shipping address was actually left
@@ -1463,105 +1460,6 @@ export default function SuppliersPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current supplier (or
-  // the "New Supplier" placeholder while creating) plus the Address/Contact
-  // Person/Payment section nav — the same card+nav the old list panel showed
-  // for whichever row was selected, just without the rest of the list beside
-  // it. A "Back to Suppliers" link returns to the table.
-  const singleSupplierPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToSuppliers}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Suppliers
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box
-            onClick={() => setActiveSection(null)}
-            sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1, cursor: "pointer" }}
-          >
-            <SupplierAvatarCircle companyName={formData.company_name} size={40} />
-            <Typography variant="caption" color="text.secondary">
-              New Supplier
-            </Typography>
-          </Box>
-          <TSectionNav
-            items={SUPPLIER_SECTION_NAV_ITEMS}
-            activeKey={activeSection}
-            onChange={handleSectionNavChange}
-            variant="inline"
-          />
-        </Box>
-      ) : selectedSupplier && (
-        <Box>
-          <SelectableListItem
-            id={selectedSupplier.id}
-            isSelected
-            onClick={() => setActiveSection(null)}
-            primaryText={
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-                <SupplierAvatarCircle companyName={selectedSupplier.company_name} logoPath={selectedSupplier.logo_path} />
-                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span>{selectedSupplier.company_name}</span>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Company Name)
-                    </Typography>
-                  </Box>
-                  {countries.find((c) => c.id === selectedSupplier.country_id)?.name && (
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography component="span" variant="caption">
-                        {countries.find((c) => c.id === selectedSupplier.country_id)?.name}
-                      </Typography>
-                      <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                        (Country)
-                      </Typography>
-                    </Box>
-                  )}
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                    <Chip
-                      label={selectedSupplier.active ? "Active" : "Inactive"}
-                      size="small"
-                      color={selectedSupplier.active ? "success" : "default"}
-                      sx={{ height: 18, fontSize: "0.65rem" }}
-                    />
-                  </Box>
-                </Box>
-              </Box>
-            }
-          />
-          <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-            <TSectionNav
-              items={SUPPLIER_SECTION_NAV_ITEMS}
-              activeKey={activeSection}
-              onChange={handleSectionNavChange}
-              variant="inline"
-            />
-          </Box>
-        </Box>
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -1577,6 +1475,16 @@ export default function SuppliersPage() {
         isCreating={isCreating}
         createTitle="New Supplier"
         noSelectionTitle="Select a Supplier"
+        tabsSlot={
+          (selectedSupplier || isCreating) && (
+            <TTabs
+              tabs={SUPPLIER_DETAIL_TABS}
+              activeTab={activeSection}
+              onChange={(id) => setActiveSection(id as typeof activeSection)}
+              showDivider={false}
+            />
+          )
+        }
       />
 
       <ActionToolbar
@@ -1601,40 +1509,7 @@ export default function SuppliersPage() {
           <TDetailSkeleton sections={3} fieldsPerSection={6} showHeader={false} showToolbar={false} />
         ) : (
           <>
-          {activeSection === "contactPerson" && (
-            <FormSection title="Contact Persons" columns={1}>
-              {!selectedSupplier && (
-                <Alert severity="info" sx={{ mb: 1.5 }}>
-                  Contact persons added here will be saved together with the supplier.
-                </Alert>
-              )}
-              {canUpdateSupplier && (
-                <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1.5 }}>
-                  <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={handleOpenAddContactPerson}>
-                    Add Contact Person
-                  </Button>
-                </Box>
-              )}
-              {displayedContactPersons.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  No contact persons added yet.
-                </Typography>
-              ) : (
-                <TDataGrid
-                  rows={displayedContactPersons}
-                  columns={contactPersonColumns}
-                  onRowClick={(row) => handleViewContactPerson(row)}
-                  autoHeight
-                  density="standard"
-                  pageSizeOptions={[10, 25, 50]}
-                  pageSize={10}
-                />
-              )}
-            </FormSection>
-          )}
-
-          {activeSection === null && (
-          <>
+          <TTabPanel value={activeSection} index="general" padding={0}>
             <FormSection title="Company Information" columns={3}>
               <TextField
                 label="Company Name"
@@ -1849,12 +1724,11 @@ export default function SuppliersPage() {
                 </Box>
               </FormSection>
             )}
-          </>
-          )}
+          </TTabPanel>
 
-          {activeSection === "address" && (
             <>
-              <FormSection title="Country" columns={2}>
+              <TTabPanel value={activeSection} index="address" padding={0} sx={{ pt: 2 }}>
+                <FormSection title="Country" columns={2}>
                 <TAutocomplete<CountryRef>
                   label="Country"
                   options={countries}
@@ -1970,11 +1844,42 @@ export default function SuppliersPage() {
                   </>
                 )}
               </FormSection>
-            </>
-          )}
+              </TTabPanel>
 
-          {activeSection === "payment" && (
-            <FormSection title="Payment" columns={3}>
+              <TTabPanel value={activeSection} index="contactPerson" padding={0} sx={{ pt: 2 }}>
+                <FormSection title="Contact Persons" columns={1}>
+                  {!selectedSupplier && (
+                    <Alert severity="info" sx={{ mb: 1.5 }}>
+                      Contact persons added here will be saved together with the supplier.
+                    </Alert>
+                  )}
+                  {canUpdateSupplier && (
+                    <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1.5 }}>
+                      <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={handleOpenAddContactPerson}>
+                        Add Contact Person
+                      </Button>
+                    </Box>
+                  )}
+                  {displayedContactPersons.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No contact persons added yet.
+                    </Typography>
+                  ) : (
+                    <TDataGrid
+                      rows={displayedContactPersons}
+                      columns={contactPersonColumns}
+                      onRowClick={(row) => handleViewContactPerson(row)}
+                      autoHeight
+                      density="standard"
+                      pageSizeOptions={[10, 25, 50]}
+                      pageSize={10}
+                    />
+                  )}
+                </FormSection>
+              </TTabPanel>
+
+              <TTabPanel value={activeSection} index="payment" padding={0} sx={{ pt: 2 }}>
+              <FormSection title="Payment" columns={3}>
               <TextField
                 select
                 label="Payment Terms"
@@ -2074,9 +1979,7 @@ export default function SuppliersPage() {
                 </>
               )}
             </FormSection>
-          )}
 
-          {activeSection === "payment" && (
             <FormSection title="Payment Methods" columns={1}>
               {!selectedSupplier && (
                 <Alert severity="info" sx={{ mb: 1.5 }}>
@@ -2106,7 +2009,8 @@ export default function SuppliersPage() {
                 />
               )}
             </FormSection>
-          )}
+              </TTabPanel>
+            </>
           </>
         )}
       </Box>
@@ -2118,7 +2022,16 @@ export default function SuppliersPage() {
       <MasterDetailLayout
         title="Suppliers"
         titleSlot={
-          isSupplierDetailMode ? undefined : (
+          isSupplierDetailMode ? (
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={handleBackToSuppliers}
+              sx={{ textTransform: "none" }}
+            >
+              Back to Suppliers
+            </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -2195,7 +2108,7 @@ export default function SuppliersPage() {
         onRefresh={refetch}
         isLoading={isLoading}
         {...(isSupplierDetailMode
-          ? { masterPanel: singleSupplierPanel, detailPanel }
+          ? { children: detailPanel }
           : { children: supplierTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

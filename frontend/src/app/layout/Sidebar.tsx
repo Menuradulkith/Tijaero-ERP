@@ -103,12 +103,6 @@ const menuItems: MenuItem[] = [
         permission: PERMISSIONS.QUOTATIONS_VIEW,
       },
       {
-        text: "Proforma Invoices",
-        icon: <ReceiptLongIcon />,
-        path: "/sales/proforma",
-        permission: PERMISSIONS.PROFORMA_INVOICES_VIEW,
-      },
-      {
         text: "Sales Orders",
         icon: <PointOfSaleIcon />,
         path: "/sales/orders",
@@ -119,6 +113,12 @@ const menuItems: MenuItem[] = [
         icon: <FactCheckIcon />,
         path: "/sales/approvals",
         subItems: [
+          {
+            text: "Quotation Approvals",
+            icon: <FactCheckIcon />,
+            path: "/sales/approvals/quotation-approvals",
+            permission: PERMISSIONS.QUOTATION_APPROVALS_VIEW,
+          },
           {
             text: "Credit SO Approvals",
             icon: <FactCheckIcon />,
@@ -167,6 +167,12 @@ const menuItems: MenuItem[] = [
         text: "Purchase Orders",
         icon: <ReceiptLongIcon />,
         path: "/purchasing/orders",
+        permission: PERMISSIONS.PURCHASE_ORDERS_VIEW,
+      },
+      {
+        text: "TOP",
+        icon: <ShoppingCartIcon />,
+        path: "/purchasing/top",
         permission: PERMISSIONS.PURCHASE_ORDERS_VIEW,
       },
       {

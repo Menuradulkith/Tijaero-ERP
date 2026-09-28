@@ -415,68 +415,6 @@ export default function AttendancePage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current attendance
-  // record (or the "New Attendance" placeholder while creating) plus a
-  // "Back to Attendance" link that returns to the table.
-  const singleAttendancePanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToAttendance}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Attendance
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-              <AccessTimeIcon color="primary" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Attendance
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedAttendance && (
-        <SelectableListItem
-          id={selectedAttendance.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-                <AccessTimeIcon color="primary" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>
-                  {selectedAttendance.employee_name || selectedAttendance.employee_id} •{" "}
-                  {format(new Date(selectedAttendance.date), "MMM dd, yyyy")}
-                </span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -656,7 +594,16 @@ export default function AttendancePage() {
       <MasterDetailLayout
         title="Attendance"
         titleSlot={
-          isAttendanceDetailMode ? undefined : (
+          isAttendanceDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToAttendance}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Attendance
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -732,7 +679,7 @@ export default function AttendancePage() {
         onRefresh={refetch}
         isLoading={isLoading}
         {...(isAttendanceDetailMode
-          ? { masterPanel: singleAttendancePanel, detailPanel }
+          ? { children: detailPanel }
           : { children: attendanceTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />

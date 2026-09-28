@@ -365,67 +365,6 @@ export default function GroupsPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current role (or the
-  // "New Role" placeholder while creating). A "Back to Roles" link returns
-  // to the table.
-  const singleGroupPanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToGroups}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Roles
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "primary.main" }}>
-              <SecurityIcon fontSize="small" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              New Role
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedGroup && (
-        <Box>
-          <SelectableListItem
-            id={selectedGroup.id}
-            isSelected
-            onClick={() => {}}
-            primaryText={
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-                <Avatar sx={{ bgcolor: "primary.main" }}>
-                  <SecurityIcon fontSize="small" />
-                </Avatar>
-                <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5, minWidth: 0 }}>
-                  <span>{selectedGroup.name}</span>
-                </Box>
-              </Box>
-            }
-          />
-        </Box>
-      )}
-    </Paper>
-  );
-
   // Detail Panel
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -584,7 +523,16 @@ export default function GroupsPage() {
         title="Roles & Permissions"
         icon={<SecurityIcon sx={{ fontSize: 32, color: "primary.main" }} />}
         titleSlot={
-          isGroupDetailMode ? undefined : (
+          isGroupDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToGroups}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Roles
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -628,7 +576,7 @@ export default function GroupsPage() {
             </>
           )
         }
-        {...(isGroupDetailMode ? { masterPanel: singleGroupPanel, detailPanel } : { children: groupsTablePanel })}
+        {...(isGroupDetailMode ? { children: detailPanel } : { children: groupsTablePanel })}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
       <TActivityHistoryPanel

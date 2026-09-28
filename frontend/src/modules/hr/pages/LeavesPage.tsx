@@ -358,68 +358,6 @@ export default function LeavesPage() {
     </Box>
   );
 
-  // Detail mode: a narrow left panel showing only the current leave
-  // application (or the "Apply for Leave" placeholder while creating) plus a
-  // "Back to Leaves" link that returns to the table.
-  const singleLeavePanel = (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 280,
-        minWidth: 240,
-        maxWidth: 300,
-        borderRight: 1,
-        borderColor: "divider",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ p: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon fontSize="small" />}
-          onClick={handleBackToLeaves}
-          sx={{ textTransform: "none" }}
-        >
-          Back to Leaves
-        </Button>
-      </Box>
-      {isCreating ? (
-        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-              <EventAvailableIcon color="primary" />
-            </Avatar>
-            <Typography variant="caption" color="text.secondary">
-              Apply for Leave
-            </Typography>
-          </Box>
-        </Box>
-      ) : selectedLeave && (
-        <SelectableListItem
-          id={selectedLeave.id}
-          isSelected
-          onClick={() => {}}
-          primaryText={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, width: "100%" }}>
-              <Avatar sx={{ bgcolor: "action.disabledBackground" }}>
-                <EventAvailableIcon color="primary" />
-              </Avatar>
-              <Box sx={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0 }}>
-                <span>
-                  {selectedLeave.leave_type.toUpperCase()} •{" "}
-                  {selectedLeave.employee_name || selectedLeave.employee_id}
-                </span>
-              </Box>
-            </Box>
-          }
-        />
-      )}
-    </Paper>
-  );
-
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
@@ -595,7 +533,16 @@ export default function LeavesPage() {
       <MasterDetailLayout
         title="Leaves"
         titleSlot={
-          isLeaveDetailMode ? undefined : (
+          isLeaveDetailMode ? (
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToLeaves}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Leaves
+          </Button>
+          ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
@@ -634,7 +581,7 @@ export default function LeavesPage() {
         onRefresh={refetch}
         isLoading={isLoading}
         {...(isLeaveDetailMode
-          ? { masterPanel: singleLeavePanel, detailPanel }
+          ? { children: detailPanel }
           : { children: leaveTablePanel })}
         headerActions={
           isLeaveDetailMode ? undefined : (
