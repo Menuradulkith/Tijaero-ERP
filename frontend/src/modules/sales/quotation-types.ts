@@ -12,13 +12,8 @@ export type QuoteStatus =
   | 'accepted'
   | 'rejected'
   | 'expired'
-  | 'converted'
-  | 'converted_to_invoice'
-  | 'partially_converted'
   | 'partially_processed'
   | 'completed'
-  | 'po_created'
-  | 'item_received'
   | 'so_created'
   | 'cancelled'
   | 'revised';
@@ -90,6 +85,8 @@ export interface SalesQuote {
   approval_id?: number;
   approved_by?: number;
   approved_by_name?: string;
+  created_by_name?: string;
+  updated_by_name?: string;
   special: boolean;
   sys_code?: number;
 
@@ -135,6 +132,8 @@ export interface RelatedPurchaseOrderSummary {
   purchasing_order_no: string;
   status: string;
   supplier_name?: string;
+  ordered_quantity: number;
+  received_quantity: number;
 }
 
 export interface SalesQuoteDetail extends SalesQuoteWithItems {
@@ -254,51 +253,9 @@ export interface SalesQuoteFilter {
   search?: string;
 }
 
-// ==================== Status Display Helpers ====================
-
-export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
-  draft: 'Draft',
-  pending_approval: 'Pending Approval',
-  submitted: 'Submitted',
-  under_review: 'Under Review',
-  approved: 'Approved',
-  sent: 'Sent',
-  accepted: 'Accepted',
-  rejected: 'Rejected',
-  expired: 'Expired',
-  converted: 'Converted',
-  converted_to_invoice: 'Converted to Invoice',
-  partially_converted: 'Partially Converted',
-  partially_processed: 'Partially Processed',
-  completed: 'Completed',
-  po_created: 'PO Created',
-  item_received: 'Item Received',
-  so_created: 'SO Created',
-  cancelled: 'Cancelled',
-  revised: 'Revised',
-};
-
-export const QUOTE_STATUS_COLORS: Record<QuoteStatus, string> = {
-  draft: 'gray',
-  pending_approval: 'yellow',
-  submitted: 'indigo',
-  under_review: 'amber',
-  approved: 'blue',
-  sent: 'purple',
-  accepted: 'green',
-  rejected: 'red',
-  expired: 'orange',
-  converted: 'teal',
-  converted_to_invoice: 'teal',
-  partially_converted: 'orange',
-  partially_processed: 'orange',
-  completed: 'green',
-  po_created: 'cyan',
-  item_received: 'teal',
-  so_created: 'indigo',
-  cancelled: 'red',
-  revised: 'gray',
-};
+// Status display (label + color) lives in TStatusChip's STATUS_MAPS.quoteStatus
+// — that's the map actually rendered on the Quotation pages, so it's the
+// single source of truth instead of a second, easily-out-of-sync copy here.
 
 // Partial SO request
 export interface PartialSOItemRequest {
@@ -332,6 +289,38 @@ export interface StockAvailabilityResponse {
   branch_code: string;
   items: StockAvailabilityItem[];
   all_sufficient: boolean;
+}
+
+// ==================== Procurement / Reservation Types ====================
+
+export interface ProcurementSummaryItem {
+  item_id: number;
+  product_id: number;
+  product_name?: string;
+  required_quantity: number;
+  ordered_quantity: number;
+  received_quantity: number;
+  reserved_quantity: number;
+  on_hand_quantity: number;
+  available_quantity: number;
+  outstanding_quantity: number;
+}
+
+export interface ProcurementSummaryResponse {
+  quote_id: number;
+  branch_code: string;
+  items: ProcurementSummaryItem[];
+}
+
+export interface ReleaseReservationRequest {
+  item_id?: number;
+  reason?: string;
+}
+
+export interface ReleaseReservationResponse {
+  quote_id: number;
+  units_released: number;
+  message: string;
 }
 
 // ==================== Create PO from Quotation Types ====================

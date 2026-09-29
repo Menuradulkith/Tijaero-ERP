@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
@@ -288,6 +289,7 @@ class SalesStockService:
                 "purchasing_order_items_id": item.purchasing_order_items_id,
                 "warranty_month": item.warranty_month,
                 "status": item.status,
+                "reserved_for_quote_item_id": item.reserved_for_quote_item_id,
                 "added_date": item.added_date,
                 "created_at": created_at,
                 "updated_at": updated_at,
@@ -311,12 +313,60 @@ class SalesStockService:
         
         return result
     
+    def _resolve_reservation(self, purchasing_order_items_id: int) -> Optional[int]:
+        """
+        If the given PO line traces back to a Sales Quotation item
+        (PurchasingOrderItems.quote_item_id), and that quote item hasn't
+        already had its full required quantity reserved, return its id so
+        the caller commits this unit to that quotation instead of the
+        general available pool. Returns None for ordinary quote-less POs,
+        or once the quote item's required quantity is already fully covered
+        (excess received units fall through to normal available stock —
+        see business rule: a quotation only reserves what it actually
+        requires).
+        """
+        from app.modules.purchasing.models import PurchasingOrderItems
+        from app.modules.sales.quotation_models import SalesQuoteItem
+
+        po_item = self.db.query(PurchasingOrderItems).filter(
+            PurchasingOrderItems.id == purchasing_order_items_id
+        ).first()
+        if not po_item or not po_item.quote_item_id:
+            return None
+
+        # Lock the quote item to serialise concurrent GRN postings against it.
+        quote_item = self.db.query(SalesQuoteItem).filter(
+            SalesQuoteItem.id == po_item.quote_item_id
+        ).with_for_update().first()
+        if not quote_item:
+            return None
+
+        already_reserved = self.db.query(func.count(models.SalesStock.id)).filter(
+            models.SalesStock.reserved_for_quote_item_id == quote_item.id,
+            models.SalesStock.status == StockStatus.RESERVED,
+            models.SalesStock.is_active == True,
+        ).scalar() or 0
+
+        if already_reserved >= quote_item.quantity:
+            return None  # Fully covered already — any more is excess/available
+        return quote_item.id
+
     def create(self, item: schemas.SalesStockCreate) -> models.SalesStock:
         # Check if barcode already exists (prevent duplicates)
         existing = self.get_by_barcode(item.barcode)
         if existing:
             raise ValueError(f"Barcode '{item.barcode}' already exists in sales stock")
-        
+
+        resolved_status = item.status
+        reserved_for_quote_item_id = None
+        # Only auto-reserve units that would otherwise land as plain
+        # available stock — never override an explicit non-available status
+        # (e.g. damaged) chosen for this unit.
+        if item.status == StockStatus.AVAILABLE:
+            reserved_for_quote_item_id = self._resolve_reservation(item.purchasing_order_items_id)
+            if reserved_for_quote_item_id is not None:
+                resolved_status = StockStatus.RESERVED
+
         db_item = models.SalesStock(
             product_id=item.product_id,
             barcode=item.barcode,
@@ -325,7 +375,8 @@ class SalesStockService:
             good_received_note_id=item.good_received_note_id,
             purchasing_order_items_id=item.purchasing_order_items_id,
             warranty_month=item.warranty_month,
-            status=item.status,
+            status=resolved_status,
+            reserved_for_quote_item_id=reserved_for_quote_item_id,
             added_date=tz.now()
         )
         try:
@@ -336,6 +387,35 @@ class SalesStockService:
         except IntegrityError:
             self.db.rollback()
             raise ValueError(f"Barcode '{item.barcode}' already exists in sales stock")
+
+    def release_reservation_for_quote_item(
+        self, quote_item_id: int, user_id: Optional[int] = None
+    ) -> int:
+        """
+        Release any stock still reserved for a quotation item back to the
+        available pool (quotation cancelled, or an authorized user explicitly
+        released the procurement allocation). Returns the number of units
+        released. The reservation link is kept on the row for audit/history
+        even after release — availability is derived purely from `status`.
+        """
+        rows = self.db.query(models.SalesStock).filter(
+            models.SalesStock.reserved_for_quote_item_id == quote_item_id,
+            models.SalesStock.status == StockStatus.RESERVED,
+            models.SalesStock.is_active == True,
+        ).with_for_update().all()
+        for row in rows:
+            row.status = StockStatus.AVAILABLE
+        if rows:
+            log_audit(
+                self.db,
+                user_id=user_id or 0,
+                action="release_reservation",
+                entity_type="sales_stock",
+                entity_id=quote_item_id,
+                changes={"quote_item_id": quote_item_id, "units_released": len(rows)},
+            )
+            self.db.commit()
+        return len(rows)
     
     def barcode_exists(self, barcode: str) -> bool:
         """Check if barcode already exists in sales_stock table"""

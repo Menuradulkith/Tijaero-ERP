@@ -408,6 +408,52 @@ export default function ProductsPage({
     }
   }, [productState.selectedItem?.id, currentMinPrice, productState.isCreating]);
 
+  // Same query key ProductSuppliersList uses for the selected product, so
+  // this just reads the shared cache (no extra request) — needed here only
+  // to know whether the Suppliers tab is still empty.
+  const { data: productSupplierMappings = [] } = useQuery({
+    queryKey: ["product-suppliers", productState.selectedItem?.id],
+    queryFn: () => productsApi.getSuppliers(productState.selectedItem!.id),
+    enabled: !!productState.selectedItem?.id && !productState.isCreating,
+  });
+
+  // These sections stay fillable without an Edit click for as long as they
+  // genuinely have nothing in them yet — checked every time the product is
+  // opened, not just right after creation — since users without update
+  // permission would otherwise have no way to ever fill them in. The moment
+  // either has real data, it locks again like General does. Cost/Selling
+  // Price are always required at creation, so only the optional Pricing
+  // fields (Website Price, Minimum Selling Price) count toward "unfilled".
+  const isPricingUnfilled =
+    !productState.selectedItem ||
+    ((!productState.formData.website_price ||
+      productState.formData.website_price === 0) &&
+      (currentMinPrice?.minimum_price === undefined ||
+        currentMinPrice?.minimum_price === null));
+  const isProductSuppliersUnfilled =
+    productState.isCreating
+      ? pendingSupplierMappings.length === 0
+      : productSupplierMappings.length === 0;
+
+  const isPricingEditable =
+    productState.isEditing || productState.isCreating || isPricingUnfilled;
+  const isProductSuppliersEditable =
+    productState.isEditing || productState.isCreating || isProductSuppliersUnfilled;
+
+  // Supplier mappings are added/edited through their own side-panel dialog
+  // (its own Save button) — the main toolbar's Save/Cancel is redundant
+  // there regardless of whether the list is still empty.
+  const hideToolbarSaveForSection = activeProductSection === "suppliers";
+
+  // The main toolbar's Save/Cancel only cover fields on formData — General
+  // always (once in Edit mode), Pricing only while it's still unfilled
+  // (Suppliers saves through its own dialog, never this button).
+  const showToolbarSaveForSection =
+    !hideToolbarSaveForSection &&
+    (activeProductSection === "pricing"
+      ? isPricingEditable
+      : productState.isEditing || productState.isCreating);
+
   // Suppliers list for the product filter bar's "Supplier" picker
   const { data: suppliersForFilter = [] } = useQuery({
     queryKey: ["suppliers-for-product-filter"],
@@ -1544,7 +1590,7 @@ export default function ProductsPage({
           canCreate={canCreate}
           canDelete={canDelete}
           canUpdate={canUpdate}
-          isEditing={productState.isEditing}
+          isEditing={showToolbarSaveForSection}
           isCreating={productState.isCreating}
           hasSelection={!!productState.selectedItem}
           onAdd={handleNewProduct}
@@ -1924,7 +1970,7 @@ export default function ProductsPage({
                       })
                     }
                     onBlur={() => handleProductBlur("cost_price")}
-                    disabled={!productState.isEditing && !productState.isCreating}
+                    disabled={!isPricingEditable}
                     required
                     error={
                       productTouched.cost_price &&
@@ -1971,7 +2017,7 @@ export default function ProductsPage({
                         ? `Cannot be less than cost price`
                         : ""
                     }
-                    disabled={!productState.isEditing && !productState.isCreating}
+                    disabled={!isPricingEditable}
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">{currencySymbol}</InputAdornment>
@@ -1992,7 +2038,7 @@ export default function ProductsPage({
                       })
                     }
                     onBlur={() => handleProductBlur("selling_price")}
-                    disabled={!productState.isEditing && !productState.isCreating}
+                    disabled={!isPricingEditable}
                     required
                     error={
                       (productTouched.selling_price &&
@@ -2035,7 +2081,7 @@ export default function ProductsPage({
                         Number.isFinite(parsed) ? Math.max(0, parsed) : "",
                       );
                     }}
-                    disabled={!productState.isEditing && !productState.isCreating}
+                    disabled={!isPricingEditable}
                     error={typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0)}
                     helperText={typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0) ? `Cannot be less than cost price (${currencySymbol} ${productState.formData.cost_price || 0})` : ""}
                     InputProps={{
@@ -2061,7 +2107,7 @@ export default function ProductsPage({
                       productState.selectedItem && (
                         <ProductSuppliersList
                           productId={productState.selectedItem.id}
-                          canEdit={canUpdate}
+                          canEdit={canUpdate || isProductSuppliersEditable}
                         />
                       )
                     )}

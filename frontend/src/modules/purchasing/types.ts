@@ -339,6 +339,8 @@ export interface PurchasingOrder {
   created_by_name?: string;
   approved_by?: number;
   approved_by_name?: string;
+  updated_by?: number;
+  updated_by_name?: string;
   status: string;
   total_amount: number;
   /** Sum of every line item's quantity — derived server-side. */

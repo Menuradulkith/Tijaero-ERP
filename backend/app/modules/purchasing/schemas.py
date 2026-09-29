@@ -330,6 +330,8 @@ class PurchasingOrder(PurchasingOrderBase, TijaeroBaseSchema):
     created_by_name: Optional[str] = None
     approved_by: Optional[int] = None
     approved_by_name: Optional[str] = None
+    updated_by: Optional[int] = None
+    updated_by_name: Optional[str] = None
     status: PurchaseOrderStatus = PurchaseOrderStatus.PENDING
     total_amount: Decimal = Decimal("0.00")
     paid_amount: Decimal = Decimal("0.00")

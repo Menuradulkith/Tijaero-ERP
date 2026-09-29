@@ -45,6 +45,12 @@ class SalesStock(Base, AuditMixin):
     is_active = Column(Boolean, nullable=False, default=True)  
     returned_date = Column(TIMESTAMP, nullable=True)  
     purchase_return_id = Column(Integer, ForeignKey("purchasing_return.id"), nullable=True)  
+    # Set when this unit was received against a PO line that traces back to a
+    # Sales Quotation item (PurchasingOrderItems.quote_item_id) — the unit is
+    # committed to that quotation and excluded from other customers' stock
+    # availability until released (quotation cancelled) or consumed (SO
+    # fulfilled). NULL for stock received on ordinary, quote-less POs.
+    reserved_for_quote_item_id = Column(Integer, ForeignKey("sales_quote_items.id"), nullable=True, index=True)
     added_date = Column(TIMESTAMP, nullable=False)
     
     product = relationship("Product", back_populates="sales_stock")
@@ -52,6 +58,7 @@ class SalesStock(Base, AuditMixin):
     purchasing_order_item = relationship("PurchasingOrderItems", back_populates="sales_stock_items")
     purchase_return = relationship("PurchasingReturn", back_populates="returned_stock_items")
     location = relationship("Locations", back_populates="sales_stock_items")
+    reserved_for_quote_item = relationship("SalesQuoteItem", foreign_keys=[reserved_for_quote_item_id])
 
 
     

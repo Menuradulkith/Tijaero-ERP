@@ -294,7 +294,7 @@ class SalesQuoteRepository:
                     SalesQuote.status.notin_(
                         [
                             QuoteStatus.EXPIRED.value,
-                            QuoteStatus.CONVERTED.value,
+                            QuoteStatus.COMPLETED.value,
                             QuoteStatus.CANCELLED.value,
                             QuoteStatus.REJECTED.value,
                         ]

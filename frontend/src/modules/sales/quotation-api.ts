@@ -8,9 +8,12 @@ import {
   CreateRevisionRequest,
   CreateRevisionResponse,
   CustomerApprovalRequest,
+  ProcurementSummaryResponse,
   QuoteStatus,
   QuoteType,
   RejectQuoteRequest,
+  ReleaseReservationRequest,
+  ReleaseReservationResponse,
   SalesQuote,
   SalesQuoteCreate,
   SalesQuoteDetail,
@@ -228,6 +231,32 @@ export const quotationApi = {
   checkStockAvailability: async (id: number): Promise<StockAvailabilityResponse> => {
     const response = await apiClient.get<StockAvailabilityResponse>(
       `${BASE_URL}/${id}/stock-availability`
+    );
+    return response.data;
+  },
+
+  /**
+   * Get required/ordered/received/reserved/available/outstanding quantities
+   * per item, for the quote's procurement traceability panel.
+   */
+  getProcurementSummary: async (id: number): Promise<ProcurementSummaryResponse> => {
+    const response = await apiClient.get<ProcurementSummaryResponse>(
+      `${BASE_URL}/${id}/procurement-summary`
+    );
+    return response.data;
+  },
+
+  /**
+   * Explicitly release stock reserved for this quotation (or one item on
+   * it) back to the available pool.
+   */
+  releaseReservation: async (
+    id: number,
+    data?: ReleaseReservationRequest
+  ): Promise<ReleaseReservationResponse> => {
+    const response = await apiClient.post<ReleaseReservationResponse>(
+      `${BASE_URL}/${id}/release-reservation`,
+      data ?? {}
     );
     return response.data;
   },

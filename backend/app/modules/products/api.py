@@ -1,7 +1,7 @@
 from typing import List
 
 from app.auth.models import User
-from app.auth.rbac import Permissions, require_permission
+from app.auth.rbac import Permissions, require_any_permission, require_permission
 from app.db.session import get_db
 from app.modules.products import schemas, service
 from app.modules.purchasing.schemas import SupplierProduct as SupplierProductSchema
@@ -94,13 +94,14 @@ def create_product(
     "/products/{product_id}",
     response_model=schemas.Product,
     summary="Update Product",
-    dependencies=[Depends(require_permission(*Permissions.PRODUCT_UPDATE))],
 )
 def update_product(
     product_id: int,
     product: schemas.ProductUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(Permissions.PRODUCT_CREATE, Permissions.PRODUCT_UPDATE)
+    ),
 ):
     return service.product_service.update_product(
         db, product_id, product, current_user.id
@@ -125,13 +126,14 @@ def delete_product(
     "/products/{product_id}/image",
     response_model=schemas.Product,
     summary="Upload Product Image",
-    dependencies=[Depends(require_permission(*Permissions.PRODUCT_UPDATE))],
 )
 def upload_product_image(
     product_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(Permissions.PRODUCT_CREATE, Permissions.PRODUCT_UPDATE)
+    ),
 ):
     from app.common.file_storage import save_image
 

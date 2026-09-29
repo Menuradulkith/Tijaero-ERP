@@ -328,6 +328,14 @@ export default function QuotationsPage() {
     enabled: !!selectedQuote?.id && !isCreating && !isEditing,
   });
 
+  // Required/ordered/received/reserved/available/outstanding per item —
+  // the procurement + stock-reservation traceability panel.
+  const { data: procurementSummary } = useQuery({
+    queryKey: ["sales-quote-procurement-summary", selectedQuote?.id],
+    queryFn: () => quotationApi.getProcurementSummary(selectedQuote!.id),
+    enabled: !!selectedQuote?.id && !isCreating && !isEditing,
+  });
+
   // Reset selection and form on mount
   useEffect(() => {
     handleSelectQuote(null as unknown as SalesQuote);
@@ -345,7 +353,7 @@ export default function QuotationsPage() {
 
     if (!selectedQuote?.id || isCreating || isEditing) return;
     // Only auto-check for non-terminal statuses
-    const terminalStatuses = ['cancelled', 'converted', 'converted_to_invoice', 'revised'];
+    const terminalStatuses = ['cancelled', 'completed', 'revised'];
     if (terminalStatuses.includes(selectedQuote.status)) return;
 
     let cancelled = false;
@@ -641,9 +649,35 @@ export default function QuotationsPage() {
     }
   }, [selectedQuote, confirmDialog, cancelMutation]);
 
+  const [releasingReservation, setReleasingReservation] = useState(false);
+
+  // Explicit release of stock reserved for this quotation's procurement —
+  // never automatic. Available to any active quotation (most relevant once
+  // cancelled or when an authorized user decides to free up committed stock).
+  const handleReleaseReservation = useCallback(async () => {
+    if (!selectedQuote) return;
+    const confirmed = await confirmDialog.confirm({
+      title: "Release Reserved Stock",
+      message: `This returns any stock received for ${selectedQuote.quote_no}'s procurement back to the general available pool, so other customers can purchase it. Continue?`,
+      confirmText: "Release Reservation",
+      confirmColor: "warning",
+    });
+    if (!confirmed) return;
+    setReleasingReservation(true);
+    try {
+      const result = await quotationApi.releaseReservation(selectedQuote.id);
+      showSuccessToast(result.message);
+      queryClient.invalidateQueries({ queryKey: ["sales-quote-procurement-summary", selectedQuote.id] });
+      queryClient.invalidateQueries({ queryKey: ["sales-quote-details", selectedQuote.id] });
+    } catch (err: unknown) {
+      showErrorToast(handleApiError(err as Error, "Failed to release reservation"));
+    } finally {
+      setReleasingReservation(false);
+    }
+  }, [selectedQuote, confirmDialog, queryClient]);
+
   const handleCreateITNNavigate = useCallback(async () => {
     if (!selectedQuote || !selectedQuoteDetails?.items || !transferFromBranch) return;
-
     const itemsForITN = stockAvailability
       .filter(sa => {
         if ((sa.other_branches?.length || 0) === 0) return false;
@@ -711,12 +745,24 @@ export default function QuotationsPage() {
   );
 
   // Items on the quotation that still need procurement — the candidate set
-  // for the Create Purchase Orders (multi-supplier) workflow.
+  // for the Create Purchase Orders (multi-supplier) workflow. Only items
+  // actually short of stock (not already in_stock / covered by a transfer)
+  // belong here — everything else doesn't need a PO at all.
   const procurementCandidates = useMemo((): ProcurementCandidate[] => {
     if (!selectedQuoteDetails?.items) return [];
     return selectedQuoteDetails.items
       .filter(item => !['completed', 'cancelled', 'so_created', 'po_created', 'itn_created'].includes(item.item_status))
       .filter(item => !queuedQuoteItemIds.has(item.id))
+      .filter(item => {
+        // Prefer a live stock check result; fall back to the stored value.
+        const liveStock = stockAvailability.find(sa => sa.product_id === item.product_id);
+        const stockStatus = liveStock
+          ? (liveStock.is_sufficient ? 'in_stock'
+              : (liveStock.other_branches && liveStock.other_branches.length > 0) ? 'needs_transfer'
+              : 'needs_procurement')
+          : item.stock_status;
+        return stockStatus === 'needs_procurement';
+      })
       .map(item => {
         const product = products.find(p => p.id === item.product_id);
         const remaining = item.quantity - (item.converted_qty || 0);
@@ -730,7 +776,7 @@ export default function QuotationsPage() {
         };
       })
       .filter(item => item.quantity > 0);
-  }, [selectedQuoteDetails, products, queuedQuoteItemIds]);
+  }, [selectedQuoteDetails, products, queuedQuoteItemIds, stockAvailability]);
 
   const [supplierSelectionOpen, setSupplierSelectionOpen] = useState(false);
 
@@ -1153,8 +1199,8 @@ export default function QuotationsPage() {
   };
 
   // Check if actions are allowed based on status
-  const canEditQuote = !["converted", "cancelled"].includes(selectedQuote?.status || "");
-  const canDeleteQuoteStatus = !["converted", "cancelled"].includes(selectedQuote?.status || "");
+  const canEditQuote = !["completed", "cancelled"].includes(selectedQuote?.status || "");
+  const canDeleteQuoteStatus = !["completed", "cancelled"].includes(selectedQuote?.status || "");
 
   // Step 1 (Quote Information) validation, used to gate the toolbar's Next
   // button while creating/editing (sale_rep_id is optional).
@@ -1384,7 +1430,7 @@ export default function QuotationsPage() {
                 )}
                 {/* Customer advance — only once the quotation is approved */}
                 {selectedQuote.approval &&
-                  !['cancelled', 'converted', 'converted_to_invoice', 'revised'].includes(selectedQuote.status) && (
+                  !['cancelled', 'completed', 'revised'].includes(selectedQuote.status) && (
                     selectedQuote.advance_payment_id ? (
                       <Tooltip title="A customer advance is already recorded for this quotation">
                         <Chip
@@ -1522,22 +1568,46 @@ export default function QuotationsPage() {
         {/* Related Purchase Orders (from the Sales Quotation -> PO workflow) */}
         {(selectedQuoteDetails?.related_purchase_orders?.length ?? 0) > 0 && (
           <FormSection title="Related Purchase Orders" columns={1}>
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-              {selectedQuoteDetails!.related_purchase_orders.map((po) => (
-                <Chip
-                  key={po.id}
-                  size="small"
-                  variant="outlined"
-                  icon={<POIcon />}
-                  label={`${po.purchasing_order_no} · ${po.supplier_name || "Unknown supplier"} · ${po.status.replace(/_/g, " ")}`}
-                  onClick={() =>
-                    navigate("/purchasing/orders", {
-                      state: { fromQuotation: true, purchaseOrderId: po.id, purchaseOrderNo: po.purchasing_order_no },
-                    })
-                  }
-                />
-              ))}
-            </Box>
+            <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={modernTableStyles.headerRow}>
+                    <TableCell>PO Number</TableCell>
+                    <TableCell>Supplier</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell align="right">Ordered Qty</TableCell>
+                    <TableCell align="right">Received Qty</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectedQuoteDetails!.related_purchase_orders.map((po) => (
+                    <TableRow
+                      key={po.id}
+                      hover
+                      sx={{ ...modernTableStyles.bodyRow, cursor: "pointer" }}
+                      onClick={() =>
+                        navigate("/purchasing/orders", {
+                          state: { fromQuotation: true, purchaseOrderId: po.id, purchaseOrderNo: po.purchasing_order_no },
+                        })
+                      }
+                    >
+                      <TableCell>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                          <POIcon fontSize="small" color="primary" />
+                          {po.purchasing_order_no}
+                        </Box>
+                      </TableCell>
+                      <TableCell>{po.supplier_name || "Unknown supplier"}</TableCell>
+                      <TableCell>
+                        <TStatusChip status={po.status} statusMap="purchaseOrder" />
+                      </TableCell>
+                      <TableCell align="right">{po.ordered_quantity}</TableCell>
+                      <TableCell align="right">{po.received_quantity}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Paper>
           </FormSection>
         )}
 
@@ -1573,9 +1643,6 @@ export default function QuotationsPage() {
                         : 'needs_procurement')
                     : item.stock_status;
                   const itemStatus = item.item_status ?? 'pending';
-                  // Item can be cancelled if it hasn't been fulfilled or already cancelled
-                  const canCancelItem = selectedQuote &&
-                    !['so_created', 'cancelled', 'completed'].includes(itemStatus);
                   return (
                     <TableRow key={index} sx={{
                       ...modernTableStyles.bodyRow,
@@ -1617,15 +1684,6 @@ export default function QuotationsPage() {
                                   ? <Chip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                                   : <Chip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           )}
-                          {canCancelItem && (
-                            <Button size="small" color="error" sx={{ fontSize: '0.65rem', p: '1px 4px', minWidth: 0 }}
-                              onClick={() => {
-                                setCancelItemTarget({ quoteId: selectedQuote!.id, itemId: item.id, productName: product?.name || `Product #${item.product_id}` });
-                                setCancelItemDialogOpen(true);
-                              }}>
-                              Cancel
-                            </Button>
-                          )}
                         </Box>
                       </TableCell>
                       <TableCell align="right">
@@ -1653,6 +1711,64 @@ export default function QuotationsPage() {
             </TableBody>
           </Table>
         </Paper>
+
+        {/* Procurement / Inventory traceability — required vs. ordered vs.
+            received vs. reserved vs. available vs. outstanding per item */}
+        {(procurementSummary?.items?.length ?? 0) > 0 && (
+          <FormSection
+            title="Procurement & Stock Reservation"
+            columns={1}
+            sx={{ mt: 2 }}
+            titleAction={
+              <Button
+                size="small"
+                color="warning"
+                variant="outlined"
+                disabled={releasingReservation || !procurementSummary!.items.some(i => i.reserved_quantity > 0)}
+                onClick={handleReleaseReservation}
+              >
+                {releasingReservation ? "Releasing..." : "Release Reservation"}
+              </Button>
+            }
+          >
+            <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={modernTableStyles.headerRow}>
+                    <TableCell sx={{ minWidth: 180 }}>Product</TableCell>
+                    <TableCell align="right">Required</TableCell>
+                    <TableCell align="right">Ordered</TableCell>
+                    <TableCell align="right">Received</TableCell>
+                    <TableCell align="right">Reserved</TableCell>
+                    <TableCell align="right">Available</TableCell>
+                    <TableCell align="right">Outstanding</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {procurementSummary!.items.map((row) => (
+                    <TableRow key={row.item_id} sx={modernTableStyles.bodyRow}>
+                      <TableCell>{row.product_name || `Product #${row.product_id}`}</TableCell>
+                      <TableCell align="right">{row.required_quantity}</TableCell>
+                      <TableCell align="right">{row.ordered_quantity}</TableCell>
+                      <TableCell align="right">{row.received_quantity}</TableCell>
+                      <TableCell align="right">
+                        {row.reserved_quantity > 0
+                          ? <Chip label={row.reserved_quantity} color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          : row.reserved_quantity}
+                      </TableCell>
+                      <TableCell align="right">{row.available_quantity}</TableCell>
+                      <TableCell align="right">
+                        {row.outstanding_quantity > 0
+                          ? <Chip label={row.outstanding_quantity} color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          : 0}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Paper>
+          </FormSection>
+        )}
 
         {/* Discount & Tax Summary (view mode) */}
         {(quote.tax_mode && quote.tax_mode !== 'none' && (quote.tax_rate || 0) > 0) && (() => {
@@ -1775,15 +1891,28 @@ export default function QuotationsPage() {
           }
         >
           <Box>
-            <Typography variant="caption" color="text.secondary">Created</Typography>
+            <Typography variant="caption" color="text.secondary">Created By</Typography>
             <Typography variant="body2">
-              {formatDateTimeReadable(quote.created_date_time || quote.created_date) || "-"}
+              {/* created_by_name/updated_by_name are only stamped on the
+                  single-quote GET (see SalesQuoteService._attach_user_names)
+                  — the list response `quote` never carries them. */}
+              {selectedQuoteDetails?.created_by_name || "-"}
+              {(quote.created_date_time || quote.created_date)
+                ? ` on ${formatDateTimeReadable(quote.created_date_time || quote.created_date)}`
+                : ""}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Last Modified By</Typography>
+            <Typography variant="body2">
+              {selectedQuoteDetails?.updated_by_name || "-"}
+              {selectedQuoteDetails?.updated_at ? ` on ${formatDateTimeReadable(selectedQuoteDetails.updated_at)}` : ""}
             </Typography>
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">Approved By</Typography>
             <Typography variant="body2">
-              {quote.approved_by_name || "-"}
+              {selectedQuoteDetails?.approved_by_name || quote.approved_by_name || "-"}
             </Typography>
           </Box>
         </FormSection>
@@ -2480,8 +2609,10 @@ export default function QuotationsPage() {
           create: "Quote created",
           update: "Quote updated",
           status_change: "Status changed",
+          approve: "Quote approved",
           reject: "Quote rejected",
           convert: "Converted to invoice",
+          release_reservation: "Stock reservation released",
           delete: "Quote deleted",
         }}
       />
