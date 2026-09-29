@@ -760,8 +760,21 @@ export default function POApprovalsPage() {
               }
             >
               <Box>
-                <Typography variant="caption" color="text.secondary">Created</Typography>
-                <Typography variant="body2">{formatDateTimeReadable(selectedOrder.created_date || selectedOrder.added_date) || "-"}</Typography>
+                <Typography variant="caption" color="text.secondary">Created By</Typography>
+                <Typography variant="body2">
+                  {selectedOrder.created_by_name || "-"}
+                  {(selectedOrder.created_date || selectedOrder.added_date)
+                    ? ` on ${formatDateTimeReadable(selectedOrder.created_date || selectedOrder.added_date)}`
+                    : ""}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Last Modified By</Typography>
+                <Typography variant="body2">{selectedOrder.updated_by_name || "-"}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Approved By</Typography>
+                <Typography variant="body2">{selectedOrder.approved_by_name || "-"}</Typography>
               </Box>
             </FormSection>
           </>

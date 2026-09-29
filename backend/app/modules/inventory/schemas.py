@@ -43,6 +43,10 @@ class SalesStock(SalesStockBase, TijaeroBaseSchema):
     cost_price: Optional[Decimal] = None  # Cost price from product/tier
     selling_price: Optional[Decimal] = None  # Selling price from product/tier
     minimum_price: Optional[Decimal] = None  # Minimum price from product/tier
+    # Set server-side (never client-supplied) when this unit was received
+    # against a PO line traced back to a Sales Quotation item — see
+    # SalesStockService.create.
+    reserved_for_quote_item_id: Optional[int] = None
     minimum_selling_price: Optional[Decimal] = None  # Minimum selling price for frontend mapping
     price_tier_id: Optional[int] = None  # Active price tier ID
 

@@ -2036,6 +2036,12 @@ export default function PurchaseOrdersPage() {
                   </Typography>
                 </Box>
                 <Box>
+                  <Typography variant="caption" color="text.secondary">Last Modified By</Typography>
+                  <Typography variant="body2">
+                    {selectedOrder.updated_by_name || "-"}
+                  </Typography>
+                </Box>
+                <Box>
                   <Typography variant="caption" color="text.secondary">Approved By</Typography>
                   <Typography variant="body2">
                     {selectedOrder.approved_by_name || "-"}

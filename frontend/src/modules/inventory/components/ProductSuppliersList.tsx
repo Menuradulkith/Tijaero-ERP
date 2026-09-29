@@ -33,6 +33,7 @@ import {
 import { productsApi } from "../api";
 import { suppliersApi } from "@/modules/purchasing/api";
 import type { Supplier, SupplierProduct, SupplierProductCreate } from "@/modules/purchasing/types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 /**
  * A supplier mapping staged locally while a product is still being created
@@ -88,6 +89,7 @@ export default function ProductSuppliersList({
   const isPending = productId === undefined;
   const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   // A single panel serves Add / Edit / (read-only) View, matching the
   // Payment Methods / Contact Persons pattern on the Suppliers page.
@@ -284,11 +286,11 @@ export default function ProductSuppliersList({
       },
       {
         field: "cost_price",
-        header: "Cost Price",
+        header: `Cost Price (${currencySymbol})`,
         width: 130,
         align: "right",
         headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<MappingRow>) => fmtLKR(params.row.cost_price),
+        renderCell: (params: GridRenderCellParams<MappingRow>) => `${currencySymbol} ${fmtLKR(params.row.cost_price)}`,
       },
       {
         field: "minimum_order_qty",
@@ -335,7 +337,7 @@ export default function ProductSuppliersList({
         : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canEdit, activeMapping]
+    [canEdit, activeMapping, currencySymbol]
   );
 
   return (
@@ -415,7 +417,7 @@ export default function ProductSuppliersList({
             fullWidth
           />
           <TextField
-            label="Cost Price *"
+            label={`Cost Price * (${currencySymbol})`}
             type="number"
             value={form.cost_price}
             onChange={(e) => setForm({ ...form, cost_price: e.target.value })}

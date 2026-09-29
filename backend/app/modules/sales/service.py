@@ -1230,18 +1230,48 @@ class SalesService:
                 # same unit could be sold forever (sequentially AND in races).
                 # SKIP LOCKED makes two concurrent sales of the last unit
                 # serialise: the loser sees fewer rows and gets a clean 409.
-                allocated_units = (
-                    db.query(SalesStock)
-                    .filter(
-                        SalesStock.product_id == item_dict['product_id'],
-                        SalesStock.status == StockStatus.AVAILABLE,
-                        SalesStock.is_active == True,
+                #
+                # Stock committed to this line's source quotation (received
+                # via a PO raised specifically for it) is consumed first —
+                # it must not be taken by another customer's sale before this
+                # one, even though it's technically "reserved" not "available".
+                reserved_units: list = []
+                source_quote_id = invoice_dict.get('source_quote_id')
+                if source_quote_id:
+                    from app.modules.sales.quotation_models import SalesQuoteItem
+                    quote_item = db.query(SalesQuoteItem).filter(
+                        SalesQuoteItem.quote_id == source_quote_id,
+                        SalesQuoteItem.product_id == item_dict['product_id'],
+                    ).first()
+                    if quote_item:
+                        reserved_units = (
+                            db.query(SalesStock)
+                            .filter(
+                                SalesStock.reserved_for_quote_item_id == quote_item.id,
+                                SalesStock.status == StockStatus.RESERVED,
+                                SalesStock.is_active == True,
+                            )
+                            .order_by(SalesStock.id)
+                            .with_for_update(skip_locked=True)
+                            .limit(quantity_req)
+                            .all()
+                        )
+                still_needed = quantity_req - len(reserved_units)
+                extra_units: list = []
+                if still_needed > 0:
+                    extra_units = (
+                        db.query(SalesStock)
+                        .filter(
+                            SalesStock.product_id == item_dict['product_id'],
+                            SalesStock.status == StockStatus.AVAILABLE,
+                            SalesStock.is_active == True,
+                        )
+                        .order_by(SalesStock.id)
+                        .with_for_update(skip_locked=True)
+                        .limit(still_needed)
+                        .all()
                     )
-                    .order_by(SalesStock.id)
-                    .with_for_update(skip_locked=True)
-                    .limit(quantity_req)
-                    .all()
-                )
+                allocated_units = reserved_units + extra_units
                 if len(allocated_units) < quantity_req:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
@@ -1625,7 +1655,7 @@ class SalesService:
                 linked_quote = db.query(SalesQuote).filter(SalesQuote.id == source_quote_id).first()
                 if linked_quote and linked_quote.status not in [
                     QStatus.SO_CREATED.value,
-                    QStatus.CONVERTED_TO_INVOICE.value,
+                    QStatus.COMPLETED.value,
                     QStatus.CANCELLED.value,
                 ]:
                     linked_quote.status = QStatus.SO_CREATED.value

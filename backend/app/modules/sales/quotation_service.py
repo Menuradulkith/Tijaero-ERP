@@ -21,7 +21,7 @@ from app.modules.sales.quotation_schemas import (ConvertToInvoiceRequest,
                                                  SalesQuoteStatusUpdate,
                                                  SalesQuoteUpdate)
 from fastapi import HTTPException, status
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 
@@ -41,34 +41,78 @@ class SalesQuoteService:
         quote_type: Optional[str] = None
     ) -> List[SalesQuote]:
         """Get all quotes"""
-        return self.repository.get_all(db, skip, limit, quote_type)
+        quotes = self.repository.get_all(db, skip, limit, quote_type)
+        self._attach_user_names(db, quotes)
+        return quotes
     
     def get_quote_by_id(self, db: Session, quote_id: int) -> Optional[SalesQuote]:
         """Get quote by ID"""
         quote = self.repository.get_by_id_with_items(db, quote_id)
         if quote:
             self._attach_related_purchase_orders(db, quote)
+            self._attach_user_names(db, [quote])
         return quote
+
+    def _attach_user_names(self, db: Session, quotes: List[SalesQuote]) -> None:
+        """Resolve created_by/updated_by ids to display names, in one batched
+        query (same pattern as SupplierService._attach_user_names), for the
+        quote detail page's Activity History section."""
+        from app.auth.models import User
+
+        user_ids = {uid for q in quotes for uid in (q.created_by, q.updated_by) if uid}
+        if not user_ids:
+            for q in quotes:
+                q.created_by_name = None
+                q.updated_by_name = None
+            return
+
+        users = db.query(User).filter(User.id.in_(user_ids)).all()
+        name_map = {
+            u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+            for u in users
+        }
+        for q in quotes:
+            q.created_by_name = name_map.get(q.created_by)
+            q.updated_by_name = name_map.get(q.updated_by)
 
     def _attach_related_purchase_orders(self, db: Session, quote: SalesQuote) -> None:
         """Stamp quote.related_purchase_orders — every PO generated from this
         quote, for the quote detail page's traceability panel."""
         from sqlalchemy.orm import joinedload
-        from app.modules.purchasing.models import PurchasingOrder
+        from sqlalchemy import func
+        from app.modules.purchasing.models import PurchasingOrder, PurchasingOrderItems, GoodReceivedItems
 
         orders = (
             db.query(PurchasingOrder)
-            .options(joinedload(PurchasingOrder.first_supplier))
+            .options(joinedload(PurchasingOrder.first_supplier), joinedload(PurchasingOrder.items))
             .filter(PurchasingOrder.sales_quote_id == quote.id)
             .order_by(PurchasingOrder.id)
             .all()
         )
+
+        po_ids = [po.id for po in orders]
+        received_by_po = {}
+        if po_ids:
+            rows = (
+                db.query(PurchasingOrderItems.purchasingorders_id, func.count(GoodReceivedItems.id))
+                .join(GoodReceivedItems, GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id)
+                .filter(
+                    PurchasingOrderItems.purchasingorders_id.in_(po_ids),
+                    GoodReceivedItems.active == True,
+                )
+                .group_by(PurchasingOrderItems.purchasingorders_id)
+                .all()
+            )
+            received_by_po = {po_id: count for po_id, count in rows}
+
         quote.related_purchase_orders = [
             {
                 "id": po.id,
                 "purchasing_order_no": po.purchasing_order_no,
                 "status": po.status,
                 "supplier_name": po.first_supplier.company_name if po.first_supplier else None,
+                "ordered_quantity": sum((i.quantity for i in po.items), 0),
+                "received_quantity": received_by_po.get(po.id, 0),
             }
             for po in orders
         ]
@@ -88,6 +132,7 @@ class SalesQuoteService:
         skip = (page - 1) * per_page
         quotes, total = self.repository.get_filtered(db, filters, skip, per_page)
         pages = (total + per_page - 1) // per_page
+        self._attach_user_names(db, quotes)
         return quotes, total, pages
     
     def create_quote(
@@ -221,7 +266,7 @@ class SalesQuoteService:
             )
         
         # Check if quote can be edited (not converted or cancelled)
-        if quote.status in [QuoteStatus.CONVERTED.value, QuoteStatus.CANCELLED.value]:
+        if quote.status in [QuoteStatus.COMPLETED.value, QuoteStatus.CANCELLED.value]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot edit quote in '{quote.status}' status"
@@ -344,7 +389,7 @@ class SalesQuoteService:
             )
 
         # Only prevent deletion of converted or cancelled quotes
-        if quote.status in [QuoteStatus.CONVERTED.value, QuoteStatus.CANCELLED.value]:
+        if quote.status in [QuoteStatus.COMPLETED.value, QuoteStatus.CANCELLED.value]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete quote in '{quote.status}' status."
@@ -584,12 +629,12 @@ class SalesQuoteService:
         valid_from = [
             QuoteStatus.DRAFT.value,
             QuoteStatus.SUBMITTED.value, QuoteStatus.UNDER_REVIEW.value,
-            QuoteStatus.SENT.value, QuoteStatus.PO_CREATED.value
+            QuoteStatus.SENT.value,
         ]
         if quote.status not in valid_from:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot approve from '{quote.status}'. Must be draft, submitted, under_review, sent, or po_created."
+                detail=f"Cannot approve from '{quote.status}'. Must be draft, submitted, under_review, or sent."
             )
         
         now = tz.now()
@@ -614,7 +659,7 @@ class SalesQuoteService:
             )
         
         # Allow rejection from most non-final statuses
-        non_rejectable = [QuoteStatus.CONVERTED.value, QuoteStatus.CONVERTED_TO_INVOICE.value, QuoteStatus.CANCELLED.value, QuoteStatus.REVISED.value, QuoteStatus.REJECTED.value]
+        non_rejectable = [QuoteStatus.COMPLETED.value, QuoteStatus.CANCELLED.value, QuoteStatus.REVISED.value, QuoteStatus.REJECTED.value]
         if quote.status in non_rejectable:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -639,6 +684,11 @@ class SalesQuoteService:
                 linked_po.remarks = f"Cancelled due to quotation {quote.quote_no} rejection"
 
         updated = self.repository.update(db, quote)
+
+        if cancel_linked_po:
+            # Abandoning procurement for this rejected quote — release any
+            # stock already received and reserved for it.
+            self._release_reservations_for_items(db, [i.id for i in quote.items], user_id=user_id)
 
         from app.common.audit import log_audit
         log_audit(
@@ -690,7 +740,63 @@ class SalesQuoteService:
         for item in quote.items:
             if item.item_status not in ("so_created", "completed", "cancelled"):
                 item.item_status = "cancelled"
-        return self.repository.update(db, quote)
+        updated = self.repository.update(db, quote)
+        # Business rule: a cancelled quotation must release any stock that
+        # was reserved for it during procurement — it becomes available for
+        # other customers again.
+        self._release_reservations_for_items(db, [i.id for i in quote.items])
+        return updated
+
+    def _release_reservations_for_items(
+        self, db: Session, item_ids: List[int], user_id: Optional[int] = None
+    ) -> int:
+        from app.modules.inventory.service import SalesStockService
+        stock_service = SalesStockService(db)
+        released = 0
+        for item_id in item_ids:
+            released += stock_service.release_reservation_for_quote_item(item_id, user_id=user_id)
+        return released
+
+    def release_reservation(
+        self,
+        db: Session,
+        quote_id: int,
+        item_id: Optional[int] = None,
+        reason: Optional[str] = None,
+        user_id: Optional[int] = None,
+    ) -> dict:
+        """
+        Explicitly release procurement stock reserved for this quotation (or
+        a single item on it) back to the available pool. Unlike cancellation,
+        this does not require the quotation itself to be cancelled — it's the
+        "authorized user changes/releases the reservation" business rule.
+        """
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
+        if not quote:
+            raise HTTPException(status_code=404, detail=f"Quote {quote_id} not found")
+        db.refresh(quote, attribute_names=["items"])
+
+        if item_id is not None:
+            target_ids = [i.id for i in quote.items if i.id == item_id]
+            if not target_ids:
+                raise HTTPException(status_code=404, detail=f"Item {item_id} not found on quote {quote_id}")
+        else:
+            target_ids = [i.id for i in quote.items]
+
+        released = self._release_reservations_for_items(db, target_ids, user_id=user_id)
+
+        from app.common.audit import log_audit
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="release_reservation",
+            entity_type="sales_quote",
+            entity_id=quote.id,
+            changes={"item_id": item_id, "units_released": released, "reason": reason},
+        )
+        db.commit()
+
+        return {"quote_id": quote_id, "units_released": released}
     
     # ==================== Conversion to Invoice ====================
 
@@ -749,8 +855,7 @@ class SalesQuoteService:
             QuoteStatus.CANCELLED.value,
             QuoteStatus.REJECTED.value,
             QuoteStatus.REVISED.value,
-            QuoteStatus.CONVERTED_TO_INVOICE.value,
-            QuoteStatus.CONVERTED.value,
+            QuoteStatus.COMPLETED.value,
         }
         if quote.status in terminal:
             raise HTTPException(
@@ -797,12 +902,15 @@ class SalesQuoteService:
                     detail=f"Requested qty {req_item.quantity} exceeds remaining qty {remaining} for item {req_item.item_id}"
                 )
 
-            allocated_units = (
+            # Prefer units already reserved/committed to this quote item
+            # (received via a PO raised specifically for this quotation) over
+            # the general available pool — that stock was procured for this
+            # customer and must not be taken by someone else's sale first.
+            reserved_units = (
                 db.query(SalesStock)
                 .filter(
-                    SalesStock.product_id == qi.product_id,
-                    SalesStock.branch_code == quote.branch_code,
-                    SalesStock.status == StockStatus.AVAILABLE,
+                    SalesStock.reserved_for_quote_item_id == qi.id,
+                    SalesStock.status == StockStatus.RESERVED,
                     SalesStock.is_active == True,
                 )
                 .order_by(SalesStock.id)
@@ -810,6 +918,23 @@ class SalesQuoteService:
                 .limit(req_item.quantity)
                 .all()
             )
+            still_needed = req_item.quantity - len(reserved_units)
+            extra_units = []
+            if still_needed > 0:
+                extra_units = (
+                    db.query(SalesStock)
+                    .filter(
+                        SalesStock.product_id == qi.product_id,
+                        SalesStock.branch_code == quote.branch_code,
+                        SalesStock.status == StockStatus.AVAILABLE,
+                        SalesStock.is_active == True,
+                    )
+                    .order_by(SalesStock.id)
+                    .with_for_update(skip_locked=True)
+                    .limit(still_needed)
+                    .all()
+                )
+            allocated_units = reserved_units + extra_units
             if len(allocated_units) < req_item.quantity:
                 raise HTTPException(
                     status_code=409,
@@ -1054,13 +1179,6 @@ class SalesQuoteService:
                 detail=f"Quote with ID {quote_id} not found"
             )
         db.refresh(quote, attribute_names=["items"])
-        
-        # Check if already converted
-        if quote.status in [QuoteStatus.CONVERTED.value, QuoteStatus.CONVERTED_TO_INVOICE.value]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Quote has already been converted to an invoice"
-            )
         
         # Check if quote can be converted (must be in an active, non-terminal status)
         terminal = {
@@ -1364,12 +1482,12 @@ class SalesQuoteService:
                        ↘ CANCELLED (from DRAFT / SENT / PARTIALLY_PROCESSED)
 
         Legacy statuses (PENDING_APPROVAL, SUBMITTED, UNDER_REVIEW, APPROVED,
-        ACCEPTED, PO_CREATED) are still supported for backwards-compat endpoints
+        ACCEPTED) are still supported for backwards-compat endpoints
         like approve_quote, submit_for_approval, mark_as_accepted.  They can
         transition forward freely but never backwards.
         """
         FINAL = {QuoteStatus.COMPLETED.value, QuoteStatus.CANCELLED.value,
-                 QuoteStatus.CONVERTED_TO_INVOICE.value, QuoteStatus.REVISED.value}
+                 QuoteStatus.REVISED.value}
 
         # Cannot leave a final state
         if current in FINAL:
@@ -1501,6 +1619,85 @@ class SalesQuoteService:
             "items": items_availability,
             "all_sufficient": all_sufficient
         }
+
+    def get_procurement_summary(self, db: Session, quote_id: int) -> dict:
+        """
+        Full procurement/reservation traceability for a quote's items:
+        required vs. ordered (PO'd) vs. received (GRN'd) vs. reserved
+        (committed sales_stock units) vs. available (product/branch stock
+        not committed to anyone) vs. outstanding (still owed by suppliers).
+        """
+        from app.modules.inventory.models import SalesStock
+        from app.modules.purchasing.models import PurchasingOrderItems, GoodReceivedItems
+        from app.modules.products.models import Product
+        from app.common.enums import StockStatus
+
+        quote = self.repository.get_by_id_with_items(db, quote_id)
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Quote with ID {quote_id} not found"
+            )
+
+        items_out = []
+        for item in quote.items:
+            product = db.query(Product).filter(Product.id == item.product_id).first()
+
+            ordered_qty = db.query(func.coalesce(func.sum(PurchasingOrderItems.quantity), 0)).filter(
+                PurchasingOrderItems.quote_item_id == item.id
+            ).scalar() or 0
+
+            received_qty = (
+                db.query(func.count(GoodReceivedItems.id))
+                .join(PurchasingOrderItems, GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id)
+                .filter(
+                    PurchasingOrderItems.quote_item_id == item.id,
+                    GoodReceivedItems.active == True,
+                )
+                .scalar() or 0
+            )
+
+            reserved_qty = db.query(func.count(SalesStock.id)).filter(
+                SalesStock.reserved_for_quote_item_id == item.id,
+                SalesStock.status == StockStatus.RESERVED,
+                SalesStock.is_active == True,
+            ).scalar() or 0
+
+            on_hand_qty = db.query(func.count(SalesStock.id)).filter(
+                SalesStock.product_id == item.product_id,
+                SalesStock.branch_code == quote.branch_code,
+                SalesStock.status.in_([StockStatus.AVAILABLE, StockStatus.RESERVED]),
+                SalesStock.is_active == True,
+            ).scalar() or 0
+
+            available_qty = db.query(func.count(SalesStock.id)).filter(
+                SalesStock.product_id == item.product_id,
+                SalesStock.branch_code == quote.branch_code,
+                SalesStock.status == StockStatus.AVAILABLE,
+                SalesStock.is_active == True,
+            ).scalar() or 0
+
+            outstanding_qty = max(ordered_qty - received_qty, 0)
+            required_qty = max(item.quantity - (item.converted_qty or 0), 0)
+
+            items_out.append({
+                "item_id": item.id,
+                "product_id": item.product_id,
+                "product_name": product.name if product else None,
+                "required_quantity": required_qty,
+                "ordered_quantity": int(ordered_qty),
+                "received_quantity": int(received_qty),
+                "reserved_quantity": int(reserved_qty),
+                "on_hand_quantity": int(on_hand_qty),
+                "available_quantity": int(available_qty),
+                "outstanding_quantity": int(outstanding_qty),
+            })
+
+        return {
+            "quote_id": quote_id,
+            "branch_code": quote.branch_code,
+            "items": items_out,
+        }
     
     # ==================== Create PO from Quotation ====================
     
@@ -1530,7 +1727,6 @@ class SalesQuoteService:
             QuoteStatus.COMPLETED.value,
             QuoteStatus.CANCELLED.value,
             QuoteStatus.REVISED.value,
-            QuoteStatus.CONVERTED_TO_INVOICE.value,
         }
         if quote.status in terminal:
             raise HTTPException(

@@ -14,9 +14,12 @@ from app.modules.sales.quotation_schemas import (
     CreateRevisionResponse,
     CustomerApprovalRequest,
     MarkQuoteItemsRequest,
+    ProcurementSummaryResponse,
     QuoteStatusEnum,
     QuoteTypeEnum,
     RejectQuoteRequest,
+    ReleaseReservationRequest,
+    ReleaseReservationResponse,
     SalesQuote,
     SalesQuoteCreate,
     SalesQuoteDetail,
@@ -456,6 +459,54 @@ def check_stock_availability(
     return sales_quote_service.check_stock_availability(db, quote_id)
 
 
+@router.get(
+    "/{quote_id}/procurement-summary",
+    response_model=ProcurementSummaryResponse,
+    summary="Get Procurement / Reservation Summary",
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
+)
+def get_procurement_summary(
+    quote_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
+):
+    """
+    Per-item procurement/reservation traceability: required, ordered (PO'd),
+    received (GRN'd), reserved (committed stock units), available, and
+    outstanding quantities.
+    """
+    return sales_quote_service.get_procurement_summary(db, quote_id)
+
+
+@router.post(
+    "/{quote_id}/release-reservation",
+    response_model=ReleaseReservationResponse,
+    summary="Release Reserved Stock",
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
+)
+def release_reservation(
+    quote_id: int,
+    body: Optional[ReleaseReservationRequest] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
+):
+    """
+    Explicitly release stock reserved for this quotation (or a single item on
+    it) back to the available pool. Reservations are never released
+    automatically — only on quotation cancellation or this explicit action.
+    """
+    item_id = body.item_id if body else None
+    reason = body.reason if body else None
+    result = sales_quote_service.release_reservation(
+        db, quote_id, item_id=item_id, reason=reason, user_id=current_user.id
+    )
+    return ReleaseReservationResponse(
+        quote_id=quote_id,
+        units_released=result["units_released"],
+        message=f"Released {result['units_released']} reserved unit(s).",
+    )
+
+
 # ==================== Create PO from Quotation ====================
 
 @router.post(
@@ -475,7 +526,8 @@ def create_po_from_quotation(
     
     This is used when the quoted items need to be procured from a supplier
     before the quotation can be fulfilled and converted to an invoice.
-    The quote status will be updated to 'po_created'.
+    Items on the quote are marked 'procurement' and the header status is
+    recomputed (partially_processed / completed) accordingly.
     """
     quote = sales_quote_service.get_quote_by_id(db, quote_id)
     if not quote:

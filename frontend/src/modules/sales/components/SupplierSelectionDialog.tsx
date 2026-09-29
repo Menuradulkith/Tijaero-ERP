@@ -15,6 +15,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  InputAdornment,
   Paper,
   Table,
   TableBody,
@@ -31,6 +32,7 @@ import { fmtLKR, modernTableStyles, TButton } from "@/components/tijaero";
 import { productsApi } from "@/modules/inventory/api";
 import { suppliersApi } from "@/modules/purchasing/api";
 import type { Supplier, SupplierProduct } from "@/modules/purchasing/types";
+import { useCurrencyStore } from "@/state/currencyStore";
 
 export interface ProcurementCandidate {
   quote_item_id: number;
@@ -71,6 +73,7 @@ export default function SupplierSelectionDialog({
   onClose,
   onContinue,
 }: SupplierSelectionDialogProps) {
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const [rows, setRows] = useState<Record<number, RowState>>({});
 
   // Reset row state whenever the dialog opens for a (possibly new) set of candidates.
@@ -157,7 +160,7 @@ export default function SupplierSelectionDialog({
                   <TableCell sx={{ minWidth: 160 }}>Product</TableCell>
                   <TableCell align="right" sx={{ width: 90 }}>Quantity</TableCell>
                   <TableCell sx={{ minWidth: 260 }}>Supplier</TableCell>
-                  <TableCell align="right" sx={{ width: 110 }}>Unit Price</TableCell>
+                  <TableCell align="right" sx={{ width: 110 }}>{`Unit Price (${currencySymbol})`}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -211,7 +214,7 @@ export default function SupplierSelectionDialog({
                                     <Chip size="small" color="primary" icon={<StarIcon />} label="Preferred" />
                                   )}
                                   <Typography variant="caption" color="text.secondary">
-                                    {fmtLKR(option.cost_price)}
+                                    {currencySymbol} {fmtLKR(option.cost_price)}
                                   </Typography>
                                 </Box>
                                 <Typography variant="caption" color="text.secondary">
@@ -234,7 +237,8 @@ export default function SupplierSelectionDialog({
                           value={row.unit_price}
                           onChange={(e) => updateRow(c.quote_item_id, { unit_price: parseFloat(e.target.value) || 0 })}
                           inputProps={{ min: 0, step: "0.01" }}
-                          sx={{ width: 100 }}
+                          InputProps={{ startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment> }}
+                          sx={{ width: 130 }}
                         />
                       </TableCell>
                     </TableRow>

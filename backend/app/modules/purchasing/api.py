@@ -7,7 +7,7 @@ from app.auth.dependencies import (
     validate_branch_access,
 )
 from app.auth.models import User
-from app.auth.rbac import Permissions, require_permission
+from app.auth.rbac import Permissions, require_any_permission, require_permission
 from app.common.audit import AuditLog
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -30,6 +30,7 @@ def _serialize_order_with_user_fields(
     created_by: Optional[int],
     approved_by: Optional[int],
     user_name_map: Dict[int, str],
+    updated_by: Optional[int] = None,
     supplier_name_map: Optional[Dict[int, str]] = None,
     sales_quote_no_map: Optional[Dict[int, str]] = None,
 ) -> Dict[str, Any]:
@@ -38,6 +39,8 @@ def _serialize_order_with_user_fields(
     payload["created_by_name"] = user_name_map.get(created_by) if created_by else None
     payload["approved_by"] = approved_by
     payload["approved_by_name"] = user_name_map.get(approved_by) if approved_by else None
+    payload["updated_by"] = updated_by
+    payload["updated_by_name"] = user_name_map.get(updated_by) if updated_by else None
     if supplier_name_map and order.first_suppliers_id:
         payload["supplier_name"] = supplier_name_map.get(order.first_suppliers_id)
     if sales_quote_no_map and order.sales_quote_id:
@@ -71,6 +74,23 @@ def _enrich_purchase_orders_with_user_fields(
         if entity_id not in created_by_map and user_id:
             created_by_map[entity_id] = user_id
 
+    # Last Modified By — the most recent audit log entry of any action,
+    # mirroring created_by_map above. The model's own `updated_by` column is
+    # never actually set anywhere in this module, so it can't be used here.
+    updated_by_map: Dict[int, int] = {}
+    all_logs = (
+        db.query(AuditLog.entity_id, AuditLog.user_id)
+        .filter(
+            AuditLog.entity_type == "purchase_order",
+            AuditLog.entity_id.in_(order_ids),
+        )
+        .order_by(AuditLog.entity_id.asc(), desc(AuditLog.timestamp))
+        .all()
+    )
+    for entity_id, user_id in all_logs:
+        if entity_id not in updated_by_map and user_id:
+            updated_by_map[entity_id] = user_id
+
     approval_user_map: Dict[int, int] = {}
     if approval_ids:
         approval_records = (
@@ -86,7 +106,7 @@ def _enrich_purchase_orders_with_user_fields(
             ):
                 approval_user_map[approval_id] = status_changed_by
 
-    user_ids = set(created_by_map.values()) | set(approval_user_map.values())
+    user_ids = set(created_by_map.values()) | set(approval_user_map.values()) | set(updated_by_map.values())
     user_name_map: Dict[int, str] = {}
     if user_ids:
         users = db.query(User).filter(User.id.in_(list(user_ids))).all()
@@ -100,6 +120,7 @@ def _enrich_purchase_orders_with_user_fields(
             if order.approval_id
             else None,
             user_name_map=user_name_map,
+            updated_by=updated_by_map.get(order.id),
             supplier_name_map=_get_supplier_name_map(db, orders),
             sales_quote_no_map=_get_sales_quote_no_map(db, orders),
         )
@@ -308,7 +329,9 @@ def update_supplier(
     supplier_id: int,
     supplier_update: schemas.SupplierUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
+    ),
 ):
     supplier_service = service.SupplierService(db)
     return supplier_service.update_supplier(supplier_id, supplier_update, updated_by=current_user.id)
@@ -336,7 +359,9 @@ def upload_supplier_logo(
     supplier_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
+    ),
 ):
     from app.common.file_storage import save_image
 
@@ -379,7 +404,9 @@ def create_supplier_payment_method(
     supplier_id: int,
     payload: schemas.SupplierPaymentMethodCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
+    ),
 ):
     return service.SupplierPaymentMethodService(db).create_payment_method(supplier_id, payload)
 
@@ -393,7 +420,9 @@ def update_supplier_payment_method(
     method_id: int,
     payload: schemas.SupplierPaymentMethodUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
+    ),
 ):
     return service.SupplierPaymentMethodService(db).update_payment_method(supplier_id, method_id, payload)
 
@@ -406,7 +435,9 @@ def delete_supplier_payment_method(
     supplier_id: int,
     method_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
+    ),
 ):
     service.SupplierPaymentMethodService(db).delete_payment_method(supplier_id, method_id)
     return None
@@ -433,7 +464,9 @@ def create_supplier_contact_person(
     supplier_id: int,
     payload: schemas.SupplierContactPersonCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
+    ),
 ):
     return service.SupplierContactPersonService(db).create_contact(supplier_id, payload)
 
@@ -447,7 +480,9 @@ def update_supplier_contact_person(
     contact_id: int,
     payload: schemas.SupplierContactPersonUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
+    ),
 ):
     return service.SupplierContactPersonService(db).update_contact(supplier_id, contact_id, payload)
 
@@ -460,7 +495,9 @@ def delete_supplier_contact_person(
     supplier_id: int,
     contact_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
+    ),
 ):
     service.SupplierContactPersonService(db).delete_contact(supplier_id, contact_id)
     return None
@@ -487,7 +524,14 @@ def create_supplier_product(
     supplier_id: int,
     payload: schemas.SupplierProductCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(
+            Permissions.SUPPLIER_CREATE,
+            Permissions.SUPPLIER_UPDATE,
+            Permissions.PRODUCT_CREATE,
+            Permissions.PRODUCT_UPDATE,
+        )
+    ),
 ):
     return service.SupplierProductService(db).create_mapping(supplier_id, payload)
 
@@ -501,7 +545,14 @@ def update_supplier_product(
     mapping_id: int,
     payload: schemas.SupplierProductUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(
+            Permissions.SUPPLIER_CREATE,
+            Permissions.SUPPLIER_UPDATE,
+            Permissions.PRODUCT_CREATE,
+            Permissions.PRODUCT_UPDATE,
+        )
+    ),
 ):
     return service.SupplierProductService(db).update_mapping(supplier_id, mapping_id, payload)
 
@@ -514,7 +565,14 @@ def delete_supplier_product(
     supplier_id: int,
     mapping_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
+    current_user: User = Depends(
+        require_any_permission(
+            Permissions.SUPPLIER_CREATE,
+            Permissions.SUPPLIER_UPDATE,
+            Permissions.PRODUCT_CREATE,
+            Permissions.PRODUCT_UPDATE,
+        )
+    ),
 ):
     service.SupplierProductService(db).delete_mapping(supplier_id, mapping_id)
     return None

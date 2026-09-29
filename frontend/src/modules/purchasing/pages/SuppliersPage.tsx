@@ -391,6 +391,13 @@ export default function SuppliersPage() {
   // moment right after picking "Custom" but before typing a value.
   const [paymentTermsCustom, setPaymentTermsCustom] = useState(false);
 
+  // Whether the user has actually picked a Payment Terms option for a new
+  // supplier yet — the dropdown starts blank rather than pre-selecting
+  // "Net 30" (formData.credit_days can't itself represent "unset" since 0
+  // is a real option, "Due on Receipt"). Existing suppliers always have a
+  // real saved value, so this is set true whenever one is selected.
+  const [paymentTermsChosen, setPaymentTermsChosen] = useState(false);
+
   const { data: countryRefData } = useReferenceData(["countries", "currencies"]);
   const countries: CountryRef[] = countryRefData?.countries || [];
   const currencies: CurrencyRef[] = countryRefData?.currencies || [];
@@ -407,7 +414,7 @@ export default function SuppliersPage() {
     formData,
     setFormData,
     handleSelectItem: handleSelectSupplier,
-    handleNew: handleNewSupplier,
+    handleNew: handleNewSupplierRaw,
     handleCancel,
     handleStartEdit,
   } = useMasterDetailState<Supplier, SupplierCreate>({
@@ -422,6 +429,14 @@ export default function SuppliersPage() {
       confirmColor: "warning",
     }),
   });
+
+  // Wraps the hook's handler so a brand-new supplier starts with Payment
+  // Terms genuinely unchosen (see paymentTermsChosen above).
+  const handleNewSupplier = useCallback(async () => {
+    const started = await handleNewSupplierRaw();
+    if (started) setPaymentTermsChosen(false);
+    return started;
+  }, [handleNewSupplierRaw]);
 
   const rowSelection = useRowSelection();
 
@@ -527,6 +542,12 @@ export default function SuppliersPage() {
         supplier_id: 0,
         ...draft,
       } as SupplierPaymentAccount));
+
+  // Stays fillable without an Edit click for as long as no payment method
+  // has been added yet — checked every time the supplier is opened, not
+  // just right after creation.
+  const isPaymentMethodsUnfilled = displayedPaymentMethods.length === 0;
+  const isPaymentMethodsEditable = isEditing || isCreating || isPaymentMethodsUnfilled;
 
   const handleOpenAddPaymentMethod = useCallback(() => {
     setActivePaymentMethod(null);
@@ -690,7 +711,7 @@ export default function SuppliersPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<SupplierPaymentAccount>) =>
-          canUpdateSupplier ? (
+          canUpdateSupplier || isPaymentMethodsEditable ? (
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", gap: 0.5 }}>
               <IconButton
                 size="small"
@@ -715,7 +736,7 @@ export default function SuppliersPage() {
           ) : null,
       },
     ],
-    [canUpdateSupplier] // eslint-disable-line react-hooks/exhaustive-deps
+    [canUpdateSupplier, isPaymentMethodsEditable] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // Contact persons for the currently-selected supplier (same fetch-on-select
@@ -760,6 +781,53 @@ export default function SuppliersPage() {
         supplier_id: 0,
         ...draft,
       } as SupplierContactPerson));
+
+  // These sections stay fillable without an Edit click for as long as they
+  // genuinely have nothing in them yet — checked every time the supplier is
+  // opened, not just right after creation — since users without update
+  // permission would otherwise have no way to ever fill them in. The moment
+  // any of them has real data, they lock again like General does.
+  const isAddressUnfilled = !selectedSupplier || ([
+    selectedSupplier.billing_address_line1,
+    selectedSupplier.billing_address_line2,
+    selectedSupplier.billing_city,
+    selectedSupplier.billing_state,
+    selectedSupplier.billing_postal_code,
+    selectedSupplier.shipping_address_line1,
+    selectedSupplier.shipping_address_line2,
+    selectedSupplier.shipping_city,
+    selectedSupplier.shipping_state,
+    selectedSupplier.shipping_postal_code,
+  ].every((field) => !field) && !selectedSupplier.country_id);
+  const isContactPersonUnfilled = displayedContactPersons.length === 0;
+
+  // Whether the fields on each tab can be edited right now, independent of
+  // whether the user is in a full Edit session: Address/Contact Person stay
+  // open for as long as they're still empty. General and Payment
+  // Terms/Max Credit Limit are always required at creation, so they're
+  // "filled" the instant the supplier is first saved and always need Edit
+  // afterward, like before.
+  const isAddressEditable = isEditing || isCreating || isAddressUnfilled;
+  const isContactPersonEditable = isEditing || isCreating || isContactPersonUnfilled;
+
+  // Contact Person rows are added/edited through their own side-panel
+  // dialog (its own Save button) — the main toolbar's Save/Cancel is
+  // redundant there regardless of whether the list is still empty.
+  const hideToolbarSaveForSection = activeSection === "contactPerson";
+
+  // The main toolbar's Save/Cancel only cover fields that live directly on
+  // formData — General always (once in Edit mode); Address only while it's
+  // still unfilled; Payment Terms/Max Credit Limit follow the Payment
+  // Methods list's own unfilled state, so the whole Payment tab unlocks and
+  // locks together (Contact Person and the Payment Methods list otherwise
+  // save through their own dialogs, never this button).
+  const showToolbarSaveForSection =
+    !hideToolbarSaveForSection &&
+    (activeSection === "address"
+      ? isAddressEditable
+      : activeSection === "payment"
+        ? isPaymentMethodsEditable
+        : isEditing || isCreating);
 
   const handleOpenAddContactPerson = useCallback(() => {
     setActiveContactPerson(null);
@@ -889,7 +957,7 @@ export default function SuppliersPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<SupplierContactPerson>) =>
-          canUpdateSupplier ? (
+          canUpdateSupplier || isContactPersonEditable ? (
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", gap: 0.5 }}>
               <IconButton
                 size="small"
@@ -914,7 +982,7 @@ export default function SuppliersPage() {
           ) : null,
       },
     ],
-    [canUpdateSupplier] // eslint-disable-line react-hooks/exhaustive-deps
+    [canUpdateSupplier, isContactPersonEditable] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const { data: suppliers, isLoading, refetch } = useQuery({
@@ -963,6 +1031,7 @@ export default function SuppliersPage() {
   const handleSelectSupplierWithCheck = useCallback(async (supplier: Supplier) => {
     await handleSelectSupplier(supplier);
     setTouched({}); // Reset validation state
+    setPaymentTermsChosen(true);
   }, [handleSelectSupplier]);
 
   const supplierColumns: TDataGridColumn<SupplierRow>[] = useMemo(
@@ -1135,7 +1204,10 @@ export default function SuppliersPage() {
       queryClient.setQueryData<Supplier[]>(["suppliers"], (prev) =>
         prev ? prev.map((s) => (s.id === freshSupplier.id ? freshSupplier : s)) : prev
       );
-      setTimeout(() => handleSelectSupplier(freshSupplier), 0);
+      setTimeout(() => {
+        handleSelectSupplier(freshSupplier);
+        setPaymentTermsChosen(true);
+      }, 0);
     },
   });
 
@@ -1278,7 +1350,7 @@ export default function SuppliersPage() {
       }
       createMutation.mutate(formData);
     } else if (selectedSupplier) {
-      if (!canUpdateSupplier) {
+      if (!canUpdateSupplier && !isAddressEditable && !isPaymentMethodsEditable) {
         showErrorToast("You don't have permission to update suppliers");
         return;
       }
@@ -1293,6 +1365,8 @@ export default function SuppliersPage() {
     }
   }, [
     isCreating,
+    isAddressEditable,
+    isPaymentMethodsEditable,
     selectedSupplier,
     formData,
     createMutation,
@@ -1350,6 +1424,9 @@ export default function SuppliersPage() {
     if (!started) return; // user chose to keep editing instead
     setFormData(copy);
     setTouched({}); // Reset validation state
+    // The copy carries over the original supplier's real credit_days, not a
+    // stale default, so Payment Terms doesn't need to be re-chosen.
+    setPaymentTermsChosen(true);
   }, [selectedSupplier, formData, setFormData, handleNewSupplier]);
 
   // Cancelling out of "New Supplier" should return to the browse table, not
@@ -1402,6 +1479,7 @@ export default function SuppliersPage() {
         if (!formData.company_name) return 'Company name is required';
         break;
       case 'credit_days':
+        if (!paymentTermsChosen) return 'Please select payment terms';
         if (formData.credit_days === undefined || formData.credit_days < 0) return 'Payment terms must be 0 days or more';
         break;
       case 'max_credit_limit':
@@ -1416,13 +1494,15 @@ export default function SuppliersPage() {
     return !!getFieldError(fieldName);
   };
 
-  // Only the Main section's fields gate Save — Address and Payment can be
-  // filled in later via their own sections after the supplier is created
-  // (mirrors ProductsPage, where only Main + cost_price gate Save and
-  // selling_price/suppliers are filled in afterward).
+  // Only the Main section's fields (plus Payment Terms, which must be
+  // explicitly chosen — see paymentTermsChosen) gate Save — Address and the
+  // rest of Payment can be filled in later via their own sections after the
+  // supplier is created (mirrors ProductsPage, where only Main + cost_price
+  // gate Save and selling_price/suppliers are filled in afterward).
   const isFormValid = formData.company_name &&
     formData.mobile_contact_number &&
-    (!formData.email || emailRegex.test(formData.email));
+    (!formData.email || emailRegex.test(formData.email)) &&
+    paymentTermsChosen;
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   // Style for required field labels (red asterisk)
@@ -1490,7 +1570,7 @@ export default function SuppliersPage() {
       <ActionToolbar
         hasSelectedItem={!!selectedSupplier}
         isCreating={isCreating}
-        isEditing={isEditing}
+        isEditing={showToolbarSaveForSection}
         isSaving={isSaving}
         isFormValid={!!isFormValid}
         onNew={canCreateSupplier ? handleNewSupplier : undefined}
@@ -1737,7 +1817,7 @@ export default function SuppliersPage() {
                     setFormData({ ...formData, country_id: (value as CountryRef | null)?.id })
                   }
                   getOptionLabel={(c) => c.name}
-                  disabled={!isEditing && !isCreating}
+                  disabled={!isAddressEditable}
                 />
               </FormSection>
 
@@ -1747,35 +1827,35 @@ export default function SuppliersPage() {
                   size="small"
                   value={formData.billing_address_line1}
                   onChange={(e) => setFormData({ ...formData, billing_address_line1: e.target.value })}
-                  disabled={!isEditing && !isCreating}
+                  disabled={!isAddressEditable}
                 />
                 <TextField
                   label="Address Line 2"
                   size="small"
                   value={formData.billing_address_line2}
                   onChange={(e) => setFormData({ ...formData, billing_address_line2: e.target.value })}
-                  disabled={!isEditing && !isCreating}
+                  disabled={!isAddressEditable}
                 />
                 <TextField
                   label="City"
                   size="small"
                   value={formData.billing_city}
                   onChange={(e) => setFormData({ ...formData, billing_city: e.target.value })}
-                  disabled={!isEditing && !isCreating}
+                  disabled={!isAddressEditable}
                 />
                 <TextField
                   label="State / Province"
                   size="small"
                   value={formData.billing_state}
                   onChange={(e) => setFormData({ ...formData, billing_state: e.target.value })}
-                  disabled={!isEditing && !isCreating}
+                  disabled={!isAddressEditable}
                 />
                 <TextField
                   label="Postal Code"
                   size="small"
                   value={formData.billing_postal_code}
                   onChange={(e) => setFormData({ ...formData, billing_postal_code: e.target.value })}
-                  disabled={!isEditing && !isCreating}
+                  disabled={!isAddressEditable}
                 />
               </FormSection>
 
@@ -1785,7 +1865,7 @@ export default function SuppliersPage() {
                   control={
                     <Switch
                       checked={shippingSameAsBilling}
-                      disabled={!isEditing && !isCreating}
+                      disabled={!isAddressEditable}
                       onChange={(e) => {
                         const same = e.target.checked;
                         setShippingSameAsBilling(same);
@@ -1811,35 +1891,35 @@ export default function SuppliersPage() {
                       size="small"
                       value={formData.shipping_address_line1}
                       onChange={(e) => setFormData({ ...formData, shipping_address_line1: e.target.value })}
-                      disabled={!isEditing && !isCreating}
+                      disabled={!isAddressEditable}
                     />
                     <TextField
                       label="Address Line 2"
                       size="small"
                       value={formData.shipping_address_line2}
                       onChange={(e) => setFormData({ ...formData, shipping_address_line2: e.target.value })}
-                      disabled={!isEditing && !isCreating}
+                      disabled={!isAddressEditable}
                     />
                     <TextField
                       label="City"
                       size="small"
                       value={formData.shipping_city}
                       onChange={(e) => setFormData({ ...formData, shipping_city: e.target.value })}
-                      disabled={!isEditing && !isCreating}
+                      disabled={!isAddressEditable}
                     />
                     <TextField
                       label="State / Province"
                       size="small"
                       value={formData.shipping_state}
                       onChange={(e) => setFormData({ ...formData, shipping_state: e.target.value })}
-                      disabled={!isEditing && !isCreating}
+                      disabled={!isAddressEditable}
                     />
                     <TextField
                       label="Postal Code"
                       size="small"
                       value={formData.shipping_postal_code}
                       onChange={(e) => setFormData({ ...formData, shipping_postal_code: e.target.value })}
-                      disabled={!isEditing && !isCreating}
+                      disabled={!isAddressEditable}
                     />
                   </>
                 )}
@@ -1853,7 +1933,7 @@ export default function SuppliersPage() {
                       Contact persons added here will be saved together with the supplier.
                     </Alert>
                   )}
-                  {canUpdateSupplier && (
+                  {(canUpdateSupplier || isContactPersonEditable) && (
                     <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1.5 }}>
                       <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={handleOpenAddContactPerson}>
                         Add Contact Person
@@ -1885,12 +1965,15 @@ export default function SuppliersPage() {
                 label="Payment Terms"
                 size="small"
                 value={
-                  paymentTermsCustom ||
-                  !SUPPLIER_PAYMENT_TERMS.some((t) => t.value === formData.credit_days)
-                    ? SUPPLIER_PAYMENT_TERMS_CUSTOM
-                    : formData.credit_days
+                  !paymentTermsChosen
+                    ? ""
+                    : paymentTermsCustom ||
+                      !SUPPLIER_PAYMENT_TERMS.some((t) => t.value === formData.credit_days)
+                      ? SUPPLIER_PAYMENT_TERMS_CUSTOM
+                      : formData.credit_days
                 }
                 onChange={(e) => {
+                  setPaymentTermsChosen(true);
                   if (e.target.value === SUPPLIER_PAYMENT_TERMS_CUSTOM) {
                     setPaymentTermsCustom(true);
                     return;
@@ -1899,12 +1982,16 @@ export default function SuppliersPage() {
                   setFormData({ ...formData, credit_days: Number(e.target.value) });
                 }}
                 onBlur={() => handleBlur('credit_days')}
-                disabled={!isEditing && !isCreating}
+                disabled={!isPaymentMethodsEditable}
                 required
                 sx={requiredFieldSx}
                 error={hasError('credit_days')}
                 helperText={getFieldError('credit_days') || "How many days after invoicing this supplier expects payment"}
+                SelectProps={{ displayEmpty: true }}
               >
+                <MenuItem value="" disabled>
+                  Select payment terms
+                </MenuItem>
                 {SUPPLIER_PAYMENT_TERMS.map((term) => (
                   <MenuItem key={term.value} value={term.value}>
                     {term.label}
@@ -1921,7 +2008,7 @@ export default function SuppliersPage() {
                   value={formData.credit_days}
                   onChange={(e) => setFormData({ ...formData, credit_days: parseInt(e.target.value) || 0 })}
                   onBlur={() => handleBlur('credit_days')}
-                  disabled={!isEditing && !isCreating}
+                  disabled={!isPaymentMethodsEditable}
                   required
                   sx={requiredFieldSx}
                   error={hasError('credit_days')}
@@ -1936,7 +2023,7 @@ export default function SuppliersPage() {
                 value={formData.max_credit_limit}
                 onChange={(e) => setFormData({ ...formData, max_credit_limit: parseInt(e.target.value) || 0 })}
                 onBlur={() => handleBlur('max_credit_limit')}
-                disabled={!isEditing && !isCreating}
+                disabled={!isPaymentMethodsEditable}
                 required
                 sx={requiredFieldSx}
                 error={hasError('max_credit_limit')}
@@ -1986,7 +2073,7 @@ export default function SuppliersPage() {
                   Payment methods added here will be saved together with the supplier.
                 </Alert>
               )}
-              {canUpdateSupplier && (
+              {(canUpdateSupplier || isPaymentMethodsEditable) && (
                 <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1.5 }}>
                   <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={handleOpenAddPaymentMethod}>
                     Add Payment Method
@@ -2126,7 +2213,7 @@ export default function SuppliersPage() {
         onSubmit={paymentMethodPanelMode === "view" ? undefined : handleSavePaymentMethod}
         isSubmitting={savingPaymentMethod}
         extraActions={
-          paymentMethodPanelMode === "view" && canUpdateSupplier ? (
+          paymentMethodPanelMode === "view" && (canUpdateSupplier || isPaymentMethodsEditable) ? (
             <TButton
               variant="secondary"
               onClick={() => activePaymentMethod && handleOpenEditPaymentMethod(activePaymentMethod)}
@@ -2455,7 +2542,7 @@ export default function SuppliersPage() {
           (!!contactPersonForm.birthdate && contactPersonForm.birthdate > TODAY_DATE_STRING)
         }
         extraActions={
-          contactPersonPanelMode === "view" && canUpdateSupplier ? (
+          contactPersonPanelMode === "view" && (canUpdateSupplier || isContactPersonEditable) ? (
             <TButton
               variant="secondary"
               onClick={() => activeContactPerson && handleOpenEditContactPerson(activeContactPerson)}

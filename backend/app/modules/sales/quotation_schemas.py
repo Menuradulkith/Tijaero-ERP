@@ -21,12 +21,8 @@ class QuoteStatusEnum(str, Enum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     EXPIRED = "expired"
-    CONVERTED = "converted"
-    CONVERTED_TO_INVOICE = "converted_to_invoice"
     PARTIALLY_PROCESSED = "partially_processed"
     COMPLETED = "completed"
-    PO_CREATED = "po_created"
-    ITEM_RECEIVED = "item_received"
     SO_CREATED = "so_created"
     CANCELLED = "cancelled"
     REVISED = "revised"
@@ -207,6 +203,8 @@ class SalesQuote(TijaeroBaseSchema):
     approval_id: Optional[int] = None
     approved_by: Optional[int] = None
     approved_by_name: Optional[str] = None
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None
     special: bool = False
     sys_code: Optional[int] = None
     is_estimate: bool = True
@@ -262,6 +260,8 @@ class RelatedPurchaseOrderSummary(BaseModel):
     purchasing_order_no: str
     status: str
     supplier_name: Optional[str] = None
+    ordered_quantity: int = 0
+    received_quantity: int = 0
 
 
 class SalesQuoteDetail(SalesQuoteWithItems):
@@ -398,6 +398,44 @@ class StockAvailabilityResponse(BaseModel):
     branch_code: str
     items: List[StockAvailabilityItem]
     all_sufficient: bool
+
+
+# ==================== Procurement / Reservation Schemas ====================
+
+
+class ProcurementSummaryItem(BaseModel):
+    """Required vs. procured vs. reserved/available quantities for one quote item."""
+    item_id: int
+    product_id: int
+    product_name: Optional[str] = None
+    required_quantity: int
+    ordered_quantity: int
+    received_quantity: int
+    reserved_quantity: int
+    on_hand_quantity: int
+    available_quantity: int
+    outstanding_quantity: int
+
+
+class ProcurementSummaryResponse(BaseModel):
+    quote_id: int
+    branch_code: str
+    items: List[ProcurementSummaryItem]
+
+
+class ReleaseReservationRequest(BaseModel):
+    """Explicitly release procurement stock reserved for this quotation
+    (or a single item on it) back to available. Business rule: reservations
+    are never released automatically — only on quotation cancellation or an
+    authorized user's explicit action here."""
+    item_id: Optional[int] = None
+    reason: Optional[str] = None
+
+
+class ReleaseReservationResponse(BaseModel):
+    quote_id: int
+    units_released: int
+    message: str
 
 
 # ==================== Create PO from Quotation Schema ====================

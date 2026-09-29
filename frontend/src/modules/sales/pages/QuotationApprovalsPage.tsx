@@ -20,6 +20,7 @@ import {
   TableCell,
   Paper,
   Button,
+  Chip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -528,29 +529,64 @@ export default function QuotationApprovalsPage() {
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
-                      <TableCell>Product</TableCell>
-                      <TableCell align="right">Quantity</TableCell>
-                      <TableCell align="right">{`Unit Price (${currencySymbol})`}</TableCell>
-                      <TableCell align="right">{`Total (${currencySymbol})`}</TableCell>
+                      <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
+                      <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
+                      <TableCell align="right" sx={{ width: 120 }}>{`Unit Price (${currencySymbol})`}</TableCell>
+                      <TableCell align="right" sx={{ width: 90 }}>Discount</TableCell>
+                      <TableCell sx={{ width: 100 }}>Warranty</TableCell>
+                      <TableCell align="center" sx={{ width: 140 }}>Item Status</TableCell>
+                      <TableCell align="right" sx={{ width: 120 }}>{`Amount (${currencySymbol})`}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {selectedQuote.items?.map((item, index) => {
                       const product = productMap.get(item.product_id);
+                      const discountPercent = item.discount_percentage || 0;
+                      const lineTotal = item.quantity * item.selling_price * (1 - discountPercent / 100);
+                      const itemStatus = item.item_status ?? "pending";
+                      const stockStatus = item.stock_status;
                       return (
                         <TableRow key={index} sx={{
                           ...modernTableStyles.bodyRow,
                           ...(index % 2 === 1 && { bgcolor: "grey.25" }),
+                          ...(itemStatus === "cancelled" && { opacity: 0.5 }),
                         }}>
                           <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
                           <TableCell align="right">{item.quantity}</TableCell>
                           <TableCell align="right">{fmtLKR(item.selling_price)}</TableCell>
-                          <TableCell align="right">{fmtLKR(item.quantity * item.selling_price)}</TableCell>
+                          <TableCell align="right">
+                            {discountPercent > 0
+                              ? <Typography variant="body2" color="error.main">{discountPercent}%</Typography>
+                              : <Typography variant="body2" color="text.disabled">-</Typography>}
+                          </TableCell>
+                          <TableCell>{item.warrenty_month || "-"}</TableCell>
+                          <TableCell align="center">
+                            {itemStatus === "so_created" || itemStatus === "completed" ? (
+                              <Chip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                            ) : itemStatus === "po_created" ? (
+                              <Chip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                            ) : itemStatus === "itn_created" ? (
+                              <Chip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                            ) : itemStatus === "procurement" ? (
+                              stockStatus === "needs_transfer"
+                                ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                                : <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                            ) : itemStatus === "cancelled" ? (
+                              <Chip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                            ) : (
+                              stockStatus === "needs_transfer"
+                                ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                                : stockStatus === "needs_procurement"
+                                  ? <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                                  : <Chip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                            )}
+                          </TableCell>
+                          <TableCell align="right">{fmtLKR(lineTotal)}</TableCell>
                         </TableRow>
                       );
                     })}
                     <TableRow sx={modernTableStyles.footerRow}>
-                      <TableCell colSpan={3} align="right">
+                      <TableCell colSpan={6} align="right">
                         <strong>Total Amount:</strong>
                       </TableCell>
                       <TableCell align="right">
@@ -592,8 +628,18 @@ export default function QuotationApprovalsPage() {
               }
             >
               <Box>
-                <Typography variant="caption" color="text.secondary">Created</Typography>
-                <Typography variant="body2">{formatDateTimeReadable(selectedQuote.created_date_time) || "-"}</Typography>
+                <Typography variant="caption" color="text.secondary">Created By</Typography>
+                <Typography variant="body2">
+                  {selectedQuote.created_by_name || "-"}
+                  {selectedQuote.created_date_time ? ` on ${formatDateTimeReadable(selectedQuote.created_date_time)}` : ""}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Last Modified By</Typography>
+                <Typography variant="body2">
+                  {selectedQuote.updated_by_name || "-"}
+                  {selectedQuote.updated_at ? ` on ${formatDateTimeReadable(selectedQuote.updated_at)}` : ""}
+                </Typography>
               </Box>
               <Box>
                 <Typography variant="caption" color="text.secondary">Approved By</Typography>
@@ -773,8 +819,13 @@ export default function QuotationApprovalsPage() {
         entityId={selectedQuote?.id}
         actionLabels={{
           create: "Quote created",
+          update: "Quote updated",
+          status_change: "Status changed",
           approve: "Quote approved",
           reject: "Quote rejected",
+          convert: "Converted to invoice",
+          release_reservation: "Stock reservation released",
+          delete: "Quote deleted",
         }}
       />
     </>
