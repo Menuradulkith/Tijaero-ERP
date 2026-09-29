@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Chip, TextField, Typography } from "@mui/material";
+import { Box, TextField, Typography } from "@mui/material";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
@@ -24,6 +24,7 @@ import {
   TConfirmDialog,
   TDetailSkeleton,
   TFormDialog,
+  TStatusChip,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -147,10 +148,10 @@ export default function LeaveApprovalsPage() {
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>{leave.employee_name || leave.employee_id}</span>
-                <Chip
-                  label="pending"
+                <TStatusChip
+                  status="pending"
                   size="small"
-                  color="warning"
+                  customMap={{ pending: { label: "Pending", color: "warning" } }}
                   sx={{ height: 18, fontSize: "0.65rem" }}
                 />
               </Box>

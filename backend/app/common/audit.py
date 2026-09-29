@@ -52,6 +52,63 @@ def diff_changes(
     return {"fields": sorted(changed.keys()), "values": changed}
 
 
+def diff_line_items(
+    before_items: list,
+    after_items: list,
+    key_field: str = "product_id",
+    tracked_fields: tuple = ("quantity", "unit_price"),
+) -> list:
+    """Diff two line-item lists that get wholesale deleted + recreated on
+    every save (quote items, PO items, ...) — they have no stable id across
+    an edit, so lines are matched by `key_field` (their product) instead.
+    Returns a list of per-line entries: {key, action: "added"/"removed"/
+    "changed", item: {...} | changes: {field: {old, new}}}, empty if nothing
+    changed. Caller attaches a display label (e.g. product_name) per `key`,
+    since this module has no DB access of its own.
+    """
+    def _group(items: list) -> dict:
+        grouped: dict = {}
+        for item in items:
+            grouped.setdefault(item.get(key_field), []).append(item)
+        return grouped
+
+    before_by_key = _group(before_items)
+    after_by_key = _group(after_items)
+
+    entries = []
+    seen_keys = set()
+    for key in list(before_by_key.keys()) + list(after_by_key.keys()):
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        befores = before_by_key.get(key, [])
+        afters = after_by_key.get(key, [])
+        for i in range(max(len(befores), len(afters))):
+            before = befores[i] if i < len(befores) else None
+            after = afters[i] if i < len(afters) else None
+            if before is None:
+                entries.append({
+                    "key": key,
+                    "action": "added",
+                    "item": {f: _json_safe(after.get(f)) for f in tracked_fields if f in after},
+                })
+            elif after is None:
+                entries.append({
+                    "key": key,
+                    "action": "removed",
+                    "item": {f: _json_safe(before.get(f)) for f in tracked_fields if f in before},
+                })
+            else:
+                field_changes = {
+                    f: {"old": _json_safe(before.get(f)), "new": _json_safe(after.get(f))}
+                    for f in tracked_fields
+                    if before.get(f) != after.get(f)
+                }
+                if field_changes:
+                    entries.append({"key": key, "action": "changed", "changes": field_changes})
+    return entries
+
+
 class AuditLog(Base, AuditMixin):
     __tablename__ = "audit_logs"
 

@@ -11,32 +11,32 @@ import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import {
-    Box,
-    Button,
-    Chip,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    Divider,
-    Grid,
-    IconButton,
-    InputAdornment,
-    Paper,
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableRow,
-    TextField,
-    Tooltip,
-    Typography
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  Grid,
+  IconButton,
+  InputAdornment,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 // Import tijaero components
 import {
+  TChip,
     DetailPanelHeader,
     EmptyState,
     fmtLKR,
@@ -349,7 +349,7 @@ export default function SalesOrderApprovalsPage() {
                                             </Typography>
                                         </Box>
                                         <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                                            <Chip
+                                            <TChip
                                                 label={statusChip.label}
                                                 size="small"
                                                 color={statusChip.color}
@@ -849,7 +849,7 @@ export default function SalesOrderApprovalsPage() {
                                                 <Grid item xs={6} sm={2}>
                                                     <Typography variant="body2" color="text.secondary">Status</Typography>
                                                     <Box sx={{ mt: 0.5 }}>
-                                                        <Chip
+                                                        <TChip
                                                             size="small"
                                                             label={invoiceCommission?.status ? invoiceCommission.status.toUpperCase() : "PENDING"}
                                                             color={
@@ -915,13 +915,13 @@ export default function SalesOrderApprovalsPage() {
                                                                         <Typography variant="caption" sx={{ fontWeight: 500 }}>
                                                                             {prod?.name || `#${item.product_id}`}
                                                                         </Typography>
-                                                                        <Chip
+                                                                        <TChip
                                                                             label={`${item.quantity} × ${fmtLKR(item.selling_price)}`}
                                                                             size="small"
                                                                             variant="outlined"
                                                                             sx={{ height: 16, fontSize: "0.6rem", borderRadius: 1 }}
                                                                         />
-                                                                        <Chip
+                                                                        <TChip
                                                                             label={`= ${fmtLKR(lineTotal)}`}
                                                                             size="small"
                                                                             color="primary"

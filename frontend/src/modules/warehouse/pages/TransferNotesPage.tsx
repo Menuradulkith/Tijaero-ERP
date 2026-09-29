@@ -8,7 +8,7 @@ import {
   Delete as DeleteIcon,
   Visibility as ViewIcon,
 } from "@mui/icons-material";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import {
   TPageHeader,
   TButton,
@@ -16,6 +16,7 @@ import {
   TFormDialog,
   TFormField,
   TConfirmDialog,
+  TRemarkField,
   useTConfirmDialog,
   showSuccessToast,
   showErrorToast,
@@ -246,12 +247,19 @@ export default function TransferNotesPage() {
             />
           </Box>
           <Box sx={{ gridColumn: "span 2" }}>
-            <TFormField
+            <Controller
               name="remark"
               control={control}
-              label="Remark"
-              fieldType="textarea"
-              rows={3}
+              render={({ field }) => (
+                <TRemarkField
+                  label="Remark"
+                  fullWidth
+                  multiline
+                  rows={3}
+                  value={field.value || ""}
+                  onChange={(value) => field.onChange(value)}
+                />
+              )}
             />
           </Box>
         </Box>

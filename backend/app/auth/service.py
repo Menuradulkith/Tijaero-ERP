@@ -230,6 +230,13 @@ class AuthService:
         # Snapshot only the fields actually submitted, before mutation, so the
         # audit log reflects a real diff rather than "everything the form sent".
         before_values = {field: getattr(user, field, None) for field in update_data if hasattr(user, field)}
+        # branch_ids/group_ids aren't real User columns (they're relationship
+        # ids from the update schema), so the generic hasattr-based snapshot
+        # above never sees them — track them separately as sorted label lists
+        # (branch code / group name) so re-assigning a user's branches or
+        # groups actually shows up in Activity History.
+        before_branch_codes = sorted(b.branch_code for b in user.branches) if "branch_ids" in update_data else None
+        before_group_names = sorted(g.name for g in user.groups) if "group_ids" in update_data else None
 
         if "password" in update_data and update_data["password"]:
             update_data["hashed_password"] = get_password_hash(
@@ -280,6 +287,20 @@ class AuthService:
         changes = diff_changes(
             {k: v for k, v in before_values.items() if k != "password"}, after_values
         )
+        if before_branch_codes is not None:
+            after_branch_codes = sorted(b.branch_code for b in user.branches)
+            if after_branch_codes != before_branch_codes:
+                changes.setdefault("fields", [])
+                changes["fields"] = sorted(set(changes["fields"]) | {"branches"})
+                changes.setdefault("values", {})
+                changes["values"]["branches"] = {"old": before_branch_codes, "new": after_branch_codes}
+        if before_group_names is not None:
+            after_group_names = sorted(g.name for g in user.groups)
+            if after_group_names != before_group_names:
+                changes.setdefault("fields", [])
+                changes["fields"] = sorted(set(changes["fields"]) | {"groups"})
+                changes.setdefault("values", {})
+                changes["values"]["groups"] = {"old": before_group_names, "new": after_group_names}
         if changes:
             log_audit(
                 db, user_id=updated_by or 0, action="update",

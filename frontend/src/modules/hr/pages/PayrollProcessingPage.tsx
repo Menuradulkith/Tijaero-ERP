@@ -4,7 +4,6 @@ import {
   Box,
   Paper,
   Typography,
-  Chip,
   Divider,
   Button,
   LinearProgress,
@@ -486,8 +485,9 @@ export default function PayrollProcessingPage() {
             <Box>
               <Typography variant="h6">
                 {selectedBatch.batch_no}
-                <Chip
-                  label={selectedBatch.status.replace(/_/g, " ").toUpperCase()}
+                <TStatusChip
+                  status={selectedBatch.status}
+                  statusMap="payrollStatus"
                   size="small"
                   sx={{ ml: 1 }}
                 />

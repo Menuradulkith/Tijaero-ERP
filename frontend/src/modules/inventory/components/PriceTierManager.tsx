@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import {
   Box,
   Button,
-  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -28,6 +27,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { priceTiersApi } from "../api";
 import { PriceTier, PriceTierCreate } from "../types";
 
+import { TChip, TRemarkField } from "@/components/tijaero";
 interface PriceTierManagerProps {
   productId: number;
   canEdit?: boolean;
@@ -231,7 +231,7 @@ const PriceTierManager: React.FC<PriceTierManagerProps> = ({
                         </Typography>
                       )}
                       {!tier.is_active && (
-                        <Chip label="Inactive" size="small" color="default" />
+                        <TChip label="Inactive" size="small" color="default" />
                       )}
                     </Box>
                   </TableCell>
@@ -330,10 +330,10 @@ const PriceTierManager: React.FC<PriceTierManagerProps> = ({
               inputProps={{ min: 0, step: "0.01" }}
               fullWidth
             />
-            <TextField
+            <TRemarkField
               label="Remark"
               value={form.remark}
-              onChange={(e) => setForm({ ...form, remark: e.target.value })}
+              onChange={(value) => setForm({ ...form, remark: value })}
               placeholder='e.g. "Special Import Batch — June 2026"'
               fullWidth
               sx={{ gridColumn: "1 / -1" }}

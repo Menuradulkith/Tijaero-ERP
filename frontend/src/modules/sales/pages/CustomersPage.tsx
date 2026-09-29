@@ -13,7 +13,6 @@ import {
   Avatar,
   Box,
   Button,
-  Chip,
   FormControlLabel,
   IconButton,
   InputAdornment,
@@ -31,6 +30,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
 import {
+  TChip,
   ActionToolbar,
   CIVIL_CHOICES,
   DetailPanelHeader,
@@ -376,9 +376,9 @@ export default function CustomersPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<Customer>) =>
           params.row.is_customer_agent ? (
-            <Chip label="Agent" size="small" color="info" />
+            <TChip label="Agent" size="small" color="info" />
           ) : (
-            <Chip label="Customer" size="small" variant="outlined" />
+            <TChip label="Customer" size="small" variant="outlined" />
           ),
       },
       {
@@ -388,7 +388,7 @@ export default function CustomersPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<Customer>) => (
-          <Chip
+          <TChip
             label={params.row.active ? "Active" : "Inactive"}
             size="small"
             color={params.row.active ? "success" : "default"}

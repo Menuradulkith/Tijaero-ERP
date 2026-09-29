@@ -3,7 +3,7 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, Chip, IconButton, InputAdornment, Paper, TextField, Tooltip, Typography } from "@mui/material";
+import { Avatar, Box, Button, IconButton, InputAdornment, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -25,6 +25,7 @@ import {
   TExportButton,
   TPrintButton,
   TPrintPreviewDialog,
+  TStatusChip,
   fmtLKR,
   handleApiError,
   showErrorToast,
@@ -234,10 +235,15 @@ export default function PayrollPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<EmployeePayroll>) =>
           params.row.status ? (
-            <Chip
-              label={params.row.status.replace("_", " ")}
+            <TStatusChip
+              status={params.row.status}
               size="small"
-              color={statusColor(params.row.status)}
+              customMap={{
+                [params.row.status.toLowerCase()]: {
+                  label: params.row.status.replace("_", " "),
+                  color: statusColor(params.row.status),
+                },
+              }}
               sx={{ height: 20, fontSize: "0.65rem", textTransform: "capitalize" }}
             />
           ) : (

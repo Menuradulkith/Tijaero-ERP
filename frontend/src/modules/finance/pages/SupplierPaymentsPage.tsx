@@ -29,7 +29,6 @@ import {
   MenuItem,
   Alert,
   CircularProgress,
-  Chip,
   Typography,
   Paper,
   Divider,
@@ -68,6 +67,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import WarningIcon from "@mui/icons-material/Warning";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import {
+  TChip,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -75,6 +75,7 @@ import {
   useConfirmDialog,
   fmtLKR,
   getPaymentTermsLabel,
+  TRemarkField,
 } from "@/components/tijaero";
 
 import {
@@ -928,7 +929,7 @@ export default function SupplierPaymentsPage() {
                                   }}
                                 />
                               </Box>
-                              <Chip
+                              <TChip
                                 label={getPaymentTermsLabel(supplier.credit_days)}
                                 size="small"
                                 color="info"
@@ -1201,7 +1202,7 @@ export default function SupplierPaymentsPage() {
                 {outstandingDocuments.map((doc) => (
                   <TableRow key={`${doc.payment_type}-${doc.id}`} hover>
                     <TableCell>
-                      <Chip
+                      <TChip
                         label={doc.payment_type === "credit" ? "Credit" : doc.payment_method || "Cash"}
                         size="small"
                         color={doc.payment_type === "credit" ? "info" : "default"}
@@ -1270,23 +1271,23 @@ export default function SupplierPaymentsPage() {
                     <TableCell>
                       {doc.payment_type === "credit" ? (
                         doc.is_overdue ? (
-                          <Chip
+                          <TChip
                             label={`${doc.days_overdue}d overdue`}
                             size="small"
                             color="error"
                             icon={<WarningIcon />}
                           />
                         ) : (
-                          <Chip label="Due" size="small" color="warning" />
+                          <TChip label="Due" size="small" color="warning" />
                         )
                       ) : (doc.has_pending_payment || (doc.pending_payment_amount || 0) > 0) ? (
-                        <Chip
+                        <TChip
                           label="Pending Verification"
                           size="small"
                           color="info"
                         />
                       ) : (
-                        <Chip
+                        <TChip
                           label={doc.remaining_amount <= 0 ? "Paid" : "Unpaid"}
                           size="small"
                           color={doc.remaining_amount <= 0 ? "success" : "warning"}
@@ -1437,7 +1438,7 @@ export default function SupplierPaymentsPage() {
                       </TableCell>
                     )}
                   <TableCell>
-                    <Chip
+                    <TChip
                       label={doc.payment_type === "credit" ? "Credit" : doc.payment_method || "Cash"}
                       size="small"
                       color={doc.payment_type === "credit" ? "info" : "default"}
@@ -1486,12 +1487,12 @@ export default function SupplierPaymentsPage() {
                     <TableCell>
                       {doc.payment_type === "credit" ? (
                         doc.is_overdue ? (
-                          <Chip label={`${doc.days_overdue}d overdue`} size="small" color="error" />
+                          <TChip label={`${doc.days_overdue}d overdue`} size="small" color="error" />
                         ) : (
-                          <Chip label="Due" size="small" color="warning" />
+                          <TChip label="Due" size="small" color="warning" />
                         )
                       ) : (
-                        <Chip
+                        <TChip
                           label={doc.remaining_amount <= 0 ? "Paid" : "Unpaid"}
                           size="small"
                           color={doc.remaining_amount <= 0 ? "success" : "warning"}
@@ -1580,7 +1581,7 @@ export default function SupplierPaymentsPage() {
                       <Typography variant="body2">{line.document.po_no}</Typography>
                     </TableCell>
                     <TableCell>
-                      <Chip
+                      <TChip
                         label={line.document.payment_type === "credit" ? "Credit" : line.document.payment_method || "Cash"}
                         size="small"
                         color={line.document.payment_type === "credit" ? "info" : "default"}
@@ -1741,13 +1742,13 @@ export default function SupplierPaymentsPage() {
       </FormSection>
 
       <FormSection title="Remarks" columns={1}>
-        <TextField
+        <TRemarkField
           label="Remarks"
           size="small"
           multiline
           rows={2}
           value={remarks}
-          onChange={(e) => setRemarks(e.target.value)}
+          onChange={(value) => setRemarks(value)}
         />
       </FormSection>
 
@@ -1835,7 +1836,7 @@ export default function SupplierPaymentsPage() {
                       </Box>
                     </TableCell>
                     <TableCell>
-                      <Chip
+                      <TChip
                         label={line.document.payment_type === "credit" ? "Credit" : line.document.payment_method || "Cash"}
                         size="small"
                         color={line.document.payment_type === "credit" ? "info" : "default"}

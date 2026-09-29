@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, Chip, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
+import { Avatar, Box, Button, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
@@ -31,6 +31,7 @@ import {
   TConfirmDialog,
   TDetailSkeleton,
   TBranchFilter,
+  TStatusChip,
   TStatusFilter,
   type TFilterStatusOption,
   TDataGrid,
@@ -364,10 +365,15 @@ export default function AttendancePage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<Attendance>) => (
-          <Chip
-            label={params.row.status || "—"}
+          <TStatusChip
+            status={params.row.status || "—"}
             size="small"
-            color={statusColor(params.row.status) as any}
+            customMap={{
+              [(params.row.status || "").toLowerCase()]: {
+                label: params.row.status || "—",
+                color: statusColor(params.row.status),
+              },
+            }}
           />
         ),
       },

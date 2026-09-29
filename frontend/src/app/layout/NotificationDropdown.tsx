@@ -8,25 +8,25 @@ import InfoIcon from "@mui/icons-material/Info";
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import WarningIcon from "@mui/icons-material/Warning";
 import {
-    Badge,
-    Box,
-    Button,
-    Chip,
-    CircularProgress,
-    Divider,
-    IconButton,
-    List,
-    ListItem,
-    ListItemButton,
-    ListItemText,
-    Menu,
-    Tooltip,
-    Typography,
+  Badge,
+  Box,
+  Button,
+  CircularProgress,
+  Divider,
+  IconButton,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemText,
+  Menu,
+  Tooltip,
+  Typography,
 } from "@mui/material";
 import { formatDistanceToNow } from "date-fns";
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { TChip } from "@/components/tijaero";
 const getNotificationIcon = (type: AppNotification["notification_type"]) => {
   switch (type) {
     case "success":
@@ -227,7 +227,7 @@ export default function NotificationDropdown() {
                             )}
                           </Typography>
                           {notification.branch_code ? (
-                            <Chip
+                            <TChip
                               component="span"
                               size="small"
                               variant="outlined"
@@ -237,7 +237,7 @@ export default function NotificationDropdown() {
                           ) : null}
                           {notification.category &&
                           notification.category !== "system" ? (
-                            <Chip
+                            <TChip
                               component="span"
                               size="small"
                               label={notification.category}

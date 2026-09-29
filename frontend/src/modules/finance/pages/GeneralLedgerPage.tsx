@@ -17,7 +17,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   IconButton,
   InputAdornment,
   Paper,
@@ -40,6 +39,7 @@ import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  TChip,
   DetailPanelHeader,
   EmptyState,
   fmtLKR,
@@ -323,7 +323,7 @@ export default function GeneralLedgerPage() {
                     </Typography>
                   </Box>
                   <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                    <Chip
+                    <TChip
                       label={acc.account_type}
                       size="small"
                       color={
@@ -426,10 +426,10 @@ export default function GeneralLedgerPage() {
               <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>
                 Quick range:
               </Typography>
-              <Chip label="Today" size="small" variant="outlined" onClick={() => setQuickRange("today")} />
-              <Chip label="This Month" size="small" variant="outlined" onClick={() => setQuickRange("month")} />
-              <Chip label="Last Month" size="small" variant="outlined" onClick={() => setQuickRange("lastMonth")} />
-              <Chip label="This Year" size="small" variant="outlined" onClick={() => setQuickRange("year")} />
+              <TChip label="Today" size="small" variant="outlined" onClick={() => setQuickRange("today")} />
+              <TChip label="This Month" size="small" variant="outlined" onClick={() => setQuickRange("month")} />
+              <TChip label="Last Month" size="small" variant="outlined" onClick={() => setQuickRange("lastMonth")} />
+              <TChip label="This Year" size="small" variant="outlined" onClick={() => setQuickRange("year")} />
               <Box sx={{ flex: 1 }} />
               <Button
                 size="small"
@@ -522,7 +522,7 @@ export default function GeneralLedgerPage() {
                             <TableCell>{entry.description || "-"}</TableCell>
                             <TableCell>{entry.reference_no || "-"}</TableCell>
                             <TableCell>
-                              <Chip label={entry.transaction_type} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                              <TChip label={entry.transaction_type} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
                             </TableCell>
                             <TableCell align="right" sx={{ color: Number(entry.debit_amount) > 0 ? "success.main" : "text.disabled" }}>
                               {Number(entry.debit_amount) > 0 ? fmtLKR(entry.debit_amount) : "-"}
@@ -647,7 +647,7 @@ export default function GeneralLedgerPage() {
                             <TableCell>{acc.account_code}</TableCell>
                             <TableCell>{acc.account_name}</TableCell>
                             <TableCell>
-                              <Chip label={acc.account_type} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+                              <TChip label={acc.account_type} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
                             </TableCell>
                             <TableCell align="right">
                               {Number(acc.total_debit) > 0 ? fmtLKR(acc.total_debit) : "-"}

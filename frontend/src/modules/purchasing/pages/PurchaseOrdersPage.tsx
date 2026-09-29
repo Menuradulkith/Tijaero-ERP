@@ -73,6 +73,7 @@ import {
     type TDataGridColumn,
     TPrintButton,
     TPrintPreviewDialog,
+    TRemarkField,
     TStatusChip,
     TSupplierFilter,
     TStatusFilter,
@@ -1210,7 +1211,7 @@ export default function PurchaseOrdersPage() {
       },
       {
         field: "required_date",
-        header: "GRN Date",
+        header: "Expected Delivery Date",
         type: "date",
         width: 130,
       },
@@ -1594,7 +1595,7 @@ export default function PurchaseOrdersPage() {
                     helperText={getFieldError("purchasing_order_date")}
                   />
                   <TextField
-                    label="GRN Date"
+                    label="Expected Delivery Date"
                     size="small"
                     type="date"
                     value={formData.required_date || ""}
@@ -2003,12 +2004,12 @@ export default function PurchaseOrdersPage() {
             )}
 
             <FormSection title="Remarks" columns={1} sx={{ mt: 2 }}>
-              <TextField
+              <TRemarkField
                 label="Remarks"
                 size="small"
                 value={formData.remarks}
-                onChange={(e) =>
-                  setFormData({ ...formData, remarks: e.target.value })
+                onChange={(value) =>
+                  setFormData({ ...formData, remarks: value })
                 }
                 disabled={!isEditing && !isCreating}
                 multiline

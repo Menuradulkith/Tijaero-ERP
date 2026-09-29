@@ -14,9 +14,9 @@ import {
   ListItemText,
   Typography,
   Box,
-  Chip,
 } from "@mui/material";
 import { SelectableListItemProps } from "../types";
+import { TStatusChip } from "../base/TStatusChip";
 
 export const SelectableListItem: React.FC<SelectableListItemProps> = ({
   isSelected,
@@ -62,28 +62,32 @@ export const SelectableListItem: React.FC<SelectableListItemProps> = ({
               {primaryText}
             </Typography>
             {statusChip && (
-              <Chip
-                label={statusChip.label}
+              <TStatusChip
+                status={statusChip.label}
                 size="small"
-                color={statusChip.color || "default"}
                 variant={statusChip.variant || "filled"}
-                sx={{
-                  height: 18,
-                  fontSize: "0.65rem",
+                customMap={{
+                  [statusChip.label.toLowerCase().replace(/\s+/g, "_")]: {
+                    label: statusChip.label,
+                    color: statusChip.color || "default",
+                  },
                 }}
+                sx={{ height: 18, fontSize: "0.65rem" }}
               />
             )}
             {chips?.map((chip, index) => (
-              <Chip
+              <TStatusChip
                 key={index}
-                label={chip.label}
+                status={chip.label}
                 size="small"
-                color={chip.color || "default"}
                 variant={chip.variant || "filled"}
-                sx={{
-                  height: 18,
-                  fontSize: "0.65rem",
+                customMap={{
+                  [chip.label.toLowerCase().replace(/\s+/g, "_")]: {
+                    label: chip.label,
+                    color: chip.color || "default",
+                  },
                 }}
+                sx={{ height: 18, fontSize: "0.65rem" }}
               />
             ))}
           </Box>

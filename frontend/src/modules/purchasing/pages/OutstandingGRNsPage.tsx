@@ -17,7 +17,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   Grid,
   Paper,
@@ -39,6 +38,7 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 
 import {
+  TChip,
   DetailPanelHeader,
   fmtLKR,
   handleApiError,
@@ -591,7 +591,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                       </TableCell>
                       <TableCell align="center">
                         {grn.days_since_grn > 30 ? (
-                          <Chip
+                          <TChip
                             label={`${grn.days_since_grn}d`}
                             size="small"
                             color="error"
@@ -599,7 +599,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                             sx={{ fontWeight: "bold" }}
                           />
                         ) : (
-                          <Chip
+                          <TChip
                             label={`${grn.days_since_grn}d`}
                             size="small"
                             color="success"

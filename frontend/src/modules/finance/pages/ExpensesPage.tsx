@@ -62,6 +62,7 @@ import {
   type TDataGridColumn,
   TPrintButton,
   TPrintPreviewDialog,
+  TRemarkField,
   TSearchableSelect,
   TStatusChip,
   useConfirmDialog,
@@ -978,11 +979,11 @@ export default function ExpensesPage() {
                 )}
 
                 <FormSection title="Remarks" columns={1}>
-                  <TextField
+                  <TRemarkField
                     label="Remarks"
                     size="small"
                     value={formData.remarks || ""}
-                    onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, remarks: value })}
                     disabled={!isEditing && !isCreating}
                     multiline
                     rows={3}
@@ -1224,12 +1225,13 @@ export default function ExpensesPage() {
                   name="remarks"
                   control={paymentForm.control}
                   render={({ field }) => (
-                    <TextField
-                      {...field}
+                    <TRemarkField
                       label="Remarks"
                       multiline
                       rows={2}
                       fullWidth
+                      value={field.value}
+                      onChange={(value) => field.onChange(value)}
                     />
                   )}
                 />

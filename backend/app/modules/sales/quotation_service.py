@@ -309,8 +309,21 @@ class SalesQuoteService:
                     setattr(quote, key, value)
 
         # Update items if provided
+        item_changes = []
         if quote_data.items is not None:
-            changed_fields.add("items")
+            before_items = [
+                {"product_id": i.product_id, "quantity": i.quantity, "unit_price": float(i.selling_price)}
+                for i in quote.items
+            ]
+            after_items = [
+                {"product_id": i.product_id, "quantity": i.quantity, "unit_price": float(i.selling_price)}
+                for i in quote_data.items
+            ]
+            from app.common.audit import diff_line_items
+            item_changes = diff_line_items(before_items, after_items, key_field="product_id")
+            if item_changes:
+                changed_fields.add("items")
+
             # Delete existing items
             self.repository.delete_items_by_quote_id(db, quote_id)
 
@@ -329,13 +342,19 @@ class SalesQuoteService:
         if changed_fields:
             from app.common.audit import log_audit, diff_changes
             changes = diff_changes(before_values, update_data)
-            # `items` is a full list replace (no single scalar old/new), so
-            # it's always reported as changed whenever it was submitted, on
-            # top of whatever scalar diffs diff_changes found.
-            if "items" in changed_fields:
+            if item_changes:
+                from app.modules.products.models import Product
+
+                product_ids = {entry["key"] for entry in item_changes}
+                product_names = {
+                    p.id: p.name
+                    for p in db.query(Product).filter(Product.id.in_(product_ids)).all()
+                }
+                for entry in item_changes:
+                    entry["product_name"] = product_names.get(entry["key"], f"Product #{entry['key']}")
+                changes["item_changes"] = item_changes
                 changes.setdefault("fields", [])
-                if "items" not in changes["fields"]:
-                    changes["fields"] = sorted(set(changes["fields"]) | {"items"})
+                changes["fields"] = sorted(set(changes["fields"]) | {"items"})
             log_audit(
                 db,
                 user_id=user_id or 0,
@@ -1607,7 +1626,11 @@ class SalesQuoteService:
                 "current_branch_available": current_branch_available,
                 "is_sufficient": is_sufficient,
                 "other_branches": other_branches,
-                "stock_status": 'in_stock' if is_sufficient else ('needs_transfer' if other_branches else 'needs_procurement')
+                "stock_status": 'in_stock' if is_sufficient else ('needs_transfer' if other_branches else 'needs_procurement'),
+                # Partial availability: only the shortfall needs to be
+                # purchased, not the full requested quantity — e.g. customer
+                # wants 100, 40 are already in stock, so only 60 to purchase.
+                "to_purchase_quantity": max(remaining_qty - current_branch_available, 0),
             })
         
         if update_items:
@@ -1679,6 +1702,9 @@ class SalesQuoteService:
 
             outstanding_qty = max(ordered_qty - received_qty, 0)
             required_qty = max(item.quantity - (item.converted_qty or 0), 0)
+            # Partial availability rule: what's already in stock (and what's
+            # already on order) reduces how much more actually needs buying.
+            to_purchase_qty = max(required_qty - available_qty - outstanding_qty, 0)
 
             items_out.append({
                 "item_id": item.id,
@@ -1691,6 +1717,7 @@ class SalesQuoteService:
                 "on_hand_quantity": int(on_hand_qty),
                 "available_quantity": int(available_qty),
                 "outstanding_quantity": int(outstanding_qty),
+                "to_purchase_quantity": int(to_purchase_qty),
             })
 
         return {

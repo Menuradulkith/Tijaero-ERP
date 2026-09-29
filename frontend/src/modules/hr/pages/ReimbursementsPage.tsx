@@ -70,6 +70,7 @@ import {
     useMasterDetailState,
     useRowSelection,
     fmtLKR,
+    TRemarkField,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -1097,11 +1098,11 @@ export default function ReimbursementsPage() {
           </Box>
 
           <Box sx={{ gridColumn: "span 2" }}>
-            <TextField
+            <TRemarkField
               label="Remarks"
               value={formData.remark}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, remark: e.target.value }))
+              onChange={(value) =>
+                setFormData((prev) => ({ ...prev, remark: value }))
               }
               size="small"
               fullWidth
@@ -1440,10 +1441,10 @@ export default function ReimbursementsPage() {
             helperText="Leave as-is for full approval, or reduce for partial approval"
             sx={{ mb: 2 }}
           />
-          <TextField
+          <TRemarkField
             label="Remarks (optional)"
             value={approveRemarks}
-            onChange={(e) => setApproveRemarks(e.target.value)}
+            onChange={(value) => setApproveRemarks(value)}
             fullWidth
             size="small"
             multiline

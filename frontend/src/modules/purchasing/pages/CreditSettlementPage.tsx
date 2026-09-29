@@ -15,7 +15,6 @@ import {
   MenuItem,
   Alert,
   CircularProgress,
-  Chip,
   List,
   ListItemButton,
   ListItemText,
@@ -38,6 +37,7 @@ import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 // ConfirmDialog now uses TConfirmDialog from tijaero
 
 import {
+  TChip,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
@@ -49,6 +49,7 @@ import {
   TConfirmDialog,
   TDetailSkeleton,
   TLoadingSkeleton,
+  TRemarkField,
   showErrorToast,
   showSuccessToast,
   useTConfirmDialog,
@@ -414,7 +415,7 @@ export default function CreditSettlementPage() {
             sx={{ mb: 1 }}
           />
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Chip
+            <TChip
               label="Credit Only"
               size="small"
               variant={showOnlyWithCredit ? "filled" : "outlined"}
@@ -478,7 +479,7 @@ export default function CreditSettlementPage() {
                     {/* Status Chips - shown below all fields when selected */}
                     {supplier.max_credit_limit > 0 && (
                       <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                        <Chip
+                        <TChip
                           label={getPaymentTermsLabel(supplier.credit_days)}
                           size="small"
                           color="info"
@@ -653,7 +654,7 @@ export default function CreditSettlementPage() {
                   primary={
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <Typography variant="subtitle2">{po.po_no}</Typography>
-                      <Chip
+                      <TChip
                         size="small"
                         label={po.is_overdue ? `${po.days_overdue}d overdue` : "Due"}
                         color={po.is_overdue ? "error" : "warning"}
@@ -741,7 +742,7 @@ export default function CreditSettlementPage() {
           <Grid item xs={6} sm={4}>
             <Typography variant="caption" color="text.secondary">Status</Typography>
             <Box>
-              <Chip
+              <TChip
                 size="small"
                 label={selectedPO?.is_overdue ? "Overdue" : "Pending"}
                 color={selectedPO?.is_overdue ? "error" : "warning"}
@@ -883,10 +884,10 @@ export default function CreditSettlementPage() {
             />
           </Grid>
           <Grid item xs={12}>
-            <TextField
+            <TRemarkField
               label="Remarks"
               value={paymentForm.remarks}
-              onChange={handleFormChange("remarks")}
+              onChange={(value) => setPaymentForm((prev) => ({ ...prev, remarks: value }))}
               size="small"
               fullWidth
               multiline
@@ -901,20 +902,20 @@ export default function CreditSettlementPage() {
           <Typography variant="caption" color="text.secondary" sx={{ mr: 1, alignSelf: "center" }}>
             Quick:
           </Typography>
-          <Chip
+          <TChip
             label="Full Amount"
             onClick={() => setPaymentForm(prev => ({ ...prev, payment_amount: selectedPO?.remaining_amount || 0 }))}
             color={paymentForm.payment_amount === selectedPO?.remaining_amount ? "primary" : "default"}
             variant={paymentForm.payment_amount === selectedPO?.remaining_amount ? "filled" : "outlined"}
             size="small"
           />
-          <Chip
+          <TChip
             label="50%"
             onClick={() => setPaymentForm(prev => ({ ...prev, payment_amount: Math.round((selectedPO?.remaining_amount || 0) * 0.5 * 100) / 100 }))}
             variant="outlined"
             size="small"
           />
-          <Chip
+          <TChip
             label="25%"
             onClick={() => setPaymentForm(prev => ({ ...prev, payment_amount: Math.round((selectedPO?.remaining_amount || 0) * 0.25 * 100) / 100 }))}
             variant="outlined"

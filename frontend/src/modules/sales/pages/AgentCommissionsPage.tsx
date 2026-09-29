@@ -8,7 +8,6 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -29,7 +28,7 @@ import { useState } from "react";
 
 import { PERMISSIONS, usePermission } from "@/auth/permissions";
 import { customersApi } from "@/modules/customers/api";
-import { showSuccessToast, showErrorToast, handleApiError } from "@/components/tijaero";
+import { TChip, showSuccessToast, showErrorToast, handleApiError } from "@/components/tijaero";
 import { exportToCSV } from "@/utils/csvExport";
 import DownloadIcon from "@mui/icons-material/FileDownload";
 import { commissionsApi, commissionPaymentsApi } from "@/modules/sales/commission-api";
@@ -348,7 +347,7 @@ export default function AgentCommissionsPage() {
                       : ""}
                   </TableCell>
                   <TableCell align="center">
-                    <Chip
+                    <TChip
                       label={
                         c.status === "pending" ? "Unpaid" :
                         c.status === "paid" ? "Paid" :

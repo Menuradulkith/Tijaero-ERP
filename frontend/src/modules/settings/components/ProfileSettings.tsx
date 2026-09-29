@@ -1,19 +1,18 @@
-import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { TChip, handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import { useAuthStore } from "@/state/authStore";
 import {
-    Alert,
-    Avatar,
-    Box,
-    Button,
-    Card,
-    CardContent,
-    Chip,
-    Divider,
-    Grid,
-    MenuItem,
-    Stack,
-    TextField,
-    Typography,
+  Alert,
+  Avatar,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Divider,
+  Grid,
+  MenuItem,
+  Stack,
+  TextField,
+  Typography,
 } from "@mui/material";
 import {
   AccountCircle as AccountCircleIcon,
@@ -140,8 +139,8 @@ export default function ProfileSettings() {
                 {user?.email || "No email available"}
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap">
-                <Chip size="small" icon={<BadgeIcon />} label={user?.employee_id || "No Employee ID"} />
-                <Chip size="small" color={user?.blocked ? "error" : "success"} label={user?.blocked ? "Blocked" : "Active"} />
+                <TChip size="small" icon={<BadgeIcon />} label={user?.employee_id || "No Employee ID"} />
+                <TChip size="small" color={user?.blocked ? "error" : "success"} label={user?.blocked ? "Blocked" : "Active"} />
               </Stack>
             </Box>
           </Stack>

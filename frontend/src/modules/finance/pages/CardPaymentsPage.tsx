@@ -9,7 +9,6 @@ import {
   Autocomplete,
   Box,
   Button,
-  Chip,
   IconButton,
   InputAdornment,
   TextField,
@@ -27,6 +26,7 @@ import {
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
+  TChip,
   MasterDetailLayout,
   DetailPanelHeader,
   FormSection,
@@ -41,6 +41,7 @@ import {
   TDataGrid,
   type TDataGridColumn,
   useRowSelection,
+  TRemarkField,
 } from "@/components/tijaero";
 
 import { cardPaymentsApi } from "@/modules/finance/api";
@@ -186,7 +187,7 @@ export default function CardPaymentsPage() {
         header: "Card Type",
         width: 130,
         renderCell: (params: GridRenderCellParams<CardPaymentRow>) => (
-          <Chip label={params.row.card_type || "N/A"} size="small" color={getCardColor(params.row.card_type)} />
+          <TChip label={params.row.card_type || "N/A"} size="small" color={getCardColor(params.row.card_type)} />
         ),
       },
       {
@@ -211,7 +212,7 @@ export default function CardPaymentsPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<CardPaymentRow>) =>
-          params.row.deposited ? <Chip label="Deposited" size="small" color="success" /> : null,
+          params.row.deposited ? <TChip label="Deposited" size="small" color="success" /> : null,
       },
       {
         field: "view",
@@ -323,7 +324,7 @@ export default function CardPaymentsPage() {
               />
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 <Typography variant="body2" color="text.secondary">Deposited:</Typography>
-                <Chip
+                <TChip
                   label={formData.deposited ? "Yes" : "No"}
                   size="small"
                   color={formData.deposited ? "success" : "default"}
@@ -354,10 +355,11 @@ export default function CardPaymentsPage() {
             )}
 
             <FormSection title="Remarks" columns={1}>
-              <TextField
+              <TRemarkField
                 label="Remark"
                 size="small"
                 value={formData.remark || ""}
+                onChange={() => {}}
                 disabled
                 InputProps={{ readOnly: true }}
                 multiline

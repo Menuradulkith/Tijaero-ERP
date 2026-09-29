@@ -8,7 +8,7 @@
  *   - Remove their active passcode
  */
 
-import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { TChip, handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
@@ -20,7 +20,6 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -228,14 +227,14 @@ export function PasscodeSettingsSection() {
         {status?.has_passcode ? (
           <>
             {status.locked_out ? (
-              <Chip
+              <TChip
                 size="small"
                 color="error"
                 icon={<LockPersonIcon />}
                 label="Passcode Login Stopped"
               />
             ) : (
-              <Chip
+              <TChip
                 size="small"
                 color={status.is_expired ? "error" : "success"}
                 icon={status.is_expired ? <WarningAmberIcon /> : <ShieldIcon />}
@@ -243,7 +242,7 @@ export function PasscodeSettingsSection() {
               />
             )}
             {!status.is_expired && !status.locked_out && status.days_until_expiry !== null && (
-              <Chip
+              <TChip
                 size="small"
                 variant="outlined"
                 icon={<InfoOutlinedIcon />}
@@ -256,7 +255,7 @@ export function PasscodeSettingsSection() {
             )}
           </>
         ) : (
-          <Chip size="small" variant="outlined" icon={<LockOpenIcon />} label="No passcode set" />
+          <TChip size="small" variant="outlined" icon={<LockOpenIcon />} label="No passcode set" />
         )}
       </Stack>
 

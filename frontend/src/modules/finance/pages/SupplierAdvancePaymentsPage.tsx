@@ -12,7 +12,6 @@ import {
   Avatar,
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -40,6 +39,7 @@ import {
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
+  TChip,
   MasterDetailLayout,
   DetailPanelHeader,
   ActionToolbar,
@@ -63,6 +63,7 @@ import {
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
+  TRemarkField,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
@@ -546,7 +547,7 @@ export default function SupplierAdvancePaymentsPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) => (
-          <Chip
+          <TChip
             label={params.row.is_fully_applied ? "Fully Applied" : "Active"}
             size="small"
             color={params.row.is_fully_applied ? "default" : "success"}
@@ -845,7 +846,7 @@ export default function SupplierAdvancePaymentsPage() {
                 />
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">Status:</Typography>
-                  <Chip
+                  <TChip
                     label={trackingRemainingAmount <= 0 ? "Fully Applied" : "Active"}
                     size="small"
                     color={trackingRemainingAmount <= 0 ? "default" : "success"}
@@ -921,11 +922,11 @@ export default function SupplierAdvancePaymentsPage() {
             )}
 
             <FormSection title="Remarks" columns={1}>
-              <TextField
+              <TRemarkField
                 label="Remarks"
                 size="small"
                 value={formData.remarks || ""}
-                onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                onChange={(value) => setFormData({ ...formData, remarks: value })}
                 disabled={!isEditing && !isCreating}
                 multiline
                 rows={2}
@@ -1106,11 +1107,11 @@ export default function SupplierAdvancePaymentsPage() {
                 fullWidth
               />
             )}
-            <TextField
+            <TRemarkField
               label="Remarks"
               size="small"
               value={returnRemarks}
-              onChange={(e) => setReturnRemarks(e.target.value)}
+              onChange={(value) => setReturnRemarks(value)}
               multiline
               rows={2}
               fullWidth

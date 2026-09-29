@@ -14,7 +14,6 @@ import {
   Alert,
   Autocomplete,
   Box,
-  Chip,
   IconButton,
   Paper,
   Table,
@@ -36,6 +35,7 @@ import {
 } from "react";
 
 import {
+  TChip,
   fmtLKR,
   getPaymentTermsLabel,
   modernTableStyles,
@@ -44,6 +44,7 @@ import {
   TButton,
   TConfirmDialog,
   TFormSection,
+  TRemarkField,
   TSteps,
   useTConfirmDialog,
   type TStepConfig,
@@ -471,7 +472,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                                       {option.supplier_company_name || `#${option.supplier_id}`}
                                     </Typography>
                                     {option.is_preferred && (
-                                      <Chip size="small" color="primary" icon={<StarIcon />} label="Preferred" />
+                                      <TChip size="small" color="primary" icon={<StarIcon />} label="Preferred" />
                                     )}
                                     <Typography variant="caption" color="text.secondary">
                                       {fmtLKR(option.cost_price)}
@@ -568,12 +569,12 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                   renderInput={(params) => <TextField {...params} label="Payment Method" />}
                   sx={{ width: 220 }}
                 />
-                <TextField
+                <TRemarkField
                   label="Remarks"
                   size="small"
                   value={groupRemarks[group.supplierId] || ""}
-                  onChange={(e) =>
-                    setGroupRemarks((prev) => ({ ...prev, [group.supplierId]: e.target.value }))
+                  onChange={(value) =>
+                    setGroupRemarks((prev) => ({ ...prev, [group.supplierId]: value }))
                   }
                   sx={{ flex: 1 }}
                 />

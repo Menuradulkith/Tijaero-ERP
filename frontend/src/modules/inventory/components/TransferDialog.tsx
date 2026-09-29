@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { TChip } from "@/components/tijaero";
 import {
   Dialog,
   DialogTitle,
@@ -10,7 +11,6 @@ import {
   Box,
   Typography,
   CircularProgress,
-  Chip,
 } from '@mui/material';
 
 interface TransferDialogProps {
@@ -97,7 +97,7 @@ export const TransferDialog: React.FC<TransferDialogProps> = ({
                 <Typography variant="body2">
                   <strong>Barcode:</strong>
                 </Typography>
-                <Chip label={item.barcode} size="small" />
+                <TChip label={item.barcode} size="small" />
               </Box>
 
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
@@ -113,7 +113,7 @@ export const TransferDialog: React.FC<TransferDialogProps> = ({
                 <Typography variant="body2">
                   <strong>Status:</strong>
                 </Typography>
-                <Chip label={item.status || 'available'} size="small" color="success" />
+                <TChip label={item.status || 'available'} size="small" color="success" />
               </Box>
 
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -166,13 +166,13 @@ export const TransferDialog: React.FC<TransferDialogProps> = ({
               <strong>Transfer Details:</strong>
             </Typography>
             <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Chip
+              <TChip
                 label={isToStock ? 'Company Assets' : 'Sales Stock'}
                 size="small"
                 variant="outlined"
               />
               <Typography variant="caption">→</Typography>
-              <Chip
+              <TChip
                 label={isToStock ? 'Sales Stock' : 'Company Assets'}
                 size="small"
                 variant="outlined"

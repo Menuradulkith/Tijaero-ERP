@@ -778,15 +778,15 @@ def list_purchase_orders(
 @router.patch(
     "/orders/{order_id}",
     response_model=schemas.PurchasingOrder,
-    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_UPDATE))],
 )
 def update_purchase_order(
     order_id: int,
     order_update: schemas.PurchasingOrderUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_UPDATE)),
 ):
     order_service = service.PurchasingOrderService(db)
-    return order_service.update_order(order_id, order_update)
+    return order_service.update_order(order_id, order_update, updated_by=current_user.id)
 
 
 @router.delete(

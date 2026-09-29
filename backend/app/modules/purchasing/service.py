@@ -2,14 +2,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 from contextlib import contextmanager
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import date, datetime
 from decimal import Decimal
 from . import models, schemas, repository
 from .invoice_models import PurchaseInvoice, PurchaseInvoicePayment
 from fastapi import HTTPException, status
 from app.core import timezone as tz
-from app.common.audit import log_audit, diff_changes
+from app.common.audit import log_audit, diff_changes, diff_line_items
 from app.common.enums import PurchaseOrderStatus, DocumentStatus, StockStatus
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.modules.finance.gl_posting_service import record_gl_commit_failure
@@ -918,13 +918,19 @@ class PurchasingOrderService:
     def list_orders(self, filters: schemas.PurchaseOrderListFilter) -> List[models.PurchasingOrder]:
         return self.repo.get_all(filters)
     
-    def update_order(self, order_id: int, order_update: schemas.PurchasingOrderUpdate) -> models.PurchasingOrder:
+    def update_order(self, order_id: int, order_update: schemas.PurchasingOrderUpdate, updated_by: Optional[int] = None) -> models.PurchasingOrder:
         existing_po = self.repo.get_by_id(order_id)
         if not existing_po:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Purchase order with id {order_id} not found"
             )
+
+        # Snapshot the fields the request actually touched (exclude_unset) so
+        # the audit log records what genuinely changed, "old -> new", the
+        # same way SupplierService.update_supplier / QuotationService.update_quote do.
+        submitted_fields = order_update.model_dump(exclude_unset=True, exclude={"items"})
+        before_values = {field: getattr(existing_po, field) for field in submitted_fields}
         
         if existing_po.status in (PurchaseOrderStatus.PARTIALLY_COMPLETED, PurchaseOrderStatus.COMPLETED) or existing_po.good_received_notes:
             raise HTTPException(
@@ -969,14 +975,55 @@ class PurchasingOrderService:
         
         # Track if this was an approved PO being edited
         was_approved = existing_po.status == "approved"
-        
+
+        item_changes = []
+        if order_update.items is not None:
+            before_items = [
+                {"product_id": i.product_id, "quantity": i.quantity, "unit_price": float(i.unit_price)}
+                for i in existing_po.items
+            ]
+            after_items = [
+                {"product_id": i.product_id, "quantity": i.quantity, "unit_price": float(i.unit_price)}
+                for i in order_update.items
+            ]
+            item_changes = diff_line_items(before_items, after_items, key_field="product_id")
+
         order = self.repo.update(order_id, order_update)
         if not order:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Purchase order with id {order_id} not found"
             )
-        
+
+        changed_fields = set(submitted_fields.keys())
+        if item_changes:
+            changed_fields.add("items")
+
+        if changed_fields:
+            changes = diff_changes(before_values, submitted_fields)
+            if item_changes:
+                from app.modules.products.models import Product
+
+                product_ids = {entry["key"] for entry in item_changes}
+                product_names = {
+                    p.id: p.name
+                    for p in self.db.query(Product).filter(Product.id.in_(product_ids)).all()
+                }
+                for entry in item_changes:
+                    entry["product_name"] = product_names.get(entry["key"], f"Product #{entry['key']}")
+                changes["item_changes"] = item_changes
+                changes.setdefault("fields", [])
+                changes["fields"] = sorted(set(changes["fields"]) | {"items"})
+            log_audit(
+                self.db,
+                user_id=updated_by or 0,
+                action="update",
+                entity_type="purchase_order",
+                entity_id=order.id,
+                changes=changes or {"fields": sorted(changed_fields)},
+            )
+            self.db.commit()
+
         # If an approved PO was edited, reset it back to pending_approval
         if was_approved:
             from app.modules.common.models import Approvals
@@ -1188,6 +1235,7 @@ class ProcurementQueueService:
     def list_queue(self, branch_codes: Optional[List[str]] = None) -> List[schemas.ProcurementQueueItem]:
         from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
         from app.modules.products.models import Product
+        from app.modules.inventory.models import SalesStock
 
         query = (
             self.db.query(models.ProcurementQueueItem, SalesQuoteItem, SalesQuote, Product, models.Supplier)
@@ -1200,23 +1248,68 @@ class ProcurementQueueService:
             query = query.filter(SalesQuote.branch_code.in_(branch_codes))
 
         rows = query.order_by(models.ProcurementQueueItem.added_date.asc()).all()
-        return [
-            schemas.ProcurementQueueItem(
-                id=queue_item.id,
-                quote_item_id=quote_item.id,
-                quote_id=quote.id,
-                quote_no=quote.quote_no,
-                branch_code=quote.branch_code,
-                supplier_id=queue_item.supplier_id,
-                supplier_name=supplier.company_name,
-                product_id=product.id,
-                product_name=product.name,
-                quantity=queue_item.quantity,
-                unit_price=queue_item.unit_price,
-                added_date=queue_item.added_date,
+        if not rows:
+            return []
+
+        # Batch-compute "already available at this branch" per (product,
+        # branch) pair, and "already ordered" per quote item — avoids an
+        # available/ordered query per row.
+        product_branch_pairs = {(quote_item.product_id, quote.branch_code) for _, quote_item, quote, _, _ in rows}
+        product_ids = {p for p, _ in product_branch_pairs}
+        branch_codes_in_rows = {b for _, b in product_branch_pairs}
+        available_map: Dict[tuple, int] = {}
+        if product_ids:
+            stock_rows = (
+                self.db.query(SalesStock.product_id, SalesStock.branch_code, func.count(SalesStock.id))
+                .filter(
+                    SalesStock.product_id.in_(product_ids),
+                    SalesStock.branch_code.in_(branch_codes_in_rows),
+                    SalesStock.status == StockStatus.AVAILABLE,
+                    SalesStock.is_active == True,
+                )
+                .group_by(SalesStock.product_id, SalesStock.branch_code)
+                .all()
             )
-            for queue_item, quote_item, quote, product, supplier in rows
-        ]
+            available_map = {(p, b): c for p, b, c in stock_rows}
+
+        quote_item_ids = {quote_item.id for _, quote_item, _, _, _ in rows}
+        ordered_map: Dict[int, int] = {}
+        if quote_item_ids:
+            ordered_rows = (
+                self.db.query(models.PurchasingOrderItems.quote_item_id, func.coalesce(func.sum(models.PurchasingOrderItems.quantity), 0))
+                .filter(models.PurchasingOrderItems.quote_item_id.in_(quote_item_ids))
+                .group_by(models.PurchasingOrderItems.quote_item_id)
+                .all()
+            )
+            ordered_map = {qid: int(qty) for qid, qty in ordered_rows}
+
+        result = []
+        for queue_item, quote_item, quote, product, supplier in rows:
+            required_qty = max(quote_item.quantity - (quote_item.converted_qty or 0), 0)
+            available_qty = available_map.get((quote_item.product_id, quote.branch_code), 0)
+            ordered_qty = ordered_map.get(quote_item.id, 0)
+            to_purchase_qty = max(required_qty - available_qty - ordered_qty, 0)
+            result.append(
+                schemas.ProcurementQueueItem(
+                    id=queue_item.id,
+                    quote_item_id=quote_item.id,
+                    quote_id=quote.id,
+                    quote_no=quote.quote_no,
+                    branch_code=quote.branch_code,
+                    supplier_id=queue_item.supplier_id,
+                    supplier_name=supplier.company_name,
+                    product_id=product.id,
+                    product_name=product.name,
+                    quantity=queue_item.quantity,
+                    unit_price=queue_item.unit_price,
+                    added_date=queue_item.added_date,
+                    required_quantity=required_qty,
+                    available_quantity=available_qty,
+                    ordered_quantity=ordered_qty,
+                    to_purchase_quantity=to_purchase_qty,
+                )
+            )
+        return result
 
     def remove_from_queue(self, queue_item_id: int) -> None:
         deleted = self.db.query(models.ProcurementQueueItem).filter(

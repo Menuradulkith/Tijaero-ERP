@@ -390,6 +390,9 @@ class StockAvailabilityItem(BaseModel):
     current_branch_available: int
     is_sufficient: bool
     other_branches: List[StockAvailabilityBranch] = []
+    # Partial availability: only this much actually needs to be purchased —
+    # requested_quantity minus what's already in stock at this branch.
+    to_purchase_quantity: int = 0
 
 
 class StockAvailabilityResponse(BaseModel):
@@ -415,6 +418,7 @@ class ProcurementSummaryItem(BaseModel):
     on_hand_quantity: int
     available_quantity: int
     outstanding_quantity: int
+    to_purchase_quantity: int = 0
 
 
 class ProcurementSummaryResponse(BaseModel):

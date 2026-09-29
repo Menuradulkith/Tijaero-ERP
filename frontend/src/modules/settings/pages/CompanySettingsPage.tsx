@@ -1,4 +1,5 @@
 import {
+  TChip,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -23,7 +24,6 @@ import {
   Avatar,
   Box,
   Button,
-  Chip,
   CircularProgress,
   Divider,
   FormControl,
@@ -313,7 +313,7 @@ export default function CompanySettingsPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<PaymentCard>) => (
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-            <Chip
+            <TChip
               label={params.row.card_type === "credit" ? "Credit" : "Debit"}
               size="small"
               color={params.row.card_type === "credit" ? "primary" : "secondary"}
@@ -413,7 +413,7 @@ export default function CompanySettingsPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<Currency>) => (
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-            <Chip
+            <TChip
               label={params.row.is_active ? "Yes" : "No"}
               size="small"
               color={params.row.is_active ? "success" : "default"}
@@ -1047,7 +1047,7 @@ export default function CompanySettingsPage() {
                 <Typography variant="subtitle2" fontWeight={600}>
                   Passcode Expiry Period
                 </Typography>
-                <Chip size="small" label={`${passcodeExpiryDays} day${passcodeExpiryDays !== 1 ? "s" : ""}`} color="primary" />
+                <TChip size="small" label={`${passcodeExpiryDays} day${passcodeExpiryDays !== 1 ? "s" : ""}`} color="primary" />
               </Box>
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
                 Monthly reset required — maximum 30 days. Set lower for higher-security environments.

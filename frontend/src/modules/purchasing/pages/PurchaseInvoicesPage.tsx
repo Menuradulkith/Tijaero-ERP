@@ -16,7 +16,6 @@ import {
   Box,
   Button,
   Checkbox,
-  Chip,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -35,6 +34,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  TChip,
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
@@ -49,6 +49,7 @@ import {
   TDataGrid,
   type TDataGridColumn,
   TExportButton,
+  TRemarkField,
   TStatusChip,
   TSupplierFilter,
   useCrudMutation,
@@ -512,7 +513,7 @@ export default function PurchaseInvoicesPage() {
         header: "Payment Type",
         width: 120,
         renderCell: (params: GridRenderCellParams<PurchaseInvoiceRow>) => (
-          <Chip
+          <TChip
             size="small"
             label={params.row.payment_type === "credit" ? "Credit" : "Non-Credit"}
             color={params.row.payment_type === "credit" ? "warning" : "default"}
@@ -737,7 +738,7 @@ export default function PurchaseInvoicesPage() {
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">Payment Type:</Typography>
-                  <Chip
+                  <TChip
                     size="small"
                     label={selectedInvoice.payment_type === "credit" ? "Credit" : "Non-Credit"}
                     color={selectedInvoice.payment_type === "credit" ? "warning" : "default"}
@@ -755,11 +756,11 @@ export default function PurchaseInvoicesPage() {
             )}
 
             <FormSection title="Remarks" columns={1}>
-              <TextField
+              <TRemarkField
                 label="Remarks"
                 size="small"
                 value={formData.remarks}
-                onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                onChange={(value) => setFormData({ ...formData, remarks: value })}
                 disabled={!isEditing && !isCreating}
                 multiline
                 rows={2}

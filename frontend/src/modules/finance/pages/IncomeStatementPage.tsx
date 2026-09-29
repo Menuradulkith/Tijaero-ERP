@@ -21,7 +21,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   Divider,
   Grid,
@@ -46,6 +45,7 @@ import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import { useNavigate } from "react-router-dom";
 
 import {
+  TChip,
   DetailPanelHeader,
   fmtLKR,
   showErrorToast,
@@ -291,7 +291,7 @@ ${subtotalRow("Net Income", Number(report.net_income), true)}
                       <Typography variant="h6" fontWeight={c.bold ? 800 : 700} color={c.color} sx={{ mt: 0.5, fontFamily: "monospace" }}>
                         {currencySymbol} {fmtLKR(Math.abs(Number(c.value)))}
                       </Typography>
-                      {Number(c.value) < 0 && <Chip label="Loss" size="small" color="error" sx={{ mt: 0.5, height: 18, fontSize: "0.65rem" }} />}
+                      {Number(c.value) < 0 && <TChip label="Loss" size="small" color="error" sx={{ mt: 0.5, height: 18, fontSize: "0.65rem" }} />}
                     </CardContent>
                   </Card>
                 </Grid>

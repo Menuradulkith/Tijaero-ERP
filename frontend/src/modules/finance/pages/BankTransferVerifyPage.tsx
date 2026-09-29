@@ -21,7 +21,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Chip,
   Grid,
   Divider,
   Tooltip,
@@ -38,6 +37,7 @@ import ClearIcon from "@mui/icons-material/Clear";
 
 // Import tijaero components
 import {
+  TChip,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
@@ -393,14 +393,14 @@ export default function BankTransferVerifyPage() {
                       </Typography>
                     </Box>
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                      <Chip
+                      <TChip
                         label={statusChip.label}
                         size="small"
                         color={statusChip.color}
                         sx={{ height: 18, fontSize: "0.65rem" }}
                       />
                       {transfer.source === "credit_settlement" && (
-                        <Chip
+                        <TChip
                           label="Credit Settlement"
                           size="small"
                           color="info"
@@ -888,7 +888,7 @@ export default function BankTransferVerifyPage() {
                         <Grid item xs={6} sm={2}>
                           <Typography variant="body2" color="text.secondary">Status</Typography>
                           <Box sx={{ mt: 0.5 }}>
-                            <Chip
+                            <TChip
                               size="small"
                               label={invoiceCommission?.status ? invoiceCommission.status.toUpperCase() : "PENDING"}
                               color={

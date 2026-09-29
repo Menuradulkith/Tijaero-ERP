@@ -12,7 +12,6 @@ import {
   Avatar,
   Box,
   Button,
-  Chip,
   FormControlLabel,
   IconButton,
   InputAdornment,
@@ -38,6 +37,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
 import {
+  TChip,
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
@@ -363,7 +363,7 @@ export default function ChartOfAccountsPage() {
         header: "Type",
         width: 120,
         renderCell: (params: GridRenderCellParams<AccountRow>) => (
-          <Chip label={params.row.account_type} size="small" color={getTypeColor(params.row.account_type)} />
+          <TChip label={params.row.account_type} size="small" color={getTypeColor(params.row.account_type)} />
         ),
       },
       { field: "account_category", header: "Category", width: 160 },
@@ -375,7 +375,7 @@ export default function ChartOfAccountsPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<AccountRow>) => (
-          <Chip
+          <TChip
             label={params.row.is_active ? "Active" : "Inactive"}
             size="small"
             color={params.row.is_active ? "success" : "default"}
@@ -624,10 +624,10 @@ export default function ChartOfAccountsPage() {
                           <TableCell>{child.account_code}</TableCell>
                           <TableCell>{child.account_name}</TableCell>
                           <TableCell>
-                            <Chip label={child.account_type} size="small" color={getTypeColor(child.account_type)} variant="outlined" />
+                            <TChip label={child.account_type} size="small" color={getTypeColor(child.account_type)} variant="outlined" />
                           </TableCell>
                           <TableCell>
-                            <Chip
+                            <TChip
                               label={child.is_active ? "Active" : "Inactive"}
                               size="small"
                               color={child.is_active ? "success" : "default"}

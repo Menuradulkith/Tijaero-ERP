@@ -23,26 +23,25 @@ import ClearIcon from "@mui/icons-material/Clear";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
-    Alert,
-    Autocomplete,
-    Avatar,
-    Box,
-    Button,
-    Checkbox,
-    Chip,
-    Divider,
-    IconButton,
-    InputAdornment,
-    MenuItem,
-    Paper,
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableRow,
-    TextField,
-    Tooltip,
-    Typography
+  Alert,
+  Autocomplete,
+  Avatar,
+  Box,
+  Button,
+  Checkbox,
+  Divider,
+  IconButton,
+  InputAdornment,
+  MenuItem,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -50,6 +49,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Import tijaero components
 import {
+  TChip,
     ActionToolbar,
     DetailPanelHeader,
     EmptyState,
@@ -77,6 +77,7 @@ import {
     useTConfirmDialog,
     TActivityHistoryPanel,
     SelectableListItem,
+    TRemarkField,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -924,11 +925,11 @@ export default function SaleReturnsPage() {
                                 </FormSection>
 
                                 <FormSection title="Additional Details" columns={1}>
-                                    <TextField
+                                    <TRemarkField
                                         label="Remarks"
                                         size="small"
                                         value={formData.remark}
-                                        onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
+                                        onChange={(value) => setFormData({ ...formData, remark: value })}
                                         disabled={!isEditing && !isCreating}
                                         multiline
                                         rows={2}
@@ -1004,7 +1005,7 @@ export default function SaleReturnsPage() {
                                             </Box>
                                             <Box>
                                                 <Typography variant="caption" color="text.secondary">Refund Status</Typography>
-                                                <Chip
+                                                <TChip
                                                     size="small"
                                                     label={selectedReturn.refund_status === 'processed' ? 'Refunded' : 'Pending'}
                                                     color={selectedReturn.refund_status === 'processed' ? 'success' : 'warning'}
@@ -1145,8 +1146,8 @@ export default function SaleReturnsPage() {
                                                             <TableCell align="right">{currencySymbol} {fmtLKR(Number(inv.selling_price))}</TableCell>
                                                             <TableCell>
                                                                 {alreadyAdded
-                                                                    ? <Chip label="Added" size="small" color="success" sx={{ height: 18, fontSize: "0.65rem" }} />
-                                                                    : <Chip label="Available" size="small" color="default" sx={{ height: 18, fontSize: "0.65rem" }} />
+                                                                    ? <TChip label="Added" size="small" color="success" sx={{ height: 18, fontSize: "0.65rem" }} />
+                                                                    : <TChip label="Available" size="small" color="default" sx={{ height: 18, fontSize: "0.65rem" }} />
                                                                 }
                                                             </TableCell>
                                                         </TableRow>

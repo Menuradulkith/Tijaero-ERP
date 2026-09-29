@@ -282,6 +282,8 @@ export interface StockAvailabilityItem {
   current_branch_available: number;
   is_sufficient: boolean;
   other_branches?: Array<{ branch_code: string; available_quantity: number }>;
+  /** Partial availability: requested_quantity minus what's already in stock. */
+  to_purchase_quantity: number;
 }
 
 export interface StockAvailabilityResponse {
@@ -304,6 +306,7 @@ export interface ProcurementSummaryItem {
   on_hand_quantity: number;
   available_quantity: number;
   outstanding_quantity: number;
+  to_purchase_quantity: number;
 }
 
 export interface ProcurementSummaryResponse {

@@ -7,7 +7,6 @@ import {
   Card,
   CardContent,
   Checkbox,
-  Chip,
   CircularProgress,
   Collapse,
   Divider,
@@ -37,6 +36,7 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import { reportingApi } from "@/modules/reporting/api";
 import type { BranchDailySummary, BranchOption } from "@/modules/reporting/types";
 
+import { TChip } from "@/components/tijaero";
 const fmt = (n: number) =>
   new Intl.NumberFormat("en-LK", {
     style: "currency",
@@ -370,7 +370,7 @@ function BranchCard({ data }: { data: BranchDailySummary }) {
           <Typography variant="h6" fontWeight={700} color="white">
             {data.branch_name}
           </Typography>
-          <Chip
+          <TChip
             label={data.branch_code}
             size="small"
             sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "white", fontWeight: 600 }}

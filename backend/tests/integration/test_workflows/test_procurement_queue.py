@@ -178,3 +178,80 @@ class TestListQueueAcrossQuotations:
         assert {e.quote_id for e in entries} == {quote_1.id, quote_2.id}
         assert all(e.supplier_id == supplier.id for e in entries)
         assert {e.quote_no for e in entries} == {quote_1.quote_no, quote_2.quote_no}
+
+
+class TestQueueProcurementQuantities:
+    def test_to_purchase_accounts_for_available_stock(
+        self, db, make_branch, make_customer, make_supplier, make_product, make_sales_stock
+    ):
+        """Required 10, 3 already in stock -> only 7 still need buying."""
+        branch, customer, product = make_branch(), make_customer(), make_product()
+        supplier = make_supplier()
+        quote = _make_quote(db, branch, customer, [_quote_item(product.id, qty=10)])
+        quote_item = quote.items[0]
+
+        for _ in range(3):
+            make_sales_stock(product=product, branch=branch)
+
+        queue_svc = po_service_module.ProcurementQueueService(db)
+        queue_svc.add_to_queue([_queue_item(quote_item, supplier.id, qty=7)], added_by=1)
+
+        entry = next(e for e in queue_svc.list_queue() if e.quote_item_id == quote_item.id)
+        assert entry.required_quantity == 10
+        assert entry.available_quantity == 3
+        assert entry.ordered_quantity == 0
+        assert entry.to_purchase_quantity == 7
+
+    def test_ordered_quantity_reduces_to_purchase(
+        self, db, make_branch, make_customer, make_supplier, make_product, make_sales_stock
+    ):
+        """Defensive check on the aggregation math itself: if a PO already
+        exists for this quote line (whatever the business-rule path that got
+        it there), its quantity must count as \"already ordered\" and reduce
+        to_purchase accordingly. Inserted directly since add_to_queue's own
+        terminal-status guard normally prevents re-queuing a po_created line."""
+        from app.modules.purchasing.models import PurchasingOrder, PurchasingOrderItems
+
+        branch, customer, product = make_branch(), make_customer(), make_product()
+        supplier = make_supplier()
+        quote = _make_quote(db, branch, customer, [_quote_item(product.id, qty=10)])
+        quote_item = quote.items[0]
+
+        for _ in range(3):
+            make_sales_stock(product=product, branch=branch)
+
+        queue_svc = po_service_module.ProcurementQueueService(db)
+        queue_svc.add_to_queue([_queue_item(quote_item, supplier.id, qty=7)], added_by=1)
+
+        from datetime import datetime
+        po = PurchasingOrder(
+            purchasing_order_no=f"PO-TEST-{quote_item.id}",
+            branch_code=branch.branch_code,
+            payment_method="non_credit",
+            purchasing_order_date=date.today(),
+            good_received_note_date=date.today(),
+            created_date=date.today(),
+            first_suppliers_id=supplier.id,
+            added_date=datetime.utcnow(),
+            status="pending_approval",
+        )
+        db.add(po)
+        db.flush()
+        db.add(PurchasingOrderItems(
+            quantity=2,
+            unit_price=Decimal("100.00"),
+            warrenty_month="0",
+            created_date=date.today(),
+            product_id=product.id,
+            purchasingorders_id=po.id,
+            added_date=datetime.utcnow(),
+            quote_item_id=quote_item.id,
+        ))
+        db.flush()
+
+        entry = next(e for e in queue_svc.list_queue() if e.quote_item_id == quote_item.id)
+        assert entry.required_quantity == 10
+        assert entry.available_quantity == 3
+        assert entry.ordered_quantity == 2
+        assert entry.to_purchase_quantity == 5
+

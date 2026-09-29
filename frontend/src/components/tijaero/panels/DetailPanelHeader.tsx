@@ -14,10 +14,10 @@ import {
   Breadcrumbs,
   Link,
   Typography,
-  Chip,
 } from "@mui/material";
 import HomeIcon from "@mui/icons-material/Home";
 import { DetailPanelHeaderProps } from "../types";
+import { TStatusChip } from "../base/TStatusChip";
 
 export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
   breadcrumbs,
@@ -88,14 +88,19 @@ export const DetailPanelHeader: React.FC<DetailPanelHeaderProps> = ({
           </Typography>
         )}
 
-        {/* Status Chips */}
+        {/* Status Chips — same soft tinted style as TStatusChip everywhere else */}
         {!isCreating && title && chips?.map((chip, index) => (
-          <Chip
+          <TStatusChip
             key={index}
-            label={chip.label}
+            status={chip.label}
             size={chip.size || "small"}
-            color={chip.color || "default"}
             variant={chip.variant || "filled"}
+            customMap={{
+              [chip.label.toLowerCase().replace(/\s+/g, "_")]: {
+                label: chip.label,
+                color: chip.color || "default",
+              },
+            }}
           />
         ))}
 

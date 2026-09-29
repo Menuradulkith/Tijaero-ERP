@@ -26,7 +26,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   Divider,
   Grid,
@@ -45,6 +44,7 @@ import { useNavigate } from "react-router-dom";
 import { reconciliationApi } from "@/modules/finance/api";
 import type { DayEndReconciliation } from "@/modules/finance/types";
 
+import { TChip } from "@/components/tijaero";
 const money = (n: number | null | undefined) =>
   new Intl.NumberFormat("en-LK", {
     style: "currency",
@@ -86,7 +86,7 @@ function StatTile({ title, ok, icon, primary, secondary, onClick }: TileProps) {
             {title}
           </Typography>
           <Box flexGrow={1} />
-          <Chip
+          <TChip
             size="small"
             color={ok ? "success" : "error"}
             label={ok ? "OK" : "Check"}

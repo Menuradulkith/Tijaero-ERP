@@ -8,7 +8,6 @@ import {
 import {
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -31,7 +30,7 @@ import { commissionsApi } from "../commission-api";
 import { Invoice } from "../types";
 import { getPaymentMethodsDisplay } from "../pages/SalesPage";
 // OPTIMIZED: Removed customersApi, productsApi imports - using aggregated endpoint
-import { modernTableStyles, TPrintPreviewDialog, fmtLKR, canPrintDocument } from "@/components/tijaero";
+import { TChip, modernTableStyles, TPrintPreviewDialog, fmtLKR, canPrintDocument } from "@/components/tijaero";
 import { format } from "date-fns";
 import { useRef, useState } from "react";
 
@@ -156,12 +155,12 @@ export default function InvoiceDetailsDialog({
                   )}
                 </Grid>
                 <Grid item xs={12} sm={6} sx={{ textAlign: { sm: "right" } }}>
-                  <Chip
+                  <TChip
                     label={invoiceDetails.status ? "Active" : "Inactive"}
                     color={invoiceDetails.status ? "success" : "default"}
                     sx={{ mr: 1 }}
                   />
-                  <Chip
+                  <TChip
                     label={invoiceDetails.approval ? "Approved" : "Pending Approval"}
                     color={invoiceDetails.approval ? "success" : "warning"}
                     variant="outlined"
@@ -464,7 +463,7 @@ export default function InvoiceDetailsDialog({
                         <Grid item xs={6} sm={3}>
                           <Typography variant="body2" color="text.secondary">Status</Typography>
                           <Box sx={{ mt: 0.5 }}>
-                            <Chip
+                            <TChip
                               size="small"
                               label={invoiceCommission?.status ? invoiceCommission.status.toUpperCase() : "PENDING"}
                               color={

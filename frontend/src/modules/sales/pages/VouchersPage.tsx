@@ -32,13 +32,13 @@ import {
   TableHead,
   TableRow,
   Paper,
-  Chip,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 
 import {
+  TChip,
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
@@ -444,7 +444,7 @@ export default function VouchersPage() {
         renderCell: (params: GridRenderCellParams<VoucherRow>) => {
           const status = params.row.voucher_status;
           return (
-            <Chip
+            <TChip
               label={status === "expiring_soon" ? "Expiring Soon" : status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ")}
               size="small"
               color={getStatusColor(status)}

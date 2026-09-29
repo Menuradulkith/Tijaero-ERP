@@ -10,7 +10,6 @@ import {
   Autocomplete,
   Box,
   Checkbox,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -28,7 +27,7 @@ import {
 import { useQueries } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
-import { fmtLKR, modernTableStyles, TButton } from "@/components/tijaero";
+import { TChip, fmtLKR, modernTableStyles, TButton } from "@/components/tijaero";
 import { productsApi } from "@/modules/inventory/api";
 import { suppliersApi } from "@/modules/purchasing/api";
 import type { Supplier, SupplierProduct } from "@/modules/purchasing/types";
@@ -211,7 +210,7 @@ export default function SupplierSelectionDialog({
                                     {option.supplier_company_name || `#${option.supplier_id}`}
                                   </Typography>
                                   {option.is_preferred && (
-                                    <Chip size="small" color="primary" icon={<StarIcon />} label="Preferred" />
+                                    <TChip size="small" color="primary" icon={<StarIcon />} label="Preferred" />
                                   )}
                                   <Typography variant="caption" color="text.secondary">
                                     {currencySymbol} {fmtLKR(option.cost_price)}

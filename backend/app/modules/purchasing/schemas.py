@@ -398,6 +398,13 @@ class ProcurementQueueItem(BaseModel):
     quantity: int
     unit_price: Decimal
     added_date: datetime
+    # Procurement quantities — required/available/ordered/to-purchase — so
+    # the TOP page can show *why* the queued quantity is what it is, and the
+    # frontend can cap edits to avoid accidental over-purchasing.
+    required_quantity: int = 0
+    available_quantity: int = 0
+    ordered_quantity: int = 0
+    to_purchase_quantity: int = 0
 
 
 class PurchasingReturnItemBase(BaseModel):

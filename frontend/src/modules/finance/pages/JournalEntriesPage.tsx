@@ -21,7 +21,6 @@ import {
   Avatar,
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -50,6 +49,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
 import {
+  TChip,
   ActionToolbar,
   canPrintDocument,
   DetailPanelHeader,
@@ -464,7 +464,7 @@ export default function JournalEntriesPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<JournalEntry>) => (
-          <Chip
+          <TChip
             label={params.row.status.charAt(0).toUpperCase() + params.row.status.slice(1)}
             size="small"
             color={getStatusColor(params.row.status)}

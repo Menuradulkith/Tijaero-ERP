@@ -67,6 +67,7 @@ import {
   TConfirmDialog,
   useConfirmDialog,
   type TFilterBranch,
+  TRemarkField,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -872,11 +873,11 @@ export default function SalesCommissionsPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Approve this commission for payroll inclusion.
           </Typography>
-          <TextField
+          <TRemarkField
             fullWidth
             label="Remarks (Optional)"
             value={approveRemarks}
-            onChange={(e) => setApproveRemarks(e.target.value)}
+            onChange={(value) => setApproveRemarks(value)}
             multiline
             rows={2}
           />

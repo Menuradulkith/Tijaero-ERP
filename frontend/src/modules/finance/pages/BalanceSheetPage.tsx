@@ -27,7 +27,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   Divider,
   Grid,
@@ -52,6 +51,7 @@ import ErrorIcon from "@mui/icons-material/Error";
 import { useNavigate } from "react-router-dom";
 
 import {
+  TChip,
   DetailPanelHeader,
   fmtLKR,
   showErrorToast,
@@ -296,7 +296,7 @@ ${subtotalRow("Total Liabilities & Equity", Number(report.total_liabilities) + N
 
             {/* Balance indicator */}
             <Box sx={{ mb: 1.5, display: "flex", justifyContent: "center" }}>
-              <Chip
+              <TChip
                 icon={isBalanced ? <CheckCircleIcon /> : <ErrorIcon />}
                 label={isBalanced ? "Balance Sheet is balanced (A = L + E)" : "⚠ Balance Sheet is NOT balanced — review journal entries"}
                 color={isBalanced ? "success" : "error"}

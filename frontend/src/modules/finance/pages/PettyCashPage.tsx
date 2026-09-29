@@ -11,6 +11,7 @@ import {
   showSuccessToast,
   TCurrency,
   TDate,
+  TRemarkField,
   TStatusChip,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
@@ -309,14 +310,14 @@ export default function PettyCashPage() {
               InputLabelProps={{ shrink: true }}
             />
 
-            <TextField
+            <TRemarkField
               fullWidth
               label="Remarks"
               multiline
               rows={3}
               value={formData.remarks || ""}
-              onChange={(e) =>
-                setFormData({ ...formData, remarks: e.target.value })
+              onChange={(value) =>
+                setFormData({ ...formData, remarks: value })
               }
               margin="normal"
             />
@@ -662,14 +663,14 @@ export default function PettyCashPage() {
             InputLabelProps={{ shrink: true }}
           />
 
-          <TextField
+          <TRemarkField
             fullWidth
             label="Remarks"
             multiline
             rows={3}
             value={formData.remarks || ""}
-            onChange={(e) =>
-              setFormData({ ...formData, remarks: e.target.value })
+            onChange={(value) =>
+              setFormData({ ...formData, remarks: value })
             }
             margin="normal"
           />

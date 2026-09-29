@@ -37,7 +37,7 @@ import { useActivityLog } from "@/hooks/useActivityLog";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { TSidePanel } from "./TSidePanel";
 import { TButton } from "../base/TButton";
-import type { ActivityLogFieldChange } from "@/api/activityLog";
+import type { ActivityLogFieldChange, ActivityLogItemChange } from "@/api/activityLog";
 
 export interface TActivityHistoryPanelProps {
   open: boolean;
@@ -63,6 +63,56 @@ function formatFieldValue(value: ActivityLogFieldChange["old"]): string {
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (Array.isArray(value)) return value.length > 0 ? value.join(", ") : "(none)";
   return String(value);
+}
+
+const ITEM_ACTION_LABEL: Record<ActivityLogItemChange["action"], string> = {
+  added: "Added",
+  removed: "Removed",
+  changed: "Changed",
+};
+
+// One product line within an "items" change — "Widget A: Added (qty 5)",
+// "Widget B: Removed", or "Widget C: Quantity 2 -> 5, Unit Price 10 -> 12".
+function ItemChangeRow({ item }: { item: ActivityLogItemChange }) {
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.5, flexWrap: "wrap" }}>
+        <Typography variant="caption" fontWeight={600}>
+          {item.product_name || `Product #${item.key}`}:
+        </Typography>
+        <Typography
+          variant="caption"
+          color={item.action === "removed" ? "error.main" : item.action === "added" ? "success.main" : "text.secondary"}
+        >
+          {ITEM_ACTION_LABEL[item.action]}
+        </Typography>
+        {item.item &&
+          Object.entries(item.item).map(([field, value]) => (
+            <Typography key={field} variant="caption" color="text.secondary">
+              ({formatFieldLabel(field)}: {formatFieldValue(value as ActivityLogFieldChange["old"])})
+            </Typography>
+          ))}
+      </Box>
+      {item.changes && (
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25, pl: 1.5 }}>
+          {Object.entries(item.changes).map(([field, change]) => (
+            <Box key={field} sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+              <Typography variant="caption" color="text.secondary">
+                {formatFieldLabel(field)}:
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ textDecoration: "line-through" }}>
+                {formatFieldValue(change.old)}
+              </Typography>
+              <ArrowRightAltIcon sx={{ fontSize: "0.9rem", color: "text.disabled" }} />
+              <Typography variant="caption" color="text.primary" fontWeight={500}>
+                {formatFieldValue(change.new)}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
 }
 
 export function TActivityHistoryPanel({
@@ -129,6 +179,27 @@ export function TActivityHistoryPanel({
                     }}
                   >
                     {fields.map((field) => {
+                      if (field === "items") {
+                        const itemChanges = entry.changes?.item_changes;
+                        return (
+                          <Box key={field} sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                            <Typography variant="caption" fontWeight={600}>
+                              Items:
+                            </Typography>
+                            {itemChanges && itemChanges.length > 0 ? (
+                              <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, pl: 1.25 }}>
+                                {itemChanges.map((item, idx) => (
+                                  <ItemChangeRow key={`${item.key}-${idx}`} item={item} />
+                                ))}
+                              </Box>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary" sx={{ pl: 1.25 }}>
+                                changed
+                              </Typography>
+                            )}
+                          </Box>
+                        );
+                      }
                       const change = values[field];
                       return (
                         <Box key={field} sx={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 0.5 }}>

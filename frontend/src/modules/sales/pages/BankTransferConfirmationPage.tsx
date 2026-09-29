@@ -21,7 +21,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Chip,
   IconButton,
   InputAdornment,
   Tooltip,
@@ -35,6 +34,7 @@ import ClearIcon from "@mui/icons-material/Clear";
 
 // Import tijaero components
 import {
+  TChip,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
@@ -339,7 +339,7 @@ export default function BankTransferConfirmationPage() {
                       </Typography>
                     </Box>
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                      <Chip
+                      <TChip
                         label={statusChip.label}
                         size="small"
                         color={statusChip.color}

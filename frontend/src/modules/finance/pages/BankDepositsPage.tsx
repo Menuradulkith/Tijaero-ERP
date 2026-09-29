@@ -10,7 +10,6 @@ import {
   Autocomplete,
   Box,
   Button,
-  Chip,
   IconButton,
   InputAdornment,
   TextField,
@@ -29,6 +28,7 @@ import {
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
+  TChip,
   MasterDetailLayout,
   DetailPanelHeader,
   FormSection,
@@ -42,6 +42,7 @@ import {
   fmtLKR,
   TActivityHistoryPanel,
   useRowSelection,
+  TRemarkField,
 } from "@/components/tijaero";
 
 import { bankDepositsApi } from "@/modules/finance/api";
@@ -219,7 +220,7 @@ export default function BankDepositsPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<BankDepositRow>) => (
-          <Chip
+          <TChip
             label={params.row.verified ? "Verified" : "Pending"}
             size="small"
             color={params.row.verified ? "success" : "warning"}
@@ -360,7 +361,7 @@ export default function BankDepositsPage() {
               >
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">Verification:</Typography>
-                  <Chip label={selectedItem.verified ? "Verified" : "Pending"} size="small" color={selectedItem.verified ? "success" : "warning"} />
+                  <TChip label={selectedItem.verified ? "Verified" : "Pending"} size="small" color={selectedItem.verified ? "success" : "warning"} />
                 </Box>
                 <TextField
                   label="Created Date"
@@ -372,17 +373,18 @@ export default function BankDepositsPage() {
                 {selectedItem.returned !== undefined && (
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Typography variant="body2" color="text.secondary">Returned:</Typography>
-                    <Chip label={selectedItem.returned ? "Yes" : "No"} size="small" color={selectedItem.returned ? "error" : "default"} />
+                    <TChip label={selectedItem.returned ? "Yes" : "No"} size="small" color={selectedItem.returned ? "error" : "default"} />
                   </Box>
                 )}
               </FormSection>
             )}
 
             <FormSection title="Remarks" columns={1}>
-              <TextField
+              <TRemarkField
                 label="Remarks"
                 size="small"
                 value={formData.remarks || ""}
+                onChange={() => {}}
                 disabled
                 InputProps={{ readOnly: true }}
                 multiline

@@ -1,5 +1,5 @@
 /**
- * TopPage — the central cross-quotation procurement queue ("TOP" page).
+ * ProcurementQueuePage — the central cross-quotation procurement queue.
  *
  * Every time a supplier is chosen on a Sales Quotation's "Select Products &
  * Suppliers for Procurement" dialog, the pick lands in the procurement queue
@@ -23,7 +23,6 @@ import {
   Box,
   Button,
   Checkbox,
-  Chip,
   Divider,
   IconButton,
   Paper,
@@ -41,6 +40,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
+  TChip,
   EmptyState,
   fmtLKR,
   FormSection,
@@ -89,7 +89,7 @@ interface SupplierSettings {
 const groupKey = (supplierId: number, quoteId: number) => `${supplierId}:${quoteId}`;
 const todayIso = () => new Date().toISOString().split("T")[0];
 
-export default function TopPage() {
+export default function ProcurementQueuePage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -219,7 +219,6 @@ export default function TopPage() {
       payment_method: settings.paymentMethod,
       purchasing_order_date: settings.orderDate,
       good_received_note_date: settings.expectedDeliveryDate,
-      required_date: settings.expectedDeliveryDate,
       remarks: `PO for Quotation ${group.quoteNo}`,
       credit_date: supplier?.credit_days ?? 0,
       first_suppliers_id: supplierId,
@@ -500,7 +499,7 @@ export default function TopPage() {
                                   <strong>Branch:</strong> {group.branchCode}
                                 </Typography>
                               </Box>
-                              <Chip size="small" color="info" variant="outlined" label="Status: Ready to Create" />
+                              <TChip size="small" color="info" variant="outlined" label="Status: Ready to Create" />
                             </Box>
                             <Box sx={{ display: "flex", gap: 1 }}>
                               <Button

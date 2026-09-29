@@ -10,7 +10,7 @@
  * so both "vendor list" editors look and behave the same way.
  */
 import { useMemo, useState } from "react";
-import { Alert, Box, Button, Chip, CircularProgress, FormControlLabel, IconButton, Switch, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, FormControlLabel, IconButton, Switch, TextField, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -25,6 +25,7 @@ import {
   TDataGrid,
   TFormSection,
   TSidePanel,
+  TStatusChip,
   showErrorToast,
   showSuccessToast,
   useConfirmDialog,
@@ -271,9 +272,22 @@ export default function ProductSuppliersList({
               {params.row.supplier_company_name || `#${params.row.supplier_id}`}
             </Typography>
             {params.row.is_preferred && (
-              <Chip label="Preferred" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: "0.65rem" }} />
+              <TStatusChip
+                status="preferred"
+                size="small"
+                variant="outlined"
+                customMap={{ preferred: { label: "Preferred", color: "primary" } }}
+                sx={{ height: 20, fontSize: "0.65rem" }}
+              />
             )}
-            {!params.row.active && <Chip label="Inactive" size="small" sx={{ height: 20, fontSize: "0.65rem" }} />}
+            {!params.row.active && (
+              <TStatusChip
+                status="inactive"
+                size="small"
+                statusMap="activeInactive"
+                sx={{ height: 20, fontSize: "0.65rem" }}
+              />
+            )}
           </Box>
         ),
       },

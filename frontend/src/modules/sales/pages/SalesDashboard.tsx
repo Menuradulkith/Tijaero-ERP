@@ -23,7 +23,6 @@ import {
   Avatar,
   Box,
   Button,
-  Chip,
   Divider,
   Grid,
   IconButton,
@@ -68,7 +67,7 @@ import {
   KpiSparkCard,
   type BreakdownSlice,
 } from "@/components/dashboard";
-import { fmtLKR, TPageSkeleton, TStatusChip } from "@/components/tijaero";
+import { TChip, fmtLKR, TPageSkeleton, TStatusChip } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { salesApi } from "../api";
@@ -563,7 +562,7 @@ export default function SalesDashboard() {
                         },
                       }}
                     >
-                      <Chip
+                      <TChip
                         label={`#${i + 1}`}
                         size="small"
                         sx={{

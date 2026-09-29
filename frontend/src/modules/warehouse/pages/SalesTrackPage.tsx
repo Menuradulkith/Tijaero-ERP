@@ -29,7 +29,6 @@ import ClearIcon from "@mui/icons-material/Clear";
 import {
   Avatar,
   Box,
-  Chip,
   Divider,
   Grid,
   IconButton,
@@ -53,6 +52,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Import tijaero components
 import {
+  TChip,
   DetailPanelHeader,
   EmptyState,
   fmtLKR,
@@ -342,13 +342,13 @@ export default function SalesTrackPage() {
                       </Typography>
                     </Box>
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                      <Chip
+                      <TChip
                         label={approvalChip.label}
                         size="small"
                         color={approvalChip.color}
                         sx={{ height: 18, fontSize: "0.65rem" }}
                       />
-                      <Chip
+                      <TChip
                         label={paymentChip.label}
                         size="small"
                         color={paymentChip.color}
@@ -733,7 +733,7 @@ export default function SalesTrackPage() {
                             </Typography>
                           </TableCell>
                           <TableCell>
-                            <Chip label={`${item.warrenty_month} months`} size="small" variant="outlined" />
+                            <TChip label={`${item.warrenty_month} months`} size="small" variant="outlined" />
                           </TableCell>
                         </TableRow>
                       );
@@ -761,7 +761,7 @@ export default function SalesTrackPage() {
                         <TableRow key={idx}>
                           <TableCell>{format(new Date(payment.payment_date || payment.created_at), "MMM dd, yyyy HH:mm")}</TableCell>
                           <TableCell>
-                            <Chip label={payment.payment_method} size="small" />
+                            <TChip label={payment.payment_method} size="small" />
                           </TableCell>
                           <TableCell align="right">
                             <Typography variant="body2" fontWeight={600} color="success.main">

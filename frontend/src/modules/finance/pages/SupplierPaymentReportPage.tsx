@@ -16,7 +16,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   MenuItem,
   Paper,
@@ -41,6 +40,7 @@ import PrintIcon from "@mui/icons-material/Print";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 
 import {
+  TChip,
   DetailPanelHeader,
   fmtLKR,
   handleApiError,
@@ -355,7 +355,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
               Outstanding Invoices
               {outSummary.overdue_count > 0 && (
-                <Chip size="small" label={outSummary.overdue_count} color="error" sx={{ height: 18, fontSize: "0.7rem" }} />
+                <TChip size="small" label={outSummary.overdue_count} color="error" sx={{ height: 18, fontSize: "0.7rem" }} />
               )}
             </Box>
           } />
@@ -469,13 +469,13 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                         <TableRow key={`${item.type}-${item.id}-${idx}`} hover sx={modernTableStyles.bodyRow}>
                           <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(item.date).toLocaleDateString()}</TableCell>
                           <TableCell>{item.supplier_name}</TableCell>
-                          <TableCell><Chip label={item.type} size="small" color={typeChipColor(item.type) as any} variant="outlined" /></TableCell>
+                          <TableCell><TChip label={item.type} size="small" color={typeChipColor(item.type) as any} variant="outlined" /></TableCell>
                           <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{item.document_no}</TableCell>
                           <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8rem", color: "primary.main" }}>{item.invoice_no || "-"}</TableCell>
                           <TableCell>{item.payment_method || "-"}</TableCell>
                           <TableCell align="right" sx={{ fontWeight: 600 }}>{fmtLKR(item.amount)}</TableCell>
                           <TableCell>
-                            <Chip label={item.status} size="small"
+                            <TChip label={item.status} size="small"
                               color={item.status === "verified" ? "success" : item.status === "pending" ? "warning" : "default"}
                               variant="outlined" />
                           </TableCell>
@@ -558,8 +558,8 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                           </TableCell>
                           <TableCell>
                             {item.payment_type === "credit"
-                              ? <Chip size="small" label="Credit" color="info" icon={<CreditCardIcon />} variant="outlined" />
-                              : <Chip size="small" label="Non-Credit" color="success" icon={<MoneyOffIcon />} variant="outlined" />}
+                              ? <TChip size="small" label="Credit" color="info" icon={<CreditCardIcon />} variant="outlined" />
+                              : <TChip size="small" label="Non-Credit" color="success" icon={<MoneyOffIcon />} variant="outlined" />}
                           </TableCell>
                           <TableCell align="right">{fmtLKR(item.total_amount)}</TableCell>
                           <TableCell align="right">{fmtLKR(item.paid_amount)}</TableCell>
@@ -569,8 +569,8 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                           </TableCell>
                           <TableCell align="center">
                             {item.is_overdue
-                              ? <Chip label={`${item.days_overdue}d`} size="small" color="error" />
-                              : <Chip label="Current" size="small" color="success" variant="outlined" />}
+                              ? <TChip label={`${item.days_overdue}d`} size="small" color="error" />
+                              : <TChip label="Current" size="small" color="success" variant="outlined" />}
                           </TableCell>
                           <TableCell>{item.branch_code}</TableCell>
                         </TableRow>

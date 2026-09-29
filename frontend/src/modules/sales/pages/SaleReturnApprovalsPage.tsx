@@ -7,24 +7,23 @@
 import { useMemo, useCallback, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-    Box,
-    TextField,
-    Typography,
-    Table,
-    TableHead,
-    TableBody,
-    TableRow,
-    TableCell,
-    Paper,
-    Button,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    IconButton,
-    InputAdornment,
-    Tooltip,
-    Chip,
+  Box,
+  TextField,
+  Typography,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  Paper,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
+  InputAdornment,
+  Tooltip,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
@@ -39,6 +38,7 @@ import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 
 // Import tijaero components
 import {
+  TChip,
     MasterDetailLayout,
     SearchableList,
     SelectableListItem,
@@ -325,7 +325,7 @@ export default function SaleReturnApprovalsPage() {
                                             </Typography>
                                         </Box>
                                         <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                                            <Chip
+                                            <TChip
                                                 label={statusChip.label}
                                                 size="small"
                                                 color={statusChip.color}
@@ -525,7 +525,7 @@ export default function SaleReturnApprovalsPage() {
                                                     <TableCell align="right">{fmtLKR(item.sold_price)}</TableCell>
                                                     <TableCell align="right">{fmtLKR(item.return_price)}</TableCell>
                                                     <TableCell>
-                                                        <Chip
+                                                        <TChip
                                                             label={item.condition || "good"}
                                                             size="small"
                                                             color={item.condition === "good" ? "success" : item.condition === "damaged" ? "error" : "warning"}
@@ -534,9 +534,9 @@ export default function SaleReturnApprovalsPage() {
                                                     </TableCell>
                                                     <TableCell>
                                                         {item.restockable !== false ? (
-                                                            <Chip label={item.restocked ? "Restocked" : "Yes"} size="small" color="success" sx={{ height: 20, fontSize: "0.7rem" }} />
+                                                            <TChip label={item.restocked ? "Restocked" : "Yes"} size="small" color="success" sx={{ height: 20, fontSize: "0.7rem" }} />
                                                         ) : (
-                                                            <Chip label="No" size="small" color="error" sx={{ height: 20, fontSize: "0.7rem" }} />
+                                                            <TChip label="No" size="small" color="error" sx={{ height: 20, fontSize: "0.7rem" }} />
                                                         )}
                                                     </TableCell>
                                                 </TableRow>

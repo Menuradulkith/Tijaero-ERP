@@ -15,7 +15,6 @@ import {
   TableBody,
   TableRow,
   TableCell,
-  Chip,
   Switch,
   FormControlLabel,
   MenuItem,
@@ -37,6 +36,7 @@ import useReferenceData from "@/hooks/useReferenceData";
 
 // Tijaero UI Components
 import {
+  TChip,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
@@ -616,7 +616,7 @@ export default function ReceiveNotesPage() {
                           <Typography variant="body2">{item.productName}</Typography>
                         </TableCell>
                         <TableCell align="center">
-                          <Chip
+                          <TChip
                             label={item.expectedQuantity}
                             size="small"
                             color="default"

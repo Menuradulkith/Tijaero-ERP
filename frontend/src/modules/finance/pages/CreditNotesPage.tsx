@@ -43,6 +43,7 @@ import {
   TDataGrid,
   type TDataGridColumn,
   useRowSelection,
+  TRemarkField,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
@@ -340,10 +341,11 @@ export default function CreditNotesPage() {
             </FormSection>
 
             <FormSection title="Remarks" columns={1}>
-              <TextField
+              <TRemarkField
                 label="Remark"
                 size="small"
                 value={formData.remark || ""}
+                onChange={() => {}}
                 disabled
                 InputProps={{ readOnly: true }}
                 multiline

@@ -9,7 +9,6 @@ import {
   Typography,
   TextField,
   MenuItem,
-  Chip,
   Button,
   ButtonGroup,
   Tooltip,
@@ -17,7 +16,7 @@ import {
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import PrintIcon from "@mui/icons-material/Print";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
-import { TPageHeader, TCurrency, TBranchFilter, showErrorToast, showSuccessToast, fmtLKR } from "@/components/tijaero";
+import { TChip, TPageHeader, TCurrency, TBranchFilter, showErrorToast, showSuccessToast, fmtLKR } from "@/components/tijaero";
 import { cashbookApi } from "@/modules/finance/api";
 import { CashbookEntryType, CashbookReport } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
@@ -205,7 +204,7 @@ export default function CashbookPage() {
       headerName: "Type",
       width: 150,
       renderCell: (params) => (
-        <Chip
+        <TChip
           label={getEntryTypeLabel(params.value)}
           color={getEntryTypeColor(params.value)}
           size="small"
@@ -540,7 +539,7 @@ export default function CashbookPage() {
           <Typography variant="subtitle1" fontWeight={700}>
             Ledger Entries
           </Typography>
-          <Chip
+          <TChip
             size="small"
             color="primary"
             variant="outlined"

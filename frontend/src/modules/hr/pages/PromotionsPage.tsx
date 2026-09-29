@@ -30,6 +30,7 @@ import {
   showSuccessToast,
   useMasterDetailState,
   useTConfirmDialog,
+  TRemarkField,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { promotionsApi } from "@/modules/hr/api";
@@ -254,7 +255,7 @@ export default function PromotionsPage() {
               <TextField label="Designation" size="small" value={formData.designation} onChange={(e) => setFormData({ ...formData, designation: e.target.value })} disabled={isDisabled} required />
               <TextField label="Appointed Date" size="small" type="date" value={formData.appointed_date} onChange={(e) => setFormData({ ...formData, appointed_date: e.target.value })} disabled={isDisabled} InputLabelProps={{ shrink: true }} required />
               <Box sx={{ gridColumn: "1 / -1" }}>
-                <TextField label="Remark" size="small" value={formData.remark || ""} onChange={(e) => setFormData({ ...formData, remark: e.target.value })} disabled={isDisabled} fullWidth multiline rows={3} />
+                <TRemarkField label="Remark" size="small" value={formData.remark || ""} onChange={(value) => setFormData({ ...formData, remark: value })} disabled={isDisabled} fullWidth multiline rows={3} />
               </Box>
             </FormSection>
             {selectedItem && !isCreating && !isEditing && (

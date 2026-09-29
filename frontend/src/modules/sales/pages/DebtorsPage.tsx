@@ -18,7 +18,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Chip,
   Button,
   Dialog,
   TextField,
@@ -39,6 +38,7 @@ import {
 } from "@mui/icons-material";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
+  TChip,
   MasterDetailLayout,
   ActionToolbar,
   showSuccessToast,
@@ -432,7 +432,7 @@ export default function DebtorsPage() {
                     </TableCell>
                     <TableCell align="center">
                       {debtor.days_overdue > 0 ? (
-                        <Chip
+                        <TChip
                           label={`${debtor.days_overdue} days`}
                           color="error"
                           size="small"
@@ -444,7 +444,7 @@ export default function DebtorsPage() {
                       )}
                     </TableCell>
                     <TableCell align="center">
-                      <Chip
+                      <TChip
                         label={debtor.status.toUpperCase()}
                         color={
                           DEBTORS_STATUS_COLORS[
@@ -636,7 +636,7 @@ function DebtorDetailsDialog({
                       </TableCell>
                       <TableCell align="right">{invoice.days_outstanding}</TableCell>
                       <TableCell>
-                        <Chip label={invoice.status} size="small" />
+                        <TChip label={invoice.status} size="small" />
                       </TableCell>
                     </TableRow>
                   ))}

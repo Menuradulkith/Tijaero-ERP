@@ -1,4 +1,5 @@
 import {
+  TChip,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -16,7 +17,6 @@ import {
   Box,
   Button,
   Card,
-  Chip,
   IconButton,
   InputAdornment,
   Tab,
@@ -498,7 +498,7 @@ export default function LoginPage() {
                 {/* Attempt counter */}
                 {passcodeError?.code === "PASSCODE_INVALID" && attemptsRemaining !== null && (
                   <Box sx={{ textAlign: "center", mb: 1 }}>
-                    <Chip
+                    <TChip
                       size="small"
                       color={attemptsRemaining === 1 ? "error" : "warning"}
                       label={`${attemptsRemaining} attempt${attemptsRemaining !== 1 ? "s" : ""} remaining`}

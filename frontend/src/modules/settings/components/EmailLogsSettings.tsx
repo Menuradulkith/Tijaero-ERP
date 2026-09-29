@@ -5,11 +5,10 @@ import {
   Card,
   CardContent,
   CircularProgress,
-  Chip,
 } from "@mui/material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { settingsApi } from "../api";
-import { showErrorToast } from "@/components/tijaero";
+import { showErrorToast, TStatusChip } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
 export default function EmailLogsSettings() {
@@ -52,7 +51,13 @@ export default function EmailLogsSettings() {
       renderCell: (params) => {
         const status = params.value;
         const color = status === "sent" ? "success" : status === "failed" ? "error" : "default";
-        return <Chip label={status} color={color} size="small" />;
+        return (
+          <TStatusChip
+            status={status}
+            size="small"
+            customMap={{ [String(status).toLowerCase()]: { label: status, color } }}
+          />
+        );
       }
     },
     { 
