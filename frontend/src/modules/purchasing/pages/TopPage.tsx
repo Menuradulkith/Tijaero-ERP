@@ -16,7 +16,6 @@
  * actions rather than one-off styling.
  */
 import CheckIcon from "@mui/icons-material/Check";
-import DeleteIcon from "@mui/icons-material/Delete";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import {
   Autocomplete,
@@ -94,7 +93,6 @@ export default function TopPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const creditWarningDialog = useTConfirmDialog();
-  const removeLineDialog = useTConfirmDialog();
 
   const { data: queue = [], isLoading, refetch } = useQuery({
     queryKey: ["procurementQueue"],
@@ -192,23 +190,6 @@ export default function TopPage() {
   // or the user unchecked it to postpone it out of this particular PO.
   const effectiveQty = (line: QueueLine) =>
     excludedLineIds.has(line.queueId) ? 0 : Math.max(Math.min(line.quantity, line.toPurchaseQuantity), 0);
-
-  const handleRemoveLine = async (line: QueueLine) => {
-    const confirmed = await removeLineDialog.confirm({
-      title: "Remove from Procurement Queue",
-      message: `Remove ${line.product_name} from this PO queue? This only cancels the procurement request — the original quotation line is not affected.`,
-      confirmText: "Remove",
-      confirmColor: "error",
-    });
-    if (!confirmed) return;
-    try {
-      await procurementQueueApi.remove(line.queueId);
-      queryClient.invalidateQueries({ queryKey: ["procurementQueue"] });
-      showSuccessToast("Removed from the procurement queue.");
-    } catch (err: any) {
-      showErrorToast(err?.response?.data?.detail || "Failed to remove item from the queue");
-    }
-  };
 
   const buildOrderPayload = (supplierId: number, group: QuoteSubGroup): PurchasingOrderCreate => {
     const supplier = getSupplier(supplierId);
@@ -532,7 +513,6 @@ export default function TopPage() {
                                 <TableCell align="right">To Purchase</TableCell>
                                 <TableCell align="right">{`Unit Price (${currencySymbol})`}</TableCell>
                                 <TableCell align="right">{`Line Total (${currencySymbol})`}</TableCell>
-                                <TableCell sx={{ width: 40 }} />
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -567,13 +547,6 @@ export default function TopPage() {
                                   </TableCell>
                                   <TableCell align="right">{fmtLKR(line.unit_price)}</TableCell>
                                   <TableCell align="right">{fmtLKR(qty * line.unit_price)}</TableCell>
-                                  <TableCell>
-                                    <Tooltip title="Remove from queue">
-                                      <IconButton size="small" color="error" onClick={() => handleRemoveLine(line)}>
-                                        <DeleteIcon fontSize="small" />
-                                      </IconButton>
-                                    </Tooltip>
-                                  </TableCell>
                                 </TableRow>
                                 );
                               })}
@@ -581,7 +554,7 @@ export default function TopPage() {
                                 <TableCell colSpan={7} align="right">
                                   <strong>PO Total:</strong>
                                 </TableCell>
-                                <TableCell align="right" colSpan={2}>
+                                <TableCell align="right">
                                   <strong>{fmtLKR(groupTotal(group.lines))}</strong>
                                 </TableCell>
                               </TableRow>
@@ -599,7 +572,6 @@ export default function TopPage() {
       </MasterDetailLayout>
 
       <TConfirmDialog {...creditWarningDialog.dialogProps} confirmColor="warning" />
-      <TConfirmDialog {...removeLineDialog.dialogProps} />
     </>
   );
 }

@@ -546,7 +546,7 @@ export default function GroupsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
             </Box>
           )

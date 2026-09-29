@@ -23,7 +23,6 @@ import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
@@ -922,7 +921,7 @@ export default function BranchesPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TStatusFilter
@@ -935,11 +934,9 @@ export default function BranchesPage() {
               />
             </Box>
             {(searchQuery || filterStatus) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
           )

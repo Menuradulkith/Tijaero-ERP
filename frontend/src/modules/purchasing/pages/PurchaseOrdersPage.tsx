@@ -47,7 +47,6 @@ import {
     Typography,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -941,12 +940,12 @@ export default function PurchaseOrdersPage() {
     );
   };
 
-  const poSaveInProgressRef = useRef(false);
+  const [isPreSaveChecking, setIsPreSaveChecking] = useState(false);
 
   const handleSave = useCallback(async () => {
     // Prevent double-submit during async credit-check / confirm-dialog window
-    if (poSaveInProgressRef.current || createMutation.isPending || updateMutation.isPending) return;
-    poSaveInProgressRef.current = true;
+    if (isPreSaveChecking || createMutation.isPending || updateMutation.isPending) return;
+    setIsPreSaveChecking(true);
     try {
     const dataToSave: PurchasingOrderCreate = {
       ...formData,
@@ -1032,7 +1031,7 @@ export default function PurchaseOrdersPage() {
       });
     }
     } finally {
-      poSaveInProgressRef.current = false;
+      setIsPreSaveChecking(false);
     }
   }, [
     isCreating,
@@ -1140,14 +1139,20 @@ export default function PurchaseOrdersPage() {
   const isFormValid =
     isProductsStepValid && isOrderInfoStepValid && !isDailyLimitExceeded;
 
-  const isSaving = createMutation.isPending || updateMutation.isPending;
+  const isSaving = isPreSaveChecking || createMutation.isPending || updateMutation.isPending;
 
   const handleExportCSV = async () => {
     try {
-      const branchParam = filterBranch ? `&branch_codes=${filterBranch}` : "";
+      // Mirror every active browse-table filter so the export matches what's
+      // actually on screen, not just the branch.
+      const params = new URLSearchParams({ limit: "100000" });
+      if (filterBranch) params.append("branch_codes", filterBranch);
+      if (filterSupplier) params.append("supplier_id", String(filterSupplier));
+      if (filterStatus) params.append("status", filterStatus);
+      if (searchQuery) params.append("search", searchQuery);
 
       const response = await apiClient.get<Blob>(
-        `/purchasing/export-csv?limit=100000${branchParam}`,
+        `/purchasing/export-csv?${params.toString()}`,
         {
           responseType: "blob",
         },
@@ -2084,9 +2089,9 @@ export default function PurchaseOrdersPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
-              <Box sx={{ width: 160, flexShrink: 0 }}>
+              <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
               </Box>
               <Box sx={{ width: 180, flexShrink: 0 }}>
@@ -2096,11 +2101,9 @@ export default function PurchaseOrdersPage() {
                 <TStatusFilter options={PO_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
               </Box>
               {(searchQuery || filterBranch || filterSupplier || filterStatus) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
           )

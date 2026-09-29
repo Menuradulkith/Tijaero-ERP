@@ -563,6 +563,7 @@ export default function CompanyAssetsDashboard() {
                     </InputAdornment>
                   ),
                 }}
+                sx={{ "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
             </Grid>
 

@@ -6,7 +6,6 @@
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AddIcon from "@mui/icons-material/Add";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -929,15 +928,15 @@ export default function PurchaseInvoicesPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
-            <Box sx={{ width: 160, flexShrink: 0 }}>
+            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
             </Box>
             <Box sx={{ width: 180, flexShrink: 0 }}>
               <TSupplierFilter suppliers={suppliers || []} value={filterSupplier} onChange={setFilterSupplier} label="" placeholder="All Suppliers" size="small" />
             </Box>
-            <Box sx={{ width: 160, flexShrink: 0 }}>
+            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
               <Autocomplete
                 size="small"
                 options={purchaseOrders}
@@ -950,11 +949,9 @@ export default function PurchaseInvoicesPage() {
               />
             </Box>
             {(searchQuery || filterBranch || filterSupplier || filterPO) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
           )

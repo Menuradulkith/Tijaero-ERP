@@ -16,7 +16,6 @@
  * actions rather than one-off styling.
  */
 import CheckIcon from "@mui/icons-material/Check";
-import DeleteIcon from "@mui/icons-material/Delete";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import {
   Autocomplete,
@@ -94,7 +93,6 @@ export default function ProcurementQueuePage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const creditWarningDialog = useTConfirmDialog();
-  const removeLineDialog = useTConfirmDialog();
 
   const { data: queue = [], isLoading, refetch } = useQuery({
     queryKey: ["procurementQueue"],
@@ -106,7 +104,7 @@ export default function ProcurementQueuePage() {
 
   const [supplierSettings, setSupplierSettings] = useState<Record<number, SupplierSettings>>({});
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [creatingKey, setCreatingKey] = useState<string | "selected" | "all" | null>(null);
+  const [creatingKey, setCreatingKey] = useState<string | "selected" | null>(null);
   // Per-product opt-out within a PO — lets a buyer postpone one line (e.g.
   // "Mouse") while still creating the PO for the rest of the quotation.
   // Checked (included) by default; unchecking removes it from that PO only,
@@ -192,23 +190,6 @@ export default function ProcurementQueuePage() {
   // or the user unchecked it to postpone it out of this particular PO.
   const effectiveQty = (line: QueueLine) =>
     excludedLineIds.has(line.queueId) ? 0 : Math.max(Math.min(line.quantity, line.toPurchaseQuantity), 0);
-
-  const handleRemoveLine = async (line: QueueLine) => {
-    const confirmed = await removeLineDialog.confirm({
-      title: "Remove from Procurement Queue",
-      message: `Remove ${line.product_name} from this PO queue? This only cancels the procurement request — the original quotation line is not affected.`,
-      confirmText: "Remove",
-      confirmColor: "error",
-    });
-    if (!confirmed) return;
-    try {
-      await procurementQueueApi.remove(line.queueId);
-      queryClient.invalidateQueries({ queryKey: ["procurementQueue"] });
-      showSuccessToast("Removed from the procurement queue.");
-    } catch (err: any) {
-      showErrorToast(err?.response?.data?.detail || "Failed to remove item from the queue");
-    }
-  };
 
   const buildOrderPayload = (supplierId: number, group: QuoteSubGroup): PurchasingOrderCreate => {
     const supplier = getSupplier(supplierId);
@@ -307,7 +288,7 @@ export default function ProcurementQueuePage() {
     }
   };
 
-  const handleCreateMany = async (targets: { supplierId: number; group: QuoteSubGroup }[], mode: "selected" | "all") => {
+  const handleCreateMany = async (targets: { supplierId: number; group: QuoteSubGroup }[], mode: "selected") => {
     if (targets.length === 0) return;
     const missing = missingRequiredFieldSuppliers(targets);
     if (missing.length > 0) {
@@ -382,20 +363,6 @@ export default function ProcurementQueuePage() {
                     disabled={selectedTargets.length === 0 || creatingKey !== null}
                   >
                     {creatingKey === "selected" ? "Creating..." : `Create Selected POs (${selectedTargets.length})`}
-                  </Button>
-                </span>
-              </Tooltip>
-              <Tooltip title="Creates draft Purchase Orders (pending approval) for every quotation below — review and approve them on the Purchase Orders page.">
-                <span>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="primary"
-                    startIcon={<ShoppingCartIcon />}
-                    onClick={() => handleCreateMany(allTargets, "all")}
-                    disabled={creatingKey !== null}
-                  >
-                    {creatingKey === "all" ? "Creating..." : `Create All POs (${allTargets.length})`}
                   </Button>
                 </span>
               </Tooltip>
@@ -531,7 +498,6 @@ export default function ProcurementQueuePage() {
                                 <TableCell align="right">To Purchase</TableCell>
                                 <TableCell align="right">{`Unit Price (${currencySymbol})`}</TableCell>
                                 <TableCell align="right">{`Line Total (${currencySymbol})`}</TableCell>
-                                <TableCell sx={{ width: 40 }} />
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -566,13 +532,6 @@ export default function ProcurementQueuePage() {
                                   </TableCell>
                                   <TableCell align="right">{fmtLKR(line.unit_price)}</TableCell>
                                   <TableCell align="right">{fmtLKR(qty * line.unit_price)}</TableCell>
-                                  <TableCell>
-                                    <Tooltip title="Remove from queue">
-                                      <IconButton size="small" color="error" onClick={() => handleRemoveLine(line)}>
-                                        <DeleteIcon fontSize="small" />
-                                      </IconButton>
-                                    </Tooltip>
-                                  </TableCell>
                                 </TableRow>
                                 );
                               })}
@@ -580,7 +539,7 @@ export default function ProcurementQueuePage() {
                                 <TableCell colSpan={7} align="right">
                                   <strong>PO Total:</strong>
                                 </TableCell>
-                                <TableCell align="right" colSpan={2}>
+                                <TableCell align="right">
                                   <strong>{fmtLKR(groupTotal(group.lines))}</strong>
                                 </TableCell>
                               </TableRow>
@@ -598,7 +557,6 @@ export default function ProcurementQueuePage() {
       </MasterDetailLayout>
 
       <TConfirmDialog {...creditWarningDialog.dialogProps} confirmColor="warning" />
-      <TConfirmDialog {...removeLineDialog.dialogProps} />
     </>
   );
 }

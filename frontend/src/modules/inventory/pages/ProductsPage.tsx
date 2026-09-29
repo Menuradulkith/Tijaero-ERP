@@ -39,7 +39,6 @@ import {
     Inventory as InventoryIcon,
     LocalShipping as SuppliersIcon,
     Search as SearchIcon,
-    Clear as ClearIcon,
     OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import {
@@ -2631,7 +2630,7 @@ export default function ProductsPage({
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 160, flexShrink: 0 }}
+                sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 110, flexShrink: 0 }}>
                 <TStatusFilter
@@ -2677,11 +2676,9 @@ export default function ProductsPage({
                 />
               </Box>
               {(productState.searchQuery || productActiveFilter || productSupplierFilter || productCategoryFilter || productBrandFilter) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearProductFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearProductFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
             )
@@ -2709,7 +2706,7 @@ export default function ProductsPage({
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter
@@ -2722,11 +2719,9 @@ export default function ProductsPage({
                 />
               </Box>
               {(categoryState.searchQuery || categoryActiveFilter) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearCategoryFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearCategoryFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
             )
@@ -2754,7 +2749,7 @@ export default function ProductsPage({
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter
@@ -2767,11 +2762,9 @@ export default function ProductsPage({
                 />
               </Box>
               {(brandState.searchQuery || brandActiveFilter) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearBrandFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearBrandFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
             )

@@ -22,7 +22,6 @@ import {
   AccountBalanceWallet as WalletIcon,
   History as HistoryIcon,
   Search as SearchIcon,
-  Clear as ClearIcon,
   ArrowBack as ArrowBackIcon,
   Add as AddIcon,
   OpenInNew as OpenInNewIcon,
@@ -638,17 +637,15 @@ export default function CustomerAdvancePaymentsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
               </Box>
               {(searchQuery || filterBranch) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
           )

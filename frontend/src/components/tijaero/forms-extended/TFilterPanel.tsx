@@ -137,7 +137,13 @@ export const TBranchFilter: React.FC<TBranchFilterProps> = ({
       value={branches.find((b) => b.branch_code === value) || null}
       onChange={(_, newValue) => onChange(newValue?.branch_code || null)}
       renderInput={(params) => (
-        <TextField {...params} label={label} placeholder={placeholder} size={size} />
+        <TextField
+          {...params}
+          label={label}
+          placeholder={placeholder}
+          size={size}
+          sx={{ "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+        />
       )}
     />
   );
@@ -185,7 +191,13 @@ export const TSupplierFilter: React.FC<TSupplierFilterProps> = ({
       value={suppliers.find((s) => s.id === value) || null}
       onChange={(_, newValue: TFilterSupplier | null) => onChange(newValue?.id || null)}
       renderInput={(params) => (
-        <TextField {...params} label={label} placeholder={placeholder} size={size} />
+        <TextField
+          {...params}
+          label={label}
+          placeholder={placeholder}
+          size={size}
+          sx={{ "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+        />
       )}
     />
   );
@@ -236,7 +248,13 @@ export const TStatusFilter: React.FC<TStatusFilterProps> = ({
       onChange={(_, newValue) => onChange(newValue?.value || null)}
       isOptionEqualToValue={(option, val) => option.value === val.value}
       renderInput={(params) => (
-        <TextField {...params} label={label} placeholder={placeholder} size={size} />
+        <TextField
+          {...params}
+          label={label}
+          placeholder={placeholder}
+          size={size}
+          sx={{ "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+        />
       )}
     />
   );

@@ -24,7 +24,6 @@ import {
   Typography,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
@@ -880,7 +879,7 @@ export default function CustomersPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter
@@ -892,7 +891,7 @@ export default function CustomersPage() {
                   size="small"
                 />
               </Box>
-              <Box sx={{ width: 160, flexShrink: 0 }}>
+              <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
                 <TStatusFilter
                   options={AGENT_FILTER_OPTIONS}
                   value={filterAgent}
@@ -903,11 +902,9 @@ export default function CustomersPage() {
                 />
               </Box>
               {(searchQuery || filterStatus || filterAgent) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
           )

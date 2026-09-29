@@ -63,7 +63,6 @@ import {
   Email as EmailIcon,
   History as HistoryIcon,
   Search as SearchIcon,
-  Clear as ClearIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import {
@@ -949,8 +948,11 @@ export default function QuotationsPage() {
     const s = selectedQuote.status;
     const actions: string[] = [];
 
-    // Mark as sent — allowed from draft or sent (idempotent re-send)
-    if (['draft', 'sent'].includes(s)) actions.push('send');
+    // Mark as sent — allowed up until the quote is actually converted/closed
+    // out, mirroring the backend's permissive transition graph (a quote that
+    // already went through internal approval still needs a way to record
+    // that it was sent to the customer, not just from draft).
+    if (!['rejected', 'cancelled', 'expired', 'revised', 'completed', 'so_created'].includes(s)) actions.push('send');
     // Check stock — allowed for any non-terminal status
     if (!['completed', 'cancelled'].includes(s)) actions.push('check_stock');
     // Create PO / SO — only once the quotation has been approved. `approval`
@@ -1132,7 +1134,7 @@ export default function QuotationsPage() {
           quantity: 1,
           selling_price: 0,
           minimum_selling_price: 0,
-          warrenty_month: "12",
+          warrenty_month: "",
           is_price_estimate: formData.quote_type === "quotation",
           discount_percent: 0,
           tax_rate: 0,
@@ -1224,6 +1226,8 @@ export default function QuotationsPage() {
       filteredQuotes.map((quote) => ({
         ...quote,
         customer_display_name: getCustomerName(quote.customer_id),
+        agent_display_name: quote.customer_agent_id ? getCustomerName(quote.customer_agent_id) : "",
+        branch_display_name: getBranchName(quote.branch_code),
       })),
     [filteredQuotes, customers] // eslint-disable-line react-hooks/exhaustive-deps
   );
@@ -1235,12 +1239,22 @@ export default function QuotationsPage() {
     () => [
       { field: "quote_no", header: "Quote No", width: 150 },
       { field: "customer_display_name", header: "Customer", flex: 1, minWidth: 180 },
+      { field: "branch_display_name", header: "Branch", width: 130 },
+      { field: "agent_display_name", header: "Sales Agent", width: 160 },
       {
         field: "created_date",
         header: "Date",
         width: 130,
         renderCell: (params: GridRenderCellParams<(typeof quoteRows)[number]>) => (
           <TDate value={params.row.created_date_time || params.row.created_date} format="short" />
+        ),
+      },
+      {
+        field: "valid_until",
+        header: "Valid Until",
+        width: 130,
+        renderCell: (params: GridRenderCellParams<(typeof quoteRows)[number]>) => (
+          <TDate value={params.row.valid_until} format="short" />
         ),
       },
       {
@@ -1383,7 +1397,7 @@ export default function QuotationsPage() {
                 {/* Workflow Action Buttons */}
                 {getAvailableActions().includes('send') && (
                   <Tooltip title="Mark as Sent to Customer">
-                    <Button size="small" variant="outlined" color="success" startIcon={<SendIcon />}
+                    <Button size="small" variant="contained" color="primary" startIcon={<SendIcon />}
                       onClick={() => markSentMutation.mutate(selectedQuote.id)}
                       disabled={markSentMutation.isPending}>
                       {selectedQuote.status === 'sent' ? '✓ Sent' : 'Mark Sent'}
@@ -1392,7 +1406,7 @@ export default function QuotationsPage() {
                 )}
                 {getAvailableActions().includes('check_stock') && (
                   <Tooltip title="Check Stock Availability">
-                    <Button size="small" variant="outlined" color="info" startIcon={<StockIcon />}
+                    <Button size="small" variant="contained" color="primary" startIcon={<StockIcon />}
                       onClick={handleCheckStock}>
                       Stock
                     </Button>
@@ -1402,15 +1416,15 @@ export default function QuotationsPage() {
                   stockCheckedQuoteId === selectedQuote.id &&
                   hasItemsNeedingPO && (
                   <Tooltip title="Select suppliers and create purchase orders for unavailable items">
-                    <Button size="small" variant="outlined" color="warning" startIcon={<POIcon />}
+                    <Button size="small" variant="contained" color="primary" startIcon={<POIcon />}
                       onClick={handleOpenCreatePurchaseOrders}>
-                      Create Purchase Orders
+                      Create PO
                     </Button>
                   </Tooltip>
                 )}
                 {stockCheckedQuoteId === selectedQuote.id && hasItemsInOtherBranches && (
                   <Tooltip title="Create ITN for items available in other branches">
-                    <Button size="small" variant="outlined" color="info" startIcon={<WarehouseIcon />}
+                    <Button size="small" variant="contained" color="primary" startIcon={<WarehouseIcon />}
                       onClick={handleCreateITNNavigate}>
                       Create ITN
                     </Button>
@@ -1422,7 +1436,7 @@ export default function QuotationsPage() {
                   <Tooltip title={hasItemsNeedingPO ? "Create Sales Order for in-stock items" : "Create Sales Order from this quote"}>
                     <Button size="small" variant="contained" color="primary" startIcon={<InvoiceIcon />}
                       onClick={handleCreateSONavigate}>
-                      To Sales Order
+                      Create SO
                     </Button>
                   </Tooltip>
                 )}
@@ -1449,7 +1463,7 @@ export default function QuotationsPage() {
                       </Tooltip>
                     ) : (
                       <Tooltip title="Record a customer advance (deposit) for this quotation">
-                        <Button size="small" variant="outlined" color="success" startIcon={<PaymentIcon />}
+                        <Button size="small" variant="contained" color="primary" startIcon={<PaymentIcon />}
                           onClick={() => {
                             setAdvanceAmount("");
                             setAdvancePaymentMethod("cash");
@@ -1554,14 +1568,6 @@ export default function QuotationsPage() {
             disabled
             InputProps={{ readOnly: true }}
           />
-        </FormSection>
-
-        {/* Quote Status */}
-        <FormSection title="Quote Status" columns={4}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Typography variant="body2" color="text.secondary">Status:</Typography>
-            <TStatusChip status={quote.status} statusMap="quoteStatus" />
-          </Box>
         </FormSection>
 
         {/* Related Purchase Orders (from the Sales Quotation -> PO workflow) */}
@@ -2314,7 +2320,7 @@ export default function QuotationsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TStatusFilter
@@ -2330,11 +2336,9 @@ export default function QuotationsPage() {
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
               </Box>
               {(searchQuery || filterStatus || filterBranch) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
           )

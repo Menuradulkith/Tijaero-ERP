@@ -21,7 +21,6 @@ import {
   AccountBalance as BankIcon,
   History as HistoryIcon,
   Search as SearchIcon,
-  Clear as ClearIcon,
   ArrowBack as ArrowBackIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
@@ -425,7 +424,7 @@ export default function BankDepositsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 170, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
@@ -445,11 +444,9 @@ export default function BankDepositsPage() {
               />
             </Box>
             {(searchQuery || filterBranch || filterVerified) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
         )

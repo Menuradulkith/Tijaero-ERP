@@ -31,7 +31,6 @@ import {
   History as HistoryIcon,
   Undo as UndoIcon,
   Search as SearchIcon,
-  Clear as ClearIcon,
   Add as AddIcon,
   ArrowBack as ArrowBackIcon,
   OpenInNew as OpenInNewIcon,
@@ -966,7 +965,7 @@ export default function SupplierAdvancePaymentsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TBranchFilter
@@ -987,11 +986,9 @@ export default function SupplierAdvancePaymentsPage() {
                 />
               </Box>
               {(searchQuery || filterBranch || filterSupplier) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
           )

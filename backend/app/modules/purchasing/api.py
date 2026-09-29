@@ -1873,6 +1873,9 @@ def export_po_csv(
     skip: int = Query(0, ge=0),
     limit: int = Query(100000),
     branch_codes: Optional[List[str]] = Query(None),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    supplier_id: Optional[int] = Query(None),
+    search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW)),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -1895,6 +1898,9 @@ def export_po_csv(
     pos = order_service.list_orders(
         schemas.PurchaseOrderListFilter(
             branch_codes=effective_branches,
+            status=status_filter,
+            supplier_id=supplier_id,
+            search=search,
             skip=skip,
             limit=limit,
         )

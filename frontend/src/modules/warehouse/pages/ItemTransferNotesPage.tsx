@@ -38,7 +38,6 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import SaveIcon from "@mui/icons-material/Save";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import AddIcon from "@mui/icons-material/Add";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
@@ -1103,7 +1102,7 @@ export default function ItemTransferNotesPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TBranchFilter
@@ -1116,11 +1115,9 @@ export default function ItemTransferNotesPage() {
                 />
               </Box>
               {(searchQuery || filterBranch) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
           )

@@ -706,8 +706,17 @@ class SalesQuoteService:
 
         if cancel_linked_po:
             # Abandoning procurement for this rejected quote — release any
-            # stock already received and reserved for it.
-            self._release_reservations_for_items(db, [i.id for i in quote.items], user_id=user_id)
+            # stock already received and reserved for it. Best-effort: the
+            # rejection itself is already committed above, so a failure here
+            # shouldn't surface as a 500 — it just needs manual follow-up via
+            # the release_reservation endpoint.
+            try:
+                self._release_reservations_for_items(db, [i.id for i in quote.items], user_id=user_id)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Failed to release stock reservations for rejected quote {quote.id}: {e}"
+                )
 
         from app.common.audit import log_audit
         log_audit(
@@ -723,11 +732,15 @@ class SalesQuoteService:
         return updated
 
     def mark_as_sent(self, db: Session, quote_id: int) -> SalesQuote:
-        """Mark quote as sent to customer. Allowed from DRAFT or SENT (idempotent)."""
+        """Mark quote as sent to customer. Allowed from DRAFT/SENT and every
+        legacy pre-conversion status (pending_approval, submitted,
+        under_review, approved, ...) — same transition graph as everywhere
+        else, so a quote that's already been through internal approval isn't
+        stuck without a way to record that it was sent to the customer."""
         quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
         if not quote:
             raise HTTPException(status_code=404, detail=f"Quote {quote_id} not found")
-        if quote.status not in (QuoteStatus.DRAFT.value, QuoteStatus.SENT.value):
+        if quote.status != QuoteStatus.SENT.value and not self._is_valid_status_transition(quote.status, QuoteStatus.SENT.value):
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot mark as sent: quotation is already '{quote.status}'"
@@ -762,8 +775,17 @@ class SalesQuoteService:
         updated = self.repository.update(db, quote)
         # Business rule: a cancelled quotation must release any stock that
         # was reserved for it during procurement — it becomes available for
-        # other customers again.
-        self._release_reservations_for_items(db, [i.id for i in quote.items])
+        # other customers again. Best-effort: the cancellation itself is
+        # already committed above, so a failure here shouldn't surface as a
+        # 500 — it just needs manual follow-up via the release_reservation
+        # endpoint.
+        try:
+            self._release_reservations_for_items(db, [i.id for i in quote.items])
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Failed to release stock reservations for cancelled quote {quote.id}: {e}"
+            )
         return updated
 
     def _release_reservations_for_items(

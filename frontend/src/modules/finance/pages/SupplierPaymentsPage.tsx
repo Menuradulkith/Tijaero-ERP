@@ -1128,7 +1128,7 @@ export default function SupplierPaymentsPage() {
                 </InputAdornment>
               ),
             }}
-            sx={{ minWidth: 250 }}
+            sx={{ minWidth: 250, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
           />
           
           {/* Branch Filter */}

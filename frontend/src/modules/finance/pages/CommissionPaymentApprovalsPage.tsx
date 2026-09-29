@@ -15,7 +15,6 @@ import HistoryIcon from "@mui/icons-material/History";
 import PersonIcon from "@mui/icons-material/Person";
 import VerifiedIcon from "@mui/icons-material/Verified";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import {
   Box,
   Button,
@@ -708,7 +707,7 @@ export default function CommissionPaymentApprovalsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TSearchableSelect
@@ -742,11 +741,9 @@ export default function CommissionPaymentApprovalsPage() {
               />
             </Box>
             {(searchQuery || filterStatus || filterAgentId) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
         }

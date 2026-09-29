@@ -28,7 +28,6 @@ import HistoryIcon from "@mui/icons-material/History";
 import SaveIcon from "@mui/icons-material/Save";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
@@ -2155,7 +2154,7 @@ export default function GoodReceivedNotesPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
@@ -2172,7 +2171,7 @@ export default function GoodReceivedNotesPage() {
                 fullWidth
               />
             </Box>
-            <Box sx={{ width: 160, flexShrink: 0 }}>
+            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
               <Autocomplete
                 size="small"
                 options={poFilterOptions}
@@ -2184,7 +2183,7 @@ export default function GoodReceivedNotesPage() {
                 fullWidth
               />
             </Box>
-            <Box sx={{ width: 160, flexShrink: 0 }}>
+            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
               <Autocomplete
                 size="small"
                 options={createdByUserOptions}
@@ -2196,11 +2195,9 @@ export default function GoodReceivedNotesPage() {
               />
             </Box>
             {(searchQuery || filterBranch || filterSupplier || filterPOId || filterCreatedByUser) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
           )

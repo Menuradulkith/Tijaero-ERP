@@ -18,8 +18,6 @@ import {
   Switch,
   FormControlLabel,
   MenuItem,
-  IconButton,
-  Tooltip,
 } from "@mui/material";
 import {
   QrCodeScanner as ScanIcon,
@@ -28,7 +26,6 @@ import {
   Save as SaveIcon,
   CheckCircle as CheckCircleIcon,
   Search as SearchIcon,
-  Clear as ClearIcon,
 } from "@mui/icons-material";
 import { format } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -1149,7 +1146,7 @@ export default function ReceiveNotesPage() {
                 </InputAdornment>
               ),
             }}
-            sx={{ width: 220, flexShrink: 0 }}
+            sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
           />
           <Box sx={{ width: 150, flexShrink: 0 }}>
             <TextField
@@ -1186,11 +1183,9 @@ export default function ReceiveNotesPage() {
             />
           </Box>
           {(searchQuery || statusFilter || branchFilter) && (
-            <Tooltip title="Clear filters">
-              <IconButton size="small" onClick={handleClearFilters}>
-                <ClearIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+              Clear
+            </Button>
           )}
         </Box>
       }

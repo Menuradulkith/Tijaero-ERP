@@ -13,11 +13,9 @@ import FactCheckIcon from "@mui/icons-material/FactCheck";
 import PersonIcon from "@mui/icons-material/Person";
 import VerifiedIcon from "@mui/icons-material/Verified";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import {
   Box,
   Button,
-  IconButton,
   InputAdornment,
   MenuItem,
   Paper,
@@ -27,7 +25,6 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
@@ -684,7 +681,7 @@ export default function CommissionPaymentApprovalsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <TextField
               select
@@ -719,11 +716,9 @@ export default function CommissionPaymentApprovalsPage() {
               ))}
             </TextField>
             {(searchQuery || filterStatus || filterAgentId) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
         }
