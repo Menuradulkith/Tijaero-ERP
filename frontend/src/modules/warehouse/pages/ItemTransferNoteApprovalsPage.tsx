@@ -23,7 +23,6 @@ import {
   DialogActions,
   IconButton,
   Tooltip,
-  Chip,
   InputAdornment,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -35,6 +34,7 @@ import ClearIcon from "@mui/icons-material/Clear";
 
 // Import tijaero components
 import {
+  TChip,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
@@ -354,7 +354,7 @@ export default function ItemTransferNoteApprovalsPage() {
                       </Typography>
                     </Box>
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
-                      <Chip
+                      <TChip
                         label={statusProps.label}
                         size="small"
                         color={statusProps.color}
@@ -500,9 +500,9 @@ export default function ItemTransferNoteApprovalsPage() {
                           <TableCell>{item.remark || "-"}</TableCell>
                           <TableCell align="center">
                             {item.item_recieved ? (
-                              <Chip label="Yes" size="small" color="success" />
+                              <TChip label="Yes" size="small" color="success" />
                             ) : (
-                              <Chip label="No" size="small" color="warning" />
+                              <TChip label="No" size="small" color="warning" />
                             )}
                           </TableCell>
                         </TableRow>

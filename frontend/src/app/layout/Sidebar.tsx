@@ -170,9 +170,9 @@ const menuItems: MenuItem[] = [
         permission: PERMISSIONS.PURCHASE_ORDERS_VIEW,
       },
       {
-        text: "TOP",
+        text: "Procurement Queue",
         icon: <ShoppingCartIcon />,
-        path: "/purchasing/top",
+        path: "/purchasing/procurement-queue",
         permission: PERMISSIONS.PURCHASE_ORDERS_VIEW,
       },
       {

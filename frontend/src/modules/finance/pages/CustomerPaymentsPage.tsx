@@ -26,7 +26,6 @@ import {
   MenuItem,
   Alert,
   CircularProgress,
-  Chip,
   Typography,
   Paper,
   Divider,
@@ -66,6 +65,8 @@ import ReceiptIcon from "@mui/icons-material/Receipt";
 import AddIcon from "@mui/icons-material/Add";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import {
+  TChip,
+  TRemarkField,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -941,7 +942,7 @@ export default function CustomerPaymentsPage() {
                             }}
                           />
                         </Box>
-                        <Chip
+                        <TChip
                           label={`${customer.credit_days} days`}
                           size="small"
                           color="info"
@@ -1207,14 +1208,14 @@ export default function CustomerPaymentsPage() {
                     </TableCell>
                     <TableCell>
                       {inv.is_overdue ? (
-                        <Chip
+                        <TChip
                           label={`${inv.days_overdue}d overdue`}
                           size="small"
                           color="error"
                           icon={<WarningIcon />}
                         />
                       ) : (
-                        <Chip
+                        <TChip
                           label={inv.payment_status === "partial" ? "Partial" : "Unpaid"}
                           size="small"
                           color={inv.payment_status === "partial" ? "warning" : "error"}
@@ -1366,9 +1367,9 @@ export default function CustomerPaymentsPage() {
                     </TableCell>
                     <TableCell>
                       {inv.is_overdue ? (
-                        <Chip label={`${inv.days_overdue}d overdue`} size="small" color="error" />
+                        <TChip label={`${inv.days_overdue}d overdue`} size="small" color="error" />
                       ) : (
-                        <Chip
+                        <TChip
                           label={inv.payment_status === "partial" ? "Partial" : "Unpaid"}
                           size="small"
                           color={inv.payment_status === "partial" ? "warning" : "error"}
@@ -1459,7 +1460,7 @@ export default function CustomerPaymentsPage() {
                   <TableCell>
                     {new Date(line.invoice.due_date).toLocaleDateString()}
                     {line.invoice.is_overdue && (
-                      <Chip label="Overdue" size="small" color="error" sx={{ ml: 1, height: 18, fontSize: "0.6rem" }} />
+                      <TChip label="Overdue" size="small" color="error" sx={{ ml: 1, height: 18, fontSize: "0.6rem" }} />
                     )}
                   </TableCell>
                   <TableCell align="right">
@@ -1823,13 +1824,13 @@ export default function CustomerPaymentsPage() {
       </FormSection>
 
       <FormSection title="Remarks" columns={1}>
-        <TextField
+        <TRemarkField
           label="Remarks"
           size="small"
           multiline
           rows={2}
           value={remarks}
-          onChange={(e) => setRemarks(e.target.value)}
+          onChange={(value) => setRemarks(value)}
         />
       </FormSection>
 

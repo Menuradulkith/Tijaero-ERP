@@ -20,6 +20,7 @@ import {
 } from "@/components/dashboard";
 import ErrorDisplay from "@/components/ErrorDisplay";
 import {
+  TChip,
   fmtLKR,
   TEmptyState,
   TLoadingSkeleton,
@@ -48,7 +49,6 @@ import {
   Avatar,
   Badge,
   Box,
-  Chip,
   Grid,
   IconButton,
   List,
@@ -139,7 +139,7 @@ function ApprovalRow({
         primary={label}
         primaryTypographyProps={{ variant: "body2", fontWeight: 500 }}
       />
-      <Chip
+      <TChip
         label={count}
         size="small"
         sx={{
@@ -556,7 +556,7 @@ export default function DashboardPage() {
                   title="Financial Overview"
                   subtitle="This month"
                   action={
-                    <Chip
+                    <TChip
                       label="Details"
                       size="small"
                       variant="outlined"
@@ -585,7 +585,7 @@ export default function DashboardPage() {
                         flexWrap="wrap"
                         sx={{ rowGap: 0.5 }}
                       >
-                        <Chip
+                        <TChip
                           size="small"
                           label={`Receivables: ${currencySymbol} ${fmtLKR(metrics?.total_credit_outstanding || 0)}`}
                           sx={{
@@ -595,7 +595,7 @@ export default function DashboardPage() {
                             fontSize: "0.68rem",
                           }}
                         />
-                        <Chip
+                        <TChip
                           size="small"
                           label={`Payables: ${currencySymbol} ${fmtLKR(metrics?.total_supplier_credit || 0)}`}
                           sx={{
@@ -621,7 +621,7 @@ export default function DashboardPage() {
                 title="Pending Approvals"
                 action={
                   metrics && metrics.pending_approvals > 0 ? (
-                    <Chip
+                    <TChip
                       icon={<WarningAmberIcon sx={{ fontSize: 14 }} />}
                       label={metrics.pending_approvals}
                       color="warning"
@@ -704,7 +704,7 @@ export default function DashboardPage() {
                 title="Top Products"
                 subtitle="By quantity this month"
                 action={
-                  <Chip
+                  <TChip
                     label="View All"
                     size="small"
                     variant="outlined"

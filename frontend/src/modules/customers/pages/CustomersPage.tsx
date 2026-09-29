@@ -8,19 +8,18 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SearchIcon from "@mui/icons-material/Search";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
-    Avatar,
-    Box,
-    Button,
-    Chip,
-    FormControlLabel,
-    IconButton,
-    InputAdornment,
-    MenuItem,
-    Paper,
-    Switch,
-    TextField,
-    Tooltip,
-    Typography,
+  Avatar,
+  Box,
+  Button,
+  FormControlLabel,
+  IconButton,
+  InputAdornment,
+  MenuItem,
+  Paper,
+  Switch,
+  TextField,
+  Tooltip,
+  Typography,
 } from "@mui/material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -28,6 +27,7 @@ import { useCallback, useMemo, useState } from "react";
 
 // Tijaero Components
 import {
+  TChip,
     ActionToolbar,
     DetailPanelHeader,
     EmptyState,
@@ -297,9 +297,9 @@ export default function CustomersPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<Customer>) =>
           params.row.is_customer_agent ? (
-            <Chip label="Agent" size="small" color="info" />
+            <TChip label="Agent" size="small" color="info" />
           ) : (
-            <Chip label="Customer" size="small" variant="outlined" />
+            <TChip label="Customer" size="small" variant="outlined" />
           ),
       },
       { field: "mobile_contact_number", header: "Contact", width: 150 },
@@ -311,7 +311,7 @@ export default function CustomersPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<Customer>) => (
-          <Chip
+          <TChip
             label={params.row.active ? "Active" : "Inactive"}
             size="small"
             color={params.row.active ? "success" : "default"}

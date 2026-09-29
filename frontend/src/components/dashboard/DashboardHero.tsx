@@ -11,7 +11,6 @@ import { ReactNode } from "react";
 import {
   Autocomplete,
   Box,
-  Chip,
   IconButton,
   Stack,
   TextField,
@@ -22,6 +21,7 @@ import {
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 
+import { TChip } from "@/components/tijaero";
 export type DashboardPeriod = "today" | "week" | "month" | "quarter" | "year";
 
 const PERIOD_LABELS: Record<DashboardPeriod, string> = {
@@ -242,7 +242,7 @@ export default function DashboardHero({
           {periods.map((p) => {
             const active = period === p;
             return (
-              <Chip
+              <TChip
                 key={p}
                 label={PERIOD_LABELS[p]}
                 onClick={() => onPeriodChange(p)}

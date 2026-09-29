@@ -10,7 +10,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
   Box,
-  Chip,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -41,6 +40,7 @@ import { useReferenceData } from "@/hooks";
 
 // Tijaero Components
 import {
+  TChip,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
@@ -62,6 +62,7 @@ import {
   useCrudMutation,
   fmtLKR,
   TActivityHistoryPanel,
+  TRemarkField,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { useCurrencyStore } from "@/state/currencyStore";
@@ -582,14 +583,14 @@ export default function AdvancePaymentsPage() {
                   </Box>
                   <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
                     {advanceType === "customer" ? (
-                      <Chip
+                      <TChip
                         label={adv.active ? "Active" : "Inactive"}
                         size="small"
                         color={adv.active ? "success" : "default"}
                         sx={{ height: 18, fontSize: "0.65rem" }}
                       />
                     ) : (
-                      <Chip
+                      <TChip
                         label={adv.is_fully_applied ? "Fully Applied" : "Active"}
                         size="small"
                         color={adv.is_fully_applied ? "default" : "success"}
@@ -812,7 +813,7 @@ export default function AdvancePaymentsPage() {
               >
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">Active:</Typography>
-                  <Chip
+                  <TChip
                     label={selectedItem.active ? "Active" : "Inactive"}
                     size="small"
                     color={selectedItem.active ? "success" : "default"}
@@ -837,11 +838,11 @@ export default function AdvancePaymentsPage() {
             )}
 
             <FormSection title="Remarks" columns={1}>
-              <TextField
+              <TRemarkField
                 label="Remarks"
                 size="small"
                 value={customerForm.remarks || ""}
-                onChange={(e) => setCustomerForm({ ...customerForm, remarks: e.target.value })}
+                onChange={(value) => setCustomerForm({ ...customerForm, remarks: value })}
                 disabled={!isEditing && !isCreating}
                 multiline
                 rows={2}
@@ -999,7 +1000,7 @@ export default function AdvancePaymentsPage() {
                 />
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">Status:</Typography>
-                  <Chip
+                  <TChip
                     label={selectedItem.is_fully_applied ? "Fully Applied" : "Active"}
                     size="small"
                     color={selectedItem.is_fully_applied ? "default" : "success"}
@@ -1040,11 +1041,11 @@ export default function AdvancePaymentsPage() {
             )}
 
             <FormSection title="Remarks" columns={1}>
-              <TextField
+              <TRemarkField
                 label="Remarks"
                 size="small"
                 value={supplierForm.remarks || ""}
-                onChange={(e) => setSupplierForm({ ...supplierForm, remarks: e.target.value })}
+                onChange={(value) => setSupplierForm({ ...supplierForm, remarks: value })}
                 disabled={!isEditing && !isCreating}
                 multiline
                 rows={2}

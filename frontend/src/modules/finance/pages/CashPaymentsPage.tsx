@@ -37,6 +37,7 @@ import {
   fmtLKR,
   TActivityHistoryPanel,
   useRowSelection,
+  TRemarkField,
 } from "@/components/tijaero";
 
 import { cashPaymentsApi } from "@/modules/finance/api";
@@ -326,10 +327,11 @@ export default function CashPaymentsPage() {
                 disabled
                 InputProps={{ readOnly: true }}
               />
-              <TextField
+              <TRemarkField
                 label="Remarks"
                 size="small"
                 value={formData.remarks || "-"}
+                onChange={() => {}}
                 disabled
                 InputProps={{ readOnly: true }}
               />

@@ -39,7 +39,6 @@ import {
   Card,
   CardContent,
   Checkbox,
-  Chip,
   CircularProgress,
   Collapse,
   Dialog,
@@ -64,7 +63,7 @@ import {
   TableRow,
   TextField,
   Tooltip,
-  Typography
+  Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -74,6 +73,7 @@ import { exportToCSV } from "@/utils/csvExport";
 
 // Import tijaero components
 import {
+  TChip,
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
@@ -88,6 +88,7 @@ import {
   TConfirmDialog,
   TPrintButton,
   TPrintPreviewDialog,
+  TRemarkField,
   useCrudMutation,
   useMasterDetailState,
   useRowSelection,
@@ -1403,7 +1404,7 @@ export default function GoodReceivedNotesPage() {
         headerAlign: "center",
         sortable: false,
         renderCell: () => (
-          <Chip label="Received" size="small" color="success" sx={{ height: 20, fontSize: "0.65rem" }} />
+          <TChip label="Received" size="small" color="success" sx={{ height: 20, fontSize: "0.65rem" }} />
         ),
       },
       {
@@ -1636,11 +1637,11 @@ export default function GoodReceivedNotesPage() {
                 </FormSection>
 
                 <FormSection title="Remarks" columns={1}>
-                  <TextField
+                  <TRemarkField
                     label="Remarks"
                     size="small"
                     value={formData.remark}
-                    onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, remark: value })}
                     disabled={!isEditing && !isCreating}
                     multiline
                     rows={2}
@@ -1802,7 +1803,7 @@ export default function GoodReceivedNotesPage() {
                             </Box>
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                            <Chip
+                            <TChip
                               label={`${group.items.filter(i => i.scanned).length}/${group.total_quantity} scanned`}
                               size="small"
                               color={group.items.every(i => i.scanned) ? "success" : "default"}
@@ -1835,7 +1836,7 @@ export default function GoodReceivedNotesPage() {
                                 {/* Item Info Row */}
                                 <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
                                   {/* Item number */}
-                                  <Chip
+                                  <TChip
                                     label={`#${index + 1}`}
                                     size="small"
                                     sx={{ minWidth: 40 }}
@@ -2027,16 +2028,16 @@ export default function GoodReceivedNotesPage() {
                                 <TableCell>
                                   <Box sx={{ display: "flex", gap: 0.5 }}>
                                     {item.saveToSalesStock && (
-                                      <Chip size="small" label="Sales Stock" color="success" icon={<InventoryIcon />} />
+                                      <TChip size="small" label="Sales Stock" color="success" icon={<InventoryIcon />} />
                                     )}
                                     {item.saveToCompanyAssets && (
-                                      <Chip size="small" label="Company Asset" color="info" icon={<BusinessIcon />} />
+                                      <TChip size="small" label="Company Asset" color="info" icon={<BusinessIcon />} />
                                     )}
                                   </Box>
                                 </TableCell>
                                 <TableCell>{item.branch_code}</TableCell>
                                 <TableCell align="center">
-                                  <Chip size="small" label={item.active ? "Yes" : "No"} color={item.active ? "success" : "default"} />
+                                  <TChip size="small" label={item.active ? "Yes" : "No"} color={item.active ? "success" : "default"} />
                                 </TableCell>
                                 <TableCell>
                                   <IconButton size="small" onClick={() => handleRemoveLineItem(item._id)} color="error">
@@ -2057,7 +2058,7 @@ export default function GoodReceivedNotesPage() {
                                       <Typography variant="subtitle2" fontWeight="bold">
                                         {group.product_name}
                                       </Typography>
-                                      <Chip size="small" label={`${group.items.length} items`} />
+                                      <TChip size="small" label={`${group.items.length} items`} />
                                     </Box>
                                   </TableCell>
                                 </TableRow>
@@ -2074,10 +2075,10 @@ export default function GoodReceivedNotesPage() {
                                     <TableCell>
                                       <Box sx={{ display: "flex", gap: 0.5 }}>
                                         {item.saveToSalesStock && (
-                                          <Chip size="small" label="Sales Stock" color="success" icon={<InventoryIcon />} />
+                                          <TChip size="small" label="Sales Stock" color="success" icon={<InventoryIcon />} />
                                         )}
                                         {item.saveToCompanyAssets && (
-                                          <Chip size="small" label="Company Asset" color="info" icon={<BusinessIcon />} />
+                                          <TChip size="small" label="Company Asset" color="info" icon={<BusinessIcon />} />
                                         )}
                                         {!item.saveToSalesStock && !item.saveToCompanyAssets && (
                                           <Typography variant="body2" color="text.secondary">—</Typography>
@@ -2086,7 +2087,7 @@ export default function GoodReceivedNotesPage() {
                                     </TableCell>
                                     <TableCell>{item.branch_code}</TableCell>
                                     <TableCell align="center">
-                                      <Chip size="small" label={item.active ? "Yes" : "No"} color={item.active ? "success" : "default"} />
+                                      <TChip size="small" label={item.active ? "Yes" : "No"} color={item.active ? "success" : "default"} />
                                     </TableCell>
                                   </TableRow>
                                 ))}

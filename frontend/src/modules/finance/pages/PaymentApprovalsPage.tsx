@@ -25,7 +25,6 @@ import {
   IconButton,
   InputAdornment,
   Tooltip,
-  Chip,
 } from "@mui/material";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -38,6 +37,7 @@ import ClearIcon from "@mui/icons-material/Clear";
 
 // Import tijaero components
 import {
+  TChip,
   MasterDetailLayout,
   SearchableList,
   SelectableListItem,
@@ -485,13 +485,13 @@ export default function PaymentApprovalsPage() {
                       </Typography>
                     </Box>
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                      <Chip
+                      <TChip
                         label={statusProps.label}
                         size="small"
                         color={statusProps.color}
                         sx={{ height: 18, fontSize: "0.65rem" }}
                       />
-                      <Chip
+                      <TChip
                         label={paymentMethod}
                         size="small"
                         variant="outlined"

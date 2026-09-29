@@ -545,3 +545,33 @@ class TestProcurementSummary:
         assert row["on_hand_quantity"] == 6
         assert row["available_quantity"] == 0
         assert row["outstanding_quantity"] == 4
+
+    def test_partial_availability_only_shortfall_needs_purchasing(
+        self, db, make_product, make_branch, make_sales_stock, make_quote_with_item,
+    ):
+        """Customer wants 100, 40 are already in stock (unrelated to any PO
+        for this quote) -> only the 60-unit shortfall should need buying,
+        both in the stock-availability check and the procurement summary."""
+        branch = make_branch()
+        product = make_product()
+        quote, item = make_quote_with_item(quantity=100, branch=branch)
+        item.product_id = product.id
+        db.add(item)
+        db.flush()
+
+        for _ in range(40):
+            make_sales_stock(product=product, branch=branch, status=StockStatus.AVAILABLE)
+
+        check = sales_quote_service.check_stock_availability(db, quote.id)
+        row = check["items"][0]
+        assert row["requested_quantity"] == 100
+        assert row["available_quantity"] == 40
+        assert row["is_sufficient"] is False
+        assert row["to_purchase_quantity"] == 60
+
+        summary = sales_quote_service.get_procurement_summary(db, quote.id)
+        srow = summary["items"][0]
+        assert srow["required_quantity"] == 100
+        assert srow["available_quantity"] == 40
+        assert srow["to_purchase_quantity"] == 60
+

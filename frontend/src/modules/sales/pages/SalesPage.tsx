@@ -1,6 +1,7 @@
 import apiClient from "@/api/client";
 import { usePermission } from "@/auth/permissions";
 import {
+  TChip,
     ActionToolbar,
     canPrintDocument,
     CUSTOMER_PAYMENT_METHOD,
@@ -28,6 +29,7 @@ import {
     useTConfirmDialog,
     TActivityHistoryPanel,
     SelectableListItem,
+    TRemarkField,
 } from "@/components/tijaero";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useReferenceData } from "@/hooks";
@@ -66,35 +68,34 @@ import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
-    Alert,
-    Autocomplete,
-    Avatar,
-    Box,
-    Button,
-    Chip,
-    CircularProgress,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    Divider,
-    Grid,
-    IconButton,
-    InputAdornment,
-    MenuItem,
-    Paper,
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableRow,
-    TextField,
-    ToggleButton,
-    ToggleButtonGroup,
-    Tooltip,
-    Typography,
-    Switch,
-    FormControlLabel,
+  Alert,
+  Autocomplete,
+  Avatar,
+  Box,
+  Button,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  Grid,
+  IconButton,
+  InputAdornment,
+  MenuItem,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Tooltip,
+  Typography,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -2713,7 +2714,7 @@ export default function SalesPage() {
                     <Grid item xs={6} sm={2}>
                       <Typography variant="body2" color="text.secondary">Status</Typography>
                       <Box sx={{ mt: 0.5 }}>
-                        <Chip
+                        <TChip
                           size="small"
                           label={invoiceCommission?.status ? invoiceCommission.status.toUpperCase() : "PENDING"}
                           color={
@@ -3038,7 +3039,7 @@ export default function SalesPage() {
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Chip
+                          <TChip
                             label={sale.branch_code}
                             size="small"
                             variant="outlined"
@@ -3048,7 +3049,7 @@ export default function SalesPage() {
                           {format(new Date(sale.created_date), "dd/MM/yyyy")}
                         </TableCell>
                         <TableCell>
-                          <Chip
+                          <TChip
                             label={getPaymentMethodsDisplay(sale).toUpperCase()}
                             size="small"
                             color={
@@ -3139,14 +3140,14 @@ export default function SalesPage() {
           )}
 
           <FormSection title="Additional Information" columns={1}>
-            <TextField
+            <TRemarkField
               label="Remarks"
               size="small"
               value={state.formData.remarks}
-              onChange={(e) =>
+              onChange={(value) =>
                 state.setFormData({
                   ...state.formData,
-                  remarks: e.target.value,
+                  remarks: value,
                 })
               }
               multiline
@@ -4096,7 +4097,7 @@ export default function SalesPage() {
                   }}
                 >
                   <Box>
-                    <Chip
+                    <TChip
                       icon={<CouponIcon />}
                       label={couponCode}
                       color="success"
@@ -4295,7 +4296,7 @@ export default function SalesPage() {
                       {/* Quick select */}
                       <Box sx={{ display: "flex", gap: 0.5, mt: 1 }}>
                         {[1, 5, 8, 12, 18].map((rate) => (
-                          <Chip
+                          <TChip
                             key={rate}
                             label={`${rate}%`}
                             size="small"
@@ -4341,7 +4342,7 @@ export default function SalesPage() {
                     Apply Gift Vouchers
                   </Typography>
                   {appliedVouchers.length > 0 && (
-                    <Chip
+                    <TChip
                       label={`${appliedVouchers.length} applied`}
                       size="small"
                       color="info"
@@ -4450,9 +4451,9 @@ export default function SalesPage() {
                         <Box
                           sx={{ display: "flex", alignItems: "center", gap: 1 }}
                         >
-                          <Chip
+                          <TChip
                             icon={<ReceiptIcon />}
-                            label={voucher.validation.barcode_no}
+                            label={voucher.validation.barcode_no || ""}
                             color="info"
                             size="small"
                           />
@@ -4827,7 +4828,7 @@ export default function SalesPage() {
                         
                         const monthlyAmt = row.amount / months;
                         return (
-                          <Chip
+                          <TChip
                             color="primary"
                             variant="outlined"
                             label={`Monthly Amount: ${currencySymbol} ${fmtLKR(monthlyAmt)} / mo`}
@@ -5172,7 +5173,7 @@ export default function SalesPage() {
                       Reset to default
                     </Button>
                   )}
-                  <Chip
+                  <TChip
                     label={`Commission: ${currencySymbol} ${fmtLKR(effectiveAmt)}`}
                     color="primary"
                     size="small"

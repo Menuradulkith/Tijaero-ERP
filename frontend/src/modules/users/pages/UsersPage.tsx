@@ -11,27 +11,27 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
-    Alert,
-    Autocomplete,
-    Avatar,
-    Box,
-    Button,
-    Checkbox,
-    Chip,
-    FormControlLabel,
-    IconButton,
-    InputAdornment,
-    Paper,
-    Switch,
-    TextField,
-    Tooltip,
-    Typography,
+  Alert,
+  Autocomplete,
+  Avatar,
+  Box,
+  Button,
+  Checkbox,
+  FormControlLabel,
+  IconButton,
+  InputAdornment,
+  Paper,
+  Switch,
+  TextField,
+  Tooltip,
+  Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
 // Tijaero Components
 import {
+  TChip,
     ActionToolbar,
     DetailPanelHeader,
     EmptyState,
@@ -669,7 +669,7 @@ export default function UsersPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<UserRow>) => (
-          <Chip
+          <TChip
             label={params.row.is_active ? "Active" : "Inactive"}
             size="small"
             color={params.row.is_active ? "success" : "default"}
@@ -1017,7 +1017,7 @@ export default function UsersPage() {
                   {selectedUser.branches.map((branch) => {
                     const isPrimary = selectedUser.primary_branch?.id === branch.id;
                     return (
-                      <Chip
+                      <TChip
                         key={branch.id}
                         label={isPrimary ? `${branch.branch_name} (${branch.branch_code}) · Primary` : `${branch.branch_name} (${branch.branch_code})`}
                         size="small"
@@ -1035,7 +1035,7 @@ export default function UsersPage() {
               <FormSection title="Assigned Roles" columns={1}>
                 <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                   {selectedUser.groups.map((group) => (
-                    <Chip
+                    <TChip
                       key={group.id}
                       label={group.name}
                       size="small"
@@ -1081,7 +1081,7 @@ export default function UsersPage() {
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
                   <Typography variant="caption" color="text.secondary">Login Status</Typography>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                    <Chip
+                    <TChip
                       label={selectedUser.blocked ? "Blocked" : "Not Blocked"}
                       size="small"
                       color={selectedUser.blocked ? "error" : "success"}
@@ -1102,7 +1102,7 @@ export default function UsersPage() {
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
                   <Typography variant="caption" color="text.secondary">Password Reset</Typography>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                    <Chip
+                    <TChip
                       label={selectedUser.must_change_password ? "Required on Next Login" : "Not Required"}
                       size="small"
                       color={selectedUser.must_change_password ? "warning" : "default"}

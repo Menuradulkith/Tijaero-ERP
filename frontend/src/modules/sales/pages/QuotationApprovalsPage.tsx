@@ -20,7 +20,6 @@ import {
   TableCell,
   Paper,
   Button,
-  Chip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -42,6 +41,7 @@ import ClearIcon from "@mui/icons-material/Clear";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
+  TChip,
   MasterDetailLayout,
   ActionToolbar,
   DetailPanelHeader,
@@ -562,23 +562,23 @@ export default function QuotationApprovalsPage() {
                           <TableCell>{item.warrenty_month || "-"}</TableCell>
                           <TableCell align="center">
                             {itemStatus === "so_created" || itemStatus === "completed" ? (
-                              <Chip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                              <TChip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : itemStatus === "po_created" ? (
-                              <Chip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                              <TChip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : itemStatus === "itn_created" ? (
-                              <Chip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                              <TChip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : itemStatus === "procurement" ? (
                               stockStatus === "needs_transfer"
-                                ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
-                                : <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                                ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                                : <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : itemStatus === "cancelled" ? (
-                              <Chip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                              <TChip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : (
                               stockStatus === "needs_transfer"
-                                ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                                ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                                 : stockStatus === "needs_procurement"
-                                  ? <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
-                                  : <Chip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                                  ? <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                                  : <TChip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             )}
                           </TableCell>
                           <TableCell align="right">{fmtLKR(lineTotal)}</TableCell>

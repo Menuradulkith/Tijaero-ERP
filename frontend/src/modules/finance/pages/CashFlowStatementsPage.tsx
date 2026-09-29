@@ -15,7 +15,6 @@ import ClearIcon from "@mui/icons-material/Clear";
 import {
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -37,6 +36,7 @@ import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  TChip,
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
@@ -317,7 +317,7 @@ export default function CashFlowStatementsPage() {
                       </Typography>
                     </Box>
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                      <Chip
+                      <TChip
                         label={stmt.status.charAt(0).toUpperCase() + stmt.status.slice(1)}
                         size="small"
                         color={statusColor}

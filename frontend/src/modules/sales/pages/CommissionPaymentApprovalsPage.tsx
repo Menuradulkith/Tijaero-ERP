@@ -17,7 +17,6 @@ import ClearIcon from "@mui/icons-material/Clear";
 import {
   Box,
   Button,
-  Chip,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -36,6 +35,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 
 import {
+  TChip,
   DetailPanelHeader,
   EmptyState,
   fmtLKR,
@@ -354,7 +354,7 @@ export default function CommissionPaymentApprovalsPage() {
                       </Typography>
                     </Box>
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                      <Chip
+                      <TChip
                         label={statusChip.label}
                         size="small"
                         color={statusChip.color}

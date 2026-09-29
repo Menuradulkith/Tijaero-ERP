@@ -24,7 +24,6 @@ import {
   TextField,
   InputAdornment,
   IconButton,
-  Chip,
   Typography,
   Drawer,
   Button,
@@ -44,7 +43,7 @@ import {
   CheckCircle as AvailableIcon,
 } from "@mui/icons-material";
 import { companyAssetsApi } from "@/modules/inventory/api";
-import { fmtLKR } from "@/components/tijaero";
+import { TChip, fmtLKR } from "@/components/tijaero";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { KpiSparkCard } from "@/components/dashboard";
 import { useReferenceData, REFERENCE_DATA_PRESETS } from "@/hooks";
@@ -64,7 +63,7 @@ const AssetStatusChip = ({ status }: { status: string }) => {
   const config = statusConfig[status?.toLowerCase()] || { label: status || "Unknown", color: "default" as const };
 
   return (
-    <Chip
+    <TChip
       label={config.label}
       color={config.color}
       size="small"
@@ -77,7 +76,7 @@ const AssetStatusChip = ({ status }: { status: string }) => {
 const SourceChip = ({ source }: { source?: string }) => {
   if (source === "sale_return") {
     return (
-      <Chip
+      <TChip
         label="Sale Return"
         size="small"
         variant="outlined"
@@ -87,7 +86,7 @@ const SourceChip = ({ source }: { source?: string }) => {
     );
   }
   return (
-    <Chip
+    <TChip
       label="GRN"
       size="small"
       variant="outlined"

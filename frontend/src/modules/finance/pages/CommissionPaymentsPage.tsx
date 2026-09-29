@@ -62,6 +62,7 @@ import {
   TCurrency,
   TDetailSkeleton,
   TExportButton,
+  TRemarkField,
   TSearchableSelect,
   TStatCard,
   TStatusChip,
@@ -774,11 +775,11 @@ export default function CommissionPaymentsPage() {
 
             {/* Remarks */}
             <FormSection title="Remarks" columns={1}>
-              <TextField
+              <TRemarkField
                 label="Remarks"
                 size="small"
                 value={formData.remarks}
-                onChange={(e) => setFormData((prev) => ({ ...prev, remarks: e.target.value }))}
+                onChange={(value) => setFormData((prev) => ({ ...prev, remarks: value }))}
                 multiline
                 rows={2}
                 fullWidth
@@ -802,7 +803,7 @@ export default function CommissionPaymentsPage() {
 
               {selectedPayment.remarks && (
                 <FormSection title="Remarks" columns={1}>
-                  <TextField label="Remarks" size="small" value={selectedPayment.remarks} disabled multiline rows={2} fullWidth />
+                  <TRemarkField label="Remarks" size="small" value={selectedPayment.remarks} onChange={() => {}} disabled multiline rows={2} fullWidth />
                 </FormSection>
               )}
 

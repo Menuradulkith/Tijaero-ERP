@@ -18,7 +18,6 @@ import ReplayIcon from "@mui/icons-material/Replay";
 import {
   Box,
   Button,
-  Chip,
   CircularProgress,
   Paper,
   Stack,
@@ -37,6 +36,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import {
+  TChip,
   TConfirmDialog,
   handleApiError,
   showErrorToast,
@@ -139,7 +139,7 @@ export default function PostingFailuresPage() {
         </Box>
         <Box flexGrow={1} />
         {data && (
-          <Chip
+          <TChip
             color={data.pending_count > 0 ? "warning" : "success"}
             label={`${data.pending_count} pending`}
             sx={{ fontWeight: 600 }}
@@ -226,7 +226,7 @@ export default function PostingFailuresPage() {
                     )}
                   </TableCell>
                   <TableCell sx={{ maxWidth: 320 }}>
-                    <Chip size="small" label={row.error_code} variant="outlined" sx={{ mb: 0.5 }} />
+                    <TChip size="small" label={row.error_code} variant="outlined" sx={{ mb: 0.5 }} />
                     <Tooltip title={row.error_message}>
                       <Typography variant="caption" color="text.secondary" noWrap display="block">
                         {row.error_message}
@@ -239,7 +239,7 @@ export default function PostingFailuresPage() {
                     <Typography variant="caption">{fmtDateTime(row.last_attempt_at)}</Typography>
                   </TableCell>
                   <TableCell align="center">
-                    <Chip size="small" color={statusColor(row.status)} label={row.status} />
+                    <TChip size="small" color={statusColor(row.status)} label={row.status} />
                   </TableCell>
                   <TableCell align="right">
                     {row.status === "pending" ? (

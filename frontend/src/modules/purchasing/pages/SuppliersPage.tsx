@@ -16,7 +16,6 @@ import {
   Switch,
   FormControlLabel,
   Typography,
-  Chip,
   IconButton,
   Alert,
   Avatar,
@@ -50,6 +49,7 @@ import { useReferenceData, type CountryRef, type CurrencyRef } from "@/hooks/use
 // ConfirmDialog now uses TConfirmDialog from tijaero
 
 import {
+  TChip,
   MasterDetailLayout,
   DetailPanelHeader,
   ActionToolbar,
@@ -700,7 +700,7 @@ export default function SuppliersPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<SupplierPaymentAccount>) =>
           params.row.is_default ? (
-            <Chip label="Default" size="small" color="primary" sx={{ height: 20, fontSize: "0.65rem" }} />
+            <TChip label="Default" size="small" color="primary" sx={{ height: 20, fontSize: "0.65rem" }} />
           ) : null,
       },
       {
@@ -1109,7 +1109,7 @@ export default function SuppliersPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<SupplierRow>) => (
-          <Chip
+          <TChip
             label={params.row.active ? "Active" : "Inactive"}
             size="small"
             color={params.row.active ? "success" : "default"}

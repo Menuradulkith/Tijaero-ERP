@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, Chip, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
+import { Avatar, Box, Button, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
@@ -26,6 +26,7 @@ import {
   TConfirmDialog,
   TDetailSkeleton,
   TExportButton,
+  TStatusChip,
   TStatusFilter,
   type TFilterStatusOption,
   TDataGrid,
@@ -306,10 +307,15 @@ export default function LeavesPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<Leave>) => (
-          <Chip
-            label={params.row.status}
+          <TStatusChip
+            status={params.row.status}
             size="small"
-            color={statusColor(params.row.status) as any}
+            customMap={{
+              [params.row.status.toLowerCase()]: {
+                label: params.row.status,
+                color: statusColor(params.row.status),
+              },
+            }}
             sx={{ textTransform: "capitalize" }}
           />
         ),

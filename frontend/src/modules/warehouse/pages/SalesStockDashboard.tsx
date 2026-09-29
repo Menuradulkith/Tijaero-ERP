@@ -8,7 +8,7 @@
 
 import apiClient from "@/api/client";
 import { usePermission } from "@/auth/permissions";
-import { fmtLKR } from "@/components/tijaero";
+import { TChip, fmtLKR } from "@/components/tijaero";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { KpiSparkCard } from "@/components/dashboard";
 import { LocationRef, REFERENCE_DATA_PRESETS, useReferenceData } from "@/hooks";
@@ -32,27 +32,26 @@ import {
     Search as SearchIcon,
 } from "@mui/icons-material";
 import {
-    Autocomplete,
-    Box,
-    Button,
-    Chip,
-    CircularProgress,
-    Collapse,
-    Drawer,
-    Grid,
-    IconButton,
-    InputAdornment,
-    Paper,
-    Stack,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TablePagination,
-    TableRow,
-    TextField,
-    Typography,
+  Autocomplete,
+  Box,
+  Button,
+  CircularProgress,
+  Collapse,
+  Drawer,
+  Grid,
+  IconButton,
+  InputAdornment,
+  Paper,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TablePagination,
+  TableRow,
+  TextField,
+  Typography,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
@@ -148,7 +147,7 @@ const StatusChip = ({ status }: { status: string }) => {
   };
 
   return (
-    <Chip
+    <TChip
       label={config.label}
       color={config.color}
       size="small"
@@ -476,7 +475,7 @@ const StockDetailsPanel = ({
                           }}
                         >
                           {evt.extra.po_no && (
-                            <Chip
+                            <TChip
                               label={`PO: ${evt.extra.po_no}`}
                               size="small"
                               variant="outlined"
@@ -484,7 +483,7 @@ const StockDetailsPanel = ({
                             />
                           )}
                           {evt.extra.location && (
-                            <Chip
+                            <TChip
                               label={`Location: ${evt.extra.location}`}
                               size="small"
                               variant="outlined"
@@ -492,7 +491,7 @@ const StockDetailsPanel = ({
                             />
                           )}
                           {evt.extra.branch && (
-                            <Chip
+                            <TChip
                               label={`Branch: ${evt.extra.branch}`}
                               size="small"
                               variant="outlined"
@@ -500,7 +499,7 @@ const StockDetailsPanel = ({
                             />
                           )}
                           {evt.extra.selling_price != null && (
-                            <Chip
+                            <TChip
                               label={`${currencySymbol} ${Number(evt.extra.selling_price).toFixed(2)}`}
                               size="small"
                               color="success"
@@ -509,7 +508,7 @@ const StockDetailsPanel = ({
                             />
                           )}
                           {evt.extra.return_price != null && (
-                            <Chip
+                            <TChip
                               label={`Return: ${currencySymbol} ${Number(evt.extra.return_price).toFixed(2)}`}
                               size="small"
                               color="warning"
@@ -518,7 +517,7 @@ const StockDetailsPanel = ({
                             />
                           )}
                           {evt.extra.condition && (
-                            <Chip
+                            <TChip
                               label={`Condition: ${evt.extra.condition}`}
                               size="small"
                               variant="outlined"
@@ -526,7 +525,7 @@ const StockDetailsPanel = ({
                             />
                           )}
                           {evt.extra.from_location && evt.extra.to_location && (
-                            <Chip
+                            <TChip
                               label={`${evt.extra.from_location} → ${evt.extra.to_location}`}
                               size="small"
                               color="secondary"
@@ -535,7 +534,7 @@ const StockDetailsPanel = ({
                             />
                           )}
                           {evt.extra.status && (
-                            <Chip
+                            <TChip
                               label={String(evt.extra.status)}
                               size="small"
                               variant="outlined"

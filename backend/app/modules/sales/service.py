@@ -1815,6 +1815,10 @@ class SalesService:
                 )
             # First, restore stock for existing items (lock rows to prevent concurrent modification)
             existing_items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
+            before_items = [
+                {"product_id": i.product_id, "quantity": i.quantity, "unit_price": float(i.selling_price)}
+                for i in existing_items
+            ]
             for item in existing_items:
                 if item.sales_stock_id:
                     stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
@@ -1895,8 +1899,16 @@ class SalesService:
                 update_data['approval_status'] = DocumentStatus.COMPLETED
         
         changed_header_fields = set(update_data.keys())
+        item_changes = []
         if invoice_data.items is not None:
-            changed_header_fields.add("items")
+            after_items = [
+                {"product_id": i.product_id, "quantity": i.quantity, "unit_price": float(i.selling_price)}
+                for i in invoice_data.items
+            ]
+            from app.common.audit import diff_line_items
+            item_changes = diff_line_items(before_items, after_items, key_field="product_id")
+            if item_changes:
+                changed_header_fields.add("items")
 
         for field, value in update_data.items():
             setattr(invoice, field, value)
@@ -1908,7 +1920,17 @@ class SalesService:
             self._recompute_invoice_totals(db, invoice)
 
         changes = diff_changes(before_header_values, update_data)
-        if invoice_data.items is not None:
+        if item_changes:
+            from app.modules.products.models import Product
+
+            product_ids = {entry["key"] for entry in item_changes}
+            product_names = {
+                p.id: p.name
+                for p in db.query(Product).filter(Product.id.in_(product_ids)).all()
+            }
+            for entry in item_changes:
+                entry["product_name"] = product_names.get(entry["key"], f"Product #{entry['key']}")
+            changes["item_changes"] = item_changes
             changes.setdefault("fields", [])
             changes["fields"] = sorted(set(changes["fields"]) | {"items"})
         log_audit(

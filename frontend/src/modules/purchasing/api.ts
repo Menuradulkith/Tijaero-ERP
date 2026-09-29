@@ -311,9 +311,9 @@ export const purchaseOrdersApi = {
   },
 };
 
-// Procurement Queue API — backs the central "TOP" page. Items land here when
-// a supplier is chosen on the Sales Quotation page's procurement dialog, and
-// are removed automatically once a Purchase Order is created for them.
+// Procurement Queue API — backs the central Procurement Queue page. Items land
+// here when a supplier is chosen on the Sales Quotation page's procurement
+// dialog, and are removed automatically once a Purchase Order is created for them.
 export const procurementQueueApi = {
   add: async (items: ProcurementQueueItemInput[]) => {
     const response = await apiClient.post<ProcurementQueueItem[]>(

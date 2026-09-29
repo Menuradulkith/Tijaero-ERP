@@ -10,7 +10,6 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   CircularProgress,
   Divider,
   IconButton,
@@ -34,7 +33,7 @@ import { useNavigate } from "react-router-dom";
 
 import { usePermission } from "@/auth/permissions";
 import { useFormGuardStore } from "@/state/formGuardStore";
-import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
+import { TChip, TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 import { chatAgentApi } from "./chatApi";
 import { useChatStream } from "./useChatStream";
 import { useChatAgentUi } from "./chatAgentStore";
@@ -174,7 +173,7 @@ function ActionCard({
             action.tool_name}
         </Typography>
         {action.status !== "pending" && (
-          <Chip
+          <TChip
             size="small"
             label={action.status}
             color={
@@ -521,7 +520,7 @@ export default function ChatAgentWidget() {
                       {(e.tools?.length ?? 0) > 0 && (
                         <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mb: 0.5 }}>
                           {e.tools!.map((t, i) => (
-                            <Chip key={`${t}-${i}`} label={t.replace(/_/g, " ")} size="small" variant="outlined" sx={{ fontSize: 10.5, height: 20 }} />
+                            <TChip key={`${t}-${i}`} label={t.replace(/_/g, " ")} size="small" variant="outlined" sx={{ fontSize: 10.5, height: 20 }} />
                           ))}
                         </Stack>
                       )}

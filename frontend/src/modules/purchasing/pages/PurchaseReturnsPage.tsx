@@ -23,7 +23,6 @@ import {
   Autocomplete,
   Box,
   Button,
-  Chip,
   CircularProgress,
   IconButton,
   InputAdornment,
@@ -47,6 +46,7 @@ import { formatDateTimeReadable } from "@/utils/formatters";
 
 // Import tijaero components
 import {
+  TChip,
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
@@ -62,6 +62,7 @@ import {
   TExportButton,
   TPrintButton,
   TPrintPreviewDialog,
+  TRemarkField,
   TStatusChip,
   TStatusFilter,
   canPrintDocument,
@@ -962,11 +963,11 @@ export default function PurchaseReturnsPage() {
                 </FormSection>
 
                 <FormSection title="Remarks" columns={1}>
-                  <TextField
+                  <TRemarkField
                     label="Remarks"
                     size="small"
                     value={formData.remark}
-                    onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, remark: value })}
                     disabled={!isEditing && !isCreating}
                     multiline
                     rows={2}
@@ -1050,7 +1051,7 @@ export default function PurchaseReturnsPage() {
                     {/* Note: Approval is always required for purchase returns */}
                     <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: "divider" }}>
                       <Typography variant="body2" color="text.secondary">
-                        <Chip
+                        <TChip
                           label="Requires Approval"
                           size="small"
                           color="warning"
@@ -1068,7 +1069,7 @@ export default function PurchaseReturnsPage() {
                         </Typography>
                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 1 }}>
                           {validatedItems.map((item, idx) => (
-                            <Chip
+                            <TChip
                               key={idx}
                               size="small"
                               icon={<CheckCircleIcon fontSize="small" />}

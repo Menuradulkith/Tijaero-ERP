@@ -48,6 +48,7 @@ import {
   TBranchFilter,
   TConfirmDialog,
   TDetailSkeleton,
+  TRemarkField,
   TSearchableSelect,
   TStatusChip,
   useCrudMutation,
@@ -539,10 +540,11 @@ export default function ExpenseApprovalsPage() {
             {/* Remarks */}
             {detail.remarks && (
               <FormSection title="Remarks" columns={1}>
-                <TextField
+                <TRemarkField
                   label="Remarks"
                   size="small"
                   value={detail.remarks}
+                  onChange={() => {}}
                   disabled
                   multiline
                   rows={3}

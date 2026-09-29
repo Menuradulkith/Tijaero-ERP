@@ -29,7 +29,6 @@ import ClearIcon from "@mui/icons-material/Clear";
 import {
   Avatar,
   Box,
-  Chip,
   Divider,
   Grid,
   IconButton,
@@ -52,6 +51,7 @@ import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  TChip,
   DetailPanelHeader,
   EmptyState,
   fmtLKR,
@@ -391,7 +391,7 @@ export default function SalesTrackPage() {
                   <Typography variant="body2" fontWeight={600}>
                     {order.invoice_no}
                   </Typography>
-                  <Chip
+                  <TChip
                     label={approvalChip.label}
                     size="small"
                     color={approvalChip.color}
@@ -412,7 +412,7 @@ export default function SalesTrackPage() {
                       ? format(new Date(order.created_date), "dd MMM yyyy")
                       : "—"}
                   </Typography>
-                  <Chip
+                  <TChip
                     label={paymentChip.label}
                     size="small"
                     color={paymentChip.color}
@@ -942,7 +942,7 @@ export default function SalesTrackPage() {
                               : "—"}
                           </TableCell>
                           <TableCell>
-                            <Chip
+                            <TChip
                               label={entry.type || entry.payment_type || "Payment"}
                               size="small"
                               variant="outlined"

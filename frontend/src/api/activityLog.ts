@@ -14,6 +14,22 @@ export interface ActivityLogFieldChange {
   new: string | number | boolean | string[] | null;
 }
 
+/** One line-item's change within an "items" field update — quote/PO items
+ * get wholesale deleted + recreated on every save (no stable id across an
+ * edit), so lines are diffed by product instead; see diff_line_items() on
+ * the backend. */
+export interface ActivityLogItemChange {
+  /** The product id this line is keyed by. */
+  key: number | string;
+  /** Display name of the product, resolved once by the backend at log time. */
+  product_name?: string;
+  action: "added" | "removed" | "changed";
+  /** Present for "added"/"removed" — the line's field values. */
+  item?: Record<string, string | number | boolean | null>;
+  /** Present for "changed" — old/new per field that actually differs. */
+  changes?: Record<string, ActivityLogFieldChange>;
+}
+
 export interface ActivityLogChanges {
   /** Names of every field that changed in this entry. Always present on
    * "update" entries; older log rows may have only this (no `values`). */
@@ -22,6 +38,10 @@ export interface ActivityLogChanges {
    * the old/new diff feature shipped — absent on older rows and on fields
    * that were fully replaced (e.g. a line-item list) rather than diffed. */
   values?: Record<string, ActivityLogFieldChange>;
+  /** Per-line breakdown when "items" is in `fields` — which products were
+   * added/removed/changed and how. Absent on older rows logged before this
+   * shipped (those just show "Items: changed" with no further detail). */
+  item_changes?: ActivityLogItemChange[];
   /** "create"/"delete" entries instead log a handful of ad-hoc identifying
    * fields (e.g. { po_no: "PO-123" }) rather than a fields/values diff. */
   [key: string]: unknown;

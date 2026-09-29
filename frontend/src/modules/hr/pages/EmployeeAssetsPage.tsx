@@ -3,7 +3,7 @@
  */
 import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, Chip, FormControlLabel, IconButton, InputAdornment, Paper, Switch, TextField, Tooltip, Typography } from "@mui/material";
+import { Avatar, Box, Button, FormControlLabel, IconButton, InputAdornment, Paper, Switch, TextField, Tooltip, Typography } from "@mui/material";
 import DevicesIcon from "@mui/icons-material/Devices";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -23,6 +23,7 @@ import {
   type TDataGridColumn,
   TDetailSkeleton,
   TExportButton,
+  TStatusChip,
   handleApiError,
   showErrorToast,
   showSuccessToast,
@@ -182,10 +183,14 @@ export default function EmployeeAssetsPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<EmployeeAsset>) => (
-          <Chip
-            label={params.row.revoke_assignment ? "Revoked" : "Active"}
+          <TStatusChip
+            status={params.row.revoke_assignment ? "revoked" : "active"}
+            statusMap="activeInactive"
+            customMap={{
+              revoked: { label: "Revoked", color: "error" },
+              active: { label: "Active", color: "success" },
+            }}
             size="small"
-            color={params.row.revoke_assignment ? "error" : "success"}
             sx={{ height: 20, fontSize: "0.65rem" }}
           />
         ),

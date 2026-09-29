@@ -1,4 +1,4 @@
-import { showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { TChip, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import {
   SettingsSuggest as SettingsSuggestIcon,
   Notifications as NotificationsIcon,
@@ -12,7 +12,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   Divider,
   FormControlLabel,
   Grid,
@@ -112,7 +111,7 @@ export default function PreferencesSettings() {
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
-          <Chip
+          <TChip
             size="small"
             color="default"
             icon={<SettingsSuggestIcon />}

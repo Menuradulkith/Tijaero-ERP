@@ -11,7 +11,6 @@ import {
   Autocomplete,
   Box,
   Button,
-  Chip,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -31,6 +30,7 @@ import {
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
+  TChip,
   MasterDetailLayout,
   DetailPanelHeader,
   ActionToolbar,
@@ -43,6 +43,7 @@ import {
   showSuccessToast,
   TDetailSkeleton,
   TExportButton,
+  TRemarkField,
   TBranchFilter,
   GENERIC_PAYMENT_METHOD,
   TConfirmDialog,
@@ -360,7 +361,7 @@ export default function CustomerAdvancePaymentsPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<AdvanceRow>) => (
-          <Chip
+          <TChip
             label={params.row.active ? "Active" : "Inactive"}
             size="small"
             color={params.row.active ? "success" : "default"}
@@ -569,7 +570,7 @@ export default function CustomerAdvancePaymentsPage() {
               >
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">Status:</Typography>
-                  <Chip
+                  <TChip
                     label={selectedItem.active ? "Active" : "Inactive"}
                     size="small"
                     color={selectedItem.active ? "success" : "default"}
@@ -593,11 +594,11 @@ export default function CustomerAdvancePaymentsPage() {
             )}
 
             <FormSection title="Remarks" columns={1}>
-              <TextField
+              <TRemarkField
                 label="Remarks"
                 size="small"
                 value={formData.remarks || ""}
-                onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                onChange={(value) => setFormData({ ...formData, remarks: value })}
                 disabled={!isEditing && !isCreating}
                 multiline
                 rows={2}

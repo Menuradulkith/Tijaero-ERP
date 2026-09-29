@@ -24,7 +24,6 @@ import {
   Stepper,
   Step,
   StepLabel,
-  Chip,
   Alert,
   InputAdornment,
   Tooltip,
@@ -46,6 +45,7 @@ import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 // Import tijaero components
 import {
+  TChip,
   MasterDetailLayout,
   DetailPanelHeader,
   ActionToolbar,
@@ -67,6 +67,7 @@ import {
   showErrorToast,
   TDataGrid,
   type TDataGridColumn,
+  TRemarkField,
 } from "@/components/tijaero";
 
 
@@ -773,11 +774,11 @@ export default function ItemTransferNotesPage() {
                 </FormSection>
 
                 <FormSection title="Remarks" columns={1}>
-                  <TextField
+                  <TRemarkField
                     label="Remarks"
                     size="small"
                     value={formData.remark}
-                    onChange={(e) => setFormData(prev => ({ ...prev, remark: e.target.value }))}
+                    onChange={(value) => setFormData(prev => ({ ...prev, remark: value }))}
                     disabled={!isCreating && !isEditing}
                     multiline
                     rows={2}
@@ -897,7 +898,7 @@ export default function ItemTransferNotesPage() {
                         </Typography>
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                           {validatedItems.map((item) => (
-                            <Chip
+                            <TChip
                               key={item.barcode}
                               label={`${item.barcode} - ${item.product_name}`}
                               onDelete={() => handleRemoveValidatedItem(item.barcode)}
@@ -963,9 +964,9 @@ export default function ItemTransferNotesPage() {
                             <TableCell align="right">{item.cost_price ? fmtLKR(item.cost_price) : '-'}</TableCell>
                             <TableCell align="center">
                               {item.item_recieved ? (
-                                <Chip label="Received" size="small" color="success" />
+                                <TChip label="Received" size="small" color="success" />
                               ) : (
-                                <Chip label="Pending" size="small" color="warning" />
+                                <TChip label="Pending" size="small" color="warning" />
                               )}
                             </TableCell>
                           </TableRow>

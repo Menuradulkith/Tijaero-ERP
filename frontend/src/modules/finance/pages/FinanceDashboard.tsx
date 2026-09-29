@@ -8,7 +8,6 @@ import {
   Card,
   CardContent,
   LinearProgress,
-  Chip,
   IconButton,
   Tooltip,
   Divider,
@@ -46,7 +45,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { TPageHeader, TCurrency, TPageSkeleton, TBranchFilter, fmtLKR } from '@/components/tijaero';
+import { TChip, TPageHeader, TCurrency, TPageSkeleton, TBranchFilter, fmtLKR } from '@/components/tijaero';
 import { KpiSparkCard } from '@/components/dashboard';
 import { cashbookApi, bankDepositsApi, expensesApi } from '../api';
 import { CashbookEntry } from '../types';
@@ -761,7 +760,7 @@ export default function FinanceDashboard() {
           <Paper sx={surfaceCardSx}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="h6">Recent Transactions</Typography>
-              <Chip
+              <TChip
                 label="View All"
                 size="small"
                 clickable

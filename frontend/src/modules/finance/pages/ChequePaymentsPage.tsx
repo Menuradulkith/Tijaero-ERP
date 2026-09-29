@@ -39,6 +39,7 @@ import {
   fmtLKR,
   TActivityHistoryPanel,
   useRowSelection,
+  TRemarkField,
 } from "@/components/tijaero";
 
 import { chequePaymentsApi } from "@/modules/finance/api";
@@ -377,10 +378,11 @@ export default function ChequePaymentsPage() {
                 disabled
                 InputProps={{ readOnly: true }}
               />
-              <TextField
+              <TRemarkField
                 label="Remark"
                 size="small"
                 value={formData.remark || ""}
+                onChange={() => {}}
                 disabled
                 InputProps={{ readOnly: true }}
                 multiline

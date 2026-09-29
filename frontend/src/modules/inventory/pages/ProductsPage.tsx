@@ -1,5 +1,6 @@
 import { usePermission } from "@/auth/permissions";
 import {
+  TChip,
     ActionToolbar,
     DetailPanelHeader,
     EmptyState,
@@ -42,24 +43,23 @@ import {
     OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import {
-    Alert,
-    Autocomplete,
-    Avatar,
-    Box,
-    Button,
-    Chip,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    FormControlLabel,
-    IconButton,
-    InputAdornment,
-    MenuItem,
-    Switch,
-    TextField,
-    Tooltip,
-    Typography,
+  Alert,
+  Autocomplete,
+  Avatar,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
+  IconButton,
+  InputAdornment,
+  MenuItem,
+  Switch,
+  TextField,
+  Tooltip,
+  Typography,
 } from "@mui/material";
   import type { GridRenderCellParams } from "@mui/x-data-grid";
   import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -668,7 +668,7 @@ export default function ProductsPage({
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<ProductRow>) => (
-          <Chip
+          <TChip
             label={params.row.active ? "Active" : "Inactive"}
             size="small"
             color={params.row.active ? "success" : "default"}
@@ -736,7 +736,7 @@ export default function ProductsPage({
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<CategoryRow>) => (
-          <Chip
+          <TChip
             label={params.row.active ? "Active" : "Inactive"}
             size="small"
             color={params.row.active ? "success" : "default"}
@@ -804,7 +804,7 @@ export default function ProductsPage({
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<BrandRow>) => (
-          <Chip
+          <TChip
             label={params.row.active ? "Active" : "Inactive"}
             size="small"
             color={params.row.active ? "success" : "default"}

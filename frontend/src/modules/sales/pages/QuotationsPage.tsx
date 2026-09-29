@@ -8,6 +8,7 @@ import { formatDateTimeReadable } from "@/utils/formatters";
 import { exportToCSV } from "@/utils/csvExport";
 import { FileDownload as DownloadIcon } from "@mui/icons-material";
 import {
+  TChip,
   ActionToolbar,
   canPrintDocument,
   EmptyState,
@@ -27,6 +28,7 @@ import {
   TStatusChip,
   TStatusFilter,
   TSteps,
+  TRemarkField,
   useCrudMutation,
   useMasterDetailState,
   useRowSelection,
@@ -70,7 +72,6 @@ import {
   Avatar,
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -92,7 +93,7 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
-  Typography
+  Typography,
 } from "@mui/material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -766,11 +767,17 @@ export default function QuotationsPage() {
       .map(item => {
         const product = products.find(p => p.id === item.product_id);
         const remaining = item.quantity - (item.converted_qty || 0);
+        // Partial availability: only the shortfall needs to be purchased —
+        // e.g. customer wants 100, 40 already in stock, so only 60 to buy.
+        const liveStock = stockAvailability.find(sa => sa.product_id === item.product_id);
+        const toPurchase = liveStock
+          ? liveStock.to_purchase_quantity
+          : Math.max(remaining, 0);
         return {
           quote_item_id: item.id,
           product_id: item.product_id,
           product_name: product?.name || `Product #${item.product_id}`,
-          quantity: remaining > 0 ? remaining : item.quantity,
+          quantity: toPurchase > 0 ? toPurchase : (remaining > 0 ? remaining : item.quantity),
           unit_price: product?.cost_price ?? Number(item.selling_price),
           warrenty_month: item.warrenty_month || "0",
         };
@@ -800,12 +807,11 @@ export default function QuotationsPage() {
         queryClient.invalidateQueries({ queryKey: ["procurementQueue"] });
         setSupplierSelectionOpen(false);
         showSuccessToast("Added to the TOP page — select suppliers there to create purchase orders.");
-        navigate("/purchasing/top");
       } catch (err: unknown) {
         showErrorToast(handleApiError(err, "Failed to queue items for procurement"));
       }
     },
-    [selectedQuote, navigate, queryClient],
+    [selectedQuote, queryClient],
   );
 
   // Create a Sales Order for whichever items the live stock check just
@@ -1433,7 +1439,7 @@ export default function QuotationsPage() {
                   !['cancelled', 'completed', 'revised'].includes(selectedQuote.status) && (
                     selectedQuote.advance_payment_id ? (
                       <Tooltip title="A customer advance is already recorded for this quotation">
-                        <Chip
+                        <TChip
                           size="small"
                           color="success"
                           variant="outlined"
@@ -1517,13 +1523,6 @@ export default function QuotationsPage() {
             label="Quote Number"
             size="small"
             value={quote.quote_no}
-            disabled
-            InputProps={{ readOnly: true }}
-          />
-          <TextField
-            label="Quote Type"
-            size="small"
-            value={QUOTE_TYPE_LABELS[quote.quote_type]}
             disabled
             InputProps={{ readOnly: true }}
           />
@@ -1662,27 +1661,27 @@ export default function QuotationsPage() {
                       <TableCell align="center">
                         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
                           {itemStatus === 'so_created' || itemStatus === 'completed' ? (
-                            <Chip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'po_created' ? (
-                            <Chip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'itn_created' ? (
-                            <Chip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'procurement' ? (
                             // PO/ITN in progress — show what was initiated
                             stockStatus === 'needs_transfer'
-                              ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                              : <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              : <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'cancelled' ? (
-                            <Chip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : (
                             // Pending — show based on stock availability
                             stockStatus === 'needs_transfer'
-                              ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                               : stockStatus === 'needs_procurement'
-                                ? <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                ? <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                                 : stockStatus === 'in_stock'
-                                  ? <Chip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                                  : <Chip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                  ? <TChip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                  : <TChip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           )}
                         </Box>
                       </TableCell>
@@ -1742,6 +1741,7 @@ export default function QuotationsPage() {
                     <TableCell align="right">Reserved</TableCell>
                     <TableCell align="right">Available</TableCell>
                     <TableCell align="right">Outstanding</TableCell>
+                    <TableCell align="right">To Purchase</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1753,13 +1753,18 @@ export default function QuotationsPage() {
                       <TableCell align="right">{row.received_quantity}</TableCell>
                       <TableCell align="right">
                         {row.reserved_quantity > 0
-                          ? <Chip label={row.reserved_quantity} color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ? <TChip label={row.reserved_quantity} color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           : row.reserved_quantity}
                       </TableCell>
                       <TableCell align="right">{row.available_quantity}</TableCell>
                       <TableCell align="right">
                         {row.outstanding_quantity > 0
-                          ? <Chip label={row.outstanding_quantity} color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ? <TChip label={row.outstanding_quantity} color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          : 0}
+                      </TableCell>
+                      <TableCell align="right">
+                        {row.to_purchase_quantity > 0
+                          ? <TChip label={row.to_purchase_quantity} color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           : 0}
                       </TableCell>
                     </TableRow>
@@ -1825,16 +1830,27 @@ export default function QuotationsPage() {
         )}
 
 
-        {
-          quote.remarks && (
-            <>
-              <Divider sx={{ my: 2 }} />
-              <FormSection title="Remarks">
-                <Typography>{quote.remarks}</Typography>
-              </FormSection>
-            </>
-          )
-        }
+        <Divider sx={{ my: 2 }} />
+        <FormSection title="Notes" columns={2}>
+          <TRemarkField
+            label="Internal Remarks"
+            value={quote.remarks || ""}
+            onChange={() => {}}
+            disabled
+            multiline
+            rows={2}
+            size="small"
+          />
+          <TRemarkField
+            label="Customer Notes (shown on printed document)"
+            value={quote.customer_notes || ""}
+            onChange={() => {}}
+            disabled
+            multiline
+            rows={2}
+            size="small"
+          />
+        </FormSection>
 
         {/* Advance Payment */}
         {quote.advance_payment_id && (
@@ -1842,7 +1858,7 @@ export default function QuotationsPage() {
             <Divider sx={{ my: 2 }} />
             <FormSection title="Advance Payment">
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                <Chip
+                <TChip
                   label="Advance Paid"
                   color="success"
                   size="small"
@@ -1851,7 +1867,7 @@ export default function QuotationsPage() {
                   Advance #{quote.advance_payment_id}
                 </Typography>
                 {quote.advance_amount && (
-                  <Chip
+                  <TChip
                     label={<TCurrency value={quote.advance_amount} />}
                     color="success"
                     variant="outlined"
@@ -1868,7 +1884,7 @@ export default function QuotationsPage() {
             <>
               <Divider sx={{ my: 2 }} />
               <FormSection title="Conversion">
-                <Chip
+                <TChip
                   label={`Converted to Invoice #${quote.converted_to_invoice_id}`}
                   color="success"
                   variant="outlined"
@@ -1988,18 +2004,18 @@ export default function QuotationsPage() {
 
             {/* Notes */}
             <FormSection title="Notes" columns={2}>
-              <TextField
+              <TRemarkField
                 label="Internal Remarks"
                 value={formData.remarks || ""}
-                onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                onChange={(value) => setFormData({ ...formData, remarks: value })}
                 multiline
                 rows={2}
                 size="small"
               />
-              <TextField
+              <TRemarkField
                 label="Customer Notes (shown on printed document)"
                 value={formData.customer_notes || ""}
-                onChange={(e) => setFormData({ ...formData, customer_notes: e.target.value })}
+                onChange={(value) => setFormData({ ...formData, customer_notes: value })}
                 multiline
                 rows={2}
                 size="small"
@@ -2206,7 +2222,7 @@ export default function QuotationsPage() {
                   {taxMode !== "none" && (
                     <Box sx={{ display: "flex", gap: 0.5, mt: 1 }}>
                       {[1, 5, 8, 12, 18].map((rate) => (
-                        <Chip
+                        <TChip
                           key={rate}
                           label={`${rate}%`}
                           size="small"
@@ -2423,7 +2439,7 @@ export default function QuotationsPage() {
                           {item.other_branches && item.other_branches.length > 0 ? (
                             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, justifyContent: "center" }}>
                               {item.other_branches.map((b) => (
-                                <Chip key={`${item.product_id}-${b.branch_code}`} label={`${b.branch_code}: ${b.available_quantity}`} size="small" />
+                                <TChip key={`${item.product_id}-${b.branch_code}`} label={`${b.branch_code}: ${b.available_quantity}`} size="small" />
                               ))}
                             </Box>
                           ) : (
@@ -2435,33 +2451,33 @@ export default function QuotationsPage() {
                           {itemStatus === 'cancelled' ? (
                             <Typography variant="caption" color="text.disabled">—</Typography>
                           ) : ['so_created', 'completed', 'po_created', 'itn_created'].includes(itemStatus) ? (
-                            <Chip label="In Stock" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="In Stock" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : stockStatus === 'in_stock' ? (
-                            <Chip label="In Stock" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="In Stock" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : (
-                            <Chip label="Out of Stock" color="error" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="Out of Stock" color="error" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           )}
                         </TableCell>
                         {/* Item Status */}
                         <TableCell align="center">
                           {itemStatus === 'so_created' || itemStatus === 'completed' ? (
-                            <Chip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'po_created' ? (
-                            <Chip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'itn_created' ? (
-                            <Chip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'procurement' ? (
                             stockStatus === 'needs_transfer'
-                              ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                              : <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              : <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'cancelled' ? (
-                            <Chip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : (
                             stockStatus === 'needs_transfer'
-                              ? <Chip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                              ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                               : stockStatus === 'needs_procurement'
-                                ? <Chip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                                : <Chip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                ? <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                : <TChip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           )}
                         </TableCell>
                       </TableRow>

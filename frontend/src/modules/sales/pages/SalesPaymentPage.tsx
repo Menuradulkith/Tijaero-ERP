@@ -11,38 +11,37 @@
  */
 
 import {
-    Box,
-    Button,
-    Card,
-    CardContent,
-    Chip,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    Divider,
-    FormControl,
-    FormControlLabel,
-    Grid,
-    InputAdornment,
-    InputLabel,
-    MenuItem,
-    Paper,
-    Select,
-    Skeleton,
-    Stack,
-    Switch,
-    Tab,
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableRow,
-    Tabs,
-    TextField,
-    Typography,
-    alpha,
-    CircularProgress,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControl,
+  FormControlLabel,
+  Grid,
+  InputAdornment,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Skeleton,
+  Stack,
+  Switch,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Tabs,
+  TextField,
+  Typography,
+  alpha,
+  CircularProgress,
 } from "@mui/material";
 import {
     AttachMoney as MoneyIcon,
@@ -69,7 +68,7 @@ import { salesApi } from "../api";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { customersApi } from "@/modules/customers/api";
 import { useReferenceData } from "@/hooks";
-import { fmtLKR, showErrorToast, TPageSkeleton, TConfirmDialog, useCrudMutation, useTConfirmDialog } from "@/components/tijaero";
+import { TChip, fmtLKR, showErrorToast, TPageSkeleton, TConfirmDialog, useCrudMutation, useTConfirmDialog } from "@/components/tijaero";
 
 // Payment method types
 type PaymentMethodType = "cash" | "card_visa" | "card_mastercard" | "card_amex" | "cheque" | "bank_transfer" | "credit";
@@ -307,7 +306,7 @@ export default function SalesPaymentPage() {
                             </Typography>
                         </Box>
                     </Box>
-                    <Chip
+                    <TChip
                         label={`Total: ${currencySymbol} ${fmtLKR(invoiceTotal)}`}
                         color="primary"
                         sx={{ fontSize: "1.1rem", fontWeight: 700, px: 2, py: 3 }}
@@ -689,7 +688,7 @@ export default function SalesPaymentPage() {
                                                 <TableRow key={payment.id}>
                                                     <TableCell>{format(new Date(payment.payment_date), "MMM dd, yyyy")}</TableCell>
                                                     <TableCell>
-                                                        <Chip
+                                                        <TChip
                                                             label={payment.payment_method.replace(/_/g, " ")}
                                                             size="small"
                                                             sx={{ textTransform: "capitalize" }}

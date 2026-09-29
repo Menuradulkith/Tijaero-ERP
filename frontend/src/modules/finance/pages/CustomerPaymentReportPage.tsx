@@ -13,7 +13,6 @@ import {
   TextField,
   MenuItem,
   CircularProgress,
-  Chip,
   Typography,
   Paper,
   Button,
@@ -36,6 +35,7 @@ import DownloadIcon from "@mui/icons-material/Download";
 import PrintIcon from "@mui/icons-material/Print";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import {
+  TChip,
   handleApiError,
   showErrorToast,
   fmtLKR,
@@ -480,7 +480,7 @@ export default function CustomerPaymentReportPage() {
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                 Outstanding Documents
                 {outSummary && outSummary.overdue_count > 0 && (
-                  <Chip size="small" label={outSummary.overdue_count} color="error" sx={{ height: 18, fontSize: "0.7rem" }} />
+                  <TChip size="small" label={outSummary.overdue_count} color="error" sx={{ height: 18, fontSize: "0.7rem" }} />
                 )}
               </Box>
             }
@@ -651,7 +651,7 @@ export default function CustomerPaymentReportPage() {
                           <TableCell>{item.customer_name}</TableCell>
                           <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{item.document_no}</TableCell>
                           <TableCell>{item.invoice_refs}</TableCell>
-                          <TableCell><Chip label={item.payment_method} size="small" color="info" variant="outlined" /></TableCell>
+                          <TableCell><TChip label={item.payment_method} size="small" color="info" variant="outlined" /></TableCell>
                           <TableCell align="right" sx={{ fontWeight: 600 }}>{fmtLKR(item.amount)}</TableCell>
                           <TableCell>{item.branch_code}</TableCell>
                           <TableCell sx={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.remarks || ""}>{item.remarks || "-"}</TableCell>
@@ -742,9 +742,9 @@ export default function CustomerPaymentReportPage() {
                           <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(item.due_date).toLocaleDateString()}</TableCell>
                           <TableCell align="center">
                             {item.is_overdue ? (
-                              <Chip label={`${item.days_overdue}d`} size="small" color="error" variant="filled" />
+                              <TChip label={`${item.days_overdue}d`} size="small" color="error" variant="filled" />
                             ) : (
-                              <Chip label="Current" size="small" color="success" variant="outlined" />
+                              <TChip label="Current" size="small" color="success" variant="outlined" />
                             )}
                           </TableCell>
                           <TableCell>{item.branch_code}</TableCell>

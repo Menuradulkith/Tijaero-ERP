@@ -28,34 +28,34 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
-    Avatar,
-    Box,
-    Button,
-    Chip,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    Divider,
-    FormControlLabel,
-    Grid,
-    IconButton,
-    InputAdornment,
-    List,
-    ListItem,
-    ListItemSecondaryAction,
-    ListItemText,
-    Paper,
-    Switch,
-    TextField,
-    Tooltip,
-    Typography,
+  Avatar,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControlLabel,
+  Grid,
+  IconButton,
+  InputAdornment,
+  List,
+  ListItem,
+  ListItemSecondaryAction,
+  ListItemText,
+  Paper,
+  Switch,
+  TextField,
+  Tooltip,
+  Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState, useEffect } from "react";
 
 // Tijaero Components - Import everything from one place
 import {
+  TChip,
     ActionToolbar,
     DetailPanelHeader,
     EmptyState,
@@ -562,7 +562,7 @@ export default function BranchesPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<Branch>) => (
-          <Chip
+          <TChip
             label={params.row.active ? "Active" : "Inactive"}
             size="small"
             color={params.row.active ? "success" : "default"}

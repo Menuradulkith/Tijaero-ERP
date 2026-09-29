@@ -17,7 +17,6 @@ import {
   InputAdornment,
   IconButton,
   Tooltip,
-  Chip,
   Typography,
   Switch,
   FormControlLabel,
@@ -30,6 +29,7 @@ import {
   CreditCard as CardIcon,
 } from "@mui/icons-material";
 import {
+  TChip,
   TPageHeader,
   TButton,
   TDataGrid,
@@ -180,7 +180,7 @@ export default function CardSettingsPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<PaymentCard>) => (
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-            <Chip
+            <TChip
               label={params.row.card_type === "credit" ? "Credit" : "Debit"}
               size="small"
               color={params.row.card_type === "credit" ? "primary" : "secondary"}

@@ -29,6 +29,7 @@ import {
   showSuccessToast,
   useMasterDetailState,
   useTConfirmDialog,
+  TRemarkField,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { salaryDeductionsApi } from "@/modules/hr/api";
@@ -260,7 +261,7 @@ export default function DeductionsPage() {
               <Box sx={{ gridColumn: "1 / -1" }}>
                 <TextField label="Reason" size="small" value={formData.reason} onChange={(e) => setFormData({ ...formData, reason: e.target.value })} disabled={isDisabled} required fullWidth multiline rows={3} />
               </Box>
-              <TextField label="Remarks (Optional)" size="small" value={formData.remarks || ""} onChange={(e) => setFormData({ ...formData, remarks: e.target.value })} disabled={isDisabled} fullWidth />
+              <TRemarkField label="Remarks (Optional)" size="small" value={formData.remarks || ""} onChange={(value) => setFormData({ ...formData, remarks: value })} disabled={isDisabled} fullWidth />
               <TextField label="Approval ID (Optional)" size="small" type="number" value={formData.approval_id || ""} onChange={(e) => setFormData({ ...formData, approval_id: Number(e.target.value) || undefined })} disabled={isDisabled} />
             </FormSection>
             {selectedItem && !isCreating && !isEditing && (

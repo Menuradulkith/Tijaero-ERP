@@ -16,7 +16,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -35,6 +34,7 @@ import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  TChip,
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
@@ -282,7 +282,7 @@ export default function AccountingPeriodsPage() {
                       </Typography>
                     </Box>
                     <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
-                      <Chip
+                      <TChip
                         label={period.status.charAt(0).toUpperCase() + period.status.slice(1)}
                         size="small"
                         color={statusColor}
@@ -381,7 +381,7 @@ export default function AccountingPeriodsPage() {
                 </>
               )}
               {selectedPeriod.status === "locked" && (
-                <Chip label="Permanently Locked" size="small" color="error" variant="outlined" />
+                <TChip label="Permanently Locked" size="small" color="error" variant="outlined" />
               )}
             </Box>
           ) : undefined

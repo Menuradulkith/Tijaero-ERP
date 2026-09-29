@@ -778,7 +778,7 @@ export interface SupplierAdvancePaymentListFilter {
   limit?: number;
 }
 
-// ==================== PROCUREMENT QUEUE ("TOP" PAGE) ====================
+// ==================== PROCUREMENT QUEUE (Procurement Queue page) ====================
 // A quotation item with a supplier already chosen (via the Sales Quotation
 // page's "Select Products & Suppliers for Procurement" dialog) but no
 // Purchase Order created for it yet. Feeds the central TOP page, which
@@ -804,6 +804,14 @@ export interface ProcurementQueueItem {
   quantity: number;
   unit_price: number;
   added_date: string;
+  /** Still-required qty on the quote line (quantity - converted_qty). */
+  required_quantity: number;
+  /** Already-in-stock qty for this product at the quote's branch. */
+  available_quantity: number;
+  /** Qty already ordered on a PO for this exact quote line, if any. */
+  ordered_quantity: number;
+  /** required - available - ordered, floored at 0 — what actually still needs buying. */
+  to_purchase_quantity: number;
 }
 
 // ── Dashboard Statistics ─────────────────────────────────────────────────

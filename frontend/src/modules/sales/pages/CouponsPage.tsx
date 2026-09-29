@@ -31,7 +31,6 @@ import {
   TableRow,
   Paper,
   Autocomplete,
-  Chip,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
@@ -41,6 +40,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 
 import {
+  TChip,
   ActionToolbar,
   DetailPanelHeader,
   EmptyState,
@@ -433,7 +433,7 @@ export default function CouponsPage() {
         renderCell: (params: GridRenderCellParams<(typeof couponRows)[number]>) => {
           const status = params.row.computed_status;
           return (
-            <Chip
+            <TChip
               label={status === "expiring_soon" ? "Expiring Soon" : status.charAt(0).toUpperCase() + status.slice(1)}
               size="small"
               color={
@@ -680,7 +680,7 @@ export default function CouponsPage() {
                 )}
                 renderTags={(value, getTagProps) =>
                   value.map((option, index) => (
-                    <Chip
+                    <TChip
                       {...getTagProps({ index })}
                       key={option.id}
                       label={option.name}

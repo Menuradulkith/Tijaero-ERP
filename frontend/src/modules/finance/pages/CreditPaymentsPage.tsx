@@ -9,7 +9,6 @@ import {
   Avatar,
   Box,
   Button,
-  Chip,
   IconButton,
   InputAdornment,
   Paper,
@@ -28,6 +27,7 @@ import {
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
+  TChip,
   MasterDetailLayout,
   DetailPanelHeader,
   FormSection,
@@ -214,7 +214,7 @@ export default function CreditPaymentsPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<CreditPaymentRow>) => (
-          <Chip label={params.row.status || "pending"} size="small" color={getStatusColor(params.row.status)} />
+          <TChip label={params.row.status || "pending"} size="small" color={getStatusColor(params.row.status)} />
         ),
       },
       {
@@ -336,7 +336,7 @@ export default function CreditPaymentsPage() {
               />
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 <Typography variant="body2" color="text.secondary">Status:</Typography>
-                <Chip
+                <TChip
                   label={formData.status ? (formData.status.charAt(0).toUpperCase() + formData.status.slice(1)) : "Pending"}
                   size="small"
                   color={getStatusColor(formData.status || "")}

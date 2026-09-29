@@ -30,7 +30,7 @@ import { useCallback, useRef, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { salesApi } from "../api";
 // OPTIMIZED: Removed customersApi, productsApi, branchApi imports - using aggregated endpoint
-import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { handleApiError, showErrorToast, showSuccessToast, TRemarkField } from "@/components/tijaero";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { Invoice, InvoiceCreate } from "../types";
 
@@ -322,8 +322,9 @@ export default function SalesOrderDialog({
                 name="remarks"
                 control={control}
                 render={({ field }) => (
-                  <TextField
-                    {...field}
+                  <TRemarkField
+                    value={field.value}
+                    onChange={(value) => field.onChange(value)}
                     label="Remarks"
                     fullWidth
                     multiline

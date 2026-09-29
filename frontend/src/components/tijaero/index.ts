@@ -74,10 +74,10 @@ export {
 // =============================================================================
 export {
   TAlert, TConfirmDialog, TDetailSkeleton, TEmptyState, TEmailDialog, TLoading,
-  TLoadingSkeleton, TPageSkeleton, TPrintPreviewDialog, TRemarkDialog, showErrorToast,
+  TLoadingSkeleton, TPageSkeleton, TPrintPreviewDialog, TRemarkDialog, TRemarkField, showErrorToast,
   showInfoToast, showSuccessToast, showToast, showWarningToast, useTConfirmDialog as useConfirmDialog, useRemarkDialog, useTConfirmDialog, type TAlertProps, type TConfirmDialogProps,
   type TDetailSkeletonProps, type TEmptyStateProps, type TEmailDialogProps, type TLoadingProps,
-  type TLoadingSkeletonProps, type TPageSkeletonProps, type TPageSkeletonVariant, type TPrintPreviewDialogProps, type TRemarkDialogProps,
+  type TLoadingSkeletonProps, type TPageSkeletonProps, type TPageSkeletonVariant, type TPrintPreviewDialogProps, type TRemarkDialogProps, type TRemarkFieldProps,
   type UseRemarkDialogOptions,
   type UseRemarkDialogReturn
 } from './feedback-extended';

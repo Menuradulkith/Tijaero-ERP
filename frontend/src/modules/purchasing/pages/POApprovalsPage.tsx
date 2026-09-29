@@ -498,7 +498,7 @@ export default function POApprovalsPage() {
       },
       {
         field: "required_date",
-        header: "GRN Date",
+        header: "Expected Delivery Date",
         type: "date",
         width: 130,
       },
@@ -659,7 +659,7 @@ export default function POApprovalsPage() {
                 disabled
               />
               <TextField
-                label="GRN Date"
+                label="Expected Delivery Date"
                 size="small"
                 value={
                   selectedOrder.good_received_note_date
