@@ -11,7 +11,6 @@ import HistoryIcon from "@mui/icons-material/History";
 import LockIcon from "@mui/icons-material/Lock";
 import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import {
   Box,
   Button,
@@ -577,7 +576,7 @@ export default function CashFlowStatementsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TSearchableSelect
@@ -604,11 +603,9 @@ export default function CashFlowStatementsPage() {
               sx={{ width: 140, flexShrink: 0 }}
             />
             {(searchQuery || filterStatus || filterYear !== "") && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
         }

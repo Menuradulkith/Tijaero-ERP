@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
   Box,
+  Button,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -26,7 +27,6 @@ import {
   Store as SupplierIcon,
   CheckCircle as CheckCircleIcon,
   Search as SearchIcon,
-  Clear as ClearIcon,
 } from "@mui/icons-material";
 import { advancePaymentsApi } from "@/modules/finance/api";
 import { customersApi } from "@/modules/customers/api";
@@ -1094,7 +1094,7 @@ export default function AdvancePaymentsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
@@ -1116,11 +1116,9 @@ export default function AdvancePaymentsPage() {
                 )}
               </Box>
               {(searchQuery || filterBranch || filterEntity !== null) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
           </Box>

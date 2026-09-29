@@ -578,6 +578,8 @@ class PurchasingOrderRepository:
             query = query.filter(models.PurchasingOrder.purchasing_order_date >= filters.date_from)
         if filters.date_to:
             query = query.filter(models.PurchasingOrder.purchasing_order_date <= filters.date_to)
+        if filters.search:
+            query = query.filter(models.PurchasingOrder.purchasing_order_no.ilike(f"%{filters.search}%"))
         if filters.for_grn:
             # Only return POs that are eligible for GRN creation (not yet fully received)
             query = query.filter(

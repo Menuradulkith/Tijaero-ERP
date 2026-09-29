@@ -936,6 +936,7 @@ export default function SalesStockDashboard() {
                     </InputAdornment>
                   ),
                 }}
+                sx={{ "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
             </Grid>
 

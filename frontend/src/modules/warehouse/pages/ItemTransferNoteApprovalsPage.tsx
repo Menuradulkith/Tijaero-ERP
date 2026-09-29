@@ -30,7 +30,6 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 
 // Import tijaero components
 import {
@@ -564,7 +563,7 @@ export default function ItemTransferNoteApprovalsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TStatusFilter
@@ -587,11 +586,9 @@ export default function ItemTransferNoteApprovalsPage() {
               />
             </Box>
             {(searchQuery || filterStatus || filterBranch) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
         }

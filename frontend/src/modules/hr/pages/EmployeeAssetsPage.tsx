@@ -319,7 +319,7 @@ export default function EmployeeAssetsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 260 }}
+                sx={{ width: 260, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
             </Box>
           )

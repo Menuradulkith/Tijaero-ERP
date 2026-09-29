@@ -14,7 +14,6 @@ import {
     Cancel as RejectIcon,
     Verified as VerifyIcon,
     Search as SearchIcon,
-    Clear as ClearIcon,
     ArrowBack as ArrowBackIcon,
     OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
@@ -1324,7 +1323,7 @@ export default function ReimbursementsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TBranchFilter
@@ -1351,11 +1350,9 @@ export default function ReimbursementsPage() {
                 ))}
               </TextField>
               {(searchQuery || filterBranch || filterStatus) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
           )

@@ -33,7 +33,6 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 
 // Import tijaero components
 import {
@@ -939,7 +938,7 @@ export default function BankTransferVerifyPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 170, flexShrink: 0 }}>
               <TStatusFilter options={BT_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All" size="small" />
@@ -948,11 +947,9 @@ export default function BankTransferVerifyPage() {
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
             </Box>
             {(searchQuery || (filterStatus && filterStatus !== "all") || filterBranch) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
         }

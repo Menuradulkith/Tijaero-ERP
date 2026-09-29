@@ -20,7 +20,6 @@ import {
 import {
   NoteAlt as CreditNoteIcon,
   Search as SearchIcon,
-  Clear as ClearIcon,
   ArrowBack as ArrowBackIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
@@ -386,7 +385,7 @@ export default function CreditNotesPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 190, flexShrink: 0 }}>
               <Autocomplete
@@ -399,11 +398,9 @@ export default function CreditNotesPage() {
               />
             </Box>
             {(searchQuery || filterCustomerId) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
           )

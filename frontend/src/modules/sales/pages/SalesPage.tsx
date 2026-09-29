@@ -65,7 +65,6 @@ import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Alert,
@@ -5343,20 +5342,18 @@ export default function SalesPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter options={INVOICE_STATUS_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Status" size="small" />
               </Box>
-              <Box sx={{ width: 160, flexShrink: 0 }}>
+              <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
               </Box>
               {(state.searchQuery || filterStatus || filterBranch) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
           )

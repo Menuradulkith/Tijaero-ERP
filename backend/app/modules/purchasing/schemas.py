@@ -489,6 +489,9 @@ class PurchaseOrderListFilter(BaseModel):
     branch_codes: Optional[List[str]] = None  # For branch-based access control
     date_from: Optional[date] = None
     date_to: Optional[date] = None
+    # Free-text match on PO number — mirrors the browse grid's client-side
+    # search box, so a filtered CSV export matches what's on screen.
+    search: Optional[str] = None
     for_grn: bool = False  # When True, only return POs eligible for GRN creation (approved/partially_completed)
     skip: int = 0
     limit: int = 100

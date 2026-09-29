@@ -165,6 +165,7 @@ export function SearchableList<T extends BaseEntity>({
                 </InputAdornment>
               ),
             }}
+            sx={{ "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
           />
         </Box>
       )}

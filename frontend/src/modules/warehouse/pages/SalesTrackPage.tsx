@@ -25,13 +25,12 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import TimelineIcon from "@mui/icons-material/Timeline";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import {
   Avatar,
   Box,
+  Button,
   Divider,
   Grid,
-  IconButton,
   InputAdornment,
   LinearProgress,
   Stack,
@@ -848,7 +847,7 @@ export default function SalesTrackPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 170, flexShrink: 0 }}>
               <TStatusFilter
@@ -871,11 +870,9 @@ export default function SalesTrackPage() {
               />
             </Box>
             {(searchQuery || filterStatus || filterBranch) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
         }

@@ -33,7 +33,6 @@ import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import PaymentIcon from "@mui/icons-material/Payment";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 
 // Import tijaero components
 import {
@@ -811,7 +810,7 @@ export default function PaymentApprovalsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0 }}
+              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TStatusFilter options={PAYMENT_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" size="small" />
@@ -820,11 +819,9 @@ export default function PaymentApprovalsPage() {
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" size="small" />
             </Box>
             {(searchQuery || filterStatus || filterBranch) && (
-              <Tooltip title="Clear filters">
-                <IconButton size="small" onClick={handleClearFilters}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
             )}
           </Box>
         }

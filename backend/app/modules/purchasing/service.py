@@ -604,6 +604,17 @@ class PurchasingOrderService:
             can_create=can_create,
             message=message
         )
+
+    def _lock_daily_po_limit(self, branch_code: str, target_date: date = None) -> None:
+        """Serialize the daily-limit check-then-create per branch/day (transaction-scoped
+        advisory lock, same pattern as get_next_po_number) so two concurrent creates can't
+        both read a count under the limit before either has committed."""
+        if target_date is None:
+            target_date = tz.today()
+        self.db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": f"po-daily-limit-{branch_code}-{target_date}"},
+        )
     
     def _validate_order_group(self, order: schemas.PurchasingOrderCreate) -> None:
         """Shared validation for a single PurchasingOrderCreate — branch
@@ -735,6 +746,7 @@ class PurchasingOrderService:
             ).delete()
 
     def create_order(self, order: schemas.PurchasingOrderCreate, created_by: int = 1) -> models.PurchasingOrder:
+        self._lock_daily_po_limit(order.branch_code)
         limit_check = self.check_daily_limit(order.branch_code)
         if not limit_check.can_create:
             raise HTTPException(
@@ -762,8 +774,13 @@ class PurchasingOrderService:
             )
             # Note: Credit check is informational; status remains pending_approval
 
-        # Create the order with pending_approval status
-        created_order = self.repo.create(order, initial_status=initial_status)
+        # Create the order with pending_approval status. Everything below —
+        # approval record, audit log, and (if sourced from a quotation) the
+        # quote link/item-fulfillment/status-recompute — is committed together
+        # in one final transaction (mirrors create_order_batch) so a failure
+        # linking the quote can't leave an orphaned PO with a quote item
+        # that's still stuck "unfulfilled" in the procurement queue.
+        created_order = self.repo.create(order, initial_status=initial_status, commit=False)
 
         # Create approval record for the new PO
         approval_record = approval_service.create_approval_request(
@@ -777,16 +794,13 @@ class PurchasingOrderService:
             approval_group="purchasing_approvers"
         )
         created_order.approval_id = approval_record.id
-        self.db.commit()
-        self.db.refresh(created_order)
         log_audit(self.db, user_id=created_by, action="create", entity_type="purchase_order", entity_id=created_order.id, changes={"status": initial_status, "po_no": created_order.purchasing_order_no})
-        self.db.commit()
 
         # If PO was created from a quotation, record the PO link on
         # the quote and mark any quote-sourced items as procured (this is
         # what drives the header to PARTIALLY_PROCESSED/COMPLETED).
-        if order.sales_quote_id:
-            try:
+        try:
+            if order.sales_quote_id:
                 from app.modules.sales.quotation_models import SalesQuote
                 from app.modules.sales.quotation_service import sales_quote_service
                 linked_quote = self.db.query(SalesQuote).filter(SalesQuote.id == order.sales_quote_id).first()
@@ -795,11 +809,12 @@ class PurchasingOrderService:
                     linked_quote.po_created_date = tz.now()
                     self._fulfill_quote_items(order)
                     sales_quote_service.recompute_quote_status(self.db, linked_quote)
-                    self.db.commit()
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Failed to link PO to quote: {e}")
 
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        self.db.refresh(created_order)
         return created_order
 
     def create_order_batch(
@@ -824,6 +839,7 @@ class PurchasingOrderService:
         # limit only needs checking against that one branch — but check it
         # against the number of POs this batch is about to create, not just 1.
         branch_code = groups[0].branch_code
+        self._lock_daily_po_limit(branch_code)
         limit_check = self.check_daily_limit(branch_code)
         if limit_check.remaining < len(groups):
             raise HTTPException(

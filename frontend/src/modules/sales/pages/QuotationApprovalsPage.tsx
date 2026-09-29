@@ -37,7 +37,6 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 
 import {
@@ -54,6 +53,7 @@ import {
   getStatusProps,
   showErrorToast,
   showSuccessToast,
+  showWarningToast,
   modernTableStyles,
   useCrudMutation,
   useRowSelection,
@@ -74,7 +74,7 @@ import type { Product } from "@/modules/inventory/types";
 // A quote row as shown in the browse table, with the customer name looked up
 // and attached directly so the table's own column-header sort orders by the
 // displayed name rather than the raw customer id.
-type QuoteApprovalRow = SalesQuote & { customer_display_name: string };
+type QuoteApprovalRow = SalesQuote & { customer_display_name: string; agent_display_name: string };
 
 export default function QuotationApprovalsPage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
@@ -237,24 +237,31 @@ export default function QuotationApprovalsPage() {
 
     if (bulkActionActive) {
       setIsBulkProcessing(true);
-      try {
-        for (const row of selectedPendingRows) {
-          if (!row.approval_id) continue;
+      const failed: string[] = [];
+      for (const row of selectedPendingRows) {
+        if (!row.approval_id) continue;
+        try {
           await approveMutation.mutateAsync({
             approvalId: row.approval_id,
             quoteId: row.id,
             credentials,
             silent: true,
           });
+        } catch {
+          failed.push(row.quote_no || `#${row.id}`);
         }
-        showSuccessToast(`${selectedPendingRows.length} quotation(s) approved successfully`);
-        rowSelection.clearSelection();
-        setAuthDialogOpen(false);
-      } catch {
-        showErrorToast("Failed to approve one or more quotations. Please check their status and try again.");
-      } finally {
-        setIsBulkProcessing(false);
       }
+      const succeededCount = selectedPendingRows.length - failed.length;
+      if (failed.length === 0) {
+        showSuccessToast(`${succeededCount} quotation(s) approved successfully`);
+      } else if (succeededCount > 0) {
+        showWarningToast(`${succeededCount} quotation(s) approved, but failed for: ${failed.join(", ")}`);
+      } else {
+        showErrorToast(`Failed to approve quotation(s): ${failed.join(", ")}`);
+      }
+      rowSelection.clearSelection();
+      setAuthDialogOpen(false);
+      setIsBulkProcessing(false);
       return;
     }
 
@@ -272,25 +279,32 @@ export default function QuotationApprovalsPage() {
       if (selectedPendingRows.length === 0) return;
       setIsBulkProcessing(true);
       (async () => {
-        try {
-          for (const row of selectedPendingRows) {
-            if (!row.approval_id) continue;
+        const failed: string[] = [];
+        for (const row of selectedPendingRows) {
+          if (!row.approval_id) continue;
+          try {
             await rejectMutation.mutateAsync({
               approvalId: row.approval_id,
               quoteId: row.id,
               remarks: rejectReason,
               silent: true,
             });
+          } catch {
+            failed.push(row.quote_no || `#${row.id}`);
           }
-          showSuccessToast(`${selectedPendingRows.length} quotation(s) rejected`);
-          rowSelection.clearSelection();
-          setRejectDialogOpen(false);
-          setRejectReason("");
-        } catch {
-          showErrorToast("Failed to reject one or more quotations. Please check their status and try again.");
-        } finally {
-          setIsBulkProcessing(false);
         }
+        const succeededCount = selectedPendingRows.length - failed.length;
+        if (failed.length === 0) {
+          showSuccessToast(`${succeededCount} quotation(s) rejected`);
+        } else if (succeededCount > 0) {
+          showWarningToast(`${succeededCount} quotation(s) rejected, but failed for: ${failed.join(", ")}`);
+        } else {
+          showErrorToast(`Failed to reject quotation(s): ${failed.join(", ")}`);
+        }
+        rowSelection.clearSelection();
+        setRejectDialogOpen(false);
+        setRejectReason("");
+        setIsBulkProcessing(false);
       })();
       return;
     }
@@ -325,6 +339,7 @@ export default function QuotationApprovalsPage() {
       filteredQuotes.map((quote) => ({
         ...quote,
         customer_display_name: getCustomerName(quote.customer_id),
+        agent_display_name: quote.customer_agent_id ? getCustomerName(quote.customer_agent_id) : "",
       })),
     [filteredQuotes, getCustomerName],
   );
@@ -363,8 +378,19 @@ export default function QuotationApprovalsPage() {
         width: 110,
       },
       {
+        field: "agent_display_name",
+        header: "Sales Agent",
+        width: 160,
+      },
+      {
         field: "created_date",
         header: "Created",
+        type: "date",
+        width: 130,
+      },
+      {
+        field: "valid_until",
+        header: "Valid Until",
         type: "date",
         width: 130,
       },
@@ -750,20 +776,18 @@ export default function QuotationApprovalsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0 }}
+                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TStatusFilter options={QUOTATION_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
               </Box>
-              <Box sx={{ width: 160, flexShrink: 0 }}>
+              <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
               </Box>
               {(searchQuery || filterStatus || filterBranch) && (
-                <Tooltip title="Clear filters">
-                  <IconButton size="small" onClick={handleClearFilters}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
               )}
             </Box>
           )

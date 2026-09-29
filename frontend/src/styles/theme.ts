@@ -1,4 +1,5 @@
-import { alpha, createTheme } from "@mui/material/styles";
+import { alpha, createTheme, darken, lighten } from "@mui/material/styles";
+import type { Theme } from "@mui/material/styles";
 // Adds `MuiDataGrid` to theme.components and `DataGrid` to theme.palette.
 import type {} from "@mui/x-data-grid/themeAugmentation";
 
@@ -207,11 +208,31 @@ export const createAppTheme = (mode: PaletteMode) => {
               fontSize: "0.8125rem",
             },
           },
-          contained: {
-            boxShadow: "none",
-            "&:hover": {
-              boxShadow: "0px 2px 4px rgba(0, 0, 0, 0.12)",
-            },
+          contained: ({ theme, ownerState }: { theme: Theme; ownerState: { color?: string } }) => {
+            const color = ownerState.color;
+            if (!color || color === "inherit" || !(color in theme.palette)) {
+              return {
+                boxShadow: "none",
+                "&:hover": { boxShadow: "0px 2px 4px rgba(0, 0, 0, 0.12)" },
+              };
+            }
+            // Same soft-tint formula as TStatusChip: a light coloured
+            // background with dark (or, in dark mode, light) text of the
+            // same hue, instead of a solid block with white text.
+            const main = (theme.palette as any)[color].main;
+            return {
+              backgroundColor: alpha(main, isLight ? 0.14 : 0.22),
+              color: isLight ? darken(main, 0.45) : lighten(main, 0.35),
+              boxShadow: "none",
+              "&:hover": {
+                backgroundColor: alpha(main, isLight ? 0.22 : 0.3),
+                boxShadow: "none",
+              },
+              "&.Mui-disabled": {
+                backgroundColor: theme.palette.action.disabledBackground,
+                color: theme.palette.action.disabled,
+              },
+            };
           },
           sizeSmall: {
             padding: "4px 10px",
