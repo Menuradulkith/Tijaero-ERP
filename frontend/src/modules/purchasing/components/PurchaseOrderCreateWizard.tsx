@@ -189,9 +189,12 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
   const getSupplierLeadTimeLabel = useCallback(
     (supplierId: number) => {
       const supplier = suppliers?.find((s) => s.id === supplierId);
-      if (supplier?.average_lead_time_days != null) return `${Math.round(supplier.average_lead_time_days)} days`;
-      if (supplier?.lead_time_days != null) return `${supplier.lead_time_days} days (est.)`;
-      return "-";
+      const est = supplier?.lead_time_days != null ? `${supplier.lead_time_days}d est.` : "- est.";
+      const avg =
+        supplier?.average_lead_time_days != null
+          ? `${Math.round(supplier.average_lead_time_days)}d avg`
+          : "no avg data";
+      return `${est} / ${avg}`;
     },
     [suppliers],
   );

@@ -120,11 +120,13 @@ export const STATUS_MAPS = {
     approved: { label: "Approved", color: "info" as StatusColor },
     rejected: { label: "Rejected", color: "error" as StatusColor },
     partially_received: { label: "Partially Received", color: "info" as StatusColor },
+    partially_completed: { label: "Partially Received", color: "info" as StatusColor },
     received: { label: "Received", color: "success" as StatusColor },
     cancelled: { label: "Cancelled", color: "error" as StatusColor },
     pending: { label: "Pending", color: "warning" as StatusColor },
     completed: { label: "Completed", color: "success" as StatusColor },
     closed: { label: "Closed", color: "default" as StatusColor },
+    short_closed: { label: "Short Closed", color: "default" as StatusColor },
   },
 
   // Quote status

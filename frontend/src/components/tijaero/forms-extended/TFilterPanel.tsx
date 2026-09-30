@@ -270,7 +270,10 @@ export const PO_STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
   { value: "draft", label: "Draft" },
   { value: "pending_approval", label: "Pending Approval" },
   { value: "approved", label: "Approved" },
+  { value: "partially_completed", label: "Partially Received" },
   { value: "completed", label: "Completed" },
+  { value: "short_closed", label: "Short Closed" },
+  { value: "rejected", label: "Rejected" },
   { value: "cancelled", label: "Cancelled" },
 ];
 

@@ -353,6 +353,12 @@ export interface PurchasingOrder {
   /** Set when this PO was created from a Sales Quotation. */
   sales_quote_id?: number | null;
   sales_quote_no?: string | null;
+  cancellation_reason?: string | null;
+  cancelled_date?: string | null;
+  cancelled_by?: number | null;
+  short_close_reason?: string | null;
+  short_closed_date?: string | null;
+  short_closed_by?: number | null;
 }
 
 export interface PurchasingOrderWithItems extends PurchasingOrder {

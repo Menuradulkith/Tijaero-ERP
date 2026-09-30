@@ -62,6 +62,7 @@ import {
   History as HistoryIcon,
   Search as SearchIcon,
   OpenInNew as OpenInNewIcon,
+  Restore as RevisionIcon,
 } from "@mui/icons-material";
 import {
   Alert,
@@ -108,6 +109,7 @@ import {
   SalesQuoteCreate,
   SalesQuoteItemCreate,
   StockAvailabilityItem,
+  CreateRevisionResponse,
 } from "../quotation-types";
 
 // Form steps for stepper workflow
@@ -223,6 +225,9 @@ export default function QuotationsPage() {
   const canCreate = usePermission("quotations", "create");
   const canDelete = usePermission("quotations", "delete");
   const canUpdate = usePermission("quotations", "update");
+  // Cost/margin is sensitive — only shown to users with cost_price:view
+  // (same permission gate used on the Sales Stock dashboard).
+  const canViewCost = usePermission("cost_price", "view");
 
   // Confirm dialogs
   const confirmDialog = useTConfirmDialog();
@@ -468,6 +473,17 @@ export default function QuotationsPage() {
       return sum + gross * (1 - (item.discount_percent || 0) / 100);
     }, 0);
 
+  // Calculate total cost (buying price) of all line items, for margin display.
+  // Only meaningful for users permitted to see cost_price at all.
+  const calculateLineItemsCostTotal = () =>
+    lineItems.reduce((sum, item) => {
+      const cost = products?.find((p) => p.id === item.product_id)?.cost_price ?? 0;
+      return sum + item.quantity * cost;
+    }, 0);
+
+  const marginPercent = (sellingTotal: number, costTotal: number) =>
+    sellingTotal > 0 ? ((sellingTotal - costTotal) / sellingTotal) * 100 : 0;
+
   // Mutations
   const createMutation = useCrudMutation({
     mutationFn: (data: SalesQuoteCreate) => quotationApi.create(data),
@@ -581,6 +597,17 @@ export default function QuotationsPage() {
     errorMessage: "Failed to mark as sent",
     onSuccess: (updatedQuote: SalesQuote) => {
       handleSelectQuote(updatedQuote);
+    },
+  });
+
+  const createRevisionMutation = useCrudMutation({
+    mutationFn: (id: number) => quotationApi.createRevision(id),
+    getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType]],
+    getSuccessMessage: (data: CreateRevisionResponse) => data.message,
+    errorMessage: "Failed to create revision",
+    onSuccess: async (data: CreateRevisionResponse) => {
+      const newQuote = await quotationApi.getById(data.new_quote_id);
+      handleSelectQuote(newQuote);
     },
   });
 
@@ -962,9 +989,25 @@ export default function QuotationsPage() {
     if (isApprovedAndActive) actions.push('create_so');
     // Cancel — allowed from any non-final status
     if (!['completed', 'cancelled'].includes(s)) actions.push('cancel');
+    // Revise — creates a new draft copy and marks this one "revised", so
+    // exclude statuses where that would make no sense (already revised/
+    // converted/cancelled/completed).
+    if (!['revised', 'so_created', 'cancelled', 'completed'].includes(s)) actions.push('revise');
 
     return actions;
   }, [selectedQuote, isCreating, isEditing]);
+
+  const handleCreateRevision = useCallback(async () => {
+    if (!selectedQuote) return;
+    const confirmed = await confirmDialog.confirm({
+      title: "Create Revision",
+      message: `This creates a new draft copy of ${selectedQuote.quote_no} for you to edit, and marks this quotation as "Revised". Continue?`,
+      confirmText: "Create Revision",
+    });
+    if (confirmed) {
+      createRevisionMutation.mutate(selectedQuote.id);
+    }
+  }, [selectedQuote, confirmDialog, createRevisionMutation]);
 
 
   // Handlers
@@ -1434,6 +1477,15 @@ export default function QuotationsPage() {
                     </Button>
                   </Tooltip>
                 )}
+                {getAvailableActions().includes('revise') && (
+                  <Tooltip title="Create an editable draft revision of this quotation">
+                    <Button size="small" variant="outlined" color="primary" startIcon={<RevisionIcon />}
+                      onClick={handleCreateRevision}
+                      disabled={createRevisionMutation.isPending}>
+                      Create Revision
+                    </Button>
+                  </Tooltip>
+                )}
                 {/* Customer advance — only once the quotation is approved */}
                 {selectedQuote.approval &&
                   !['cancelled', 'completed', 'revised'].includes(selectedQuote.status) && (
@@ -1618,6 +1670,9 @@ export default function QuotationsPage() {
                 <TableCell sx={{ width: 100 }}>Warranty</TableCell>
                 <TableCell align="center" sx={{ width: 140 }}>Item Status</TableCell>
                 <TableCell align="right" sx={{ width: 120 }}>Amount ({currencySymbol})</TableCell>
+                {canViewCost && (
+                  <TableCell align="right" sx={{ width: 90 }}>Margin</TableCell>
+                )}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1679,12 +1734,25 @@ export default function QuotationsPage() {
                       <TableCell align="right">
                         <TCurrency value={item.quantity * Number(item.selling_price) * (1 - (item.discount_percentage || 0) / 100)} showSymbol={false} />
                       </TableCell>
+                      {canViewCost && (() => {
+                        const cost = product?.cost_price ?? 0;
+                        const lineSelling = item.quantity * Number(item.selling_price) * (1 - (item.discount_percentage || 0) / 100);
+                        const lineCost = item.quantity * cost;
+                        const pct = marginPercent(lineSelling, lineCost);
+                        return (
+                          <TableCell align="right">
+                            <Typography variant="body2" color={pct >= 0 ? "success.main" : "error.main"}>
+                              {pct.toFixed(0)}%
+                            </Typography>
+                          </TableCell>
+                        );
+                      })()}
                     </TableRow>
                   );
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} sx={modernTableStyles.emptyCell}>
+                  <TableCell colSpan={canViewCost ? 8 : 7} sx={modernTableStyles.emptyCell}>
                     No items in this quote
                   </TableCell>
                 </TableRow>
@@ -1697,6 +1765,20 @@ export default function QuotationsPage() {
                 <TableCell align="right">
                   <Typography fontWeight="bold"><TCurrency value={calculateTotal()} showSymbol={false} /></Typography>
                 </TableCell>
+                {canViewCost && (() => {
+                  const totalCost = (selectedQuoteDetails?.items || []).reduce((sum, item) => {
+                    const cost = products?.find(p => p.id === item.product_id)?.cost_price ?? 0;
+                    return sum + item.quantity * cost;
+                  }, 0);
+                  const pct = marginPercent(calculateTotal(), totalCost);
+                  return (
+                    <TableCell align="right">
+                      <Typography fontWeight="bold" color={pct >= 0 ? "success.main" : "error.main"}>
+                        {pct.toFixed(1)}%
+                      </Typography>
+                    </TableCell>
+                  );
+                })()}
               </TableRow>
             </TableBody>
           </Table>
@@ -2043,6 +2125,9 @@ export default function QuotationsPage() {
                         <TableCell align="right" sx={{ width: 130 }}>Min Price ({currencySymbol})</TableCell>
                       )}
                       <TableCell align="right" sx={{ width: 120 }}>Total ({currencySymbol})</TableCell>
+                      {canViewCost && (
+                        <TableCell align="right" sx={{ width: 90 }}>Margin</TableCell>
+                      )}
                       <TableCell align="center" sx={{ width: 60 }}>Del</TableCell>
                     </TableRow>
                   </TableHead>
@@ -2153,6 +2238,19 @@ export default function QuotationsPage() {
                             />
                           </Typography>
                         </TableCell>
+                        {canViewCost && (() => {
+                          const cost = products?.find((p) => p.id === item.product_id)?.cost_price ?? 0;
+                          const lineSelling = item.quantity * item.selling_price * (1 - (item.discount_percent || 0) / 100);
+                          const lineCost = item.quantity * cost;
+                          const pct = marginPercent(lineSelling, lineCost);
+                          return (
+                            <TableCell align="right">
+                              <Typography variant="body2" color={pct >= 0 ? "success.main" : "error.main"} noWrap>
+                                {pct.toFixed(0)}%
+                              </Typography>
+                            </TableCell>
+                          );
+                        })()}
                         <TableCell align="center">
                           <IconButton size="small" color="error" onClick={() => handleRemoveLineItem(index)}>
                             <DeleteIcon fontSize="small" />
@@ -2269,6 +2367,11 @@ export default function QuotationsPage() {
                     return taxMode === "exclusive" ? subtotal * (1 + effectiveTaxRate / 100) : subtotal;
                   })()} />
                 </Typography>
+                {canViewCost && (
+                  <Typography variant="body2" color="text.secondary">
+                    Margin: {marginPercent(calculateLineItemsTotal(), calculateLineItemsCostTotal()).toFixed(1)}%
+                  </Typography>
+                )}
               </Box>
             </Paper >
           </>

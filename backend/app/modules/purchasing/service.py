@@ -1087,6 +1087,96 @@ class PurchasingOrderService:
                 detail=str(e)
             )
 
+    def cancel_order(self, order_id: int, reason: str, user_id: int = 0) -> models.PurchasingOrder:
+        """Cancel a PO that hasn't received any goods yet. Once anything has
+        been received, the order must be short-closed instead (see
+        short_close_order) so the received units stay on record."""
+        from app.modules.common.models import Approvals
+
+        order = self.db.query(models.PurchasingOrder).filter(
+            models.PurchasingOrder.id == order_id
+        ).with_for_update().first()
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase order with id {order_id} not found"
+            )
+        if order.status in (
+            PurchaseOrderStatus.CANCELLED, PurchaseOrderStatus.COMPLETED,
+            PurchaseOrderStatus.SHORT_CLOSED, PurchaseOrderStatus.REJECTED,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot cancel: order is already '{order.status}'."
+            )
+        if order.good_received_notes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot cancel: goods have already been received for this order. Use Short-Close instead."
+            )
+
+        order.status = PurchaseOrderStatus.CANCELLED
+        order.cancellation_reason = reason
+        order.cancelled_date = tz.now()
+        order.cancelled_by = user_id
+
+        if order.approval_id:
+            approval_record = self.db.query(Approvals).filter(
+                Approvals.id == order.approval_id
+            ).with_for_update().first()
+            if approval_record and approval_record.status == ApprovalStatus.PENDING:
+                approval_record.status = ApprovalStatus.CANCELLED
+                approval_record.status_changed_by = user_id
+                approval_record.remark = f"Order cancelled: {reason}"
+
+        log_audit(
+            self.db,
+            user_id=user_id,
+            action="cancel",
+            entity_type="purchase_order",
+            entity_id=order.id,
+            changes={"status": str(order.status), "reason": reason},
+        )
+        self.db.commit()
+        self.db.refresh(order)
+        return order
+
+    def short_close_order(self, order_id: int, reason: str, user_id: int = 0) -> models.PurchasingOrder:
+        """Manually close a partially-received PO when the supplier confirms
+        no more units are coming for the remaining ordered quantity — keeps
+        it from sitting as "outstanding" forever without pretending it was
+        fully completed."""
+        order = self.db.query(models.PurchasingOrder).filter(
+            models.PurchasingOrder.id == order_id
+        ).with_for_update().first()
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase order with id {order_id} not found"
+            )
+        if order.status != PurchaseOrderStatus.PARTIALLY_COMPLETED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Short-close is only allowed for partially received orders (current status: '{order.status}')."
+            )
+
+        order.status = PurchaseOrderStatus.SHORT_CLOSED
+        order.short_close_reason = reason
+        order.short_closed_date = tz.now()
+        order.short_closed_by = user_id
+
+        log_audit(
+            self.db,
+            user_id=user_id,
+            action="short_close",
+            entity_type="purchase_order",
+            entity_id=order.id,
+            changes={"status": str(order.status), "reason": reason},
+        )
+        self.db.commit()
+        self.db.refresh(order)
+        return order
+
     def approve_order(self, order_id: int, approve: bool, remarks: Optional[str] = None, user_id: int = 0) -> models.PurchasingOrder:
         """
         Approve or reject a purchase order.
@@ -2344,27 +2434,38 @@ class GoodReceivedNoteService:
         )
         if self.barcode_exists(item.barcode):
             raise ValueError(f"Barcode '{item.barcode}' already exists in Good Received Items")
-        
+
+        # Over-receipt prevention: never let received units for a PO line
+        # exceed what was actually ordered. Lock the PO item row so two
+        # concurrent barcode scans can't both pass this check for the last
+        # remaining unit.
+        po_item = self.db.query(models.PurchasingOrderItems).filter(
+            models.PurchasingOrderItems.id == item.purchasing_order_items_id
+        ).with_for_update().first()
+        if not po_item:
+            raise ValueError(f"Purchase order item {item.purchasing_order_items_id} not found")
+        already_received = self.db.query(func.count(models.GoodReceivedItems.id)).filter(
+            models.GoodReceivedItems.purchasing_order_items_id == po_item.id,
+            models.GoodReceivedItems.active.is_(True),
+        ).scalar() or 0
+        if already_received >= po_item.quantity:
+            raise ValueError(
+                f"Cannot receive more units for this line: {already_received} of "
+                f"{po_item.quantity} ordered units already received."
+            )
+
         created_item = self.repo.create_item(item)
-        
+
         # Update PO status after creating GRN item
-        # Get the PO ID from the item's PO item reference
-        if item.purchasing_order_items_id:
-            po_item = self.db.query(models.PurchasingOrderItems).filter(
-                models.PurchasingOrderItems.id == item.purchasing_order_items_id
-            ).first()
-            
-            if po_item:
-                # Update the PO status based on received items
-                po_status = self._determine_po_completion_status(po_item.purchasingorders_id)
-                # Lock the PO row to prevent concurrent status updates
-                po = self.db.query(models.PurchasingOrder).filter(
-                    models.PurchasingOrder.id == po_item.purchasingorders_id
-                ).with_for_update().first()
-                
-                if po:
-                    po.status = po_status
-                    self.db.commit()
+        po_status = self._determine_po_completion_status(po_item.purchasingorders_id)
+        # Lock the PO row to prevent concurrent status updates
+        po = self.db.query(models.PurchasingOrder).filter(
+            models.PurchasingOrder.id == po_item.purchasingorders_id
+        ).with_for_update().first()
+
+        if po:
+            po.status = po_status
+            self.db.commit()
 
         grn = self.db.query(models.GoodReceivedNote).filter(
             models.GoodReceivedNote.good_received_no == created_item.good_received_note

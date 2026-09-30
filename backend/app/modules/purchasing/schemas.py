@@ -344,6 +344,12 @@ class PurchasingOrder(PurchasingOrderBase, TijaeroBaseSchema):
     # Set when this PO was created as part of a multi-supplier product-first
     # checkout — every sibling PO from that same checkout shares this value.
     purchase_batch_id: Optional[str] = None
+    cancellation_reason: Optional[str] = None
+    cancelled_date: Optional[datetime] = None
+    cancelled_by: Optional[int] = None
+    short_close_reason: Optional[str] = None
+    short_closed_date: Optional[datetime] = None
+    short_closed_by: Optional[int] = None
 
     @field_validator('status', mode='before')
     @classmethod
@@ -352,6 +358,14 @@ class PurchasingOrder(PurchasingOrderBase, TijaeroBaseSchema):
 
 class PurchasingOrderWithItems(PurchasingOrder):
     items: List[PurchasingOrderItem] = []
+
+
+class PurchasingOrderCancelRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+class PurchasingOrderShortCloseRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=500)
 
 
 class PurchasingOrderBatchCreate(BaseModel):

@@ -395,6 +395,24 @@ export default function QuotationApprovalsPage() {
         width: 130,
       },
       {
+        field: "pending_age",
+        header: "Pending",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<QuoteApprovalRow>) => {
+          if ((params.row.status || "").toLowerCase() !== "pending_approval") {
+            return <Typography variant="body2" color="text.disabled">-</Typography>;
+          }
+          const days = Math.max(
+            0,
+            Math.floor((Date.now() - new Date(params.row.created_date).getTime()) / 86400000),
+          );
+          const color = days >= 5 ? "error" : days >= 2 ? "warning" : "success";
+          return <TChip label={`${days}d`} size="small" color={color} />;
+        },
+      },
+      {
         field: "status",
         header: "Status",
         type: "status",
@@ -470,7 +488,15 @@ export default function QuotationApprovalsPage() {
           selectedQuote
             ? (() => {
               const s = getStatusProps(selectedQuote.status || "draft", "quoteStatus");
-              return [{ label: s.label, color: s.color }];
+              const chips = [{ label: s.label, color: s.color }];
+              if ((selectedQuote.status || "").toLowerCase() === "pending_approval") {
+                const days = Math.max(
+                  0,
+                  Math.floor((Date.now() - new Date(selectedQuote.created_date).getTime()) / 86400000),
+                );
+                chips.push({ label: `Pending ${days}d`, color: days >= 5 ? "error" : days >= 2 ? "warning" : "success" });
+              }
+              return chips;
             })()
             : []
         }
