@@ -789,6 +789,34 @@ def update_purchase_order(
     return order_service.update_order(order_id, order_update, updated_by=current_user.id)
 
 
+@router.post(
+    "/orders/{order_id}/cancel",
+    response_model=schemas.PurchasingOrder,
+)
+def cancel_purchase_order(
+    order_id: int,
+    payload: schemas.PurchasingOrderCancelRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_UPDATE)),
+):
+    order_service = service.PurchasingOrderService(db)
+    return order_service.cancel_order(order_id, payload.reason, user_id=current_user.id)
+
+
+@router.post(
+    "/orders/{order_id}/short-close",
+    response_model=schemas.PurchasingOrder,
+)
+def short_close_purchase_order(
+    order_id: int,
+    payload: schemas.PurchasingOrderShortCloseRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_UPDATE)),
+):
+    order_service = service.PurchasingOrderService(db)
+    return order_service.short_close_order(order_id, payload.reason, user_id=current_user.id)
+
+
 @router.delete(
     "/orders/{order_id}",
     status_code=status.HTTP_204_NO_CONTENT,

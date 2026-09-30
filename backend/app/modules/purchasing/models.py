@@ -254,6 +254,17 @@ class PurchasingOrder(Base, AuditMixin):
     purchase_batch_id = Column(String(36), nullable=True, index=True)
     created_by = Column(Integer, nullable=True)
     updated_by = Column(Integer, nullable=True)
+    # Cancellation (only allowed before any GRN has been received — see
+    # PurchasingOrderService.cancel_order)
+    cancellation_reason = Column(Text, nullable=True)
+    cancelled_date = Column(TIMESTAMP, nullable=True)
+    cancelled_by = Column(Integer, nullable=True)
+    # Short-close (manually closing a partially_completed order once the
+    # supplier confirms no more units are coming — see
+    # PurchasingOrderService.short_close_order)
+    short_close_reason = Column(Text, nullable=True)
+    short_closed_date = Column(TIMESTAMP, nullable=True)
+    short_closed_by = Column(Integer, nullable=True)
 
     first_supplier = relationship("Supplier", foreign_keys=[first_suppliers_id], back_populates="purchasing_orders_first")
     second_supplier = relationship("Supplier", foreign_keys=[second_suppliers_id], back_populates="purchasing_orders_second")

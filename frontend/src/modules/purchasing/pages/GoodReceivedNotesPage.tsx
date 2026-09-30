@@ -66,7 +66,7 @@ import {
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { exportToCSV } from "@/utils/csvExport";
 
 
@@ -205,6 +205,10 @@ export default function GoodReceivedNotesPage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Set by the "Create GRN" shortcut on PurchaseOrdersPage (?poId=123);
+  // consumed once purchaseOrders has loaded (see effect near handlePOChange).
+  const pendingPoIdFromUrl = useRef<number | null>(null);
 
   const [lineItems, setLineItems] = useState<GRNLineItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -363,6 +367,30 @@ export default function GoodReceivedNotesPage() {
     setFormStep(0);
     setTouched({}); // Reset validation state
   }, [handleNewGRNBase, setFormData, defaultBranchCode]);
+
+  // "Create GRN" shortcut from PurchaseOrdersPage's detail view lands here
+  // as /purchasing/grn?poId=123 — jump straight into creation mode with
+  // that PO queued up; handlePOChange (below) picks it up once the
+  // purchaseOrders list has loaded.
+  useEffect(() => {
+    const poIdParam = searchParams.get("poId");
+    if (!poIdParam) return;
+    const poId = Number(poIdParam);
+    if (Number.isFinite(poId) && poId > 0) {
+      pendingPoIdFromUrl.current = poId;
+      handleNewGRN();
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("poId");
+        return next;
+      },
+      { replace: true }
+    );
+    // Only ever consume ?poId= once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load GRN items when selecting a GRN
   const loadGRNItems = useCallback(async (grnId: number) => {
@@ -937,6 +965,18 @@ export default function GoodReceivedNotesPage() {
       setFormData({ ...formData, purchasingorders_id: poId });
     }
   };
+
+  // Consumes the pending ?poId= from the "Create GRN" shortcut once the
+  // purchaseOrders list (enabled by handleNewGRN switching isCreating on)
+  // has actually loaded, so handlePOChange can find the PO by id.
+  useEffect(() => {
+    if (pendingPoIdFromUrl.current && purchaseOrders && purchaseOrders.length > 0) {
+      const poId = pendingPoIdFromUrl.current;
+      pendingPoIdFromUrl.current = null;
+      handlePOChange(poId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [purchaseOrders]);
 
   // Function to update product groups from line items
   const updateProductGroups = useCallback((items: GRNLineItem[], productList: Product[]) => {

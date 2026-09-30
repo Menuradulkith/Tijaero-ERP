@@ -297,6 +297,9 @@ class SalesQuoteRepository:
                             QuoteStatus.COMPLETED.value,
                             QuoteStatus.CANCELLED.value,
                             QuoteStatus.REJECTED.value,
+                            QuoteStatus.SO_CREATED.value,
+                            QuoteStatus.REVISED.value,
+                            QuoteStatus.PARTIALLY_PROCESSED.value,
                         ]
                     ),
                 )

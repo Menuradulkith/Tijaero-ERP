@@ -18,6 +18,7 @@ import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import DeleteIcon from "@mui/icons-material/Delete";
 import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
@@ -201,6 +202,12 @@ export default function PurchaseOrdersPage() {
   // Confirm dialog for unsaved changes and delete actions
   const confirmDialog = useTConfirmDialog();
   const creditWarningDialog = useTConfirmDialog();
+
+  // Cancel / Short-Close reason dialogs
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [shortCloseDialogOpen, setShortCloseDialogOpen] = useState(false);
+  const [shortCloseReason, setShortCloseReason] = useState("");
 
   // Validation state - track which fields have been touched/blurred
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -878,6 +885,32 @@ export default function PurchaseOrdersPage() {
     },
   });
 
+  const cancelOrderMutation = useCrudMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      purchaseOrdersApi.cancel(id, reason),
+    invalidateQueryKeys: [["purchaseOrders"]],
+    successMessage: "Purchase order cancelled",
+    errorMessage: "Failed to cancel purchase order",
+    onSuccess: (updatedOrder) => {
+      setSelectedOrder((prev) => (prev ? { ...prev, ...updatedOrder } : updatedOrder));
+      setCancelDialogOpen(false);
+      setCancelReason("");
+    },
+  });
+
+  const shortCloseMutation = useCrudMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      purchaseOrdersApi.shortClose(id, reason),
+    invalidateQueryKeys: [["purchaseOrders"]],
+    successMessage: "Purchase order short-closed",
+    errorMessage: "Failed to short-close purchase order",
+    onSuccess: (updatedOrder) => {
+      setSelectedOrder((prev) => (prev ? { ...prev, ...updatedOrder } : updatedOrder));
+      setShortCloseDialogOpen(false);
+      setShortCloseReason("");
+    },
+  });
+
   // Check if order can be deleted (no GRN created)
   const canDelete = !!(
     selectedOrder &&
@@ -889,6 +922,21 @@ export default function PurchaseOrdersPage() {
     selectedOrder && 
     !["completed", "partially_completed"].includes(selectedOrder.status?.toLowerCase() || "")
   );
+
+  // Cancel is only offered before anything has been received — once any GRN
+  // exists the order must be short-closed instead (backend enforces this
+  // too; the status check here just keeps the button from being offered
+  // when it would always be rejected).
+  const canCancelOrder = !!(
+    selectedOrder &&
+    !["completed", "partially_completed", "cancelled", "rejected", "short_closed"].includes(
+      selectedOrder.status?.toLowerCase() || ""
+    )
+  );
+
+  // Short-close only makes sense once something has been received but the
+  // rest never will be.
+  const canShortCloseOrder = selectedOrder?.status?.toLowerCase() === "partially_completed";
 
   const handleDelete = useCallback(async () => {
     if (canDelete) {
@@ -1338,6 +1386,37 @@ export default function PurchaseOrdersPage() {
             </Box>
           ) : selectedOrder && !isEditing ? (
             <Box sx={{ display: "flex", gap: 1 }}>
+              {["approved", "partially_completed"].includes(selectedOrder.status?.toLowerCase() || "") && (
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="primary"
+                  startIcon={<ReceiptLongIcon />}
+                  onClick={() => navigate(`/purchasing/grn?poId=${selectedOrder.id}`)}
+                >
+                  Create GRN
+                </Button>
+              )}
+              {canCancelOrder && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  onClick={() => setCancelDialogOpen(true)}
+                >
+                  Cancel Order
+                </Button>
+              )}
+              {canShortCloseOrder && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="warning"
+                  onClick={() => setShortCloseDialogOpen(true)}
+                >
+                  Short Close
+                </Button>
+              )}
               <Tooltip title={!canPrintDocument(selectedOrder.status, ["cancelled"]) ? `Cannot email: order is ${(selectedOrder.status || "").replace(/_/g, " ")}` : "Send via Email"}>
                 <span>
                   <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
@@ -1491,6 +1570,23 @@ export default function PurchaseOrdersPage() {
                       }
                     }}
                     disabled={!isEditing && !isCreating}
+                    renderOption={(props, option: Supplier) => (
+                      <li {...props} key={option.id}>
+                        <Box sx={{ display: "flex", flexDirection: "column", width: "100%" }}>
+                          <Typography variant="body2">
+                            {option.active ? option.company_name : `${option.company_name} (Inactive)`}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Est. lead time: {option.lead_time_days != null ? `${option.lead_time_days} days` : "-"}
+                            {" · "}
+                            Actual avg:{" "}
+                            {option.average_lead_time_days != null
+                              ? `${Math.round(option.average_lead_time_days)} days`
+                              : "no data yet"}
+                          </Typography>
+                        </Box>
+                      </li>
+                    )}
                     renderInput={(params) => (
                       <TextField
                         {...params}
@@ -2170,6 +2266,104 @@ export default function PurchaseOrdersPage() {
               Save
             </Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Cancel Order Dialog */}
+      <Dialog
+        open={cancelDialogOpen}
+        onClose={() => {
+          setCancelDialogOpen(false);
+          setCancelReason("");
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Cancel Purchase Order</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            This cancels "{selectedOrder?.purchasing_order_no}" — only possible before any goods have been received.
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            autoFocus
+            label="Cancellation Reason"
+            placeholder="e.g. Supplier unable to fulfill, duplicate order..."
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setCancelDialogOpen(false);
+              setCancelReason("");
+            }}
+          >
+            Keep Order
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            disabled={!cancelReason.trim() || cancelOrderMutation.isPending}
+            onClick={() =>
+              selectedOrder &&
+              cancelOrderMutation.mutate({ id: selectedOrder.id, reason: cancelReason.trim() })
+            }
+          >
+            Cancel Order
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Short Close Dialog */}
+      <Dialog
+        open={shortCloseDialogOpen}
+        onClose={() => {
+          setShortCloseDialogOpen(false);
+          setShortCloseReason("");
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Short Close Purchase Order</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            This closes "{selectedOrder?.purchasing_order_no}" as-is, with no more units expected for the remaining ordered quantity.
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            autoFocus
+            label="Short Close Reason"
+            placeholder="e.g. Supplier confirmed remaining stock is discontinued..."
+            value={shortCloseReason}
+            onChange={(e) => setShortCloseReason(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setShortCloseDialogOpen(false);
+              setShortCloseReason("");
+            }}
+          >
+            Keep Open
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={!shortCloseReason.trim() || shortCloseMutation.isPending}
+            onClick={() =>
+              selectedOrder &&
+              shortCloseMutation.mutate({ id: selectedOrder.id, reason: shortCloseReason.trim() })
+            }
+          >
+            Short Close
+          </Button>
         </DialogActions>
       </Dialog>
 

@@ -48,6 +48,15 @@ class SalesQuoteService:
     def get_quote_by_id(self, db: Session, quote_id: int) -> Optional[SalesQuote]:
         """Get quote by ID"""
         quote = self.repository.get_by_id_with_items(db, quote_id)
+        if quote and quote.status not in (
+            QuoteStatus.EXPIRED.value, QuoteStatus.COMPLETED.value,
+            QuoteStatus.CANCELLED.value, QuoteStatus.REJECTED.value,
+            QuoteStatus.SO_CREATED.value, QuoteStatus.REVISED.value,
+            QuoteStatus.PARTIALLY_PROCESSED.value,
+        ) and quote.valid_until < tz.today():
+            quote.status = QuoteStatus.EXPIRED.value
+            db.commit()
+            db.refresh(quote)
         if quote:
             self._attach_related_purchase_orders(db, quote)
             self._attach_user_names(db, [quote])
@@ -129,6 +138,10 @@ class SalesQuoteService:
         per_page: int = 20
     ) -> Tuple[List[SalesQuote], int, int]:
         """Get filtered quotes with pagination"""
+        # Lazily flip any quote past its valid_until date to "expired" before
+        # listing — cheaper than a scheduled job and keeps the status accurate
+        # for anyone browsing the list, without needing a cron/worker process.
+        self.mark_expired_quotes(db)
         skip = (page - 1) * per_page
         quotes, total = self.repository.get_filtered(db, filters, skip, per_page)
         pages = (total + per_page - 1) // per_page

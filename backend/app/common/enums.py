@@ -104,6 +104,11 @@ class PurchaseOrderStatus(str, Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
+    # Manually closed while only partially received — the supplier has
+    # confirmed no more units are coming for the remaining ordered qty, so
+    # the order stops counting as "outstanding" without pretending it was
+    # fully completed.
+    SHORT_CLOSED = "short_closed"
 
 
 class SupplierTaxArea(str, Enum):

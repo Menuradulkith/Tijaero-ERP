@@ -284,6 +284,26 @@ export const purchaseOrdersApi = {
     await apiClient.delete(`/purchasing/orders/${id}`);
   },
 
+  /** Only allowed before any GRN has been received — see backend
+   * PurchasingOrderService.cancel_order. */
+  cancel: async (id: number, reason: string) => {
+    const response = await apiClient.post<PurchasingOrder>(
+      `/purchasing/orders/${id}/cancel`,
+      { reason }
+    );
+    return response.data;
+  },
+
+  /** Only allowed once a PO is partially_completed — closes it without
+   * waiting for the remaining ordered qty to ever arrive. */
+  shortClose: async (id: number, reason: string) => {
+    const response = await apiClient.post<PurchasingOrder>(
+      `/purchasing/orders/${id}/short-close`,
+      { reason }
+    );
+    return response.data;
+  },
+
 
 
   getSupplierOrders: async (supplierId: number, skip = 0, limit = 100000) => {

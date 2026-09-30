@@ -120,6 +120,27 @@ const resetFormFromCustomer = (customer: Customer): CustomerCreate => ({
   commission_rate: customer.commission_rate || 0,
 });
 
+/** Customer avatar: shows the name's initials, or a generic placeholder icon
+ * for a brand-new, not-yet-named customer being created — mirrors the
+ * company logo/initials circle on the Suppliers page. */
+function CustomerAvatarCircle({ name, size = 36 }: { name?: string; size?: number }) {
+  const initials = name?.trim() ? name.trim().slice(0, 2).toUpperCase() : null;
+  return (
+    <Avatar
+      variant="circular"
+      sx={{
+        width: size,
+        height: size,
+        fontSize: size * 0.4,
+        bgcolor: "action.disabledBackground",
+        color: "text.secondary",
+      }}
+    >
+      {initials || <PersonIcon sx={{ fontSize: size * 0.55 }} />}
+    </Avatar>
+  );
+}
+
 export default function CustomersPage() {
   const queryClient = useQueryClient();
 
@@ -360,9 +381,12 @@ export default function CustomersPage() {
         flex: 1,
         minWidth: 180,
         renderCell: (params: GridRenderCellParams<Customer>) => (
-          <Typography variant="body2" fontWeight={600}>
-            {`${params.row.title} ${params.row.customer_name}`}
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, height: "100%" }}>
+            <CustomerAvatarCircle name={params.row.customer_name} size={30} />
+            <Typography variant="body2" fontWeight={600}>
+              {`${params.row.title} ${params.row.customer_name}`}
+            </Typography>
+          </Box>
         ),
       },
       { field: "company_name", header: "Company", flex: 1, minWidth: 160 },
@@ -531,8 +555,8 @@ export default function CustomersPage() {
           />
         ) : (
           <>
-            {/* Basic Information */}
-            <FormSection title="Basic Information" columns={3}>
+            {/* Personal Information */}
+            <FormSection title="Personal Information" columns={3}>
               <TextField
                 label="Title"
                 size="small"
@@ -558,41 +582,6 @@ export default function CustomersPage() {
                 }
                 disabled={isDisabled}
                 required
-              />
-              <TextField
-                label="Email"
-                size="small"
-                type="email"
-                value={formData.email}
-                onChange={(e) =>
-                  setFormData({ ...formData, email: e.target.value })
-                }
-                disabled={isDisabled}
-              />
-              <TextField
-                label="Mobile Contact"
-                size="small"
-                value={formData.mobile_contact_number}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    mobile_contact_number: e.target.value,
-                  })
-                }
-                disabled={isDisabled}
-                required
-              />
-              <TextField
-                label="Home Contact"
-                size="small"
-                value={formData.home_contact_number}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    home_contact_number: e.target.value,
-                  })
-                }
-                disabled={isDisabled}
               />
               <TextField
                 label="Company Name"
@@ -666,6 +655,45 @@ export default function CustomersPage() {
               />
             </FormSection>
 
+            {/* Contact Information */}
+            <FormSection title="Contact Information" columns={3}>
+              <TextField
+                label="Email"
+                size="small"
+                type="email"
+                value={formData.email}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
+                disabled={isDisabled}
+              />
+              <TextField
+                label="Mobile Contact"
+                size="small"
+                value={formData.mobile_contact_number}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    mobile_contact_number: e.target.value,
+                  })
+                }
+                disabled={isDisabled}
+                required
+              />
+              <TextField
+                label="Home Contact"
+                size="small"
+                value={formData.home_contact_number}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    home_contact_number: e.target.value,
+                  })
+                }
+                disabled={isDisabled}
+              />
+            </FormSection>
+
             {/* ID & Documents */}
             <FormSection title="ID & Documents" columns={2}>
               <TextField
@@ -688,8 +716,8 @@ export default function CustomersPage() {
               />
             </FormSection>
 
-            {/* Address & Banking */}
-            <FormSection title="Address & Banking" columns={2}>
+            {/* Address */}
+            <FormSection title="Address" columns={2}>
               <TextField
                 label="Payment Address"
                 size="small"
@@ -712,6 +740,10 @@ export default function CustomersPage() {
                 multiline
                 rows={2}
               />
+            </FormSection>
+
+            {/* Banking Details */}
+            <FormSection title="Banking Details" columns={2}>
               <TextField
                 label="Bank Details"
                 size="small"
