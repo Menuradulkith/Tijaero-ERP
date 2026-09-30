@@ -338,23 +338,19 @@ export const REIMBURSEMENT_STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
   { value: "completed", label: "Completed" },
 ];
 
-/** Quotation status filter options */
+/** Quotation status filter options — trimmed to the statuses that can
+ * actually occur today (every other value in QuoteStatus is only reachable
+ * through backend functions with no frontend caller: submit_to_customer,
+ * mark_under_review, mark_as_accepted, mark_expired_quotes, or a "cancel"
+ * button that was never wired up — see QuotationsPage's handleCancel). */
 export const QUOTATION_STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
   { value: null, label: "All Statuses" },
   { value: "draft", label: "Draft" },
   { value: "pending_approval", label: "Pending Approval" },
-  { value: "submitted", label: "Submitted" },
-  { value: "under_review", label: "Under Review" },
-  { value: "sent", label: "Sent" },
   { value: "approved", label: "Approved" },
-  { value: "accepted", label: "Accepted" },
   { value: "partially_processed", label: "Partially Processed" },
-  { value: "so_created", label: "SO Created" },
   { value: "completed", label: "Completed" },
   { value: "rejected", label: "Rejected" },
-  { value: "expired", label: "Expired" },
-  { value: "cancelled", label: "Cancelled" },
-  { value: "revised", label: "Revised" },
 ];
 
 export default TFilterPanel;

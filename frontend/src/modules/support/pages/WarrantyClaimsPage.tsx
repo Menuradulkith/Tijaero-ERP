@@ -130,6 +130,7 @@ export default function WarrantyClaimsPage() {
       headerName: "Actions",
       width: 120,
       sortable: false,
+      display: "flex",
       renderCell: (params) => (
         <Box sx={{ display: "flex", gap: 0.5 }}>
           <TIconButton

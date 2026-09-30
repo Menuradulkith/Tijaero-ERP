@@ -47,10 +47,6 @@ import {
   Avatar,
   Box,
   Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   FormControlLabel,
   IconButton,
   InputAdornment,
@@ -961,7 +957,7 @@ export default function ProductsPage({
     getSuccessMessage: (data) =>
       data?.message || "Product deleted successfully",
     errorMessage: "Failed to delete product",
-    onSuccess: (data) => {
+    onSuccess: () => {
       productState.setSelectedItem(null);
     },
   });
@@ -1024,7 +1020,7 @@ export default function ProductsPage({
     getSuccessMessage: (data) =>
       data?.message || "Category deleted successfully",
     errorMessage: "Failed to delete category",
-    onSuccess: (data) => {
+    onSuccess: () => {
       categoryState.setSelectedItem(null);
     },
   });
@@ -1086,7 +1082,7 @@ export default function ProductsPage({
     invalidateQueryKeys: [["brands"], ["referenceData"]],
     getSuccessMessage: (data) => data?.message || "Brand deleted successfully",
     errorMessage: "Failed to delete brand",
-    onSuccess: (data) => {
+    onSuccess: () => {
       brandState.setSelectedItem(null);
     },
   });

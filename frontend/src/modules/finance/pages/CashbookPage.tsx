@@ -203,6 +203,7 @@ export default function CashbookPage() {
       field: "entry_type",
       headerName: "Type",
       width: 150,
+      display: "flex",
       renderCell: (params) => (
         <TChip
           label={getEntryTypeLabel(params.value)}
@@ -218,6 +219,7 @@ export default function CashbookPage() {
       field: "payment_method",
       headerName: "Payment",
       width: 110,
+      display: "flex",
       renderCell: (params) => (
         <Typography variant="body2" sx={{ lineHeight: 1.2 }}>
           {params.value || "-"}
@@ -230,6 +232,7 @@ export default function CashbookPage() {
       width: 120,
       align: "right",
       headerAlign: "right",
+      display: "flex",
       renderCell: (params) => (
         <Box sx={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
           {params.value > 0 ? (
@@ -248,6 +251,7 @@ export default function CashbookPage() {
       width: 120,
       align: "right",
       headerAlign: "right",
+      display: "flex",
       renderCell: (params) => (
         <Box sx={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
           {params.value > 0 ? (
@@ -266,6 +270,7 @@ export default function CashbookPage() {
       width: 130,
       align: "right",
       headerAlign: "right",
+      display: "flex",
       renderCell: (params) => (
         <Box sx={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
           <Typography
@@ -283,6 +288,7 @@ export default function CashbookPage() {
       field: "branch_code",
       headerName: "Branch",
       width: 90,
+      display: "flex",
       renderCell: (params) => (
         <Typography variant="body2" sx={{ lineHeight: 1.2 }}>
           {params.value || "-"}

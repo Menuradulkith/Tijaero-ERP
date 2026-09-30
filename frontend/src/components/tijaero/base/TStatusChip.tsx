@@ -134,7 +134,6 @@ export const STATUS_MAPS = {
     submitted: { label: "Submitted", color: "info" as StatusColor },
     under_review: { label: "Under Review", color: "secondary" as StatusColor },
     approved: { label: "Approved", color: "primary" as StatusColor },
-    sent: { label: "Sent", color: "info" as StatusColor },
     accepted: { label: "Accepted", color: "success" as StatusColor },
     partially_processed: { label: "Partially Processed", color: "warning" as StatusColor },
     completed: { label: "Completed", color: "success" as StatusColor },
