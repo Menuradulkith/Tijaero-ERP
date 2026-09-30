@@ -134,6 +134,7 @@ export default function SupportTicketsPage() {
       headerName: "Actions",
       width: 150,
       sortable: false,
+      display: "flex",
       renderCell: (params) => (
         <Box sx={{ display: "flex", gap: 0.5 }}>
           <TIconButton size="small" color="primary" tooltip="View">

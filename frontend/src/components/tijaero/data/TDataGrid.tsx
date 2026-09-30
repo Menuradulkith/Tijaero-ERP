@@ -334,6 +334,15 @@ const toGridColDef = <R extends GridValidRowModel>(
     base.renderCell = col.renderCell;
   }
 
+  // MUI X v8 only vertically centers plain text cells (via line-height); a
+  // renderCell's content is a block element that otherwise sits at the top
+  // of the row. `display: "flex"` opts the cell into the flex+centered
+  // layout so custom-rendered content (chips, dates, currency, buttons)
+  // lines up with the plain-text columns in the same row.
+  if (base.renderCell) {
+    base.display = "flex";
+  }
+
   // A header lines up with its column's content (right-aligned amounts get
   // right-aligned headers), unless the column says otherwise. Set after the
   // type switch, which can change `align`.

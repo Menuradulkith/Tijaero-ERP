@@ -48,6 +48,7 @@ export default function EmailLogsSettings() {
       field: "status", 
       headerName: "Status", 
       width: 120,
+      display: "flex",
       renderCell: (params) => {
         const status = params.value;
         const color = status === "sent" ? "success" : status === "failed" ? "error" : "default";

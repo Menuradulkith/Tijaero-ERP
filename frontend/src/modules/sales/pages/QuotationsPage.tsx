@@ -47,13 +47,11 @@ import {
   Add as AddIcon,
   ArrowBack as ArrowBackIcon,
   ArrowForward as ArrowForwardIcon,
-  Cancel as CancelIcon,
   Delete as DeleteIcon,
   Save as SaveIcon,
   Description as QuoteIcon,
   Inventory as StockIcon,
   LocalShipping as POIcon,
-  Percent as PercentIcon,
   Payments as PaymentIcon,
   Receipt as InvoiceIcon,
   Receipt as TaxIcon,
@@ -68,7 +66,6 @@ import {
 import {
   Alert,
   Autocomplete,
-  Avatar,
   Box,
   Button,
   Dialog,
@@ -805,7 +802,7 @@ export default function QuotationsPage() {
         );
         queryClient.invalidateQueries({ queryKey: ["procurementQueue"] });
         setSupplierSelectionOpen(false);
-        showSuccessToast("Added to the TOP page — select suppliers there to create purchase orders.");
+        showSuccessToast("Added to the Procurement Queue — select suppliers there to create purchase orders.");
       } catch (err: unknown) {
         showErrorToast(handleApiError(err, "Failed to queue items for procurement"));
       }
@@ -948,11 +945,11 @@ export default function QuotationsPage() {
     const s = selectedQuote.status;
     const actions: string[] = [];
 
-    // Mark as sent — allowed up until the quote is actually converted/closed
-    // out, mirroring the backend's permissive transition graph (a quote that
-    // already went through internal approval still needs a way to record
-    // that it was sent to the customer, not just from draft).
-    if (!['rejected', 'cancelled', 'expired', 'revised', 'completed', 'so_created'].includes(s)) actions.push('send');
+    // Mark as sent — only once the quote has cleared internal approval
+    // (same `approval` gate as create_po/create_so below). "Sent" is not a
+    // status value at all (see submitted_date), so this doesn't need to
+    // special-case an already-"sent" status the way it used to.
+    if (selectedQuote.approval && !['rejected', 'cancelled', 'revised'].includes(s)) actions.push('send');
     // Check stock — allowed for any non-terminal status
     if (!['completed', 'cancelled'].includes(s)) actions.push('check_stock');
     // Create PO / SO — only once the quotation has been approved. `approval`
@@ -971,17 +968,6 @@ export default function QuotationsPage() {
 
 
   // Handlers
-  const handleCreateNew = useCallback(() => {
-    const emptyForm = getEmptyQuoteForm(pageQuoteType);
-    setFormData({ ...emptyForm, branch_code: defaultBranchCode || emptyForm.branch_code });
-    setLineItems([]);
-    setLineItemsDirty(false);
-    setFormStep(0);
-    setTaxMode("none");
-    setTaxRate(0);
-    handleNewQuote();
-  }, [handleNewQuote, setFormData, pageQuoteType, defaultBranchCode]);
-
   const handleDiscardChanges = useCallback(async () => {
     if ((isEditing || isCreating) && hasChanges) {
       const confirmed = await confirmDialog.confirm({
@@ -1400,7 +1386,7 @@ export default function QuotationsPage() {
                     <Button size="small" variant="contained" color="primary" startIcon={<SendIcon />}
                       onClick={() => markSentMutation.mutate(selectedQuote.id)}
                       disabled={markSentMutation.isPending}>
-                      {selectedQuote.status === 'sent' ? '✓ Sent' : 'Mark Sent'}
+                      {selectedQuote.submitted_date ? '✓ Sent' : 'Mark Sent'}
                     </Button>
                   </Tooltip>
                 )}
@@ -1638,7 +1624,6 @@ export default function QuotationsPage() {
               {selectedQuoteDetails?.items && selectedQuoteDetails.items.length > 0 ? (
                 selectedQuoteDetails.items.map((item, index) => {
                   const product = products?.find(p => p.id === item.product_id);
-                  const lineTotal = item.quantity * Number(item.selling_price);
                   // Prefer live stock check result; fall back to stored stock_status from DB
                   const liveStock = stockAvailability.find(sa => sa.product_id === item.product_id);
                   // Derive stock status: live check overrides stored value

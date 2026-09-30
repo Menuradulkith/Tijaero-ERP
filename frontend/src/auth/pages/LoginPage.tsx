@@ -445,7 +445,17 @@ export default function LoginPage() {
                   type="submit"
                   variant="contained"
                   size="large"
-                  sx={{ mt: 3, py: 1.5, borderRadius: 2 }}
+                  sx={{
+                    mt: 3,
+                    py: 1.5,
+                    borderRadius: 2,
+                    // Sign In should stay a solid, high-contrast call to
+                    // action — override the app-wide soft-tint contained
+                    // button style (see MuiButton in theme.ts) for this one.
+                    backgroundColor: "primary.main",
+                    color: "primary.contrastText",
+                    "&:hover": { backgroundColor: "primary.dark" },
+                  }}
                   disabled={loginMutation.isPending}
                 >
                   {loginMutation.isPending ? "Signing in…" : "Sign In"}

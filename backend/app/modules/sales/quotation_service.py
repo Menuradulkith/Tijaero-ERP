@@ -732,20 +732,22 @@ class SalesQuoteService:
         return updated
 
     def mark_as_sent(self, db: Session, quote_id: int) -> SalesQuote:
-        """Mark quote as sent to customer. Allowed from DRAFT/SENT and every
-        legacy pre-conversion status (pending_approval, submitted,
-        under_review, approved, ...) — same transition graph as everywhere
-        else, so a quote that's already been through internal approval isn't
-        stuck without a way to record that it was sent to the customer."""
+        """Record that a quote was sent to the customer. This is deliberately
+        NOT a `status` transition — "sent" isn't tracked as a header status
+        at all, only as `submitted_date` (repurposed from the old
+        submit_to_customer flow), so marking a quote sent never disturbs its
+        real status (e.g. it stays "approved" for create_po/create_so and
+        for the Quotation Approvals dashboard). Only allowed once the quote
+        has cleared internal approval (quote.approval == True)."""
         quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
         if not quote:
             raise HTTPException(status_code=404, detail=f"Quote {quote_id} not found")
-        if quote.status != QuoteStatus.SENT.value and not self._is_valid_status_transition(quote.status, QuoteStatus.SENT.value):
+        if not quote.approval or quote.status in (QuoteStatus.REJECTED.value, QuoteStatus.CANCELLED.value, QuoteStatus.REVISED.value):
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot mark as sent: quotation is already '{quote.status}'"
+                detail=f"Cannot mark as sent: quotation must be approved first (current status: '{quote.status}')"
             )
-        quote.status = QuoteStatus.SENT.value
+        quote.submitted_date = tz.now()
         return self.repository.update(db, quote)
 
     def mark_as_accepted(self, db: Session, quote_id: int) -> SalesQuote:
