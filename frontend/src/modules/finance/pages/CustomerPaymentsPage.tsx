@@ -1147,7 +1147,7 @@ export default function CustomerPaymentsPage() {
                 </InputAdornment>
               ),
             }}
-            sx={{ minWidth: 250, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+            sx={{ minWidth: 250 }}
           />
           <Autocomplete
             options={[{ branch_code: "all", branch_name: "All Branches" }, ...branches]}

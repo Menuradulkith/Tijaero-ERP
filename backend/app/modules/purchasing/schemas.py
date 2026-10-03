@@ -77,6 +77,7 @@ class SupplierUpdate(BaseModel):
 
 class Supplier(SupplierBase, AuditSchema, VersionedSchema):
     id: int
+    supplier_no: str
     date_joined: datetime
     left_credit_amount: Optional[Decimal] = None
     initial_credit_amount: Optional[Decimal] = None
@@ -458,6 +459,8 @@ class PurchasingReturn(PurchasingReturnBase, TijaeroBaseSchema):
     grn_no: Optional[str] = None  # Populated from good_received_note relationship
     po_no: Optional[str] = None  # Populated from GRN→PO
     supplier_name: Optional[str] = None  # Populated from GRN→PO→supplier
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
 
 class PurchasingReturnWithItems(PurchasingReturn):
     items: List[PurchasingReturnItem] = []

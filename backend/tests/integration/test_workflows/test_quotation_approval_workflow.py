@@ -155,12 +155,37 @@ class TestQuotationApprovalCreateAndResolve:
         )
 
         assert updated.status == "pending_approval"
+        assert updated.approval is False
         assert updated.approval_id is not None
 
         approval = db.query(Approvals).filter(Approvals.id == updated.approval_id).first()
         assert approval.status == "pending"
         if updated.approval_id == old_approval_id:
             assert approval.status_changed_by is None
+
+    def test_po_creation_rejected_after_edit_resets_approval(
+        self, db, make_branch, make_customer, make_supplier, make_product
+    ):
+        """Regression test: editing an approved quote must also clear the
+        `approval` flag, not just the status — PO/SO creation is gated on
+        that flag, so a stale True would let a PO slip through for a quote
+        that now actually needs re-approval."""
+        branch, customer, product = make_branch(), make_customer(), make_product()
+        supplier = make_supplier()
+        quote = SERVICE.create_quote(db, _quote_create(branch.branch_code, customer.id, [_quote_item(product.id, qty=20)]))
+        SERVICE.resolve_quote_approval(db, quote.id, approve=True, user_id=1)
+
+        SERVICE.update_quote(db, quote.id, SalesQuoteUpdate(remarks="Changed after approval"), user_id=1)
+        db.refresh(quote, attribute_names=["items"])
+        quote_item = quote.items[0]
+
+        svc = po_service_module.PurchasingOrderService(db)
+        with pytest.raises(HTTPException) as exc:
+            svc.create_order_batch(
+                [_po_group_for_quote_item(branch.branch_code, supplier.id, quote_item)], created_by=1
+            )
+        assert exc.value.status_code == 400
+        assert "not been approved" in exc.value.detail
 
 
 class TestApprovalGatesPOAndSOCreation:
@@ -244,3 +269,26 @@ class TestApprovalGatesPOAndSOCreation:
             SERVICE.create_partial_so(db, quote.id, request, created_by=1)
         assert exc.value.status_code == 400
         assert "not been approved" in exc.value.detail
+
+
+class TestQuoteNumberGenerationAfterRevision:
+    """Regression test: a revision's quote_no (e.g. "QT-BR-26000003-R2")
+    matches the same branch/year LIKE pattern as ordinary quotes. Before the
+    fix, get_next_quote_number picked that revision row as the "last quote",
+    failed to parse a sequence number out of its "-R<n>" suffix, and silently
+    fell back to sequence 1 — colliding with the first quote ever created in
+    that bucket and surfacing as "A duplicate record was detected" on the
+    very next save."""
+
+    def test_new_quote_gets_unique_number_after_a_revision_exists(
+        self, db, make_branch, make_customer, make_product
+    ):
+        branch, customer, product = make_branch(), make_customer(), make_product()
+
+        first = SERVICE.create_quote(db, _quote_create(branch.branch_code, customer.id, [_quote_item(product.id)]))
+        SERVICE.create_revision(db, first.id)
+
+        second = SERVICE.create_quote(db, _quote_create(branch.branch_code, customer.id, [_quote_item(product.id)]))
+
+        assert second.quote_no != first.quote_no
+        assert not second.quote_no.endswith(tuple(f"-R{n}" for n in range(1, 10)))

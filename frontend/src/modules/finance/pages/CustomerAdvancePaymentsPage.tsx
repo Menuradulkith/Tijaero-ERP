@@ -37,11 +37,9 @@ import {
   EmptyState,
   handleApiError,
   useMasterDetailState,
-  useRowSelection,
   showErrorToast,
   showSuccessToast,
   TDetailSkeleton,
-  TExportButton,
   TRemarkField,
   TBranchFilter,
   GENERIC_PAYMENT_METHOD,
@@ -137,8 +135,6 @@ export default function CustomerAdvancePaymentsPage() {
         confirmColor: "warning",
       }),
   });
-
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Status section title, rather than shown inline.
@@ -405,9 +401,6 @@ export default function CustomerAdvancePaymentsPage() {
           emptyMessage="No customer advance payments found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -637,7 +630,7 @@ export default function CustomerAdvancePaymentsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
@@ -658,32 +651,6 @@ export default function CustomerAdvancePaymentsPage() {
               <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={handleNewAdvance} sx={{ mr: 1 }}>
                 Add Advance Payment
               </Button>
-              <TExportButton
-                filename="customer_advance_payments"
-                headers={[
-                  "Payment No",
-                  "Customer",
-                  "Amount",
-                  "Method",
-                  "Created Date",
-                  "Cheque Date",
-                  "Quotation",
-                  "Remarks",
-                ]}
-                rows={() =>
-                  rowSelection.pick(filteredAdvances).map((adv) => [
-                    adv.advance_payments_no || "",
-                    getCustomerName(adv.customer_id),
-                    adv.payment_amount ?? 0,
-                    adv.payment_method || "",
-                    adv.created_date || "",
-                    adv.cheque_date || "",
-                    adv.quote_id ?? "",
-                    adv.remarks || "",
-                  ])
-                }
-                disabled={filteredAdvances.length === 0}
-              />
             </>
           )
         }

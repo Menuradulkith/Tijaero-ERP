@@ -116,12 +116,6 @@ class TestSupplierService:
         assert exc.value.status_code == 400
         assert "pending purchase order" in exc.value.detail.lower()
 
-    def test_delete_missing_supplier_raises_404(self, db):
-        svc = service.SupplierService(db)
-        with pytest.raises(HTTPException) as exc:
-            svc.delete_supplier(99_999_999)
-        assert exc.value.status_code == 404
-
 
 # --------------------------------------------------------------------------- #
 # Purchase Orders — service layer

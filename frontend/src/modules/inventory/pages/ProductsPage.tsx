@@ -16,8 +16,6 @@ import {
     TConfirmDialog,
     TDataGrid,
     type TDataGridColumn,
-    TExportButton,
-    useRowSelection,
     TTabs,
     TTabPanel,
     type TTabConfig,
@@ -202,7 +200,6 @@ export default function ProductsPage({
   // Permissions
   const canCreate = usePermission("products", "create");
   const canUpdate = usePermission("products", "update");
-  const canDelete = usePermission("products", "delete");
 
   const queryClient = useQueryClient();
 
@@ -306,13 +303,6 @@ export default function ProductsPage({
         confirmColor: "warning",
       }),
   });
-
-  // One row-selection instance per tab's grid: ticking rows there narrows
-  // that tab's own CSV export to just the ticked rows (see the TExportButton
-  // headerActions below), independent of the other two tabs.
-  const productSelection = useRowSelection();
-  const categorySelection = useRowSelection();
-  const brandSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to each
   // tab's Activity History title, rather than shown inline. One shared
@@ -951,17 +941,6 @@ export default function ProductsPage({
     },
   });
 
-  const deleteProductMutation = useCrudMutation({
-    mutationFn: productsApi.delete,
-    invalidateQueryKeys: [["products"], ["referenceData"]],
-    getSuccessMessage: (data) =>
-      data?.message || "Product deleted successfully",
-    errorMessage: "Failed to delete product",
-    onSuccess: () => {
-      productState.setSelectedItem(null);
-    },
-  });
-
   const createCategoryMutation = useCrudMutation({
     mutationFn: categoriesApi.create,
     invalidateQueryKeys: [["categories"], ["referenceData"]],
@@ -1014,17 +993,6 @@ export default function ProductsPage({
     },
   });
 
-  const deleteCategoryMutation = useCrudMutation({
-    mutationFn: categoriesApi.delete,
-    invalidateQueryKeys: [["categories"], ["referenceData"]],
-    getSuccessMessage: (data) =>
-      data?.message || "Category deleted successfully",
-    errorMessage: "Failed to delete category",
-    onSuccess: () => {
-      categoryState.setSelectedItem(null);
-    },
-  });
-
   const createBrandMutation = useCrudMutation({
     mutationFn: brandsApi.create,
     invalidateQueryKeys: [["brands"], ["referenceData"]],
@@ -1074,16 +1042,6 @@ export default function ProductsPage({
       } catch {
         // The 409's toast already told the user; nothing more to do.
       }
-    },
-  });
-
-  const deleteBrandMutation = useCrudMutation({
-    mutationFn: brandsApi.delete,
-    invalidateQueryKeys: [["brands"], ["referenceData"]],
-    getSuccessMessage: (data) => data?.message || "Brand deleted successfully",
-    errorMessage: "Failed to delete brand",
-    onSuccess: () => {
-      brandState.setSelectedItem(null);
     },
   });
 
@@ -1253,21 +1211,7 @@ export default function ProductsPage({
     }
   }, [productState]);
 
-  const handleDeleteProduct = async () => {
-    if (productState.selectedItem) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Product",
-        message:
-          "Are you sure you want to permanently delete this product? This action cannot be undone.",
-        confirmText: "Delete",
-        confirmColor: "danger",
-        type: "danger",
-      });
-      if (confirmed) {
-        deleteProductMutation.mutate(productState.selectedItem.id);
-      }
-    }
-  };
+
 
   // Category handlers
   const selectCategoryInternal = (category: Category) => {
@@ -1323,22 +1267,6 @@ export default function ProductsPage({
           expected_version: categoryState.selectedItem.version,
         },
       });
-    }
-  };
-
-  const handleDeleteCategory = async () => {
-    if (categoryState.selectedItem) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Category",
-        message:
-          "Are you sure you want to permanently delete this category? This action cannot be undone and may affect existing products.",
-        confirmText: "Delete",
-        confirmColor: "danger",
-        type: "danger",
-      });
-      if (confirmed) {
-        deleteCategoryMutation.mutate(categoryState.selectedItem.id);
-      }
     }
   };
 
@@ -1436,21 +1364,6 @@ export default function ProductsPage({
     }
   };
 
-  const handleDeleteBrand = async () => {
-    if (brandState.selectedItem) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Brand",
-        message: "Are you sure you want to delete this brand?",
-        confirmText: "Delete",
-        confirmColor: "danger",
-        type: "danger",
-      });
-      if (confirmed) {
-        deleteBrandMutation.mutate(brandState.selectedItem.id);
-      }
-    }
-  };
-
   // Cancelling out of "New Brand" returns to the browse table rather than
   // auto-selecting the first item (mirrors handleCancelProduct above).
   const handleCancelBrand = () => {
@@ -1515,9 +1428,6 @@ export default function ProductsPage({
           emptyMessage="No products found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={productSelection.selectedRows}
-          onSelectionChange={productSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1583,14 +1493,12 @@ export default function ProductsPage({
 
         <ActionToolbar
           canCreate={canCreate}
-          canDelete={canDelete}
           canUpdate={canUpdate}
           isEditing={showToolbarSaveForSection}
           isCreating={productState.isCreating}
           hasSelection={!!productState.selectedItem}
           onAdd={handleNewProduct}
           onDuplicate={handleDuplicateProduct}
-          onDelete={handleDeleteProduct}
           onSave={handleSaveProduct}
           onCancel={handleCancelProduct}
           onEdit={() => {
@@ -2129,9 +2037,6 @@ export default function ProductsPage({
           emptyMessage="No categories found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={categorySelection.selectedRows}
-          onSelectionChange={categorySelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -2177,14 +2082,12 @@ export default function ProductsPage({
 
         <ActionToolbar
           canCreate={canCreate}
-          canDelete={canDelete}
           canUpdate={canUpdate}
           isEditing={categoryState.isEditing}
           isCreating={categoryState.isCreating}
           hasSelection={!!categoryState.selectedItem}
           onAdd={handleNewCategory}
           onEdit={() => categoryState.setIsEditing(true)}
-          onDelete={handleDeleteCategory}
           onSave={handleSaveCategory}
           onCancel={handleCancelCategory}
           isSaving={
@@ -2378,9 +2281,6 @@ export default function ProductsPage({
           emptyMessage="No brands found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={brandSelection.selectedRows}
-          onSelectionChange={brandSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -2426,14 +2326,12 @@ export default function ProductsPage({
 
         <ActionToolbar
           canCreate={canCreate}
-          canDelete={canDelete}
           canUpdate={canUpdate}
           isEditing={brandState.isEditing}
           isCreating={brandState.isCreating}
           hasSelection={!!brandState.selectedItem}
           onAdd={handleNewBrand}
           onEdit={() => brandState.setIsEditing(true)}
-          onDelete={handleDeleteBrand}
           onSave={handleSaveBrand}
           onCancel={handleCancelBrand}
           isSaving={
@@ -2626,7 +2524,7 @@ export default function ProductsPage({
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 160, flexShrink: 0 }}
               />
               <Box sx={{ width: 110, flexShrink: 0 }}>
                 <TStatusFilter
@@ -2702,7 +2600,7 @@ export default function ProductsPage({
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter
@@ -2745,7 +2643,7 @@ export default function ProductsPage({
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter
@@ -2770,8 +2668,7 @@ export default function ProductsPage({
         headerActions={
           activeTab === 0 ? (
             isProductDetailMode ? undefined : (
-            <>
-              {canCreate && (
+              canCreate && (
                 <Button
                   variant="contained"
                   size="small"
@@ -2781,49 +2678,11 @@ export default function ProductsPage({
                 >
                   Add Product
                 </Button>
-              )}
-            <TExportButton
-              filename="products"
-              headers={[
-                "Item Code",
-                "Name",
-                "Model",
-                "Item Type",
-                "Description",
-                "Cost Price",
-                "Selling Price",
-                "Website Price",
-                "Active",
-                "Website Active",
-                "Added Date",
-                "Created At",
-                "Updated At",
-              ]}
-              rows={() =>
-                productSelection.pick(filteredProducts).map((p) => [
-                  p.item_code || "",
-                  p.name || "",
-                  p.model || "",
-                  p.item_type || "",
-                  p.description || "",
-                  p.cost_price || 0,
-                  p.selling_price || 0,
-                  p.website_price || 0,
-                  p.active ? "Yes" : "No",
-                  p.website_active ? "Yes" : "No",
-                  p.added_date || "",
-                  p.created_at || "",
-                  p.updated_at || "",
-                ])
-              }
-              disabled={filteredProducts.length === 0}
-            />
-            </>
+              )
             )
           ) : activeTab === 1 ? (
             isCategoryDetailMode ? undefined : (
-            <>
-              {canCreate && (
+              canCreate && (
                 <Button
                   variant="contained"
                   size="small"
@@ -2833,26 +2692,11 @@ export default function ProductsPage({
                 >
                   Add Category
                 </Button>
-              )}
-            <TExportButton
-              filename="categories"
-              headers={["Category Code", "Name", "Description", "Active"]}
-              rows={() =>
-                categorySelection.pick(filteredCategories).map((c) => [
-                  c.category_code || "",
-                  c.name || "",
-                  c.description || "",
-                  c.active ? "Yes" : "No",
-                ])
-              }
-              disabled={filteredCategories.length === 0}
-            />
-            </>
+              )
             )
           ) : activeTab === 2 ? (
             isBrandDetailMode ? undefined : (
-            <>
-              {canCreate && (
+              canCreate && (
                 <Button
                   variant="contained"
                   size="small"
@@ -2862,20 +2706,7 @@ export default function ProductsPage({
                 >
                   Add Brand
                 </Button>
-              )}
-            <TExportButton
-              filename="brands"
-              headers={["Brand Code", "Brand Name", "Description"]}
-              rows={() =>
-                brandSelection.pick(filteredBrands).map((b) => [
-                  b.brand_code || "",
-                  b.brand_name || "",
-                  b.description || "",
-                ])
-              }
-              disabled={filteredBrands.length === 0}
-            />
-            </>
+              )
             )
           ) : undefined
         }

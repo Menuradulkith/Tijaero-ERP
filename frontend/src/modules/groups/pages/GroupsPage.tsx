@@ -35,10 +35,8 @@ import {
     MasterDetailLayout,
     TActivityHistoryPanel,
     TDetailSkeleton,
-    TExportButton,
     TPageSkeleton,
     useMasterDetailState,
-    useRowSelection,
     handleApiError,
     showErrorToast,
     showSuccessToast,
@@ -97,8 +95,6 @@ export default function GroupsPage() {
     resetFormFromItem: resetFormFromGroup,
     defaultSortField: "name",
   });
-
-  const rowSelection = useRowSelection();
 
   useEffect(() => {
     loadData();
@@ -357,9 +353,6 @@ export default function GroupsPage() {
           emptyMessage="No roles found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -546,7 +539,7 @@ export default function GroupsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
             </Box>
           )
@@ -555,25 +548,15 @@ export default function GroupsPage() {
         isLoading={loading}
         headerActions={
           isGroupDetailMode ? undefined : (
-            <>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={handleNewGroup}
-                sx={{ mr: 1 }}
-              >
-                Add Role
-              </Button>
-              <TExportButton
-                filename="roles"
-                headers={["Role Name", "Permissions Count"]}
-                rows={() =>
-                  rowSelection.pick(filteredGroups).map((g) => [g.name || "", g.permissions?.length ?? 0])
-                }
-                disabled={filteredGroups.length === 0}
-              />
-            </>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleNewGroup}
+              sx={{ mr: 1 }}
+            >
+              Add Role
+            </Button>
           )
         }
         {...(isGroupDetailMode ? { children: detailPanel } : { children: groupsTablePanel })}

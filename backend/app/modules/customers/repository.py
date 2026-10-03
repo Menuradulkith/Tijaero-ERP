@@ -1,12 +1,21 @@
 from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func, text, Integer
 from app.core import timezone as tz
 from app.modules.customers.models import Customer
 from app.modules.customers.schemas import CustomerCreate, CustomerUpdate
 
 class CustomerRepository:
+    def get_next_customer_no(self, db: Session) -> str:
+        """Next sequential display number for the Customers grid's first
+        column (0001, 0002, ...). Advisory lock serializes concurrent
+        creates, mirroring the PO-number generation pattern used elsewhere."""
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext('customer_no'))"))
+        last_no = db.query(func.max(func.cast(Customer.customer_no, Integer))).scalar() or 0
+        return f"{last_no + 1:04d}"
+
+
     def get_by_id(self, db: Session, customer_id: int) -> Optional[Customer]:
         return db.query(Customer).filter(Customer.id == customer_id).first()
     
@@ -27,6 +36,7 @@ class CustomerRepository:
     def create(self, db: Session, customer: CustomerCreate, created_by: int) -> Customer:
         db_customer = Customer(
             **customer.dict(),
+            customer_no=self.get_next_customer_no(db),
             date_joined=tz.now(),
             created_by=created_by,
             updated_by=created_by

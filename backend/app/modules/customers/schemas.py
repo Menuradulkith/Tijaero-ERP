@@ -64,6 +64,7 @@ class CustomerUpdate(BaseModel):
 
 class Customer(CustomerBase, TijaeroBaseSchema):
     id: int
+    customer_no: str
     date_joined: datetime
     created_at: datetime
     updated_at: datetime

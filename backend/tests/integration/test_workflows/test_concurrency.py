@@ -15,6 +15,7 @@ from app.modules.purchasing import schemas as purchasing_schemas
 from app.auth.models import Branch, User
 from app.core.security import get_password_hash
 from app.modules.customers.models import Customer
+from app.modules.customers.repository import CustomerRepository
 from app.modules.purchasing.models import (
     Supplier,
     PurchasingOrder,
@@ -22,6 +23,7 @@ from app.modules.purchasing.models import (
     GoodReceivedNote,
     GoodReceivedItems,
 )
+from app.modules.purchasing.repository import SupplierRepository
 from app.modules.products.models import Product, Category, ItemsBrand
 from app.modules.common.models import Locations
 from app.modules.inventory.models import SalesStock
@@ -120,6 +122,7 @@ class TestConcurrencyAndRaceConditions:
 
             # 2. Customer
             self.customer = Customer(
+                customer_no=CustomerRepository().get_next_customer_no(db),
                 title="Mr",
                 customer_name=_uid("Cust"),
                 email=f"{_uid('cust')}@example.com",  # Required for credit check
@@ -143,6 +146,7 @@ class TestConcurrencyAndRaceConditions:
 
             # 3. Supplier
             self.supplier = Supplier(
+                supplier_no=SupplierRepository(db).get_next_supplier_no(),
                 company_name=_uid("Supp"),
                 billing_address_line1="Billing Address",
                 mobile_contact_number="0770000000",

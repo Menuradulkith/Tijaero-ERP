@@ -37,10 +37,8 @@ import {
     FormSection,
     MasterDetailLayout,
     TDetailSkeleton,
-    TExportButton,
     TPageSkeleton,
     useMasterDetailState,
-    useRowSelection,
     GENDER_CHOICES,
     TConfirmDialog,
     useConfirmDialog,
@@ -169,7 +167,6 @@ export default function UsersPage() {
   // Permissions
   const canCreate = usePermission(PERMISSIONS.USER_CREATE.resource, PERMISSIONS.USER_CREATE.action);
   const canUpdate = usePermission(PERMISSIONS.USER_UPDATE.resource, PERMISSIONS.USER_UPDATE.action);
-  const canDelete = usePermission(PERMISSIONS.USER_DELETE.resource, PERMISSIONS.USER_DELETE.action);
 
   const confirmDialog = useConfirmDialog();
 
@@ -202,8 +199,6 @@ export default function UsersPage() {
       confirmColor: "warning",
     }),
   });
-
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -344,17 +339,6 @@ export default function UsersPage() {
       markAsSaved();
       setIsEditing(false);
       await loadData(variables.id);
-    },
-  });
-
-  const deleteUserMutation = useCrudMutation({
-    mutationFn: (id: number) => usersApi.deleteUser(id),
-    invalidateQueryKeys: [["users"]],
-    successMessage: "User deleted successfully",
-    errorMessage: "Failed to delete user",
-    onSuccess: async () => {
-      setSelectedUser(null);
-      await loadData();
     },
   });
 
@@ -609,25 +593,6 @@ export default function UsersPage() {
     }
   }, [isCreating, setSelectedUser, setIsCreating, setIsEditing]);
 
-  const handleDelete = useCallback(async () => {
-    if (selectedUser) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete User",
-        message: `Are you sure you want to delete user "${selectedUser.username}"?`,
-        confirmText: "Delete",
-        confirmColor: "error",
-      });
-      if (confirmed) {
-        try {
-          await deleteUserMutation.mutateAsync(selectedUser.id);
-        } catch (err: unknown) {
-          const errorMessage = handleApiError(err, "Failed to delete user");
-          setError(errorMessage);
-        }
-      }
-    }
-  }, [selectedUser, deleteUserMutation, confirmDialog]);
-
   const isFormValid = formData.username && formData.first_name && formData.last_name &&
     formData.employee_id &&
     !!formData.branch_ids?.length && !!formData.primary_branch_id && !!formData.group_ids?.length &&
@@ -713,9 +678,6 @@ export default function UsersPage() {
           emptyMessage="No users found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -745,7 +707,6 @@ export default function UsersPage() {
       <ActionToolbar
         canCreate={canCreate}
         canUpdate={canUpdate}
-        canDelete={canDelete}
         canDuplicate={false}
         hasSelectedItem={!!selectedUser}
         isCreating={isCreating}
@@ -753,7 +714,6 @@ export default function UsersPage() {
         isSaving={saving}
         isFormValid={!!isFormValid}
         onNew={handleCreate}
-        onDelete={handleDelete}
         onSave={handleSave}
         onCancel={handleCancel}
         onEdit={handleEdit}
@@ -1159,7 +1119,7 @@ export default function UsersPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TStatusFilter
@@ -1205,53 +1165,17 @@ export default function UsersPage() {
         isLoading={loading}
         headerActions={
           isUserDetailMode ? undefined : (
-            <>
-              {canCreate && (
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={handleCreate}
-                  sx={{ mr: 1 }}
-                >
-                  Add User
-                </Button>
-              )}
-              <TExportButton
-                filename="users"
-                headers={[
-                  "Username",
-                  "First Name",
-                  "Middle Name",
-                  "Last Name",
-                  "Email",
-                  "Gender",
-                  "Birthdate",
-                  "Date Joined",
-                  "Employee ID",
-                  "Branches",
-                  "Roles",
-                  "Status",
-                ]}
-                rows={() =>
-                  rowSelection.pick(filteredUsers).map((u) => [
-                    u.username || "",
-                    u.first_name || "",
-                    u.middle_name || "",
-                    u.last_name || "",
-                    u.email || "",
-                    GENDER_CHOICES.find((g) => g.value === u.gender)?.label || "",
-                    u.birthdate ? new Date(u.birthdate).toLocaleDateString() : "",
-                    u.date_joined ? new Date(u.date_joined).toLocaleDateString() : "",
-                    u.employee_id || "",
-                    (u.branches || []).map((b) => b.branch_name).join(", "),
-                    (u.groups || []).map((g) => g.name).join(", "),
-                    u.is_active ? "Active" : "Inactive",
-                  ])
-                }
-                disabled={filteredUsers.length === 0}
-              />
-            </>
+            canCreate && (
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleCreate}
+                sx={{ mr: 1 }}
+              >
+                Add User
+              </Button>
+            )
           )
         }
         {...(isUserDetailMode ? { children: detailPanel } : { children: usersTablePanel })}

@@ -100,31 +100,6 @@ class CustomerService:
         self._attach_user_names(db, [updated_customer])
         return updated_customer
 
-    def delete_customer(self, db: Session, customer_id: int, user_id: Optional[int] = None) -> dict:
-        customer = repository.customer_repository.get_by_id(db, customer_id)
-        if not customer:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Customer with id {customer_id} not found"
-            )
-        customer_name = customer.customer_name
-        success = repository.customer_repository.delete(db, customer_id)
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Customer with id {customer_id} not found"
-            )
-        log_audit(
-            db,
-            user_id=user_id or 0,
-            action="delete",
-            entity_type="customer",
-            entity_id=customer_id,
-            changes={"customer_name": customer_name},
-        )
-        db.commit()
-        return {"message": "Customer deleted successfully"}
-
     def get_customer_count(self, db: Session) -> int:
         return repository.customer_repository.count(db)
 

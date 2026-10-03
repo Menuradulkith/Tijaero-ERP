@@ -9,7 +9,6 @@
 
 import { usePermission } from "@/auth/permissions";
 import { useCurrencyStore } from "@/state/currencyStore";
-import DownloadIcon from "@mui/icons-material/FileDownload";
 // ConfirmDialog now uses TConfirmDialog from tijaero
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -67,7 +66,6 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { exportToCSV } from "@/utils/csvExport";
 
 
 // Import tijaero components
@@ -90,7 +88,6 @@ import {
   TRemarkField,
   useCrudMutation,
   useMasterDetailState,
-  useRowSelection,
   useTConfirmDialog,
   TActivityHistoryPanel,
   TDataGrid,
@@ -290,8 +287,6 @@ export default function GoodReceivedNotesPage() {
     extraDirty: lineItems.length > 0,
     onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
-
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -834,40 +829,6 @@ export default function GoodReceivedNotesPage() {
   const getBranchDisplay = (branchCode: string) => {
     const branch = branchesData?.items?.find((b) => b.branch_code === branchCode);
     return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
-  };
-
-  const handleExportCSV = () => {
-    const headers = [
-      "GRN Number",
-      "PO Number",
-      "Supplier",
-      "Location",
-      "GRN Date",
-      "Supplier Invoice No",
-      "Supplier Invoice Date",
-      "Branch",
-      "Remarks",
-      "Created Date",
-    ];
-
-    const rows = rowSelection.pick(filteredGRNs).map((grn) => [
-      grn.good_received_no || `GRN-${grn.id}`,
-      getOrderNumber(grn),
-      getSupplierName(grn.purchasingorders_id),
-      getLocationName(grn.good_received_locations_id),
-      grn.good_received_date || "",
-      grn.supplier_invoice_no || "",
-      grn.supplier_invoice_date || "",
-      getBranchDisplay(grn.branch_code),
-      grn.remark || "",
-      grn.created_date || "",
-    ]);
-
-    exportToCSV({
-      filename: `grns_${new Date().toISOString().split("T")[0]}`,
-      headers,
-      rows,
-    });
   };
 
   const handlePOChange = async (poId: number) => {
@@ -1491,9 +1452,6 @@ export default function GoodReceivedNotesPage() {
           emptyMessage="No GRNs found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -2194,7 +2152,7 @@ export default function GoodReceivedNotesPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
@@ -2211,7 +2169,7 @@ export default function GoodReceivedNotesPage() {
                 fullWidth
               />
             </Box>
-            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
               <Autocomplete
                 size="small"
                 options={poFilterOptions}
@@ -2223,7 +2181,7 @@ export default function GoodReceivedNotesPage() {
                 fullWidth
               />
             </Box>
-            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
               <Autocomplete
                 size="small"
                 options={createdByUserOptions}
@@ -2244,27 +2202,15 @@ export default function GoodReceivedNotesPage() {
         }
         headerActions={
           isGRNDetailMode ? undefined : (
-            <>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={handleNewGRN}
-                sx={{ mr: 1 }}
-              >
-                Add GRN
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DownloadIcon />}
-                onClick={handleExportCSV}
-                disabled={filteredGRNs.length === 0}
-                sx={{ mr: 1 }}
-              >
-                Export CSV
-              </Button>
-            </>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleNewGRN}
+              sx={{ mr: 1 }}
+            >
+              Add GRN
+            </Button>
           )
         }
         onRefresh={() => {

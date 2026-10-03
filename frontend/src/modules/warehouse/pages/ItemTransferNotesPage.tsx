@@ -51,13 +51,11 @@ import {
   FormSection,
   EmptyState,
   fmtLKR,
-  TExportButton,
   TBranchFilter,
   TPrintButton,
   TPrintPreviewDialog,
   canPrintDocument,
   useMasterDetailState,
-  useRowSelection,
   modernTableStyles,
   handleApiError,
   TConfirmDialog,
@@ -205,8 +203,6 @@ export default function ItemTransferNotesPage() {
     extraDirty: lineItems.length > 0,
     onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
-
-  const rowSelection = useRowSelection();
 
   // Fetch locations
   const { data: locationsData } = useQuery({
@@ -621,9 +617,6 @@ export default function ItemTransferNotesPage() {
           emptyMessage="No transfer notes found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1102,7 +1095,7 @@ export default function ItemTransferNotesPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TBranchFilter
@@ -1128,41 +1121,15 @@ export default function ItemTransferNotesPage() {
         }}
         headerActions={
           isITNDetailMode ? undefined : (
-            <>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={handleNewITN}
-                sx={{ mr: 1 }}
-              >
-                Add Transfer Note
-              </Button>
-              <TExportButton
-                filename="item_transfer_notes"
-                headers={[
-                  "Transfer Note",
-                  "From Location",
-                  "To Location",
-                  "Branch",
-                  "Created Date",
-                  "Status",
-                  "Remark",
-                ]}
-                rows={() =>
-                  rowSelection.pick(filteredITNs).map((itn) => [
-                    itn.item_transfer_note || "",
-                    itn.from_location_name || "",
-                    itn.to_location_name || "",
-                    itn.branch_code || "",
-                    itn.created_date || "",
-                    itn.status || "",
-                    itn.remark || "",
-                  ])
-                }
-                disabled={filteredITNs.length === 0}
-              />
-            </>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleNewITN}
+              sx={{ mr: 1 }}
+            >
+              Add Transfer Note
+            </Button>
           )
         }
         {...(isITNDetailMode ? { children: detailPanel } : { children: itnTablePanel })}

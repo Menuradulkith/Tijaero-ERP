@@ -138,6 +138,7 @@ def make_supplier(db) -> Callable[..., object]:
     from datetime import datetime
 
     from app.modules.purchasing.models import Supplier
+    from app.modules.purchasing.repository import SupplierRepository
 
     def _make_supplier(
         *,
@@ -149,6 +150,7 @@ def make_supplier(db) -> Callable[..., object]:
         initial_credit_amount: Optional[int] = None,
     ) -> Supplier:
         supplier = Supplier(
+            supplier_no=SupplierRepository(db).get_next_supplier_no(),
             company_name=company_name or _unique("Supplier"),
             billing_address_line1="Billing Address",
             mobile_contact_number="0770000000",
@@ -217,6 +219,7 @@ def make_customer(db) -> Callable[..., object]:
     from datetime import datetime
 
     from app.modules.customers.models import Customer
+    from app.modules.customers.repository import CustomerRepository
 
     def _make_customer(
         *,
@@ -229,6 +232,7 @@ def make_customer(db) -> Callable[..., object]:
         initial_credit_amount: Optional[int] = None,
     ) -> Customer:
         customer = Customer(
+            customer_no=CustomerRepository().get_next_customer_no(db),
             title="Mr",
             customer_name=name or _unique("Customer"),
             payment_address="Pay Address",

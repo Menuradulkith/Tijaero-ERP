@@ -54,15 +54,12 @@ import {
   TSearchableSelect,
   useCrudMutation,
   useMasterDetailState,
-  useRowSelection,
   useTConfirmDialog,
   modernTableStyles,
   TDataGrid,
   type TDataGridColumn,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
-import { exportToCSV } from "@/utils/csvExport";
-import DownloadIcon from "@mui/icons-material/FileDownload";
 
 import { usePermission } from "@/auth/permissions";
 import { useCurrencyStore } from "@/state/currencyStore";
@@ -159,8 +156,6 @@ export default function CouponsPage() {
     defaultSortField: "cupon_code",
   });
 
-  const rowSelection = useRowSelection();
-
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
     setFilterStatus(null);
@@ -246,40 +241,6 @@ export default function CouponsPage() {
   const confirmDialog = useTConfirmDialog();
 
   // Handlers
-  const handleExportCSV = () => {
-    const headers = [
-      "Coupon Code",
-      "Description",
-      "Discount Type",
-      "Discount Value",
-      "Min Invoice Amount",
-      "Total Limit",
-      "Usage Count",
-      "Customer Limit",
-      "Valid Until",
-      "Status"
-    ];
-
-    const rows = rowSelection.pick(filteredCoupons).map(coupon => [
-      coupon.cupon_code,
-      coupon.description || "",
-      coupon.discount_type,
-      coupon.discount_value,
-      coupon.minimum_invoice_amount,
-      coupon.limit_by_usage,
-      coupon.usage_count || 0,
-      coupon.limit_for_customer,
-      coupon.valid_until_date ? new Date(coupon.valid_until_date).toLocaleDateString() : "",
-      getCouponStatus(coupon)
-    ]);
-
-    exportToCSV({
-      filename: `coupons_${new Date().toISOString().split("T")[0]}`,
-      headers,
-      rows
-    });
-  };
-
   const handleSave = useCallback(() => {
     // Validate
     if (!formData.cupon_code) {
@@ -482,9 +443,6 @@ export default function CouponsPage() {
           emptyMessage="No coupons found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -827,7 +785,7 @@ export default function CouponsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TSearchableSelect
@@ -867,16 +825,6 @@ export default function CouponsPage() {
                   Add Coupon
                 </Button>
               )}
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DownloadIcon />}
-                onClick={handleExportCSV}
-                disabled={filteredCoupons.length === 0}
-                sx={{ mr: 1 }}
-              >
-                Export CSV
-              </Button>
             </>
           )
         }

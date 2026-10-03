@@ -176,10 +176,6 @@ export const customersApi = {
     return response.data;
   },
 
-  delete: async (id: number) => {
-    await apiClient.delete(`/customers/${id}`);
-  },
-
   // ==================== CREDIT MANAGEMENT ====================
 
   getCreditSummary: async (customerId: number) => {

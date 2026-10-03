@@ -32,12 +32,10 @@ import {
   TDetailSkeleton,
   TBranchFilter,
   TDatePicker,
-  TExportButton,
   TDataGrid,
   type TDataGridColumn,
   fmtLKR,
   TActivityHistoryPanel,
-  useRowSelection,
   TRemarkField,
 } from "@/components/tijaero";
 
@@ -105,8 +103,6 @@ export default function ChequePaymentsPage() {
   // Activity History is opened on demand from a detail icon next to the
   // Additional Info section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
-
-  const rowSelection = useRowSelection();
 
   const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches: Branch[] = filteredBranches || [];
@@ -252,9 +248,6 @@ export default function ChequePaymentsPage() {
           columns={chequeColumns}
           loading={isLoading}
           onRowClick={(row) => handleSelectWithCheck(row)}
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No cheque payments found"
@@ -422,7 +415,7 @@ export default function ChequePaymentsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
             <Box sx={{ width: 170, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
@@ -437,30 +430,6 @@ export default function ChequePaymentsPage() {
       }
       onRefresh={refetch}
       isLoading={isLoading}
-      headerActions={
-        isChequeDetailMode ? undefined : (
-          <TExportButton
-            filename={`cheque_payments_${new Date().toISOString().split("T")[0]}`}
-            headers={["ID", "Cheque No", "From Party", "Bank", "Amount", "Cheque Date", "Deposit Date", "Invoice No", "Payment For", "Branch", "Remark"]}
-            rows={() =>
-              rowSelection.pick(filteredCheques).map((c) => [
-                c.id,
-                c.cheque_number ?? "",
-                c.from_party || "",
-                c.bank || "",
-                Number(c.amount || 0),
-                c.cheque_date || "",
-                c.deposit_date || "",
-                c.invoice_no || "",
-                c.payment_for || "",
-                c.branch_code ?? "",
-                c.remark || "",
-              ])
-            }
-            disabled={filteredCheques.length === 0}
-          />
-        )
-      }
       {...(isChequeDetailMode
         ? { children: detailPanel }
         : { children: chequeTablePanel })}

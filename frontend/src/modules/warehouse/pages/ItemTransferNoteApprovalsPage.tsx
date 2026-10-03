@@ -563,7 +563,7 @@ export default function ItemTransferNoteApprovalsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TStatusFilter

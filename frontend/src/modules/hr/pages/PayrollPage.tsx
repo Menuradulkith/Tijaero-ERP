@@ -22,7 +22,6 @@ import {
   TDataGrid,
   type TDataGridColumn,
   TDetailSkeleton,
-  TExportButton,
   TPrintButton,
   TPrintPreviewDialog,
   TStatusChip,
@@ -398,7 +397,7 @@ export default function PayrollPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 260, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 260 }}
               />
             </Box>
           )
@@ -411,38 +410,6 @@ export default function PayrollPage() {
                   Add Payroll Record
                 </Button>
               )}
-              <TExportButton
-                filename="payroll"
-                headers={[
-                  "Batch No",
-                  "Employee ID",
-                  "Employee",
-                  "Month",
-                  "Year",
-                  "Basic Salary",
-                  "Gross Salary",
-                  "Total Deductions",
-                  "Net Salary",
-                  "Status",
-                  "Payment Status",
-                ]}
-                rows={() =>
-                  filtered.map((p) => [
-                    p.payroll_batch_no || "",
-                    p.employee_id || "",
-                    p.employee_name || "",
-                    p.payroll_month ?? "",
-                    p.payroll_year ?? "",
-                    p.basic_salary ?? 0,
-                    p.gross_salary ?? "",
-                    p.total_deductions ?? "",
-                    p.net_salary ?? "",
-                    p.status || "",
-                    p.payment_status || "",
-                  ])
-                }
-                disabled={filtered.length === 0}
-              />
               <TPrintButton documentType="payroll" documentId={0} tooltip="Print Payroll Report" onClick={() => setPrintDialogOpen(true)} />
             </>
           )

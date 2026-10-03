@@ -385,6 +385,9 @@ class SalesQuoteService:
             from app.modules.common.models import Approvals
 
             updated.status = QuoteStatus.PENDING_APPROVAL.value
+            # The frontend gates Send/Create PO/Create SO on this flag, not on
+            # status alone — it must be cleared too or those stay unlocked.
+            updated.approval = False
             if updated.approval_id:
                 approval_record = db.query(Approvals).filter(
                     Approvals.id == updated.approval_id

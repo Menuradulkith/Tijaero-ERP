@@ -21,7 +21,6 @@ import {
   TDataGrid,
   type TDataGridColumn,
   TDetailSkeleton,
-  TExportButton,
   fmtLKR,
   handleApiError,
   showErrorToast,
@@ -346,7 +345,7 @@ export default function SalaryProfilesPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 260, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 260 }}
               />
             </Box>
           )
@@ -359,36 +358,6 @@ export default function SalaryProfilesPage() {
                   Add Salary Profile
                 </Button>
               )}
-              <TExportButton
-                filename="salary_profiles"
-                headers={[
-                  "Employee ID",
-                  "Designation",
-                  "Department",
-                  "Basic Salary",
-                  "Addition 1",
-                  "Add 1 Value",
-                  "Addition 2",
-                  "Add 2 Value",
-                  "Effective From",
-                  "Benefits",
-                ]}
-                rows={() =>
-                  filtered.map((p) => [
-                    p.employee_id || "",
-                    p.designation || "",
-                    p.department || "",
-                    p.basic_salary ?? 0,
-                    p.add_1_name || "",
-                    p.add_1_value ?? 0,
-                    p.add_2_name || "",
-                    p.add_2_value ?? 0,
-                    p.effective_from_date || "",
-                    p.benefits || "",
-                  ])
-                }
-                disabled={filtered.length === 0}
-              />
             </>
           )
         }

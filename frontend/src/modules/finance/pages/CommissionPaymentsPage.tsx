@@ -60,7 +60,6 @@ import {
   showSuccessToast,
   TCurrency,
   TDetailSkeleton,
-  TExportButton,
   TRemarkField,
   TSearchableSelect,
   TStatCard,
@@ -69,7 +68,6 @@ import {
   modernTableStyles,
   useCrudMutation,
   useMasterDetailState,
-  useRowSelection,
   TDataGrid,
   type TDataGridColumn,
 } from "@/components/tijaero";
@@ -151,8 +149,6 @@ export default function CommissionPaymentsPage() {
     resetFormFromItem: resetFormFromPayment,
     defaultSortField: "created_at",
   });
-
-  const rowSelection = useRowSelection();
 
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
@@ -477,9 +473,6 @@ export default function CommissionPaymentsPage() {
           emptyMessage="No payments found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -887,7 +880,7 @@ export default function CommissionPaymentsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
             <Box sx={{ width: 180, flexShrink: 0 }}>
               <TSearchableSelect
@@ -938,34 +931,6 @@ export default function CommissionPaymentsPage() {
                   Add Commission Payment
                 </Button>
               )}
-              <TExportButton
-                filename="commission_payments"
-                headers={[
-                  "Payment No",
-                  "Agent",
-                  "Amount",
-                  "Payment Date",
-                  "Method",
-                  "Reference",
-                  "Bank",
-                  "Status",
-                  "Created",
-                ]}
-                rows={() =>
-                  rowSelection.pick(filteredPayments).map((p) => [
-                    p.payment_no || "",
-                    p.agent_name || "",
-                    p.payment_amount ?? 0,
-                    p.payment_date || "",
-                    p.payment_method || "",
-                    p.reference_number || "",
-                    p.bank_name || "",
-                    p.status || "",
-                    p.created_at || "",
-                  ])
-                }
-                disabled={filteredPayments.length === 0}
-              />
             </>
           )
         }

@@ -1,5 +1,7 @@
 export interface Customer {
   id: number;
+  /** Sequential display number (0001, 0002, ...) shown as the grid's first column. */
+  customer_no: string;
   customer_name: string;
   title: string;
   email?: string;

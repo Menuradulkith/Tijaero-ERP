@@ -4,10 +4,8 @@
  */
 
 // Confirm dialog now uses TConfirmDialog from tijaero
-import apiClient from "@/api/client";
 import { useCurrencyStore } from "@/state/currencyStore";
-import { 
-  FileDownload as DownloadIcon,
+import {
   Check as CheckIcon,
   Email as EmailIcon,
 } from "@mui/icons-material";
@@ -16,6 +14,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
 import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
@@ -52,10 +51,12 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
     ActionToolbar,
     canPrintDocument,
+    DetailPanelHeader,
     EmptyState,
     fmtLKR,
     FormSection,
     getPaymentTermsLabel,
+    getStatusProps,
     MasterDetailLayout,
     modernTableStyles,
     showErrorToast,
@@ -74,7 +75,6 @@ import {
     PO_STATUS_FILTER_OPTIONS,
     useCrudMutation,
     useMasterDetailState,
-    useRowSelection,
     useTConfirmDialog,
     TActivityHistoryPanel,
 } from "@/components/tijaero";
@@ -302,11 +302,6 @@ export default function PurchaseOrdersPage() {
     },
   });
 
-  // Server-side export (see handleExportCSV below); row selection here only
-  // narrows what's ticked in the grid, since the export endpoint exports
-  // everything matching the current filters, not a specific id list.
-  const rowSelection = useRowSelection();
-
   // Activity History is opened on demand from a detail icon next to the
   // Tracking section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
@@ -469,6 +464,23 @@ export default function PurchaseOrdersPage() {
     });
   }, [products, supplierProductMap]);
 
+  // Currently-available stock for every product on this order's line items,
+  // at the order's branch — lets the user see what's already on hand before
+  // deciding how much more to order.
+  const lineItemProductIds = useMemo(
+    () => Array.from(new Set(lineItems.map((li) => li.product_id).filter((id) => id > 0))),
+    [lineItems],
+  );
+  const { data: availableStockByProduct } = useQuery({
+    queryKey: ["po-available-stock", formData.branch_code, lineItemProductIds],
+    queryFn: () => purchaseOrdersApi.getAvailableStock(lineItemProductIds, formData.branch_code),
+    enabled: !!formData.branch_code && lineItemProductIds.length > 0,
+  });
+  const getAvailableQty = useCallback(
+    (productId: number) => availableStockByProduct?.[productId] ?? 0,
+    [availableStockByProduct],
+  );
+
   // The reverse lookup: every supplier who can supply the product currently
   // open in the "Compare Suppliers" dialog, with their cost/lead time/MOQ —
   // reuses the same reciprocal endpoint that backs the Products page.
@@ -601,18 +613,6 @@ export default function PurchaseOrdersPage() {
     return filtered;
   }, [orders, searchQuery, filterBranch, filterSupplier, filterStatus]);
 
-  const approvalNavTargetId = useMemo(() => {
-    const navState = location.state as {
-      fromPOApproval?: boolean;
-      purchaseOrderId?: number | string;
-    } | null;
-    if (!navState?.fromPOApproval || navState.purchaseOrderId == null) {
-      return null;
-    }
-    const parsedId = Number(navState.purchaseOrderId);
-    return Number.isFinite(parsedId) ? parsedId : null;
-  }, [location.state]);
-
   // Open the ?focus=<id> deep-link target (used by the AI assistant to open
   // a specific PO). Nothing is auto-selected otherwise — the default view is
   // the browse table.
@@ -685,65 +685,6 @@ export default function PurchaseOrdersPage() {
       }
     }
   }, [orders, location.state, handleSelectOrderWithItems]);
-
-  // Handle navigation from PO Approvals page — auto-select target PO
-  const approvalNavHandled = useRef(false);
-  useEffect(() => {
-    const navState = location.state as {
-      fromPOApproval?: boolean;
-      purchaseOrderId?: number | string;
-      purchaseOrderNo?: string;
-    } | null;
-
-    if (approvalNavTargetId == null || !navState?.fromPOApproval || approvalNavHandled.current) {
-      return;
-    }
-
-    approvalNavHandled.current = true;
-
-    let cancelled = false;
-
-    const openTargetPO = async () => {
-      const targetPOFromList = (orders || []).find(
-        (o: PurchasingOrder) => Number(o.id) === approvalNavTargetId,
-      );
-
-      if (targetPOFromList) {
-        await handleSelectOrderWithItems(targetPOFromList);
-        if (!cancelled) {
-          showSuccessToast(
-            `Opened ${navState.purchaseOrderNo || targetPOFromList.purchasing_order_no} from PO approvals`,
-          );
-          window.history.replaceState({}, document.title);
-        }
-        return;
-      }
-
-      try {
-        const targetPO = await purchaseOrdersApi.getById(approvalNavTargetId);
-        if (cancelled || !targetPO) return;
-
-        await handleSelectOrderWithItems(targetPO as PurchasingOrder);
-        showSuccessToast(
-          `Opened ${navState.purchaseOrderNo || targetPO.purchasing_order_no} from PO approvals`,
-        );
-        window.history.replaceState({}, document.title);
-      } catch {
-        if (!cancelled) {
-          approvalNavHandled.current = false;
-          window.history.replaceState({}, document.title);
-          showErrorToast("Unable to open the selected PO from approvals");
-        }
-      }
-    };
-
-    void openTargetPO();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [orders, location.state, approvalNavTargetId, handleSelectOrderWithItems]);
-
 
   // Handle navigation from Suppliers page — auto-create PO for supplier
   const supplierNavHandled = useRef(false);
@@ -875,16 +816,6 @@ export default function PurchaseOrdersPage() {
     },
   });
 
-  const deleteMutation = useCrudMutation({
-    mutationFn: (id: number) => purchaseOrdersApi.delete(id),
-    invalidateQueryKeys: [["purchaseOrders"]],
-    successMessage: "Purchase order deleted successfully",
-    errorMessage: "Failed to delete purchase order",
-    onSuccess: () => {
-      setSelectedOrder(null);
-    },
-  });
-
   const cancelOrderMutation = useCrudMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       purchaseOrdersApi.cancel(id, reason),
@@ -911,12 +842,6 @@ export default function PurchaseOrdersPage() {
     },
   });
 
-  // Check if order can be deleted (no GRN created)
-  const canDelete = !!(
-    selectedOrder &&
-    !["completed", "partially_completed"].includes(selectedOrder.status?.toLowerCase() || "")
-  );
-
   // Check if order can be edited (no GRN created)
   const canEdit = !!(
     selectedOrder && 
@@ -937,22 +862,6 @@ export default function PurchaseOrdersPage() {
   // Short-close only makes sense once something has been received but the
   // rest never will be.
   const canShortCloseOrder = selectedOrder?.status?.toLowerCase() === "partially_completed";
-
-  const handleDelete = useCallback(async () => {
-    if (canDelete) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Purchase Order",
-        message: `Are you sure you want to delete purchase order "${selectedOrder?.purchasing_order_no}"?`,
-        confirmText: "Delete",
-        confirmColor: "error",
-      });
-      if (confirmed && selectedOrder) {
-        deleteMutation.mutate(selectedOrder.id);
-      }
-    } else {
-      showErrorToast("Cannot delete a purchase order that has been partially or fully received.");
-    }
-  }, [selectedOrder, deleteMutation, confirmDialog, canDelete]);
 
   const handleAddLineItem = () => {
     const newItem: OrderLineItem = {
@@ -1183,37 +1092,6 @@ export default function PurchaseOrdersPage() {
 
   const isSaving = isPreSaveChecking || createMutation.isPending || updateMutation.isPending;
 
-  const handleExportCSV = async () => {
-    try {
-      // Mirror every active browse-table filter so the export matches what's
-      // actually on screen, not just the branch.
-      const params = new URLSearchParams({ limit: "100000" });
-      if (filterBranch) params.append("branch_codes", filterBranch);
-      if (filterSupplier) params.append("supplier_id", String(filterSupplier));
-      if (filterStatus) params.append("status", filterStatus);
-      if (searchQuery) params.append("search", searchQuery);
-
-      const response = await apiClient.get<Blob>(
-        `/purchasing/export-csv?${params.toString()}`,
-        {
-          responseType: "blob",
-        },
-      );
-
-      const blob = response.data;
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      const dateStr = new Date().toISOString().split("T")[0];
-      const branchStr = filterBranch || "all_branches";
-      link.download = `purchase_orders_${branchStr}_${dateStr}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
   // The table sorts by whichever column the user clicks; the Supplier column
   // displays a looked-up name rather than the raw supplier id, so it needs
   // that name as its own field for the grid to sort on correctly.
@@ -1327,9 +1205,6 @@ export default function PurchaseOrdersPage() {
           emptyMessage="No purchase orders found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1344,6 +1219,29 @@ export default function PurchaseOrdersPage() {
         overflow: "hidden",
       }}
     >
+      <DetailPanelHeader
+        breadcrumbs={[
+          { label: "Purchasing" },
+          { label: "Purchase Orders", href: "/purchasing/orders" },
+          ...(selectedOrder || isCreating
+            ? [{ label: isCreating ? "New Purchase Order" : selectedOrder?.purchasing_order_no || "" }]
+            : []),
+        ]}
+        title={selectedOrder ? selectedOrder.purchasing_order_no : ""}
+        titleIcon={<ReceiptLongIcon color="primary" />}
+        isCreating={isCreating}
+        createTitle="New Purchase Order"
+        noSelectionTitle="Select a Purchase Order"
+        chips={
+          selectedOrder
+            ? (() => {
+              const s = getStatusProps(selectedOrder.status || "draft", "purchaseOrder");
+              return [{ label: s.label, color: s.color }];
+            })()
+            : []
+        }
+      />
+
       <ActionToolbar
         hasSelectedItem={!!selectedOrder}
         isCreating={isCreating}
@@ -1354,9 +1252,6 @@ export default function PurchaseOrdersPage() {
         onDuplicate={handleDuplicate}
         onSave={isCreating ? undefined : handleSave}
         onCancel={isCreating ? undefined : () => handleCancel(filteredOrders)}
-        onEdit={!isCreating && canEdit ? handleStartEdit : undefined}
-        onDelete={canDelete ? handleDelete : undefined}
-        canDelete={canDelete}
         endActions={
           isCreating ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -1367,7 +1262,7 @@ export default function PurchaseOrdersPage() {
                 onClick={() => handleCancel(filteredOrders)}
                 disabled={wizardState?.isSubmitting}
               >
-                Cancel New
+                Cancel
               </Button>
               {!wizardState?.isFirstStep && (
                 <Button size="small" variant="outlined" onClick={() => wizardRef.current?.goBack()} disabled={wizardState?.isSubmitting}>
@@ -1386,15 +1281,14 @@ export default function PurchaseOrdersPage() {
             </Box>
           ) : selectedOrder && !isEditing ? (
             <Box sx={{ display: "flex", gap: 1 }}>
-              {["approved", "partially_completed"].includes(selectedOrder.status?.toLowerCase() || "") && (
+              {canEdit && (
                 <Button
                   size="small"
-                  variant="contained"
-                  color="primary"
-                  startIcon={<ReceiptLongIcon />}
-                  onClick={() => navigate(`/purchasing/grn?poId=${selectedOrder.id}`)}
+                  variant="outlined"
+                  startIcon={<EditIcon />}
+                  onClick={handleStartEdit}
                 >
-                  Create GRN
+                  Edit
                 </Button>
               )}
               {canCancelOrder && (
@@ -1877,6 +1771,8 @@ export default function PurchaseOrdersPage() {
                       <TableHead>
                         <TableRow sx={modernTableStyles.headerRow}>
                           <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
+                          <TableCell sx={{ width: 80 }}>UOM</TableCell>
+                          <TableCell align="right" sx={{ width: 110 }}>Available Qty</TableCell>
                           <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
                           <TableCell align="right" sx={{ width: 120 }}>{`Unit Price (${currencySymbol})`}</TableCell>
                           <TableCell sx={{ width: 150 }}>Remark</TableCell>
@@ -1891,7 +1787,7 @@ export default function PurchaseOrdersPage() {
                       <TableBody>
                         {lineItems.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={isEditing || isCreating ? 6 : 5} sx={modernTableStyles.emptyCell}>
+                            <TableCell colSpan={isEditing || isCreating ? 8 : 7} sx={modernTableStyles.emptyCell}>
                               No items added yet
                             </TableCell>
                           </TableRow>
@@ -1912,14 +1808,18 @@ export default function PurchaseOrdersPage() {
                                         size="small"
                                         options={productOptions}
                                         getOptionLabel={(option: any) =>
-                                          option.name || ""
+                                          option.name
+                                            ? `${option.item_code ? `${option.item_code} - ` : ""}${option.name}`
+                                            : ""
                                         }
                                         renderOption={(props, option: any) => {
                                           const mapping = supplierProductMap.get(option.id);
                                           return (
                                             <li {...props} key={option.id}>
                                               <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
-                                                <Typography variant="body2" sx={{ flex: 1 }}>{option.name}</Typography>
+                                                <Typography variant="body2" sx={{ flex: 1 }}>
+                                                  {option.item_code ? `${option.item_code} - ` : ""}{option.name}
+                                                </Typography>
                                                 {mapping && (
                                                   <Tooltip title={`This supplier's cost: ${currencySymbol} ${mapping.cost_price}${mapping.is_preferred ? " (preferred)" : ""}`}>
                                                     <CheckIcon fontSize="small" color={mapping.is_preferred ? "primary" : "success"} />
@@ -1975,6 +1875,16 @@ export default function PurchaseOrdersPage() {
                                 ) : (
                                   getProductName(item.product_id)
                                 )}
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2" color="text.secondary">
+                                  {(products?.find((p: any) => p.id === item.product_id) as any)?.unit_of_measure || "-"}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" color="text.secondary">
+                                  {item.product_id ? getAvailableQty(item.product_id) : "-"}
+                                </Typography>
                               </TableCell>
                               <TableCell align="right">
                                 {isEditing || isCreating ? (
@@ -2179,7 +2089,7 @@ export default function PurchaseOrdersPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
@@ -2200,27 +2110,15 @@ export default function PurchaseOrdersPage() {
         }
         headerActions={
           isPurchaseOrderDetailMode ? undefined : (
-            <>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={handleNewOrder}
-                sx={{ mr: 1 }}
-              >
-                Add Purchase Order
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DownloadIcon />}
-                onClick={handleExportCSV}
-                disabled={filteredOrders.length === 0}
-                sx={{ mr: 1 }}
-              >
-                Export CSV
-              </Button>
-            </>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleNewOrder}
+              sx={{ mr: 1 }}
+            >
+              Add Purchase Order
+            </Button>
           )
         }
         onRefresh={() => {

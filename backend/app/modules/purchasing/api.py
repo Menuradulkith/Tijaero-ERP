@@ -176,7 +176,7 @@ def _enrich_grns(db: Session, grns: List[Any]) -> List[Dict[str, Any]]:
 
 
 def _enrich_purchase_returns(db: Session, returns: List[Any]) -> List[Dict[str, Any]]:
-    """Add grn_no, po_no and supplier_name to PurchaseReturn list responses."""
+    """Add grn_no, po_no, supplier_name and created_by_name to PurchaseReturn list responses."""
     if not returns:
         return []
     grn_ids = list({r.goodreceivednote_id for r in returns if r.goodreceivednote_id})
@@ -198,9 +198,15 @@ def _enrich_purchase_returns(db: Session, returns: List[Any]) -> List[Dict[str, 
     if supplier_ids:
         rows = db.query(Supplier.id, Supplier.company_name).filter(Supplier.id.in_(supplier_ids)).all()
         supplier_map = {r.id: r.company_name for r in rows}
+    user_ids = list({r.created_by for r in returns if r.created_by})
+    user_name_map: Dict[int, str] = {}
+    if user_ids:
+        users = db.query(User).filter(User.id.in_(user_ids)).all()
+        user_name_map = {u.id: _user_display_name(u) for u in users}
     results = []
     for r in returns:
         payload = schemas.PurchasingReturn.model_validate(r).model_dump()
+        payload["created_by_name"] = user_name_map.get(r.created_by) if r.created_by else None
         grn = grn_map.get(r.goodreceivednote_id)
         if grn:
             payload["grn_no"] = grn.good_received_no
@@ -335,20 +341,6 @@ def update_supplier(
 ):
     supplier_service = service.SupplierService(db)
     return supplier_service.update_supplier(supplier_id, supplier_update, updated_by=current_user.id)
-
-
-@router.delete(
-    "/suppliers/{supplier_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def delete_supplier(
-    supplier_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_DELETE)),
-):
-    supplier_service = service.SupplierService(db)
-    supplier_service.delete_supplier(supplier_id, deleted_by=current_user.id)
-    return None
 
 
 @router.post(
@@ -593,6 +585,21 @@ def check_daily_po_limit(
     return order_service.check_daily_limit(branch_code, target_date)
 
 
+@router.get(
+    "/orders/available-stock",
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
+)
+def get_available_stock_for_products(
+    product_ids: str, branch_code: str, db: Session = Depends(get_db)
+):
+    """Available stock count per product at a branch — lets the PO creation
+    wizard show what's already in stock before the user orders more.
+    `product_ids` is a comma-separated list of product ids."""
+    ids = [int(p) for p in product_ids.split(",") if p.strip()]
+    order_service = service.PurchasingOrderService(db)
+    return order_service.get_available_stock_by_product(ids, branch_code)
+
+
 @router.post(
     "/orders",
     response_model=schemas.PurchasingOrderWithItems,
@@ -815,17 +822,6 @@ def short_close_purchase_order(
 ):
     order_service = service.PurchasingOrderService(db)
     return order_service.short_close_order(order_id, payload.reason, user_id=current_user.id)
-
-
-@router.delete(
-    "/orders/{order_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_DELETE))],
-)
-def delete_purchase_order(order_id: int, db: Session = Depends(get_db)):
-    order_service = service.PurchasingOrderService(db)
-    order_service.delete_order(order_id)
-    return None
 
 
 @router.post(

@@ -91,6 +91,7 @@ export const TDatePicker: React.FC<TDatePickerProps> = ({
       helperText={showError || helperText}
       disabled={disabled || viewMode}
       InputProps={{
+        notched: true,
         ...InputProps,
       }}
       inputProps={{

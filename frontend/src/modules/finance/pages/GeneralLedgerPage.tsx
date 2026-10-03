@@ -709,7 +709,7 @@ export default function GeneralLedgerPage() {
                 </InputAdornment>
               ),
             }}
-            sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+            sx={{ width: 190, flexShrink: 0 }}
           />
           <Box sx={{ width: 170, flexShrink: 0 }}>
             <TSearchableSelect

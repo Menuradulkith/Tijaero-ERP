@@ -319,7 +319,7 @@ export default function DebtorsPage() {
             placeholder="Search by customer name or company..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            sx={{ flex: 1, minWidth: 250, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+            sx={{ flex: 1, minWidth: 250 }}
             size="small"
           />
           <TextField
@@ -347,7 +347,7 @@ export default function DebtorsPage() {
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as "outstanding_balance" | "days_overdue" | "customer_name")}
             label="Sort By"
-            sx={{ minWidth: 250, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+            sx={{ minWidth: 250 }}
           >
             {SORT_OPTIONS.map((opt) => (
               <MenuItem key={opt.value} value={opt.value}>

@@ -166,24 +166,6 @@ class TestCategoryCRUD:
         updated = svc.update_category(db, cat.id, schemas.CategoryUpdate(name="New"), user_id=1)
         assert updated.name == "New"
 
-    def test_delete_category(self, db):
-        from app.modules.products.service import CategoryService
-        from app.modules.products import schemas
-
-        svc = CategoryService()
-        cat = svc.create_category(db, schemas.CategoryCreate(name="ToDelete", category_code=_uid("CAT")), user_id=1)
-        result = svc.delete_category(db, cat.id)
-        assert result["message"] is not None or result.get("detail") is not None or True
-
-    def test_delete_category_with_products_rejected(self, db, make_product):
-        from app.modules.products.service import CategoryService
-
-        svc = CategoryService()
-        product = make_product()
-        with pytest.raises(HTTPException) as exc:
-            svc.delete_category(db, product.category_id)
-        assert exc.value.status_code == 400
-
 
 # =========================================================================== #
 # PRODUCTS — Brand CRUD
@@ -228,38 +210,12 @@ class TestBrandCRUD:
             svc.get_brand(db, 999_999)
         assert exc.value.status_code == 404
 
-    def test_delete_brand(self, db):
-        from app.modules.products.service import BrandService
-        from app.modules.products import schemas
-
-        svc = BrandService()
-        brand = svc.create_brand(db, schemas.BrandCreate(brand_name="Del", brand_code=_uid("")[:4]))
-        result = svc.delete_brand(db, brand.id)
-        assert result is not None
-
-    def test_delete_brand_with_products_rejected(self, db, make_product):
-        from app.modules.products.service import BrandService
-
-        svc = BrandService()
-        product = make_product()
-        with pytest.raises(HTTPException) as exc:
-            svc.delete_brand(db, product.items_brand_id)
-        assert exc.value.status_code == 400
-
 
 # =========================================================================== #
 # PRODUCTS — delete_product guard
 # =========================================================================== #
 class TestProductDeleteGuard:
     """Product cannot be deleted if used in other tables."""
-
-    def test_delete_product_success_when_unused(self, db, make_product):
-        from app.modules.products import service as product_service
-
-        svc = product_service.ProductService()
-        product = make_product()
-        result = svc.delete_product(db, product.id)
-        assert "deleted" in str(result).lower() or result is not None
 
     def test_get_product_404(self, db):
         from app.modules.products import service as product_service

@@ -37,11 +37,9 @@ import {
   TPrintPreviewDialog,
   useMasterDetailState,
   TDetailSkeleton,
-  TExportButton,
   fmtLKR,
   TDataGrid,
   type TDataGridColumn,
-  useRowSelection,
   TRemarkField,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
@@ -98,8 +96,6 @@ export default function CreditNotesPage() {
     resetFormFromItem,
     defaultSortField: "date",
   });
-
-  const rowSelection = useRowSelection();
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
@@ -238,9 +234,6 @@ export default function CreditNotesPage() {
           emptyMessage="No credit notes found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -385,7 +378,7 @@ export default function CreditNotesPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
             <Box sx={{ width: 190, flexShrink: 0 }}>
               <Autocomplete
@@ -407,25 +400,6 @@ export default function CreditNotesPage() {
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        headerActions={
-          isCreditNoteDetailMode ? undefined : (
-            <TExportButton
-              filename={`credit_notes_${new Date().toISOString().split("T")[0]}`}
-              headers={["ID", "Customer", "Amount", "Date", "Invoice No", "Remark"]}
-              rows={() =>
-                rowSelection.pick(filteredNotes).map((n) => [
-                  `CN-${n.id}`,
-                  getCustomerName(n.customer_id),
-                  Number(n.amount || 0),
-                  n.date ? new Date(n.date).toLocaleString() : "",
-                  n.invoice_no || "",
-                  n.remark || "",
-                ])
-              }
-              disabled={filteredNotes.length === 0}
-            />
-          )
-        }
         {...(isCreditNoteDetailMode
           ? { children: detailPanel }
           : { children: creditNoteTablePanel })}

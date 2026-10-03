@@ -1085,7 +1085,7 @@ export default function SalesTrackPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TStatusFilter
@@ -1100,7 +1100,7 @@ export default function SalesTrackPage() {
                 size="small"
               />
             </Box>
-            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
               <TBranchFilter
                 branches={branches}
                 value={filterBranch}

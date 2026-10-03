@@ -6,17 +6,6 @@ import type {
   PaginatedResponse,
 } from "@/api/types";
 
-export interface BranchPerformance {
-  sales_today: number;
-  sales_month: number;
-  orders_today: number;
-  orders_month: number;
-  in_stock: number;
-  reserved: number;
-  sold_today: number;
-  returned: number;
-}
-
 export const branchApi = {
   getAll: async (page = 1, size = 100000): Promise<PaginatedResponse<Branch>> => {
     const response = await apiClient.get<PaginatedResponse<Branch>>(
@@ -30,11 +19,6 @@ export const branchApi = {
 
   getById: async (id: number): Promise<Branch> => {
     const response = await apiClient.get<Branch>(`/branches/${id}`);
-    return response.data;
-  },
-
-  getPerformance: async (id: number): Promise<BranchPerformance> => {
-    const response = await apiClient.get<BranchPerformance>(`/branches/${id}/performance`);
     return response.data;
   },
 
@@ -92,11 +76,6 @@ export const branchApi = {
       contact_number: data.contact_number?.trim() || null,
     };
     const response = await apiClient.put<Branch>(`/branches/${id}`, cleanData);
-    return response.data;
-  },
-
-  delete: async (id: number): Promise<{ message: string }> => {
-    const response = await apiClient.delete<{ message: string }>(`/branches/${id}`);
     return response.data;
   },
 };

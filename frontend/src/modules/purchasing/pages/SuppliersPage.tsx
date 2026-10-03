@@ -4,8 +4,6 @@
 
 import { useMemo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { formatDateTimeReadable, formatCurrency } from "@/utils/formatters";
-import { exportToCSV } from "@/utils/csvExport";
-import DownloadIcon from "@mui/icons-material/FileDownload";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import {
@@ -55,7 +53,6 @@ import {
   FormSection,
   EmptyState,
   useMasterDetailState,
-  useRowSelection,
   showErrorToast,
   showSuccessToast,
   showWarningToast,
@@ -341,11 +338,6 @@ export default function SuppliersPage() {
     PERMISSIONS.SUPPLIERS_UPDATE.resource,
     PERMISSIONS.SUPPLIERS_UPDATE.action,
   );
-  const canDeleteSupplier = hasPermission(
-    user,
-    PERMISSIONS.SUPPLIERS_DELETE.resource,
-    PERMISSIONS.SUPPLIERS_DELETE.action,
-  );
 
   // Confirm dialog for unsaved changes and delete actions
   const confirmDialog = useTConfirmDialog();
@@ -436,8 +428,6 @@ export default function SuppliersPage() {
     if (started) setPaymentTermsChosen(false);
     return started;
   }, [handleNewSupplierRaw]);
-
-  const rowSelection = useRowSelection();
 
   // Which supplier is on screen right now, readable from async callbacks
   // that resolve later: a response must only be applied if the user is still
@@ -628,8 +618,8 @@ export default function SuppliersPage() {
       }
       await refreshPaymentMethods(selectedSupplier.id);
       handleClosePaymentMethodPanel();
-    } catch {
-      showErrorToast("Failed to save payment method");
+    } catch (err) {
+      showErrorToast(handleApiError(err, "Failed to save payment method"));
     } finally {
       setSavingPaymentMethod(false);
     }
@@ -1035,6 +1025,7 @@ export default function SuppliersPage() {
 
   const supplierColumns: TDataGridColumn<SupplierRow>[] = useMemo(
     () => [
+      { field: "supplier_no", header: "No.", width: 90 },
       {
         field: "company_name",
         header: "Company",
@@ -1279,67 +1270,6 @@ export default function SuppliersPage() {
     },
   });
 
-  const deleteMutation = useCrudMutation({
-    mutationFn: suppliersApi.delete,
-    invalidateQueryKeys: [["suppliers"], ["referenceData"]],
-    successMessage: "Supplier deleted successfully",
-    errorMessage: "Failed to delete supplier",
-    onSuccess: () => {
-      setSelectedSupplier(null);
-    },
-  });
-
-  const handleExportCSV = () => {
-    const headers = [
-      "Company Name",
-      "Company Registration No.",
-      "Tax/VAT Number",
-      "Company Website",
-      "Billing Address",
-      "Shipping Address",
-      "Country",
-      "Email",
-      "Mobile Contact",
-      "Home Contact",
-      "Payment Terms",
-      "Default Currency",
-      "Max Credit Limit",
-      "Initial Credit Amount",
-      "Left Credit Amount",
-      "Lead Time (Days)",
-      "Avg. Lead Time (Days)",
-      "Date Joined",
-      "Status"
-    ];
-
-    const rows = rowSelection.pick(filteredSuppliers).map(supplier => [
-      supplier.company_name || "",
-      supplier.company_registration_number || "",
-      supplier.tax_registration_number || "",
-      supplier.company_website || "",
-      [supplier.billing_address_line1, supplier.billing_address_line2, supplier.billing_city, supplier.billing_state, supplier.billing_postal_code].filter(Boolean).join(", "),
-      [supplier.shipping_address_line1, supplier.shipping_address_line2, supplier.shipping_city, supplier.shipping_state, supplier.shipping_postal_code].filter(Boolean).join(", "),
-      countries.find((c) => c.id === supplier.country_id)?.name || "",
-      supplier.email || "",
-      supplier.mobile_contact_number || "",
-      supplier.home_contact_number || "",
-      getPaymentTermsLabel(supplier.credit_days),
-      supplier.default_currency || "",
-      supplier.max_credit_limit,
-      supplier.initial_credit_amount || 0,
-      supplier.left_credit_amount || 0,
-      supplier.lead_time_days ?? "",
-      supplier.average_lead_time_days ?? "",
-      supplier.date_joined ? new Date(supplier.date_joined).toLocaleDateString() : "",
-      supplier.active ? "Active" : "Inactive"
-    ]);
-
-    exportToCSV({
-      filename: `suppliers_${new Date().toISOString().split("T")[0]}`,
-      headers,
-      rows
-    });
-  };
 
   const handleSave = useCallback(() => {
     if (isCreating) {
@@ -1373,24 +1303,6 @@ export default function SuppliersPage() {
     canCreateSupplier,
     canUpdateSupplier,
   ]);
-
-  const handleDelete = useCallback(async () => {
-    if (!canDeleteSupplier) {
-      showErrorToast("You don't have permission to delete suppliers");
-      return;
-    }
-    if (selectedSupplier) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Supplier",
-        message: `Are you sure you want to delete "${selectedSupplier.company_name}"?`,
-        confirmText: "Delete",
-        confirmColor: "error",
-      });
-      if (confirmed) {
-        deleteMutation.mutate(selectedSupplier.id);
-      }
-    }
-  }, [selectedSupplier, deleteMutation, confirmDialog, canDeleteSupplier]);
 
   // A logo upload/remove response is merged into the current record as just
   // logo_path — never swapped in wholesale. The response carries the latest
@@ -1465,7 +1377,8 @@ export default function SuppliersPage() {
     
     switch (fieldName) {
       case 'email':
-        if (formData.email && !emailRegex.test(formData.email)) return 'Invalid email format';
+        if (!formData.email) return 'Email is required';
+        if (!emailRegex.test(formData.email)) return 'Invalid email format';
         break;
       case 'mobile_contact_number':
         if (!formData.mobile_contact_number) return 'Mobile number is required';
@@ -1493,15 +1406,15 @@ export default function SuppliersPage() {
     return !!getFieldError(fieldName);
   };
 
-  // Only the Main section's fields (plus Payment Terms, which must be
-  // explicitly chosen — see paymentTermsChosen) gate Save — Address and the
-  // rest of Payment can be filled in later via their own sections after the
-  // supplier is created (mirrors ProductsPage, where only Main + cost_price
-  // gate Save and selling_price/suppliers are filled in afterward).
+  // Only the Main section's fields gate Save — Address and Payment (including
+  // Payment Terms, which defaults to Net 30 until the user picks otherwise)
+  // can be filled in later via their own sections after the supplier is
+  // created (mirrors ProductsPage, where only Main + cost_price gate Save and
+  // selling_price/suppliers are filled in afterward).
   const isFormValid = formData.company_name &&
     formData.mobile_contact_number &&
-    (!formData.email || emailRegex.test(formData.email)) &&
-    paymentTermsChosen;
+    formData.email &&
+    emailRegex.test(formData.email);
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   // Style for required field labels (red asterisk)
@@ -1531,9 +1444,6 @@ export default function SuppliersPage() {
           emptyMessage="No suppliers found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1574,11 +1484,9 @@ export default function SuppliersPage() {
         isFormValid={!!isFormValid}
         onNew={canCreateSupplier ? handleNewSupplier : undefined}
         onDuplicate={handleDuplicate}
-        onDelete={canDeleteSupplier ? handleDelete : undefined}
         onSave={handleSave}
         onCancel={handleCancelSupplier}
         onEdit={canUpdateSupplier ? handleStartEdit : undefined}
-        canDelete={canDeleteSupplier}
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -1737,6 +1645,8 @@ export default function SuppliersPage() {
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 onBlur={() => handleBlur('email')}
                 disabled={!isEditing && !isCreating}
+                required
+                sx={requiredFieldSx}
                 error={hasError('email')}
                 helperText={getFieldError('email')}
               />
@@ -1987,6 +1897,7 @@ export default function SuppliersPage() {
                 error={hasError('credit_days')}
                 helperText={getFieldError('credit_days') || "How many days after invoicing this supplier expects payment"}
                 SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
               >
                 <MenuItem value="" disabled>
                   Select payment terms
@@ -2131,7 +2042,7 @@ export default function SuppliersPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter
@@ -2176,16 +2087,6 @@ export default function SuppliersPage() {
                   Add Supplier
                 </Button>
               )}
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DownloadIcon />}
-                onClick={handleExportCSV}
-                disabled={filteredSuppliers.length === 0}
-                sx={{ mr: 1 }}
-              >
-                Export CSV
-              </Button>
             </>
           )
         }

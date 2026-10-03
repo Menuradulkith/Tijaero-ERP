@@ -47,7 +47,6 @@ import {
   showErrorToast,
   showSuccessToast,
   TSearchableSelect,
-  TExportButton,
   TDetailSkeleton,
   useMasterDetailState,
   TConfirmDialog,
@@ -55,7 +54,6 @@ import {
   useCrudMutation,
   TActivityHistoryPanel,
   TDataGrid,
-  useRowSelection,
   type TDataGridColumn,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
@@ -162,8 +160,6 @@ export default function ChartOfAccountsPage() {
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
-
-  const rowSelection = useRowSelection();
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
@@ -417,9 +413,6 @@ export default function ChartOfAccountsPage() {
           columns={accountColumns}
           loading={isLoading}
           onRowClick={(row) => handleSelectAccount(row)}
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No accounts found"
@@ -706,7 +699,7 @@ export default function ChartOfAccountsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TSearchableSelect
@@ -774,30 +767,6 @@ export default function ChartOfAccountsPage() {
                   {seedMutation.isPending ? "Seeding..." : "Seed Standard COA"}
                 </button>
               )}
-              <TExportButton
-                filename="chart_of_accounts"
-                headers={[
-                  "Account Code",
-                  "Account Name",
-                  "Type",
-                  "Category",
-                  "Normal Balance",
-                  "System Account",
-                  "Active",
-                ]}
-                rows={() =>
-                  rowSelection.pick(filteredAccounts).map((a) => [
-                    a.account_code || "",
-                    a.account_name || "",
-                    a.account_type || "",
-                    a.account_category || "",
-                    a.normal_balance || "",
-                    a.is_system_account ? "Yes" : "No",
-                    a.is_active ? "Yes" : "No",
-                  ])
-                }
-                disabled={filteredAccounts.length === 0}
-              />
             </>
           )
         }

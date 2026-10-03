@@ -5,7 +5,6 @@
  */
 
 import { useMemo, useCallback, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -33,7 +32,6 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
-import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import SearchIcon from "@mui/icons-material/Search";
@@ -81,7 +79,6 @@ type POApprovalRow = PurchasingOrder & { supplier_display_name: string };
 
 export default function POApprovalsPage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<PurchasingOrderWithItems | null>(null);
@@ -98,6 +95,9 @@ export default function POApprovalsPage() {
   // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>("pending_approval");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterRequestedBy, setFilterRequestedBy] = useState("");
 
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -109,17 +109,6 @@ export default function POApprovalsPage() {
   // or every row ticked in the browse table.
   const [bulkActionActive, setBulkActionActive] = useState(false);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
-
-  const handleOpenPurchaseOrder = useCallback(() => {
-    if (!selectedOrder) return;
-    navigate("/purchasing/orders", {
-      state: {
-        fromPOApproval: true,
-        purchaseOrderId: selectedOrder.id,
-        purchaseOrderNo: selectedOrder.purchasing_order_no,
-      },
-    });
-  }, [navigate, selectedOrder]);
 
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
@@ -137,6 +126,9 @@ export default function POApprovalsPage() {
     setSearchQuery("");
     setFilterStatus(null);
     setFilterBranch(null);
+    setFilterDateFrom("");
+    setFilterDateTo("");
+    setFilterRequestedBy("");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
@@ -179,6 +171,20 @@ export default function POApprovalsPage() {
       if (filterBranch && order.branch_code !== filterBranch) {
         return false;
       }
+      // Requested date range filter (added_date = when the order was created)
+      if (filterDateFrom && order.added_date < filterDateFrom) {
+        return false;
+      }
+      if (filterDateTo && order.added_date.slice(0, 10) > filterDateTo) {
+        return false;
+      }
+      // Requested by filter
+      if (
+        filterRequestedBy &&
+        !(order.created_by_name || "").toLowerCase().includes(filterRequestedBy.toLowerCase())
+      ) {
+        return false;
+      }
       // Search filter
       const supplier = supplierMap.get(order.first_suppliers_id);
       return (
@@ -195,7 +201,7 @@ export default function POApprovalsPage() {
     });
 
     return filtered;
-  }, [orders, searchQuery, supplierMap, filterStatus, filterBranch]);
+  }, [orders, searchQuery, supplierMap, filterStatus, filterBranch, filterDateFrom, filterDateTo, filterRequestedBy]);
 
   // Handle selection
   const handleSelectOrder = useCallback(async (order: PurchasingOrder) => {
@@ -517,6 +523,12 @@ export default function POApprovalsPage() {
         width: 130,
       },
       {
+        field: "created_by_name",
+        header: "Requested By",
+        width: 150,
+        renderCell: (params: GridRenderCellParams<POApprovalRow>) => params.row.created_by_name || "-",
+      },
+      {
         field: "status",
         header: "Status",
         type: "status",
@@ -609,9 +621,9 @@ export default function POApprovalsPage() {
         }
       />
 
-      {/* Open PO + Approve/Reject, grouped together on the right like the
-          Cancel New / Next pairing on the PO creation wizard's toolbar. */}
-      {selectedOrder && (
+      {/* Approve/Reject, on the right like the Cancel / Next pairing on the
+          PO creation wizard's toolbar. */}
+      {selectedOrder && selectedIsPending && (
         <ActionToolbar
           hasSelectedItem
           isCreating={false}
@@ -623,36 +635,24 @@ export default function POApprovalsPage() {
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <Button
                 size="small"
-                variant="outlined"
-                startIcon={<ShoppingCartIcon />}
-                onClick={handleOpenPurchaseOrder}
+                variant="contained"
+                color="primary"
+                startIcon={<CheckCircleIcon />}
+                onClick={handleApprove}
+                disabled={approveMutation.isPending}
               >
-                Open PO
+                Approve
               </Button>
-              {selectedIsPending && (
-                <>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="primary"
-                    startIcon={<CheckCircleIcon />}
-                    onClick={handleApprove}
-                    disabled={approveMutation.isPending}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    startIcon={<CancelIcon />}
-                    onClick={() => setRejectDialogOpen(true)}
-                    disabled={rejectMutation.isPending}
-                  >
-                    Reject
-                  </Button>
-                </>
-              )}
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<CancelIcon />}
+                onClick={() => setRejectDialogOpen(true)}
+                disabled={rejectMutation.isPending}
+              >
+                Reject
+              </Button>
             </Box>
           }
         />
@@ -897,7 +897,7 @@ export default function POApprovalsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TStatusFilter options={PO_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
@@ -905,7 +905,34 @@ export default function POApprovalsPage() {
               <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
               </Box>
-              {(searchQuery || filterStatus || filterBranch) && (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>From</Typography>
+                <TextField
+                  size="small"
+                  type="date"
+                  value={filterDateFrom}
+                  onChange={(e) => setFilterDateFrom(e.target.value)}
+                  sx={{ width: 150, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                />
+              </Box>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>To</Typography>
+                <TextField
+                  size="small"
+                  type="date"
+                  value={filterDateTo}
+                  onChange={(e) => setFilterDateTo(e.target.value)}
+                  sx={{ width: 150, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                />
+              </Box>
+              <TextField
+                size="small"
+                placeholder="Requested by..."
+                value={filterRequestedBy}
+                onChange={(e) => setFilterRequestedBy(e.target.value)}
+                sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              />
+              {(searchQuery || filterStatus || filterBranch || filterDateFrom || filterDateTo || filterRequestedBy) && (
                 <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
                   Clear
                 </Button>

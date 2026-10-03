@@ -32,6 +32,10 @@ class Customer(Base, AuditMixin):
     __tablename__ = "customers"
     
     id = Column(Integer, primary_key=True, index=True)
+    # Sequential display number shown as the Customers grid's first column
+    # (0001, 0002, ...) — see CustomerRepository.get_next_customer_no.
+    # Distinct from `id`, which is an internal PK not meant for display.
+    customer_no = Column(String(10), unique=True, nullable=False, index=True)
     title = Column(String(30), nullable=False)
     customer_name = Column(String(255), nullable=False, index=True)
     name_in_cheque_card = Column(String(255))

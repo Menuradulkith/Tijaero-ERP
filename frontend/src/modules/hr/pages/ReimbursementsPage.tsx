@@ -63,11 +63,9 @@ import {
     TCurrency,
     TDataGrid,
     type TDataGridColumn,
-    TExportButton,
     TStatusChip,
     useConfirmDialog,
     useMasterDetailState,
-    useRowSelection,
     fmtLKR,
     TRemarkField,
 } from "@/components/tijaero";
@@ -206,8 +204,6 @@ export default function ReimbursementsPage() {
       setLineItems([]);
     },
   });
-
-  const rowSelection = useRowSelection();
 
   // Set default branch when creating new reimbursement
   useEffect(() => {
@@ -598,9 +594,6 @@ export default function ReimbursementsPage() {
           emptyMessage="No reimbursement claims found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1323,7 +1316,7 @@ export default function ReimbursementsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TBranchFilter
@@ -1374,38 +1367,6 @@ export default function ReimbursementsPage() {
               >
                 Add Reimbursement
               </Button>
-              <TExportButton
-                filename="reimbursements"
-                headers={[
-                  "Reimbursement No",
-                  "Employee ID",
-                  "Employee",
-                  "Branch",
-                  "Claim Date",
-                  "Type",
-                  "Total Amount",
-                  "Approved Amount",
-                  "Paid Amount",
-                  "Status",
-                  "Payment Status",
-                ]}
-                rows={() =>
-                  rowSelection.pick(filteredItems).map((r) => [
-                    r.reimbursement_no || "",
-                    r.employee_id || "",
-                    r.employee_name || "",
-                    r.branch_code || "",
-                    r.claim_date || "",
-                    r.reimbursement_type || "",
-                    r.total_amount ?? 0,
-                    r.approved_amount ?? "",
-                    r.paid_amount ?? "",
-                    r.status || "",
-                    r.payment_status || "",
-                  ])
-                }
-                disabled={filteredItems.length === 0}
-              />
             </>
           )
         }

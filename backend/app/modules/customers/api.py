@@ -736,18 +736,3 @@ def update_customer(
     return service.customer_service.update_customer(
         db, customer_id, customer, current_user.id
     )
-
-
-@router.delete(
-    "/{customer_id}",
-    status_code=status.HTTP_200_OK,
-    summary="Delete Customer",
-    description="Delete a customer",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_DELETE))],
-)
-def delete_customer(
-    customer_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_DELETE)),
-):
-    return service.customer_service.delete_customer(db, customer_id, user_id=current_user.id)

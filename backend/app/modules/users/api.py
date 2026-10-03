@@ -143,21 +143,6 @@ def update_user(
     return service.auth_service.update_user(db, user_id, user, updated_by=current_user.id)
 
 
-@router.delete(
-    "/{user_id}",
-    status_code=status.HTTP_200_OK,
-    summary="Delete User",
-    dependencies=[Depends(require_permission(*Permissions.USER_DELETE))],
-)
-def delete_user(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.USER_DELETE)),
-):
-    """Delete a user by ID."""
-    return service.auth_service.delete_user(db, user_id, deleted_by=current_user.id)
-
-
 @router.post(
     "/{user_id}/unblock",
     response_model=schemas.User,

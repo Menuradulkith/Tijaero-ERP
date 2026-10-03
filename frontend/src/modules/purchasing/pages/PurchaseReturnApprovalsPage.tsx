@@ -85,6 +85,9 @@ export default function PurchaseReturnApprovalsPage() {
   // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>("pending"); // Default to pending
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterRequestedBy, setFilterRequestedBy] = useState("");
 
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -108,6 +111,9 @@ export default function PurchaseReturnApprovalsPage() {
     setSearchQuery("");
     setFilterStatus(null);
     setFilterBranch(null);
+    setFilterDateFrom("");
+    setFilterDateTo("");
+    setFilterRequestedBy("");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
@@ -150,6 +156,20 @@ export default function PurchaseReturnApprovalsPage() {
       if (filterBranch && ret.branch_code !== filterBranch) {
         return false;
       }
+      // Requested date range filter (added_date = when the return was created)
+      if (filterDateFrom && ret.added_date < filterDateFrom) {
+        return false;
+      }
+      if (filterDateTo && ret.added_date.slice(0, 10) > filterDateTo) {
+        return false;
+      }
+      // Requested by filter
+      if (
+        filterRequestedBy &&
+        !(ret.created_by_name || "").toLowerCase().includes(filterRequestedBy.toLowerCase())
+      ) {
+        return false;
+      }
       // Search filter
       const grn = grnMap.get(ret.goodreceivednote_id);
       return (
@@ -166,7 +186,7 @@ export default function PurchaseReturnApprovalsPage() {
     });
 
     return filtered;
-  }, [returns, searchQuery, grnMap, filterStatus, filterBranch]);
+  }, [returns, searchQuery, grnMap, filterStatus, filterBranch, filterDateFrom, filterDateTo, filterRequestedBy]);
 
   // Handle selection
   const handleSelectReturn = useCallback(async (ret: PurchasingReturn) => {
@@ -292,6 +312,12 @@ export default function PurchaseReturnApprovalsPage() {
         width: 130,
       },
       {
+        field: "created_by_name",
+        header: "Requested By",
+        width: 150,
+        renderCell: (params: GridRenderCellParams<ReturnApprovalRow>) => params.row.created_by_name || "-",
+      },
+      {
         field: "status",
         header: "Status",
         type: "status",
@@ -373,7 +399,7 @@ export default function PurchaseReturnApprovalsPage() {
       />
 
       {/* Approve/Reject, grouped together on the right like the
-          Cancel New / Next pairing on the PO creation wizard's toolbar. */}
+          Cancel / Next pairing on the PO creation wizard's toolbar. */}
       {selectedReturn && selectedIsPending && (
         <ActionToolbar
           hasSelectedItem
@@ -648,15 +674,42 @@ export default function PurchaseReturnApprovalsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
-            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
               <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
             </Box>
-            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
             </Box>
-            {(searchQuery || filterStatus || filterBranch) && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>From</Typography>
+              <TextField
+                size="small"
+                type="date"
+                value={filterDateFrom}
+                onChange={(e) => setFilterDateFrom(e.target.value)}
+                sx={{ width: 150, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              />
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>To</Typography>
+              <TextField
+                size="small"
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+                sx={{ width: 150, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              />
+            </Box>
+            <TextField
+              size="small"
+              placeholder="Requested by..."
+              value={filterRequestedBy}
+              onChange={(e) => setFilterRequestedBy(e.target.value)}
+              sx={{ width: 160, flexShrink: 0 }}
+            />
+            {(searchQuery || filterStatus || filterBranch || filterDateFrom || filterDateTo || filterRequestedBy) && (
               <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
                 Clear
               </Button>

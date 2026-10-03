@@ -35,12 +35,10 @@ import {
   useMasterDetailState,
   TDetailSkeleton,
   TBranchFilter,
-  TExportButton,
   fmtLKR,
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
-  useRowSelection,
 } from "@/components/tijaero";
 
 import { creditPaymentsApi } from "@/modules/finance/api";
@@ -102,8 +100,6 @@ export default function CreditPaymentsPage() {
     resetFormFromItem,
     defaultSortField: "created_date",
   });
-
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Metadata & Audit section title, rather than shown inline.
@@ -260,9 +256,6 @@ export default function CreditPaymentsPage() {
           emptyMessage="No credit payments found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -405,7 +398,7 @@ export default function CreditPaymentsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
             <Box sx={{ width: 170, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
@@ -420,27 +413,6 @@ export default function CreditPaymentsPage() {
       }
       onRefresh={refetch}
       isLoading={isLoading}
-      headerActions={
-        isPaymentDetailMode ? undefined : (
-          <TExportButton
-            filename={`credit_payments_${new Date().toISOString().split("T")[0]}`}
-            headers={["ID", "Customer", "Invoice No", "Amount", "Credit Terms", "Due Date", "Status", "Created Date"]}
-            rows={() =>
-              rowSelection.pick(filteredPayments).map((p) => [
-                p.id,
-                p.customer_name || `Customer #${p.customer_id ?? ""}`,
-                p.invoice_no || "",
-                Number(p.amount || 0),
-                p.credit_terms || "",
-                p.due_date || "",
-                p.status || "",
-                p.created_date || "",
-              ])
-            }
-            disabled={filteredPayments.length === 0}
-          />
-        )
-      }
       {...(isPaymentDetailMode
         ? { children: detailPanel }
         : { children: paymentTablePanel })}

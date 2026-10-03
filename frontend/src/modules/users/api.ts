@@ -182,11 +182,6 @@ export const usersApi = {
     return response.data;
   },
 
-  // Delete user
-  deleteUser: async (id: number): Promise<void> => {
-    await apiClient.delete(`/users/${id}`);
-  },
-
   // Clear a user's blocked flag
   unblockUser: async (id: number): Promise<User> => {
     const response = await apiClient.post(`/users/${id}/unblock`);

@@ -22,7 +22,6 @@ import {
   TDataGrid,
   type TDataGridColumn,
   TDetailSkeleton,
-  TExportButton,
   fmtLKR,
   handleApiError,
   showErrorToast,
@@ -304,7 +303,7 @@ export default function DeductionsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 260, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 260 }}
               />
             </Box>
           )
@@ -317,20 +316,6 @@ export default function DeductionsPage() {
                   Add Deduction
                 </Button>
               )}
-              <TExportButton
-                filename="salary_deductions"
-                headers={["Employee ID", "Reason", "Amount", "Remarks", "Created"]}
-                rows={() =>
-                  filtered.map((d) => [
-                    d.employee_id ?? "",
-                    d.reason || "",
-                    d.amount ?? 0,
-                    d.remarks || "",
-                    d.created_date || d.created_at || "",
-                  ])
-                }
-                disabled={filtered.length === 0}
-              />
             </>
           )
         }

@@ -1,6 +1,8 @@
 // Supplier Types
 export interface Supplier {
   id: number;
+  /** Sequential display number (0001, 0002, ...) shown as the grid's first column. */
+  supplier_no: string;
   company_name: string;
   company_registration_number?: string;
   tax_registration_number?: string;
@@ -446,6 +448,8 @@ export interface PurchasingReturn {
   grn_no?: string;
   po_no?: string;
   supplier_name?: string;
+  created_by?: number;
+  created_by_name?: string;
 }
 
 export interface PurchasingReturnWithItems extends PurchasingReturn {
