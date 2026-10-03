@@ -467,6 +467,14 @@ export const createAppTheme = (mode: PaletteMode) => {
               backgroundColor: isLight ? "rgba(0, 0, 0, 0.06)" : "rgba(255, 255, 255, 0.09)",
             },
           },
+          // Match the header toolbar's small Buttons (~31px): MUI's own
+          // size="small" input padding (8.5px top/bottom) makes a text
+          // field ~6px taller than a small Button sitting right next to it
+          // in the same search/filter bar.
+          inputSizeSmall: {
+            paddingTop: 5.5,
+            paddingBottom: 5.5,
+          },
         },
       },
       MuiFilledInput: {
@@ -487,7 +495,14 @@ export const createAppTheme = (mode: PaletteMode) => {
       // border-radius doesn't match the outer rounded outline.
       MuiAutocomplete: {
         styleOverrides: {
+          // Autocomplete's own size="small" padding (its root, not the inner
+          // input) is what makes it taller than a plain TextField/Button —
+          // match the same ~31px toolbar height.
           inputRoot: {
+            "&.MuiInputBase-sizeSmall": {
+              paddingTop: 3,
+              paddingBottom: 3,
+            },
             "&.Mui-required": {
               backgroundColor: isLight ? "rgba(255, 235, 238, 0.4)" : "rgba(211, 47, 47, 0.08)",
             },

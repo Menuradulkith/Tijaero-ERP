@@ -97,18 +97,7 @@ export default function Header({
           <MenuIcon />
         </IconButton>
 
-        <Typography
-          variant="subtitle1"
-          noWrap
-          component="div"
-          sx={{
-            flexGrow: 1,
-            fontWeight: 600,
-            fontSize: { xs: "0.9rem", sm: "1rem" },
-          }}
-        >
-          TijaeroERP
-        </Typography>
+        <Box sx={{ flexGrow: 1 }} />
 
         <Box
           sx={{

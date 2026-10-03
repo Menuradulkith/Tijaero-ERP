@@ -78,15 +78,6 @@ class TestProductsAPI:
         assert r.status_code == 200
         assert r.json()["name"] == "New"
 
-    def test_delete_category(self, superclient):
-        cr = superclient.post(
-            f"{self.PREFIX}/categories/",
-            json={"name": "Temp", "category_code": _uid("CAT")},
-        )
-        cat_id = cr.json()["id"]
-        r = superclient.delete(f"{self.PREFIX}/categories/{cat_id}")
-        assert r.status_code == 200
-
     def test_create_brand(self, superclient):
         r = superclient.post(
             f"{self.PREFIX}/brands/",

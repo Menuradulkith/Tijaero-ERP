@@ -33,13 +33,11 @@ import {
   useMasterDetailState,
   TDetailSkeleton,
   TBranchFilter,
-  TExportButton,
   CARD_TYPE,
   fmtLKR,
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
-  useRowSelection,
   TRemarkField,
 } from "@/components/tijaero";
 
@@ -99,8 +97,6 @@ export default function CardPaymentsPage() {
     resetFormFromItem,
     defaultSortField: "date_time",
   });
-
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Date section title, rather than shown inline.
@@ -251,9 +247,6 @@ export default function CardPaymentsPage() {
           emptyMessage="No card payments found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -399,7 +392,7 @@ export default function CardPaymentsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
             <Box sx={{ width: 170, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
@@ -414,27 +407,6 @@ export default function CardPaymentsPage() {
       }
       onRefresh={refetch}
       isLoading={isLoading}
-      headerActions={
-        isPaymentDetailMode ? undefined : (
-          <TExportButton
-            filename={`card_payments_${new Date().toISOString().split("T")[0]}`}
-            headers={["ID", "Ref Number", "Card Type", "Amount", "Invoice No", "Deposited", "Date", "Remark"]}
-            rows={() =>
-              rowSelection.pick(filteredPayments).map((p) => [
-                p.id,
-                p.ref_number || "",
-                p.card_type || "",
-                Number(p.amount || 0),
-                p.invoice_no || "",
-                p.deposited ? "Yes" : "No",
-                p.date_time ? new Date(p.date_time).toLocaleString() : "",
-                p.remark || "",
-              ])
-            }
-            disabled={filteredPayments.length === 0}
-          />
-        )
-      }
       {...(isPaymentDetailMode
         ? { children: detailPanel }
         : { children: paymentTablePanel })}

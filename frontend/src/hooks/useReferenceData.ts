@@ -60,6 +60,7 @@ export interface ProductRef {
   cost_price?: number;
   selling_price?: number;
   item_type?: string;
+  unit_of_measure?: string;
   website_active?: boolean;
   active?: boolean;
   description?: string;

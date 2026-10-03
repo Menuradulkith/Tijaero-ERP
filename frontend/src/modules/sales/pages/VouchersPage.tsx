@@ -55,14 +55,11 @@ import {
   TPrintPreviewDialog,
   useCrudMutation,
   useMasterDetailState,
-  useRowSelection,
   useTConfirmDialog,
   modernTableStyles,
   SelectableListItem,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
-import { exportToCSV } from "@/utils/csvExport";
-import DownloadIcon from "@mui/icons-material/FileDownload";
 
 
 import { usePermission } from "@/auth/permissions";
@@ -160,8 +157,6 @@ export default function VouchersPage() {
     resetFormFromItem: resetFormFromVoucher,
     defaultSortField: "barcode_no",
   });
-
-  const rowSelection = useRowSelection();
 
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
@@ -266,39 +261,6 @@ export default function VouchersPage() {
   });
 
   // Handlers
-  const handleExportCSV = () => {
-    const headers = [
-      "Voucher Code",
-      "Issue Date",
-      "Original Amount",
-      "Current Balance",
-      "Linked Invoice",
-      "Validity (Months)",
-      "Expiry Date",
-      "Status"
-    ];
-
-    const rows = rowSelection.pick(filteredVouchers).map(voucher => {
-      const expiryDate = calculateExpiryDate(voucher.date, voucher.valid_period_in_months);
-      return [
-        voucher.barcode_no,
-        voucher.date ? new Date(voucher.date).toLocaleDateString() : "",
-        voucher.amount,
-        voucher.balance,
-        voucher.purchased_invoice_no || "",
-        voucher.valid_period_in_months,
-        expiryDate ? expiryDate.toLocaleDateString() : "",
-        getVoucherStatus(voucher)
-      ];
-    });
-
-    exportToCSV({
-      filename: `gift_vouchers_${new Date().toISOString().split("T")[0]}`,
-      headers,
-      rows
-    });
-  };
-
   const handleSave = useCallback(() => {
     if (!formData.barcode_no.trim()) {
       showErrorToast("Voucher code is required");
@@ -521,9 +483,6 @@ export default function VouchersPage() {
           emptyMessage="No vouchers found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -818,7 +777,7 @@ export default function VouchersPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <TextField
                 select
@@ -855,16 +814,6 @@ export default function VouchersPage() {
                   Add Voucher
                 </Button>
               )}
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DownloadIcon />}
-                onClick={handleExportCSV}
-                disabled={filteredVouchers.length === 0}
-                sx={{ mr: 1 }}
-              >
-                Export CSV
-              </Button>
             </>
           )
         }

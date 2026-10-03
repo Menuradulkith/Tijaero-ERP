@@ -94,6 +94,7 @@ def get_reference_data(
                 "selling_price": float(p.selling_price) if p.selling_price is not None else None,
                 "minimum_price": minimum_price,
                 "item_type": p.item_type,
+                "unit_of_measure": p.unit_of_measure,
                 "website_active": p.website_active,
                 "active": p.active,
                 "description": p.description,

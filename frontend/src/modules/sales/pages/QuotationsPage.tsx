@@ -5,8 +5,6 @@
 import { usePermission } from "@/auth/permissions";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { formatDateTimeReadable } from "@/utils/formatters";
-import { exportToCSV } from "@/utils/csvExport";
-import { FileDownload as DownloadIcon } from "@mui/icons-material";
 import {
   TChip,
   ActionToolbar,
@@ -27,11 +25,9 @@ import {
   TPrintPreviewDialog,
   TStatusChip,
   TStatusFilter,
-  TSteps,
   TRemarkField,
   useCrudMutation,
   useMasterDetailState,
-  useRowSelection,
   useTConfirmDialog,
   TEmailDialog,
   TActivityHistoryPanel,
@@ -41,18 +37,15 @@ import {
 import { useReferenceData } from "@/hooks";
 import { minimumPriceApi } from "@/modules/inventory/api";
 import { customersApi } from "@/modules/customers/api";
-import { advancePaymentsApi } from "@/modules/finance/api";
 import { procurementQueueApi } from "@/modules/purchasing/api";
 import {
   Add as AddIcon,
   ArrowBack as ArrowBackIcon,
-  ArrowForward as ArrowForwardIcon,
   Delete as DeleteIcon,
   Save as SaveIcon,
   Description as QuoteIcon,
   Inventory as StockIcon,
   LocalShipping as POIcon,
-  Payments as PaymentIcon,
   Receipt as InvoiceIcon,
   Receipt as TaxIcon,
   Send as SendIcon,
@@ -112,9 +105,6 @@ import {
   CreateRevisionResponse,
 } from "../quotation-types";
 
-// Form steps for stepper workflow
-const FORM_STEPS = ["Quote Information", "Quote Items"];
-
 // Line item type
 interface ItemFormData {
   product_id: number;
@@ -165,23 +155,18 @@ export default function QuotationsPage() {
   const [taxRate, setTaxRate] = useState<number>(0);
   const effectiveTaxRate = taxMode !== "none" ? taxRate : 0;
 
-  // Form step state for stepper workflow
-  const [formStep, setFormStep] = useState(0);
-
   // Filter states - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [filterCustomerId, setFilterCustomerId] = useState<number | null>(null);
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
 
   // Print Dialog State
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [selectedQuoteForPrint, setSelectedQuoteForPrint] = useState<SalesQuote | null>(null);
-
-  // Customer-advance dialog state
-  const [advanceDialogOpen, setAdvanceDialogOpen] = useState(false);
-  const [advanceAmount, setAdvanceAmount] = useState<number | "">("");
-  const [advancePaymentMethod, setAdvancePaymentMethod] = useState("cash");
 
   // Workflow Dialog States
   const [stockCheckDialogOpen, setStockCheckDialogOpen] = useState(false);
@@ -265,10 +250,8 @@ export default function QuotationsPage() {
       });
     },
     extraDirty: lineItemsDirty,
-    onDiscard: () => { setLineItems([]); setLineItemsDirty(false); setFormStep(0); },
+    onDiscard: () => { setLineItems([]); setLineItemsDirty(false); },
   });
-
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Workflow Timeline section title, rather than shown inline.
@@ -314,6 +297,9 @@ export default function QuotationsPage() {
     setSearchQuery("");
     setFilterStatus(null);
     setFilterBranch(null);
+    setFilterCustomerId(null);
+    setFilterDateFrom("");
+    setFilterDateTo("");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Data fetching — filtered by page type
@@ -342,7 +328,6 @@ export default function QuotationsPage() {
   useEffect(() => {
     handleSelectQuote(null as unknown as SalesQuote);
     setLineItems([]);
-    setFormStep(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageQuoteType]);
 
@@ -414,6 +399,26 @@ export default function QuotationsPage() {
       filtered = filtered.filter(quote => quote.status === filterStatus);
     }
 
+    // Apply customer filter
+    if (filterCustomerId) {
+      filtered = filtered.filter(quote => quote.customer_id === filterCustomerId);
+    }
+
+    // Apply created date range filter (date-only comparison, same as the
+    // From/To pattern used on POApprovalsPage).
+    if (filterDateFrom) {
+      filtered = filtered.filter(quote => {
+        const created = (quote.created_date_time || quote.created_date || "").slice(0, 10);
+        return created >= filterDateFrom;
+      });
+    }
+    if (filterDateTo) {
+      filtered = filtered.filter(quote => {
+        const created = (quote.created_date_time || quote.created_date || "").slice(0, 10);
+        return created <= filterDateTo;
+      });
+    }
+
     // Default order before the user sorts a column in the table itself
     // (the table's own column-header sort takes over from there) — newest
     // created first, matching the old default "Date (Newest)" sort option.
@@ -427,7 +432,7 @@ export default function QuotationsPage() {
     });
 
     return filtered;
-  }, [quotesData?.items, searchQuery, filterBranch, filterStatus]);
+  }, [quotesData?.items, searchQuery, filterBranch, filterStatus, filterCustomerId, filterDateFrom, filterDateTo]);
 
   // Handle navigation state: auto-select a specific quote (e.g. from another page)
   const navStateHandled = useRef(false);
@@ -526,45 +531,6 @@ export default function QuotationsPage() {
 
   // ==================== Workflow Mutations ====================
 
-  // Place a customer advance against this quotation (available once approved)
-  const placeAdvanceMutation = useCrudMutation({
-    mutationFn: (vars: {
-      customer_id: number;
-      branch_code: string;
-      payment_amount: number;
-      payment_method: string;
-      quote_id: number;
-    }) =>
-      advancePaymentsApi.create({
-        customer_id: vars.customer_id,
-        branch_code: vars.branch_code,
-        payment_amount: vars.payment_amount,
-        payment_method: vars.payment_method,
-        cheque_date: format(new Date(), "yyyy-MM-dd"),
-        quote_id: vars.quote_id,
-      }),
-    invalidateQueryKeys: [["sales-quotes"], ["sales-quote-details"]],
-    successMessage: "Customer advance recorded for quotation",
-    errorMessage: "Failed to record customer advance",
-    onSuccess: () => {
-      setAdvanceDialogOpen(false);
-      setAdvanceAmount("");
-      setAdvancePaymentMethod("cash");
-      queryClient.invalidateQueries({ queryKey: ["sales-quote-details", selectedQuote?.id] });
-    },
-  });
-
-  const handlePlaceAdvance = () => {
-    if (!selectedQuote || !advanceAmount || Number(advanceAmount) <= 0) return;
-    placeAdvanceMutation.mutate({
-      customer_id: selectedQuote.customer_id,
-      branch_code: selectedQuote.branch_code,
-      payment_amount: Number(advanceAmount),
-      payment_method: advancePaymentMethod,
-      quote_id: selectedQuote.id,
-    });
-  };
-
   const rejectMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: { reason?: string; cancel_linked_po?: boolean } }) =>
       quotationApi.rejectWithOptions(id, data),
@@ -612,36 +578,6 @@ export default function QuotationsPage() {
   });
 
   // ==================== Workflow Handlers ====================
-
-  const handleExportCSV = () => {
-    const headers = [
-      "Quote No",
-      "Customer",
-      "Branch",
-      "Quote Type",
-      "Status",
-      "Created Date",
-      "Valid Until",
-      "Total Amount"
-    ];
-
-    const rows = rowSelection.pick(filteredQuotes).map(quote => [
-      quote.quote_no,
-      getCustomerName(quote.customer_id),
-      getBranchName(quote.branch_code),
-      quote.quote_type,
-      quote.status,
-      quote.created_date ? new Date(quote.created_date).toLocaleDateString() : "",
-      quote.valid_until ? new Date(quote.valid_until).toLocaleDateString() : "",
-      quote.total_amount
-    ]);
-
-    exportToCSV({
-      filename: `quotations_${new Date().toISOString().split("T")[0]}`,
-      headers,
-      rows
-    });
-  };
 
   const handleCheckStock = useCallback(async () => {
     if (!selectedQuote) return;
@@ -1036,7 +972,6 @@ export default function QuotationsPage() {
       baseHandleCancel(filteredQuotes);
     }
     setLineItems([]);
-    setFormStep(0);
     setTaxMode("none");
     setTaxRate(0);
   }, [baseHandleCancel, filteredQuotes, isEditing, isCreating, hasChanges, confirmDialog, setIsCreating, setIsEditing, setSelectedQuote]);
@@ -1049,23 +984,9 @@ export default function QuotationsPage() {
       setIsEditing(false);
     }
     setLineItems([]);
-    setFormStep(0);
     setTaxMode("none");
     setTaxRate(0);
   }, [isCreating, setSelectedQuote, setIsCreating, setIsEditing]);
-
-  // Step navigation handlers
-  const handleNextStep = useCallback(() => {
-    if (formStep < FORM_STEPS.length - 1) {
-      setFormStep(prev => prev + 1);
-    }
-  }, [formStep]);
-
-  const handlePreviousStep = useCallback(() => {
-    if (formStep > 0) {
-      setFormStep(prev => prev - 1);
-    }
-  }, [formStep]);
 
   const handleEdit = useCallback(() => {
     if (selectedQuote) {
@@ -1239,10 +1160,6 @@ export default function QuotationsPage() {
   const canEditQuote = !["completed", "cancelled"].includes(selectedQuote?.status || "");
   const canDeleteQuoteStatus = !["completed", "cancelled"].includes(selectedQuote?.status || "");
 
-  // Step 1 (Quote Information) validation, used to gate the toolbar's Next
-  // button while creating/editing (sale_rep_id is optional).
-  const isStep1Valid = !!(formData.customer_id && formData.customer_id > 0 && formData.branch_code && formData.valid_until);
-
   // Whether we're showing a single quote's detail view (selected or being
   // created) instead of the browse table.
   const isQuoteDetailMode = !!selectedQuote || isCreating;
@@ -1344,9 +1261,6 @@ export default function QuotationsPage() {
           emptyMessage="No quotes found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1379,47 +1293,25 @@ export default function QuotationsPage() {
                   onClick={handleDiscardChanges}
                   disabled={createMutation.isPending || updateMutation.isPending}
                 >
-                  {isCreating ? "Cancel New" : "Cancel"}
+                  Cancel
                 </Button>
-                {formStep > 0 && (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={handlePreviousStep}
-                    disabled={createMutation.isPending || updateMutation.isPending}
-                  >
-                    Back
-                  </Button>
-                )}
-                {formStep < FORM_STEPS.length - 1 ? (
-                  <Button
-                    size="small"
-                    variant="contained"
-                    onClick={handleNextStep}
-                    disabled={!isStep1Valid}
-                    endIcon={<ArrowForwardIcon />}
-                  >
-                    Next
-                  </Button>
-                ) : (
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="success"
-                    startIcon={<SaveIcon />}
-                    onClick={handleSave}
-                    disabled={
-                      createMutation.isPending ||
-                      updateMutation.isPending ||
-                      !formData.customer_id ||
-                      !formData.branch_code ||
-                      !formData.valid_until ||
-                      lineItems.length === 0
-                    }
-                  >
-                    {createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
-                  </Button>
-                )}
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  startIcon={<SaveIcon />}
+                  onClick={handleSave}
+                  disabled={
+                    createMutation.isPending ||
+                    updateMutation.isPending ||
+                    !formData.customer_id ||
+                    !formData.branch_code ||
+                    !formData.valid_until ||
+                    lineItems.length === 0
+                  }
+                >
+                  {createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
+                </Button>
               </Box>
             ) : selectedQuote && !isCreating && !isEditing ? (
               <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
@@ -1487,31 +1379,6 @@ export default function QuotationsPage() {
                   </Tooltip>
                 )}
                 {/* Customer advance — only once the quotation is approved */}
-                {selectedQuote.approval &&
-                  !['cancelled', 'completed', 'revised'].includes(selectedQuote.status) && (
-                    selectedQuote.advance_payment_id ? (
-                      <Tooltip title="A customer advance is already recorded for this quotation">
-                        <TChip
-                          size="small"
-                          color="success"
-                          variant="outlined"
-                          icon={<PaymentIcon />}
-                          label={<>Advance: <TCurrency component="span" value={Number(selectedQuote.advance_amount || 0)} /></>}
-                        />
-                      </Tooltip>
-                    ) : (
-                      <Tooltip title="Record a customer advance (deposit) for this quotation">
-                        <Button size="small" variant="contained" color="primary" startIcon={<PaymentIcon />}
-                          onClick={() => {
-                            setAdvanceAmount("");
-                            setAdvancePaymentMethod("cash");
-                            setAdvanceDialogOpen(true);
-                          }}>
-                          Place Advance
-                        </Button>
-                      </Tooltip>
-                    )
-                  )}
                 <Tooltip title={selectedQuote.status !== "draft" && !canPrintDocument(selectedQuote.status, ["cancelled"]) ? `Cannot email: quotation is ${(selectedQuote.status || "").replace(/_/g, " ")}` : "Send via Email"}>
                   <span>
                     <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
@@ -2013,16 +1880,9 @@ export default function QuotationsPage() {
   const renderFormContent = () => {
     return (
       <>
-        {/* Stepper - shown in create/edit mode */}
-        <TSteps
-          steps={FORM_STEPS.map((label, i) => ({ id: `step-${i}`, label }))}
-          activeStep={formStep}
-          sx={{ mb: 3 }}
-        />
 
-        {/* Step 1: Quote Information */}
-        {formStep === 0 && (
-          <>
+        {/* Quote Information */}
+        <>
             {/* Basic Info */}
             <FormSection title="Basic Information" columns={3}>
               <Autocomplete
@@ -2094,12 +1954,10 @@ export default function QuotationsPage() {
                 size="small"
               />
             </FormSection>
-          </>
-        )}
+        </>
 
-        {/* Step 2: Quote Items */}
-        {formStep === 1 && (
-          <>
+        {/* Quote Items */}
+        <>
             {/* Line Items */}
             <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
@@ -2374,8 +2232,7 @@ export default function QuotationsPage() {
                 )}
               </Box>
             </Paper >
-          </>
-        )}
+        </>
       </>
     );
   };
@@ -2408,9 +2265,9 @@ export default function QuotationsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
-              <Box sx={{ width: 170, flexShrink: 0 }}>
+              <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter
                   options={QUOTATION_STATUS_FILTER_OPTIONS}
                   value={filterStatus}
@@ -2420,10 +2277,37 @@ export default function QuotationsPage() {
                   size="small"
                 />
               </Box>
-              <Box sx={{ width: 170, flexShrink: 0 }}>
+              <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
               </Box>
-              {(searchQuery || filterStatus || filterBranch) && (
+              <Autocomplete
+                size="small"
+                options={customers || []}
+                getOptionLabel={(option) => option.customer_name}
+                value={customers?.find((c) => c.id === filterCustomerId) || null}
+                onChange={(_, newValue) => setFilterCustomerId(newValue?.id || null)}
+                renderInput={(params) => <TextField {...params} placeholder="All Customers" />}
+                sx={{ width: 170, flexShrink: 0 }}
+              />
+              <TextField
+                size="small"
+                type="date"
+                label="From"
+                InputLabelProps={{ shrink: true }}
+                value={filterDateFrom}
+                onChange={(e) => setFilterDateFrom(e.target.value)}
+                sx={{ width: 130, flexShrink: 0 }}
+              />
+              <TextField
+                size="small"
+                type="date"
+                label="To"
+                InputLabelProps={{ shrink: true }}
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+                sx={{ width: 130, flexShrink: 0 }}
+              />
+              {(searchQuery || filterStatus || filterBranch || filterCustomerId || filterDateFrom || filterDateTo) && (
                 <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
                   Clear
                 </Button>
@@ -2445,16 +2329,6 @@ export default function QuotationsPage() {
                   New Quotation
                 </Button>
               )}
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DownloadIcon />}
-                onClick={handleExportCSV}
-                disabled={filteredQuotes.length === 0}
-                sx={{ mr: 1 }}
-              >
-                Export CSV
-              </Button>
             </>
           )
         }
@@ -2624,64 +2498,6 @@ export default function QuotationsPage() {
           <Button variant="contained" color="error" onClick={handleRejectSubmit}
             disabled={rejectMutation.isPending}>
             {rejectMutation.isPending ? "Rejecting..." : "Reject"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ==================== Customer Advance Dialog ==================== */}
-      <Dialog open={advanceDialogOpen} onClose={() => setAdvanceDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <PaymentIcon color="success" />
-            Place Customer Advance
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Record a customer advance (deposit) against quotation{" "}
-            <strong>{selectedQuote?.quote_no}</strong>. The advance posts a GL
-            receipt now and is applied when the quotation is converted to an invoice.
-          </Alert>
-          <TextField
-            label="Advance Amount"
-            type="number"
-            size="small"
-            fullWidth
-            value={advanceAmount}
-            onChange={(e) =>
-              setAdvanceAmount(e.target.value === "" ? "" : Number(e.target.value))
-            }
-            InputProps={{ startAdornment: <InputAdornment position="start">{currencySymbol}</InputAdornment> }}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            select
-            label="Payment Method"
-            size="small"
-            fullWidth
-            value={advancePaymentMethod}
-            onChange={(e) => setAdvancePaymentMethod(e.target.value)}
-          >
-            <MenuItem value="cash">Cash</MenuItem>
-            <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-            <MenuItem value="cheque">Cheque</MenuItem>
-            <MenuItem value="card">Card</MenuItem>
-          </TextField>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAdvanceDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="success"
-            onClick={handlePlaceAdvance}
-            disabled={
-              placeAdvanceMutation.isPending ||
-              !advanceAmount ||
-              Number(advanceAmount) <= 0
-            }
-            startIcon={<PaymentIcon />}
-          >
-            {placeAdvanceMutation.isPending ? "Saving..." : "Record Advance"}
           </Button>
         </DialogActions>
       </Dialog>

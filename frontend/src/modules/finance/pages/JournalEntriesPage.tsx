@@ -62,9 +62,7 @@ import {
   TPrintButton,
   TPrintPreviewDialog,
   TSearchableSelect,
-  TExportButton,
   useMasterDetailState,
-  useRowSelection,
   modernTableStyles,
   TConfirmDialog,
   useConfirmDialog,
@@ -202,8 +200,6 @@ export default function JournalEntriesPage() {
     extraDirty: lineItems.length > 0,
     onDiscard: () => { setLineItems([]); },
   });
-
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -519,9 +515,6 @@ export default function JournalEntriesPage() {
           emptyMessage="No journal entries found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -959,7 +952,7 @@ export default function JournalEntriesPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 240, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 240, flexShrink: 0 }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TSearchableSelect
@@ -1021,23 +1014,6 @@ export default function JournalEntriesPage() {
               >
                 Add Journal Entry
               </Button>
-              <TExportButton
-                filename={`journal_entries_${new Date().toISOString().split("T")[0]}`}
-                headers={["JE No", "Date", "Description", "Total Debit", "Total Credit", "Status", "Reversed", "Branch"]}
-                rows={() =>
-                  rowSelection.pick(filteredEntries).map((e) => [
-                    e.journal_entry_no || "",
-                    e.entry_date || "",
-                    e.description || "",
-                    Number(e.total_debit || 0),
-                    Number(e.total_credit || 0),
-                    e.status || "",
-                    e.is_reversed ? "Yes" : "No",
-                    e.branch_code || "",
-                  ])
-                }
-                disabled={filteredEntries.length === 0}
-              />
             </>
           )
         }

@@ -48,7 +48,6 @@ import {
     Cancel as CancelIcon,
     LocalOffer as CouponIcon,
     Delete as DeleteIcon,
-    FileDownload as DownloadIcon,
     Edit as EditIcon,
     Email as EmailIcon,
     MenuBook as MenuBookIcon,
@@ -235,32 +234,6 @@ export default function SalesPage() {
 
   // Form step state for stepper workflow
   const [formStep, setFormStep] = useState(0);
-
-  const handleExportCSV = async () => {
-    try {
-      const branchParam = filterBranch ? `&branch_codes=${filterBranch}` : "";
-      const statusParam = filterStatus ? `&status=${filterStatus}` : "";
-
-      const response = await apiClient.get<Blob>(
-        `/sales/export-csv?limit=100000${branchParam}${statusParam}`,
-        {
-          responseType: "blob",
-        },
-      );
-
-      const blob = response.data;
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      const dateStr = new Date().toISOString().split("T")[0];
-      const branchStr = filterBranch || "all_branches";
-      link.download = `sales_orders_${branchStr}_${dateStr}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error(error);
-    }
-  };
 
   // Dialog states
   const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState(false);
@@ -5342,12 +5315,12 @@ export default function SalesPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter options={INVOICE_STATUS_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Status" size="small" />
               </Box>
-              <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+              <Box sx={{ width: 160, flexShrink: 0 }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
               </Box>
               {(state.searchQuery || filterStatus || filterBranch) && (
@@ -5372,16 +5345,6 @@ export default function SalesPage() {
                   Add Sales Order
                 </Button>
               )}
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DownloadIcon />}
-                onClick={handleExportCSV}
-                disabled={filteredInvoices.length === 0}
-                sx={{ mr: 1 }}
-              >
-                Export CSV
-              </Button>
             </>
           )
         }

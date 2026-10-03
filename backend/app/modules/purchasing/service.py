@@ -335,70 +335,6 @@ class SupplierService:
         self._attach_user_names([supplier])
         return supplier
 
-    def delete_supplier(self, supplier_id: int, deleted_by: Optional[int] = None) -> bool:
-        from app.common.file_storage import delete_file
-
-        db = self.repo.db
-        supplier = (
-            db.query(models.Supplier)
-            .filter(models.Supplier.id == supplier_id)
-            .with_for_update()
-            .first()
-        )
-        if not supplier:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Supplier with id {supplier_id} not found"
-            )
-        company_name = supplier.company_name
-        logo_path = supplier.logo_path
-
-        # Friendly pre-check for the common references. The FK constraints are
-        # still the real guard (see the IntegrityError handler below).
-        from app.modules.purchasing.invoice_models import PurchaseInvoice as _PurchaseInvoice
-        usage = []
-        po_count = db.query(models.PurchasingOrder).filter(
-            (models.PurchasingOrder.first_suppliers_id == supplier_id) |
-            (models.PurchasingOrder.second_suppliers_id == supplier_id)
-        ).count()
-        if po_count:
-            usage.append(f"purchase orders ({po_count})")
-        invoice_count = db.query(_PurchaseInvoice).filter(_PurchaseInvoice.supplier_id == supplier_id).count()
-        if invoice_count:
-            usage.append(f"purchase invoices ({invoice_count})")
-        payment_count = db.query(models.SupplierPayment).filter(
-            models.SupplierPayment.supplier_id == supplier_id
-        ).count()
-        if payment_count:
-            usage.append(f"payments ({payment_count})")
-        if usage:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete supplier '{company_name}'. It is used in: {', '.join(usage)}. Deactivate the supplier instead."
-            )
-
-        try:
-            self.repo.delete(supplier_id)
-            log_audit(
-                db,
-                user_id=deleted_by or 0,
-                action="delete",
-                entity_type="supplier",
-                entity_id=supplier_id,
-                changes={"company_name": company_name},
-            )
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete supplier '{company_name}' because other records still reference it. Deactivate the supplier instead."
-            )
-        # Only after the delete has committed — a failed delete keeps its logo.
-        if logo_path:
-            delete_file(logo_path)
-        return True
-
 class SupplierPaymentMethodService:
     def __init__(self, db: Session):
         self.repo = repository.SupplierPaymentMethodRepository(db)
@@ -933,7 +869,29 @@ class PurchasingOrderService:
     
     def list_orders(self, filters: schemas.PurchaseOrderListFilter) -> List[models.PurchasingOrder]:
         return self.repo.get_all(filters)
-    
+
+    def get_available_stock_by_product(self, product_ids: List[int], branch_code: str) -> Dict[int, int]:
+        """Currently-available stock count per product at a branch — same
+        "available" definition (status + is_active) as the procurement
+        queue's available_quantity. Used by the PO creation wizard so the
+        user can see what's already in stock before ordering more."""
+        from app.modules.inventory.models import SalesStock
+
+        if not product_ids:
+            return {}
+        stock_rows = (
+            self.db.query(SalesStock.product_id, func.count(SalesStock.id))
+            .filter(
+                SalesStock.product_id.in_(product_ids),
+                SalesStock.branch_code == branch_code,
+                SalesStock.status == StockStatus.AVAILABLE,
+                SalesStock.is_active == True,
+            )
+            .group_by(SalesStock.product_id)
+            .all()
+        )
+        return {product_id: int(count) for product_id, count in stock_rows}
+
     def update_order(self, order_id: int, order_update: schemas.PurchasingOrderUpdate, updated_by: Optional[int] = None) -> models.PurchasingOrder:
         existing_po = self.repo.get_by_id(order_id)
         if not existing_po:
@@ -1071,21 +1029,6 @@ class PurchasingOrderService:
             self.db.refresh(order)
         
         return order
-    
-    def delete_order(self, order_id: int) -> None:
-        order = self.repo.get_by_id(order_id)
-        if not order:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Purchase order with id {order_id} not found"
-            )
-        try:
-            self.repo.delete(order_id)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
 
     def cancel_order(self, order_id: int, reason: str, user_id: int = 0) -> models.PurchasingOrder:
         """Cancel a PO that hasn't received any goods yet. Once anything has

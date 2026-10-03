@@ -336,74 +336,6 @@ class ProductService:
     def remove_image(self, db: Session, product_id: int, user_id: Optional[int] = None) -> schemas.Product:
         return self._set_image(db, product_id, None, user_id)
 
-    def delete_product(self, db: Session, product_id: int, user_id: Optional[int] = None) -> dict:
-        product = repository.product_repository.get_by_id(db, product_id)
-        if not product:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Product with id {product_id} not found"
-            )
-        
-        usage_checks = []
-        
-        if hasattr(product, 'invoice_items') and product.invoice_items:
-            usage_checks.append(f"invoice items ({len(product.invoice_items)})")
-        
-        if hasattr(product, 'purchasing_order_items') and product.purchasing_order_items:
-            usage_checks.append(f"purchase orders ({len(product.purchasing_order_items)})")
-        
-        if hasattr(product, 'purchasing_return_items') and product.purchasing_return_items:
-            usage_checks.append(f"purchase returns ({len(product.purchasing_return_items)})")
-        
-        if hasattr(product, 'cs_job_items') and product.cs_job_items:
-            usage_checks.append(f"service jobs ({len(product.cs_job_items)})")
-        
-        if hasattr(product, 'item_transfer_note_items') and product.item_transfer_note_items:
-            usage_checks.append(f"transfer notes ({len(product.item_transfer_note_items)})")
-        
-        if hasattr(product, 'item_transfer_note_item_products') and product.item_transfer_note_item_products:
-            usage_checks.append(f"transfer note products ({len(product.item_transfer_note_item_products)})")
-        
-        if hasattr(product, 'cupon_codes') and product.cupon_codes:
-            usage_checks.append(f"coupon codes ({len(product.cupon_codes)})")
-        
-        if hasattr(product, 'company_assets') and product.company_assets:
-            usage_checks.append(f"company assets ({len(product.company_assets)})")
-        
-        if hasattr(product, 'sales_stock') and product.sales_stock:
-            usage_checks.append(f"sales stock records ({len(product.sales_stock)})")
-        
-        if usage_checks:
-            usage_list = ", ".join(usage_checks)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete product '{product.name}' (Code: {product.item_code}). It is used in: {usage_list}. Please remove these references first or consider deactivating the product instead."
-            )
-        
-        # Price history, product and audit row go in one transaction, so a
-        # failed delete can't leave the product with its history wiped.
-        product_name, item_code = product.name, product.item_code
-        try:
-            db.query(models.MinimumPrice).filter(models.MinimumPrice.product_id == product_id).delete()
-            repository.product_repository.delete(db, product_id)
-            log_audit(
-                db,
-                user_id=user_id or 0,
-                action="delete",
-                entity_type="product",
-                entity_id=product_id,
-                changes={"name": product_name, "item_code": item_code},
-            )
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete product '{product_name}' (Code: {item_code}) because other records still reference it "
-                       f"(it may have just been used). Consider deactivating the product instead."
-            )
-        return {"message": f"Product '{product_name}' deleted successfully"}
-
 class CategoryService:
     def get_category(self, db: Session, category_id: int) -> schemas.Category:
         category = repository.category_repository.get_by_id(db, category_id)
@@ -501,42 +433,6 @@ class CategoryService:
         _attach_user_names(db, [updated_category])
         return updated_category
 
-    def delete_category(self, db: Session, category_id: int, user_id: Optional[int] = None) -> dict:
-        category = repository.category_repository.get_by_id(db, category_id)
-        if not category:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Category with id {category_id} not found"
-            )
-
-        products_count = db.query(models.Product).filter(models.Product.category_id == category_id).count()
-        if products_count > 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete category '{category.name}'. It is assigned to {products_count} product(s). Please reassign or delete those products first."
-            )
-
-        category_name = category.name
-        try:
-            repository.category_repository.delete(db, category_id)
-            log_audit(
-                db,
-                user_id=user_id or 0,
-                action="delete",
-                entity_type="category",
-                entity_id=category_id,
-                changes={"name": category_name},
-            )
-            db.commit()
-        except IntegrityError:
-            # A product was assigned between the count check and the delete.
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete category '{category_name}' because other records still reference it."
-            )
-        return {"message": f"Category '{category_name}' deleted successfully"}
-
 class BrandService:
     def get_brand(self, db: Session, brand_id: int) -> schemas.Brand:
         brand = repository.brand_repository.get_by_id(db, brand_id)
@@ -633,42 +529,6 @@ class BrandService:
         db.refresh(updated_brand)
         _attach_user_names(db, [updated_brand])
         return updated_brand
-
-    def delete_brand(self, db: Session, brand_id: int, user_id: Optional[int] = None) -> dict:
-        brand = repository.brand_repository.get_by_id(db, brand_id)
-        if not brand:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Brand with id {brand_id} not found"
-            )
-
-        products_count = db.query(models.Product).filter(models.Product.items_brand_id == brand_id).count()
-        if products_count > 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete brand '{brand.brand_name}'. It is assigned to {products_count} product(s). Please reassign or delete those products first."
-            )
-        
-        brand_name = brand.brand_name
-        try:
-            repository.brand_repository.delete(db, brand_id)
-            log_audit(
-                db,
-                user_id=user_id or 0,
-                action="delete",
-                entity_type="brand",
-                entity_id=brand_id,
-                changes={"brand_name": brand_name},
-            )
-            db.commit()
-        except IntegrityError:
-            # A product was assigned between the count check and the delete.
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete brand '{brand_name}' because other records still reference it."
-            )
-        return {"message": f"Brand '{brand_name}' deleted successfully"}
 
 product_service = ProductService()
 category_service = CategoryService()

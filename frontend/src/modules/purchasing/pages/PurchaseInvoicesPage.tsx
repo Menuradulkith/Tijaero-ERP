@@ -47,13 +47,11 @@ import {
   TConfirmDialog,
   TDataGrid,
   type TDataGridColumn,
-  TExportButton,
   TRemarkField,
   TStatusChip,
   TSupplierFilter,
   useCrudMutation,
   useMasterDetailState,
-  useRowSelection,
   useTConfirmDialog,
 } from "@/components/tijaero";
 
@@ -164,8 +162,6 @@ export default function PurchaseInvoicesPage() {
       setCreditPeriod("");
     },
   });
-
-  const rowSelection = useRowSelection();
 
   // Cancelling a brand-new invoice should return to the browse table, not
   // auto-select the first invoice the way useMasterDetailState's generic
@@ -592,9 +588,6 @@ export default function PurchaseInvoicesPage() {
           emptyMessage="No purchase invoices found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -928,15 +921,15 @@ export default function PurchaseInvoicesPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
-            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
             </Box>
             <Box sx={{ width: 180, flexShrink: 0 }}>
               <TSupplierFilter suppliers={suppliers || []} value={filterSupplier} onChange={setFilterSupplier} label="" placeholder="All Suppliers" size="small" />
             </Box>
-            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+            <Box sx={{ width: 160, flexShrink: 0 }}>
               <Autocomplete
                 size="small"
                 options={purchaseOrders}
@@ -962,55 +955,15 @@ export default function PurchaseInvoicesPage() {
         isLoading={isLoading}
         headerActions={
           isInvoiceDetailMode ? undefined : (
-            <>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={handleNewOrder}
-                sx={{ mr: 1 }}
-              >
-                Add Purchase Invoice
-              </Button>
-              <TExportButton
-                filename="purchase_invoices"
-                headers={[
-                  "Invoice No",
-                  "Supplier Invoice No",
-                  "Supplier",
-                  "Invoice Date",
-                  "Due Date",
-                  "Payment Type",
-                  "Subtotal",
-                  "Tax",
-                  "Discount",
-                  "Total",
-                  "Paid",
-                  "Balance Due",
-                  "Status",
-                  "Payment Status",
-                ]}
-                rows={() =>
-                  rowSelection.pick(filteredInvoices).map((inv) => [
-                    inv.invoice_no || "",
-                    inv.supplier_invoice_no || "",
-                    inv.supplier_name || "",
-                    inv.supplier_invoice_date || "",
-                    inv.due_date || "",
-                    inv.payment_type || "",
-                    inv.subtotal ?? 0,
-                    inv.tax_amount ?? 0,
-                    inv.discount_amount ?? 0,
-                    inv.total_amount ?? 0,
-                    inv.paid_amount ?? 0,
-                    inv.balance_due ?? 0,
-                    inv.status || "",
-                    inv.payment_status || "",
-                  ])
-                }
-                disabled={filteredInvoices.length === 0}
-              />
-            </>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleNewOrder}
+              sx={{ mr: 1 }}
+            >
+              Add Purchase Invoice
+            </Button>
           )
         }
         {...(isInvoiceDetailMode

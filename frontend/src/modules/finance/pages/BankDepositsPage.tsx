@@ -4,7 +4,6 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { exportToCSV } from "@/utils/csvExport";
 import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
@@ -16,7 +15,6 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { Download as DownloadIcon } from "@mui/icons-material";
 import {
   AccountBalance as BankIcon,
   History as HistoryIcon,
@@ -40,7 +38,6 @@ import {
   type TDataGridColumn,
   fmtLKR,
   TActivityHistoryPanel,
-  useRowSelection,
   TRemarkField,
 } from "@/components/tijaero";
 
@@ -97,8 +94,6 @@ export default function BankDepositsPage() {
     resetFormFromItem,
     defaultSortField: "created_date",
   });
-
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Status section title, rather than shown inline.
@@ -267,9 +262,6 @@ export default function BankDepositsPage() {
           emptyMessage="No bank deposits found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -424,7 +416,7 @@ export default function BankDepositsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
             <Box sx={{ width: 170, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
@@ -449,29 +441,6 @@ export default function BankDepositsPage() {
               </Button>
             )}
           </Box>
-        )
-      }
-      headerActions={
-        isDepositDetailMode ? undefined : (
-          <Button
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={() => {
-              if (!filteredDeposits.length) return;
-              const headers = ["Date", "Bank", "Branch", "Amount", "Status", "Remarks"];
-              const rows = rowSelection.pick(filteredDeposits).map((d: BankDeposit) => [
-                d.created_date ?? "",
-                d.bank_name ?? "",
-                d.branch_code ?? "",
-                d.deposits_amount ?? "",
-                d.verified ? "Verified" : "Pending",
-                d.remarks ?? "",
-              ]);
-              exportToCSV({ filename: "bank_deposits", headers, rows });
-            }}
-          >
-            Export CSV
-          </Button>
         )
       }
       onRefresh={refetch}

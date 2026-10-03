@@ -3,7 +3,6 @@
  */
 
 import { formatDateTimeReadable, formatCurrency } from "@/utils/formatters";
-import { FileDownload as DownloadIcon } from "@mui/icons-material";
 import PersonIcon from "@mui/icons-material/Person";
 import HistoryIcon from "@mui/icons-material/History";
 import AddIcon from "@mui/icons-material/Add";
@@ -31,11 +30,9 @@ import { useCallback, useMemo, useState } from "react";
 import {
   TChip,
   ActionToolbar,
-  CIVIL_CHOICES,
   DetailPanelHeader,
   EmptyState,
   FormSection,
-  GENDER_CHOICES,
   handleApiError,
   MasterDetailLayout,
   showErrorToast,
@@ -46,7 +43,6 @@ import {
   TStatusFilter,
   useCrudMutation,
   useMasterDetailState,
-  useRowSelection,
   useTConfirmDialog,
   TActivityHistoryPanel,
   TDataGrid,
@@ -54,7 +50,6 @@ import {
   SelectableListItem,
 } from "@/components/tijaero";
 
-import apiClient from "@/api/client";
 import { usePermission } from "@/auth/permissions";
 import { customersApi } from "@/modules/customers/api";
 import { Customer, CustomerCreate } from "@/modules/customers/types";
@@ -147,7 +142,6 @@ export default function CustomersPage() {
   // Permissions
   const canCreate = usePermission("customers", "create");
   const canUpdate = usePermission("customers", "update");
-  const canDelete = usePermission("customers", "delete");
 
   // Filter state - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
@@ -175,11 +169,6 @@ export default function CustomersPage() {
     resetFormFromItem: resetFormFromCustomer,
     defaultSortField: "customer_name",
   });
-
-  // Server-side export (see handleExportCSV below); row selection here only
-  // narrows what's ticked in the grid, since the export endpoint exports
-  // everything matching the current filters, not a specific id list.
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -266,16 +255,6 @@ export default function CustomersPage() {
     },
   });
 
-  const deleteMutation = useCrudMutation({
-    mutationFn: customersApi.delete,
-    invalidateQueryKeys: [["customers"], ["customers-all"], ["referenceData"]],
-    successMessage: "Customer deleted successfully",
-    errorMessage: "Failed to delete customer",
-    onSuccess: () => {
-      setSelectedCustomer(null);
-    },
-  });
-
   const confirmDialog = useTConfirmDialog();
 
   // Handlers
@@ -286,20 +265,6 @@ export default function CustomersPage() {
       updateMutation.mutate({ id: selectedCustomer.id, data: formData });
     }
   }, [isCreating, selectedCustomer, formData, createMutation, updateMutation]);
-
-  const handleDelete = useCallback(async () => {
-    if (selectedCustomer) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Customer",
-        message: "Are you sure you want to delete this customer?",
-        confirmText: "Delete",
-        confirmColor: "error",
-      });
-      if (confirmed) {
-        deleteMutation.mutate(selectedCustomer.id);
-      }
-    }
-  }, [selectedCustomer, deleteMutation, confirmDialog]);
 
   const handleDuplicate = useCallback(() => {
     if (selectedCustomer) {
@@ -314,32 +279,6 @@ export default function CustomersPage() {
   const isFormValid = formData.customer_name && formData.mobile_contact_number;
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
-
-  // CSV Export
-  const handleExportCSV = async () => {
-    try {
-      const activeParam = filterStatus === "active" ? "&active_only=true" : "";
-
-      const response = await apiClient.get<Blob>(
-        `/customers/export-csv?limit=100000${activeParam}`,
-        {
-          responseType: "blob",
-        },
-      );
-
-      const blob = response.data;
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      const dateStr = new Date().toISOString().split("T")[0];
-      link.download = `customers_${dateStr}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error(error);
-      // Fallback or show error mechanism
-    }
-  };
 
   // Whether we're showing a single customer's detail view (selected or
   // being created) instead of the browse table.
@@ -375,6 +314,7 @@ export default function CustomersPage() {
   // "Sort by" control.
   const customerColumns: TDataGridColumn<Customer>[] = useMemo(
     () => [
+      { field: "customer_no", header: "No.", width: 90 },
       {
         field: "customer_name",
         header: "Name",
@@ -465,9 +405,6 @@ export default function CustomersPage() {
           emptyMessage="No customers found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -529,7 +466,6 @@ export default function CustomersPage() {
       <ActionToolbar
         canCreate={canCreate}
         canUpdate={canUpdate}
-        canDelete={canDelete}
         hasSelectedItem={!!selectedCustomer}
         isCreating={isCreating}
         isEditing={isEditing}
@@ -537,7 +473,6 @@ export default function CustomersPage() {
         isFormValid={!!isFormValid}
         onNew={handleNewCustomer}
         onDuplicate={handleDuplicate}
-        onDelete={handleDelete}
         onSave={handleSave}
         onCancel={handleCancelCustomer}
         onEdit={handleStartEdit}
@@ -600,58 +535,6 @@ export default function CustomersPage() {
                   setFormData({ ...formData, occupation: e.target.value })
                 }
                 disabled={isDisabled}
-              />
-              <TextField
-                label="Gender"
-                size="small"
-                select
-                value={formData.gender}
-                onChange={(e) =>
-                  setFormData({ ...formData, gender: e.target.value })
-                }
-                disabled={isDisabled}
-              >
-                {GENDER_CHOICES.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                label="Civil Status"
-                size="small"
-                select
-                value={formData.civil_status}
-                onChange={(e) =>
-                  setFormData({ ...formData, civil_status: e.target.value })
-                }
-                disabled={isDisabled}
-              >
-                {CIVIL_CHOICES.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                label="No. of Kids"
-                size="small"
-                value={formData.no_of_kids}
-                onChange={(e) =>
-                  setFormData({ ...formData, no_of_kids: e.target.value })
-                }
-                disabled={isDisabled}
-              />
-              <TextField
-                label="Birthdate"
-                size="small"
-                type="date"
-                value={formData.birthdate}
-                onChange={(e) =>
-                  setFormData({ ...formData, birthdate: e.target.value })
-                }
-                disabled={isDisabled}
-                InputLabelProps={{ shrink: true }}
               />
             </FormSection>
 
@@ -911,7 +794,7 @@ export default function CustomersPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter
@@ -955,16 +838,6 @@ export default function CustomersPage() {
                   Add Customer
                 </Button>
               )}
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DownloadIcon />}
-                onClick={handleExportCSV}
-                disabled={filteredCustomers.length === 0}
-                sx={{ mr: 1 }}
-              >
-                Export CSV
-              </Button>
             </>
           )
         }

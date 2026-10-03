@@ -24,7 +24,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   forwardRef,
   useCallback,
@@ -180,6 +180,20 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     });
     return map;
   }, [productIdsNeedingSuppliers, supplierOptionQueries]);
+
+  // Currently-available stock for every product on the cart, at the
+  // wizard's single branch — lets the user see what's already on hand
+  // before deciding how much to order.
+  const { data: availableStockByProduct } = useQuery({
+    queryKey: ["po-wizard-available-stock", branchCode, productIdsNeedingSuppliers],
+    queryFn: () => purchaseOrdersApi.getAvailableStock(productIdsNeedingSuppliers, branchCode),
+    enabled: !!branchCode && productIdsNeedingSuppliers.length > 0,
+  });
+
+  const getAvailableQty = useCallback(
+    (productId: number) => availableStockByProduct?.[productId] ?? 0,
+    [availableStockByProduct],
+  );
 
   const getProductName = useCallback(
     (productId: number) => products.find((p: any) => p.id === productId)?.name || `Product #${productId}`,
@@ -413,6 +427,10 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                 <TableHead>
                   <TableRow sx={modernTableStyles.headerRow}>
                     <TableCell sx={{ minWidth: 180 }}>Product</TableCell>
+                    <TableCell sx={{ width: 90 }}>UOM</TableCell>
+                    <TableCell align="right" sx={{ width: 110 }}>
+                      Available Qty
+                    </TableCell>
                     <TableCell align="right" sx={{ width: 90 }}>
                       Quantity
                     </TableCell>
@@ -428,14 +446,17 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                     const supplierOptions = supplierOptionsByProduct.get(line.product_id) || [];
                     const selectedSupplier =
                       supplierOptions.find((o) => o.supplier_id === line.supplier_id) || null;
+                    const selectedProduct = products.find((p: any) => p.id === line.product_id) as any;
                     return (
                       <TableRow key={line._id} sx={modernTableStyles.bodyRow}>
                         <TableCell>
                           <Autocomplete
                             size="small"
                             options={products}
-                            getOptionLabel={(option: any) => option.name || ""}
-                            value={products.find((p: any) => p.id === line.product_id) || null}
+                            getOptionLabel={(option: any) =>
+                              option.name ? `${option.item_code ? `${option.item_code} - ` : ""}${option.name}` : ""
+                            }
+                            value={selectedProduct || null}
                             onChange={(_, newValue: any) =>
                               handleSelectProduct(line._id, newValue?.id || 0)
                             }
@@ -444,6 +465,16 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                             )}
                             sx={{ minWidth: 170 }}
                           />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" color="text.secondary">
+                            {selectedProduct?.unit_of_measure || "-"}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" color="text.secondary">
+                            {line.product_id ? getAvailableQty(line.product_id) : "-"}
+                          </Typography>
                         </TableCell>
                         <TableCell align="right">
                           <TextField
@@ -549,7 +580,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
             >
               <Box sx={{ display: "flex", gap: 2, mb: 1.5 }}>
                 <TextField
-                  label="GRN Date"
+                  label="Expected Delivery Date"
                   size="small"
                   type="date"
                   required

@@ -47,11 +47,9 @@ import {
   SelectableListItem,
   handleApiError,
   useMasterDetailState,
-  useRowSelection,
   showErrorToast,
   showSuccessToast,
   TDetailSkeleton,
-  TExportButton,
   TBranchFilter,
   TSupplierFilter,
   GENERIC_PAYMENT_METHOD,
@@ -170,8 +168,6 @@ export default function SupplierAdvancePaymentsPage() {
         confirmColor: "warning",
       }),
   });
-
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Tracking section title, rather than shown inline.
@@ -606,9 +602,6 @@ export default function SupplierAdvancePaymentsPage() {
           emptyMessage="No supplier advance payments found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -965,7 +958,7 @@ export default function SupplierAdvancePaymentsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TBranchFilter
@@ -1007,36 +1000,6 @@ export default function SupplierAdvancePaymentsPage() {
               >
                 Add Supplier Advance
               </Button>
-              <TExportButton
-                filename="supplier_advance_payments"
-                headers={[
-                  "Advance No",
-                  "Supplier",
-                  "Payment Date",
-                  "Method",
-                  "Original",
-                  "Applied",
-                  "Remaining",
-                  "Returned",
-                  "Reference",
-                  "Created",
-                ]}
-                rows={() =>
-                  rowSelection.pick(filteredAdvances).map((adv) => [
-                    adv.advance_no || "",
-                    adv.supplier_name || "",
-                    adv.payment_date || "",
-                    adv.payment_method || "",
-                    adv.original_amount ?? 0,
-                    adv.applied_amount ?? 0,
-                    adv.remaining_amount ?? 0,
-                    adv.returned_amount ?? 0,
-                    adv.reference_number || "",
-                    adv.created_at || "",
-                  ])
-                }
-                disabled={filteredAdvances.length === 0}
-              />
             </>
           )
         }

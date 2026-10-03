@@ -36,8 +36,6 @@ import { employeesApi } from "@/modules/hr/api";
 import { usersApi, type UserList } from "@/modules/users/api";
 import type { Employee, EmployeeCreate } from "@/modules/hr/types";
 import { formatDateTimeReadable } from "@/utils/formatters";
-import { exportToCSV } from "@/utils/csvExport";
-import DownloadIcon from "@mui/icons-material/FileDownload";
 
 interface EmployeeRow extends Employee {
   full_name: string;
@@ -167,32 +165,6 @@ export default function EmployeesPage() {
   });
 
   const confirmDialog = useTConfirmDialog();
-
-  const handleExportCSV = () => {
-    const headers = [
-      "Employee ID",
-      "Full Name",
-      "Username",
-      "Email",
-      "Occupation",
-      "Linked On"
-    ];
-
-    const rows = filtered.map(emp => [
-      emp.employee_id,
-      emp.full_name,
-      emp.username,
-      emp.email || "",
-      emp.occupation || "",
-      emp.created_at ? new Date(emp.created_at).toLocaleDateString() : ""
-    ]);
-
-    exportToCSV({
-      filename: `employees_${new Date().toISOString().split("T")[0]}`,
-      headers,
-      rows
-    });
-  };
 
   const handleSave = useCallback(() => {
     if (isCreating) createMutation.mutate(formData);
@@ -432,7 +404,7 @@ export default function EmployeesPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               {searchQuery && (
                 <Button size="small" onClick={() => setSearchQuery("")} sx={{ textTransform: "none" }}>
@@ -456,16 +428,6 @@ export default function EmployeesPage() {
                   Add Employee
                 </Button>
               )}
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DownloadIcon />}
-                onClick={handleExportCSV}
-                disabled={filtered.length === 0}
-                sx={{ mr: 1 }}
-              >
-                Export CSV
-              </Button>
             </>
           )
         }

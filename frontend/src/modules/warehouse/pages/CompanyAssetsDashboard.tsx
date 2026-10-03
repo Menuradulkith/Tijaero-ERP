@@ -670,9 +670,10 @@ export default function CompanyAssetsDashboard() {
             <Grid item xs={12} sm={6} md={4} lg={2}>
               <Button
                 variant="outlined"
+                size="small"
                 fullWidth
                 onClick={clearFilters}
-                sx={{ height: 40 }}
+                sx={{ height: 31.125 }}
               >
                 Clear Filters
               </Button>

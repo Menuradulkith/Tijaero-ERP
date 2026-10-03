@@ -11,7 +11,6 @@ import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import { exportToCSV } from "@/utils/csvExport";
 import {
   Alert,
   Autocomplete,
@@ -68,7 +67,6 @@ import {
   useTConfirmDialog,
   useMasterDetailState,
   useCrudMutation,
-  useRowSelection,
   TActivityHistoryPanel,
 } from "@/components/tijaero";
 
@@ -192,8 +190,6 @@ export default function ExpensesPage() {
     onDiscard: () => { setFormStep(0); },
   });
 
-  const rowSelection = useRowSelection();
-
   // Activity History is opened on demand from a detail icon next to the
   // Status & Dates section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
@@ -252,20 +248,6 @@ export default function ExpensesPage() {
   });
 
   // ─── Filter & Sort ─────────────────────────────────────────────────────────
-
-  // ─── CSV Export ─────────────────────────────────────────────────────────
-  const handleExportCSV = () => {
-    if (!filteredExpenses.length) return;
-    const headers = ["Expense No", "Category", "Amount", "Method", "Status", "Date", "Vendor", "Remarks", "Branch"];
-    const rows = rowSelection.pick(filteredExpenses).map(e => [
-      e.expenses_no, e.expense_category || "", e.expense_amount, e.expenses_method, e.status, e.expense_date || e.created_date, e.vendor_name || "", e.remarks || "", e.branch_code || "",
-    ]);
-    exportToCSV({
-      filename: `expenses_${new Date().toISOString().split("T")[0]}`,
-      headers,
-      rows,
-    });
-  };
 
   const filteredExpenses = useMemo(() => {
     let filtered = [...expenses];
@@ -711,14 +693,6 @@ export default function ExpensesPage() {
                 }}
               />
             )}
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={handleExportCSV}
-              disabled={!filteredExpenses.length}
-            >
-              Export CSV
-            </Button>
           </>
         }
       />
@@ -1007,9 +981,6 @@ export default function ExpensesPage() {
           columns={expenseColumns}
           loading={isLoading}
           onRowClick={(row) => handleSelectExpense(row)}
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No expenses found"
@@ -1050,7 +1021,7 @@ export default function ExpensesPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TBranchFilter

@@ -198,11 +198,17 @@ class SalesQuoteRepository:
         lock_key = f"{prefix_type}-{branch_code}-{year_yy}"
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": lock_key})
         
-        # Get the last quote number for this type, branch and year
+        # Get the last quote number for this type, branch and year. Revision
+        # rows (quote_no suffixed "-R<n>", e.g. QT-123-26000011-R2) share the
+        # same prefix but aren't part of the base sequence — including one
+        # here would make the "-R<n>" suffix get parsed as the sequence
+        # number below and silently reset next_seq to 1, colliding with an
+        # existing quote.
         pattern = f"{prefix_type}-{branch_code}-{year_yy}%"
         last_quote = (
             db.query(SalesQuote)
             .filter(SalesQuote.quote_no.like(pattern))
+            .filter(~SalesQuote.quote_no.like("%-R%"))
             .order_by(SalesQuote.id.desc())
             .first()
         )

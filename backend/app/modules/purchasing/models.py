@@ -48,6 +48,10 @@ class Supplier(Base, AuditMixin):
     __tablename__ = "supplier"
     
     id = Column(Integer, primary_key=True, index=True)
+    # Sequential display number shown as the Suppliers grid's first column
+    # (0001, 0002, ...) — see SupplierRepository.get_next_supplier_no.
+    # Distinct from `id`, which is an internal PK not meant for display.
+    supplier_no = Column(String(10), unique=True, nullable=False, index=True)
     company_name = Column(String(255), nullable=False)
     company_registration_number = Column(String(255))
     tax_registration_number = Column(String(255))

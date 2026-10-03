@@ -22,7 +22,6 @@ import {
   MasterDetailLayout,
   TConfirmDialog,
   TDetailSkeleton,
-  TExportButton,
   TDataGrid,
   type TDataGridColumn,
   handleApiError,
@@ -305,19 +304,6 @@ export default function PromotionsPage() {
                   Add Promotion
                 </Button>
               )}
-              <TExportButton
-                filename="promotions"
-                headers={["Employee ID", "Designation", "Appointed Date", "Remark"]}
-                rows={() =>
-                  filtered.map((p) => [
-                    p.employee_id || "",
-                    p.designation || "",
-                    p.appointed_date || "",
-                    p.remark || "",
-                  ])
-                }
-                disabled={filtered.length === 0}
-              />
             </>
           )
         }

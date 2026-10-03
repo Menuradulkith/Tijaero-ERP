@@ -18,7 +18,6 @@ import {
   Tooltip,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SaveIcon from "@mui/icons-material/Save";
 import CancelIcon from "@mui/icons-material/Cancel";
@@ -79,8 +78,8 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
       {/* Custom Start Actions */}
       {startActions}
 
-      {/* Add New Button */}
-      {canCreate && handleAdd && (
+      {/* Add New Button — hidden while viewing, creating, or editing a record */}
+      {!isCreating && !isEditing && !hasItem && canCreate && handleAdd && (
         <Tooltip title="Add New">
           <span>
             <IconButton size="small" onClick={handleAdd} color="primary" disabled={isSaving}>
@@ -90,28 +89,13 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
         </Tooltip>
       )}
 
-      {/* Duplicate Button */}
-      {canDuplicate && onDuplicate && (
-        <Tooltip title="Duplicate">
-          <span>
-            <IconButton
-              size="small"
-              disabled={!hasItem || isCreating || isSaving}
-              onClick={onDuplicate}
-            >
-              <ContentCopyIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
-      )}
-
-      {/* Delete Button */}
-      {canDelete && onDelete && (
+      {/* Delete Button — hidden while creating/editing a record */}
+      {!isCreating && !isEditing && canDelete && onDelete && (
         <Tooltip title="Delete">
           <span>
             <IconButton
               size="small"
-              disabled={!hasItem || isCreating || isSaving}
+              disabled={!hasItem || isSaving}
               onClick={onDelete}
               color="error"
             >
@@ -121,7 +105,8 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
         </Tooltip>
       )}
 
-      {/* Edit Button (View Mode) */}
+      {/* Edit Button (View Mode) — sits on the left with Add/Delete, not
+          pushed to the right edge. */}
       {!isEditing && !isCreating && hasItem && canUpdate && onEdit && (
         <Button
           size="small"
@@ -158,7 +143,7 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
               onClick={onCancel}
               disabled={isSaving}
             >
-              {isCreating ? "Cancel New" : "Cancel"}
+              Cancel
             </Button>
           )}
         </Box>

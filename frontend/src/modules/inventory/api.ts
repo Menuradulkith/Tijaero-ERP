@@ -62,11 +62,6 @@ export const productsApi = {
     return response.data;
   },
 
-  delete: async (id: number) => {
-    const response = await apiClient.delete<{ message: string }>(`/inventory/products/${id}`);
-    return response.data;
-  },
-
   // Read-only reciprocal view of the approved-vendor mapping managed on the
   // Suppliers page — which suppliers can supply this product, and at what
   // cost/lead time. See purchasing/types.ts SupplierProduct.
@@ -144,10 +139,6 @@ export const categoriesApi = {
     return response.data;
   },
 
-  delete: async (id: number) => {
-    const response = await apiClient.delete<{ message: string }>(`/inventory/categories/${id}`);
-    return response.data;
-  },
 };
 
 export const brandsApi = {
@@ -173,10 +164,6 @@ export const brandsApi = {
     return response.data;
   },
 
-  delete: async (id: number) => {
-    const response = await apiClient.delete<{ message: string }>(`/inventory/brands/${id}`);
-    return response.data;
-  },
 };
 
 export const minimumPriceApi = {

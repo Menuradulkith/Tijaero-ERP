@@ -72,6 +72,29 @@ const cleanContactPersonData = (
   };
 };
 
+// Helper to clean empty strings to null for optional payment-method date
+// fields. The form keeps all method types' fields in state at once (so
+// switching method_type doesn't lose anything already typed), but unused
+// ones stay "" — and the backend's `Optional[date]` fields reject "" as an
+// invalid date (it must be null/omitted). This is what was causing e.g. a
+// Bank Transfer method to fail with "Data validation failed" even though
+// none of its own fields were invalid — mandate_date/lc_issue_date/
+// lc_expiry_date/latest_shipment_date (which only apply to Direct Debit /
+// Letter of Credit) were still "" from the initial form state.
+const cleanPaymentMethodData = <
+  T extends SupplierPaymentAccountCreate | SupplierPaymentAccountUpdate
+>(
+  data: T
+): T => {
+  return {
+    ...data,
+    mandate_date: (data.mandate_date as string | undefined)?.trim() || null,
+    lc_issue_date: (data.lc_issue_date as string | undefined)?.trim() || null,
+    lc_expiry_date: (data.lc_expiry_date as string | undefined)?.trim() || null,
+    latest_shipment_date: (data.latest_shipment_date as string | undefined)?.trim() || null,
+  };
+};
+
 // ── Statistics API ─────────────────────────────────────────────────────
 export const purchasingStatsApi = {
   getStatistics: async (branchCode?: string) => {
@@ -122,10 +145,6 @@ export const suppliersApi = {
     return response.data;
   },
 
-  delete: async (id: number) => {
-    await apiClient.delete(`/purchasing/suppliers/${id}`);
-  },
-
   uploadLogo: async (id: number, file: File) => {
     const formData = new FormData();
     formData.append("file", file);
@@ -154,7 +173,7 @@ export const suppliersApi = {
   createPaymentMethod: async (supplierId: number, data: SupplierPaymentAccountCreate) => {
     const response = await apiClient.post<SupplierPaymentAccount>(
       `/purchasing/suppliers/${supplierId}/payment-methods`,
-      data
+      cleanPaymentMethodData(data)
     );
     return response.data;
   },
@@ -162,7 +181,7 @@ export const suppliersApi = {
   updatePaymentMethod: async (supplierId: number, methodId: number, data: SupplierPaymentAccountUpdate) => {
     const response = await apiClient.patch<SupplierPaymentAccount>(
       `/purchasing/suppliers/${supplierId}/payment-methods/${methodId}`,
-      data
+      cleanPaymentMethodData(data)
     );
     return response.data;
   },
@@ -280,10 +299,6 @@ export const purchaseOrdersApi = {
     return response.data;
   },
 
-  delete: async (id: number) => {
-    await apiClient.delete(`/purchasing/orders/${id}`);
-  },
-
   /** Only allowed before any GRN has been received — see backend
    * PurchasingOrderService.cancel_order. */
   cancel: async (id: number, reason: string) => {
@@ -319,6 +334,20 @@ export const purchaseOrdersApi = {
       `/purchasing/orders/daily-limit/${branchCode}`
     );
     return response.data;
+  },
+
+  /** Currently-available stock count per product at a branch, keyed by
+   * product id (products with none are simply absent). Lets the PO creation
+   * wizard show what's already in stock before the user orders more. */
+  getAvailableStock: async (productIds: number[], branchCode: string): Promise<Record<number, number>> => {
+    if (productIds.length === 0) return {};
+    const response = await apiClient.get<Record<string, number>>(
+      "/purchasing/orders/available-stock",
+      { params: { product_ids: productIds.join(","), branch_code: branchCode } }
+    );
+    return Object.fromEntries(
+      Object.entries(response.data).map(([id, qty]) => [Number(id), qty])
+    );
   },
 
   checkCredit: async (supplierId: number, poAmount: number, poId?: number): Promise<POCreditCheckResult> => {

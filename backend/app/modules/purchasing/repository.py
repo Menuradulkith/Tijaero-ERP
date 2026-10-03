@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, or_, func, text
+from sqlalchemy import and_, or_, func, text, Integer
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import date, datetime
@@ -11,6 +11,14 @@ class SupplierRepository:
     def __init__(self, db: Session):
         self.db = db
     
+    def get_next_supplier_no(self) -> str:
+        """Next sequential display number for the Suppliers grid's first
+        column (0001, 0002, ...). Advisory lock serializes concurrent
+        creates the same way get_next_po_number does for PO numbers."""
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext('supplier_no'))"))
+        last_no = self.db.query(func.max(func.cast(models.Supplier.supplier_no, Integer))).scalar() or 0
+        return f"{last_no + 1:04d}"
+
     # create/update/delete only flush — SupplierService owns the transaction
     # and commits once (with the audit row and any credit recalculation), so
     # a failure part-way can't leave half-saved changes behind.
@@ -18,6 +26,7 @@ class SupplierRepository:
         data = supplier.model_dump()
         db_supplier = models.Supplier(
             **data,
+            supplier_no=self.get_next_supplier_no(),
             date_joined=tz.now(),
             # A brand-new supplier has no credit used yet, so the full limit
             # is available. (Previously both stayed NULL until the first

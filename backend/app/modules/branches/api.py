@@ -128,17 +128,3 @@ def update_branch(
 ):
 
     return service.branch_service.update_branch(db, branch_id, branch, updated_by=current_user.id)
-
-
-@router.delete(
-    "/{branch_id}",
-    status_code=200,
-    dependencies=[Depends(require_permission(*Permissions.BRANCH_DELETE))],
-)
-def delete_branch(
-    branch_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-):
-
-    return service.branch_service.delete_branch(db, branch_id, deleted_by=current_user.id)

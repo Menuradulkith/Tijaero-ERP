@@ -49,7 +49,19 @@ interface ValidationError {
 export function handleApiError(error: unknown, fallback: string): string {
   // 1. Axios error with a server response
   if (axios.isAxiosError(error) && error.response?.data) {
-    const { detail, message: msg } = error.response.data;
+    const { detail, message: msg, messages } = error.response.data;
+
+    // FastAPI's global 422 handler (see app/main.py validation_exception_handler)
+    // always sends a generic "Data validation failed" as `detail`, with the
+    // actual per-field reasons in `messages` — check that first, or every
+    // validation failure shows the same unhelpful generic text.
+    if (
+      detail === "Data validation failed" &&
+      Array.isArray(messages) &&
+      messages.length > 0
+    ) {
+      return formatFieldMessages(messages as { field: string; message: string }[]);
+    }
 
     // detail is a plain string  →  use it directly
     if (typeof detail === "string" && detail.length > 0) {
@@ -127,6 +139,21 @@ function formatValidationErrors(errors: ValidationError[]): string {
     .map((err) => {
       const field = err.loc.slice(1).join(".") || "field";
       return `${field}: ${err.msg}`;
+    })
+    .join("; ");
+}
+
+/**
+ * Format the `{field, message}[]` shape sent by the backend's global 422
+ * handler (already-normalized Pydantic errors). `field` is the raw
+ * "body -> fieldName" loc path joined by the backend — strip the leading
+ * "body -> " so the message reads as just the field name.
+ */
+function formatFieldMessages(errors: { field: string; message: string }[]): string {
+  return errors
+    .map((err) => {
+      const field = err.field?.replace(/^(body|query|path) -> /, "");
+      return field ? `${field}: ${err.message}` : err.message;
     })
     .join("; ");
 }

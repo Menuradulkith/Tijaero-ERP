@@ -30,12 +30,10 @@ import {
   useMasterDetailState,
   TDetailSkeleton,
   TBranchFilter,
-  TExportButton,
   TDataGrid,
   type TDataGridColumn,
   fmtLKR,
   TActivityHistoryPanel,
-  useRowSelection,
   TRemarkField,
 } from "@/components/tijaero";
 
@@ -91,8 +89,6 @@ export default function CashPaymentsPage() {
     resetFormFromItem,
     defaultSortField: "created_date_time",
   });
-
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Metadata & Audit section title, rather than shown inline. The cash
@@ -253,9 +249,6 @@ export default function CashPaymentsPage() {
           emptyMessage="No cash payments found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -398,7 +391,7 @@ export default function CashPaymentsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
             <Box sx={{ width: 170, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
@@ -413,26 +406,6 @@ export default function CashPaymentsPage() {
       }
       onRefresh={refetch}
       isLoading={isLoading}
-      headerActions={
-        isPaymentDetailMode ? undefined : (
-          <TExportButton
-            filename={`cash_payments_${new Date().toISOString().split("T")[0]}`}
-            headers={["ID", "Invoice No", "Customer", "Amount", "Branch", "Date", "Remarks"]}
-            rows={() =>
-              rowSelection.pick(filteredPayments).map((p) => [
-                p.id,
-                p.invoice_no || "",
-                p.customer_name || `Customer #${p.customer_id}`,
-                Number(p.amount || 0),
-                p.branch_code || "",
-                p.created_date_time ? new Date(p.created_date_time).toLocaleString() : (p.created_date || ""),
-                p.remarks || "",
-              ])
-            }
-            disabled={filteredPayments.length === 0}
-          />
-        )
-      }
       {...(isPaymentDetailMode
         ? { children: detailPanel }
         : { children: paymentTablePanel })}

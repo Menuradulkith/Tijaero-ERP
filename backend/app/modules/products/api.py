@@ -108,20 +108,6 @@ def update_product(
     )
 
 
-@router.delete(
-    "/products/{product_id}",
-    status_code=status.HTTP_200_OK,
-    summary="Delete Product",
-    dependencies=[Depends(require_permission(*Permissions.PRODUCT_DELETE))],
-)
-def delete_product(
-    product_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.PRODUCT_DELETE)),
-):
-    return service.product_service.delete_product(db, product_id, user_id=current_user.id)
-
-
 @router.post(
     "/products/{product_id}/image",
     response_model=schemas.Product,
@@ -217,20 +203,6 @@ def update_category(
     )
 
 
-@router.delete(
-    "/categories/{category_id}",
-    status_code=status.HTTP_200_OK,
-    summary="Delete Category",
-    dependencies=[Depends(require_permission(*Permissions.CATEGORY_DELETE))],
-)
-def delete_category(
-    category_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CATEGORY_DELETE)),
-):
-    return service.category_service.delete_category(db, category_id, user_id=current_user.id)
-
-
 @router.get(
     "/brands/",
     response_model=List[schemas.Brand],
@@ -289,20 +261,6 @@ def update_brand(
     current_user: User = Depends(require_permission(*Permissions.BRAND_UPDATE)),
 ):
     return service.brand_service.update_brand(db, brand_id, brand, user_id=current_user.id)
-
-
-@router.delete(
-    "/brands/{brand_id}",
-    status_code=status.HTTP_200_OK,
-    summary="Delete Brand",
-    dependencies=[Depends(require_permission(*Permissions.BRAND_DELETE))],
-)
-def delete_brand(
-    brand_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.BRAND_DELETE)),
-):
-    return service.brand_service.delete_brand(db, brand_id, user_id=current_user.id)
 
 
 @router.get(

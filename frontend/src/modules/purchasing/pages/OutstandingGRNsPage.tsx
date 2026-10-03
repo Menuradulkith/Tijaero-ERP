@@ -351,7 +351,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
               renderInput={(params) => (
                 <TextField {...params} label="Filter by Supplier" />
               )}
-              sx={{ minWidth: 250, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ minWidth: 250 }}
             />
             <Autocomplete
               size="small"

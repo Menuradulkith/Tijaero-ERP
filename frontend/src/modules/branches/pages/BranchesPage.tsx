@@ -17,11 +17,7 @@ import BusinessIcon from "@mui/icons-material/Business";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import HistoryIcon from "@mui/icons-material/History";
-import InventoryIcon from "@mui/icons-material/Inventory";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
-import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
-import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
-import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import SearchIcon from "@mui/icons-material/Search";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -36,7 +32,6 @@ import {
   DialogTitle,
   Divider,
   FormControlLabel,
-  Grid,
   IconButton,
   InputAdornment,
   List,
@@ -61,7 +56,6 @@ import {
     FormSection,
     MasterDetailLayout,
     TDetailSkeleton,
-    TExportButton,
     useMasterDetailState,
     TConfirmDialog,
     useConfirmDialog,
@@ -70,14 +64,11 @@ import {
     showSuccessToast,
     TActivityHistoryPanel,
     TStatusFilter,
-    fmtLKR,
     type TFilterStatusOption,
     TDataGrid,
     SelectableListItem,
-    useRowSelection,
     type TDataGridColumn,
 } from "@/components/tijaero";
-import { KpiSparkCard } from "@/components/dashboard";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { usePermission } from "@/auth/components/PermissionGuard";
 import { PERMISSIONS } from "@/auth/permissions";
@@ -118,7 +109,9 @@ export default function BranchesPage() {
   // Permissions
   const canCreate = usePermission(PERMISSIONS.BRANCH_CREATE.resource, PERMISSIONS.BRANCH_CREATE.action);
   const canUpdate = usePermission(PERMISSIONS.BRANCH_UPDATE.resource, PERMISSIONS.BRANCH_UPDATE.action);
-  const canDelete = usePermission(PERMISSIONS.BRANCH_DELETE.resource, PERMISSIONS.BRANCH_DELETE.action);
+  // Branches themselves can no longer be deleted, but locations within a
+  // branch still can be — reuses the same permission as before.
+  const canDeleteLocation = usePermission(PERMISSIONS.BRANCH_DELETE.resource, PERMISSIONS.BRANCH_DELETE.action);
 
   // Location dialog state
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
@@ -171,8 +164,6 @@ export default function BranchesPage() {
   // Activity History section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
-  const rowSelection = useRowSelection();
-
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
     setFilterStatus(null);
@@ -189,13 +180,6 @@ export default function BranchesPage() {
     queryKey: ["locations", selectedBranch?.branch_code],
     queryFn: () => selectedBranch ? locationsApi.getAll(selectedBranch.branch_code) : Promise.resolve([]),
     enabled: !!selectedBranch && !isCreating, // Only fetch for existing branches
-  });
-
-  // Performance widget - quick sales/stock KPIs for the selected branch
-  const { data: performance, isLoading: performanceLoading } = useQuery({
-    queryKey: ["branch-performance", selectedBranch?.id],
-    queryFn: () => branchApi.getPerformance(selectedBranch!.id),
-    enabled: !!selectedBranch && !isCreating,
   });
 
   // Filter and sort branches
@@ -276,19 +260,6 @@ export default function BranchesPage() {
     },
     onError: (error: unknown) => {
       showErrorToast(handleApiError(error, "Failed to update branch"));
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: branchApi.delete,
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["branches"] });
-      // Use the success message from backend if available
-      showSuccessToast(data?.message || "Branch deleted successfully");
-      setSelectedBranch(null);
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete branch"));
     },
   });
 
@@ -401,20 +372,6 @@ export default function BranchesPage() {
       updateMutation.mutate({ id: selectedBranch.id, data: formData });
     }
   }, [isCreating, isEditing, selectedBranch, formData, branchLocations, createMutation, updateMutation]);
-
-  const handleDelete = useCallback(async () => {
-    if (selectedBranch) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Branch",
-        message: "Are you sure you want to delete this branch?",
-        confirmText: "Delete",
-        confirmColor: "error",
-      });
-      if (confirmed) {
-        deleteMutation.mutate(selectedBranch.id);
-      }
-    }
-  }, [selectedBranch, deleteMutation, confirmDialog]);
 
   const handleDuplicate = useCallback(() => {
     if (selectedBranch) {
@@ -601,9 +558,6 @@ export default function BranchesPage() {
           columns={branchColumns}
           loading={isLoading}
           onRowClick={(row) => handleSelectBranch(row)}
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No branches found"
@@ -645,7 +599,6 @@ export default function BranchesPage() {
       <ActionToolbar
         canCreate={canCreate}
         canUpdate={canUpdate}
-        canDelete={canDelete}
         hasSelectedItem={!!selectedBranch}
         isCreating={isCreating}
         isEditing={isEditing}
@@ -653,7 +606,6 @@ export default function BranchesPage() {
         isFormValid={!!isFormValid}
         onNew={handleNewBranch}
         onDuplicate={handleDuplicate}
-        onDelete={handleDelete}
         onSave={handleSave}
         onCancel={() => handleCancel(filteredBranches)}
         onEdit={handleStartEdit}
@@ -744,43 +696,6 @@ export default function BranchesPage() {
           </FormSection>
         )}
 
-        {/* Branch Performance Widget - quick sales/stock KPIs, similar to the main dashboard */}
-        {selectedBranch && !isCreating && (
-          <>
-            <Divider sx={{ my: 3 }} />
-            <Typography variant="h6" sx={{ mb: 2, display: "flex", alignItems: "center", gap: 1 }}>
-              <TrendingUpIcon color="primary" /> Branch Performance
-            </Typography>
-            {performanceLoading ? (
-              <Typography color="text.secondary">Loading performance...</Typography>
-            ) : performance ? (
-              <Grid container spacing={2}>
-                <Grid item xs={6} sm={4} md={3}>
-                  <KpiSparkCard title="Sales Today" value={fmtLKR(performance.sales_today)} icon={<MonetizationOnIcon />} color="success" />
-                </Grid>
-                <Grid item xs={6} sm={4} md={3}>
-                  <KpiSparkCard title="Sales This Month" value={fmtLKR(performance.sales_month)} icon={<TrendingUpIcon />} color="primary" />
-                </Grid>
-                <Grid item xs={6} sm={4} md={3}>
-                  <KpiSparkCard title="Orders Today" value={performance.orders_today} subtitle={`${performance.orders_month} this month`} icon={<ReceiptLongIcon />} color="info" />
-                </Grid>
-                <Grid item xs={6} sm={4} md={3}>
-                  <KpiSparkCard title="In Stock" value={performance.in_stock} icon={<InventoryIcon />} color="secondary" />
-                </Grid>
-                <Grid item xs={6} sm={4} md={3}>
-                  <KpiSparkCard title="Reserved" value={performance.reserved} icon={<InventoryIcon />} color="warning" />
-                </Grid>
-                <Grid item xs={6} sm={4} md={3}>
-                  <KpiSparkCard title="Sold Today" value={performance.sold_today} icon={<ReceiptLongIcon />} color="success" />
-                </Grid>
-                <Grid item xs={6} sm={4} md={3}>
-                  <KpiSparkCard title="Returned" value={performance.returned} icon={<InventoryIcon />} color="error" />
-                </Grid>
-              </Grid>
-            ) : null}
-          </>
-        )}
-
         {/* Locations Section - Show for both creating and editing, hide when nothing selected */}
         {(selectedBranch || isCreating) && (
           <>
@@ -830,7 +745,7 @@ export default function BranchesPage() {
                         primary={location.name}
                         secondary={`Created: ${new Date(location.created_date).toLocaleDateString()}`}
                       />
-                      {(isEditing || isCreating) && (canUpdate || canDelete) && (
+                      {(isEditing || isCreating) && (canUpdate || canDeleteLocation) && (
                         <ListItemSecondaryAction>
                           {(isCreating ? canCreate : canUpdate) && (
                             <IconButton
@@ -841,7 +756,7 @@ export default function BranchesPage() {
                               <EditIcon fontSize="small" />
                             </IconButton>
                           )}
-                          {(isCreating ? canCreate : canDelete) && (
+                          {(isCreating ? canCreate : canDeleteLocation) && (
                             <IconButton
                               size="small"
                               color="error"
@@ -921,7 +836,7 @@ export default function BranchesPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TStatusFilter
@@ -957,20 +872,6 @@ export default function BranchesPage() {
                   Add Branch
                 </Button>
               )}
-              <TExportButton
-                filename="branches"
-                headers={["Branch Code", "Branch Name", "Address", "Contact Number", "Email"]}
-                rows={() =>
-                  rowSelection.pick(filteredBranches).map((b) => [
-                    b.branch_code || "",
-                    b.branch_name || "",
-                    b.address || "",
-                    b.contact_number || "",
-                    b.email || "",
-                  ])
-                }
-                disabled={filteredBranches.length === 0}
-              />
             </>
           )
         }

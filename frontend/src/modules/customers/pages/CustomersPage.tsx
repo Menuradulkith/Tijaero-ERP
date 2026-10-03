@@ -36,7 +36,6 @@ import {
     showErrorToast,
     showSuccessToast,
     TDetailSkeleton,
-    TExportButton,
     TConfirmDialog,
     useMasterDetailState,
     useTConfirmDialog,
@@ -45,7 +44,6 @@ import {
     CIVIL_CHOICES,
     TDataGrid,
     SelectableListItem,
-    useRowSelection,
     type TDataGridColumn,
 } from "@/components/tijaero";
 import { formatDateTimeReadable, formatCurrency } from "@/utils/formatters";
@@ -108,7 +106,6 @@ export default function CustomersPage() {
   // Permissions
   const canCreate = usePermission("customers", "create");
   const canUpdate = usePermission("customers", "update");
-  const canDelete = usePermission("customers", "delete");
 
   // Use reusable state hook
   const {
@@ -131,8 +128,6 @@ export default function CustomersPage() {
     resetFormFromItem: resetFormFromCustomer,
     defaultSortField: "customer_name",
   });
-
-  const rowSelection = useRowSelection();
 
   // Data fetching
   const { data: customers, isLoading, refetch } = useQuery({
@@ -192,19 +187,6 @@ export default function CustomersPage() {
     onError: () => showErrorToast("Failed to update customer"),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: customersApi.delete,
-    onSuccess: () => {
-      // Refetch queries immediately to update the UI
-      queryClient.refetchQueries({ queryKey: ["customers"] });
-      queryClient.refetchQueries({ queryKey: ["customers-all"] });
-      queryClient.refetchQueries({ queryKey: ["referenceData"] });
-      showSuccessToast("Customer deleted successfully");
-      setSelectedCustomer(null);
-    },
-    onError: () => showErrorToast("Failed to delete customer"),
-  });
-
   const confirmDialog = useTConfirmDialog();
 
   // Handlers
@@ -215,20 +197,6 @@ export default function CustomersPage() {
       updateMutation.mutate({ id: selectedCustomer.id, data: formData });
     }
   }, [isCreating, selectedCustomer, formData, createMutation, updateMutation]);
-
-  const handleDelete = useCallback(async () => {
-    if (selectedCustomer) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Customer",
-        message: "Are you sure you want to delete this customer?",
-        confirmText: "Delete",
-        confirmColor: "error",
-      });
-      if (confirmed) {
-        deleteMutation.mutate(selectedCustomer.id);
-      }
-    }
-  }, [selectedCustomer, deleteMutation, confirmDialog]);
 
   const handleDuplicate = useCallback(() => {
     if (selectedCustomer) {
@@ -351,9 +319,6 @@ export default function CustomersPage() {
           columns={customerColumns}
           loading={isLoading}
           onRowClick={(row) => handleSelectCustomer(row)}
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No customers found"
@@ -389,7 +354,6 @@ export default function CustomersPage() {
       <ActionToolbar
         canCreate={canCreate}
         canUpdate={canUpdate}
-        canDelete={canDelete}
         hasSelectedItem={!!selectedCustomer}
         isCreating={isCreating}
         isEditing={isEditing}
@@ -397,7 +361,6 @@ export default function CustomersPage() {
         isFormValid={!!isFormValid}
         onNew={handleNewCustomer}
         onDuplicate={handleDuplicate}
-        onDelete={handleDelete}
         onSave={handleSave}
         onCancel={handleCancelCustomer}
         onEdit={handleStartEdit}
@@ -654,7 +617,7 @@ export default function CustomersPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
             </Box>
           )
@@ -664,51 +627,17 @@ export default function CustomersPage() {
         {...(isCustomerDetailMode ? { children: detailPanel } : { children: customerTablePanel })}
         headerActions={
           isCustomerDetailMode ? undefined : (
-            <>
-              {canCreate && (
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={handleNewCustomer}
-                  sx={{ mr: 1 }}
-                >
-                  Add Customer
-                </Button>
-              )}
-              <TExportButton
-                filename="customers"
-                headers={[
-                  "Customer Name",
-                  "Company",
-                  "Email",
-                  "Mobile",
-                  "Home Contact",
-                  "ID Card No",
-                  "Credit Days",
-                  "Max Credit Limit",
-                  "Credit Balance",
-                  "Is Agent",
-                  "Active",
-                ]}
-                rows={() =>
-                  rowSelection.pick(filteredCustomers).map((c) => [
-                    c.customer_name || "",
-                    c.company_name || "",
-                    c.email || "",
-                    c.mobile_contact_number || "",
-                    c.home_contact_number || "",
-                    c.id_card_number || "",
-                    c.credit_days ?? 0,
-                    c.max_credit_limit ?? 0,
-                    c.left_credit_amount ?? "",
-                    c.is_customer_agent ? "Yes" : "No",
-                    c.active ? "Yes" : "No",
-                  ])
-                }
-                disabled={filteredCustomers.length === 0}
-              />
-            </>
+            canCreate && (
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleNewCustomer}
+                sx={{ mr: 1 }}
+              >
+                Add Customer
+              </Button>
+            )
           )
         }
       />

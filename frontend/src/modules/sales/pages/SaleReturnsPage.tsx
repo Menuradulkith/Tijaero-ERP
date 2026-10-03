@@ -8,8 +8,6 @@
  */
 
 import { usePermission } from "@/auth/permissions";
-import { exportToCSV } from "@/utils/csvExport";
-import DownloadIcon from "@mui/icons-material/FileDownload";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -72,7 +70,6 @@ import {
     modernTableStyles,
     useCrudMutation,
     useMasterDetailState,
-    useRowSelection,
     useTConfirmDialog,
     TActivityHistoryPanel,
     SelectableListItem,
@@ -232,8 +229,6 @@ export default function SaleReturnsPage() {
         extraDirty: lineItems.length > 0,
         onDiscard: () => { setLineItems([]); setFormStep(0); },
     });
-
-    const rowSelection = useRowSelection();
 
     // Activity History is opened on demand from a detail icon next to the
     // Status & Dates section title, rather than shown inline.
@@ -647,38 +642,6 @@ export default function SaleReturnsPage() {
         }
     }, [invoiceItems, selectedCandidates, lineItems, formData.branch_code]);
 
-    const handleExportCSV = () => {
-        const headers = [
-            "Return No",
-            "Original Invoice",
-            "Branch",
-            "Date",
-            "Status",
-            "Refund Status",
-            "Subtotal",
-            "Tax Refund",
-            "Total Refund"
-        ];
-
-        const rows = rowSelection.pick(filteredReturns).map(ret => [
-            ret.sale_return_no || `RET-${ret.id}`,
-            getInvoiceNo(ret),
-            getBranchDisplay(ret.branch_code),
-            ret.added_date ? new Date(ret.added_date).toLocaleDateString() : "",
-            getStatus(ret),
-            ret.refund_status || "pending",
-            ret.subtotal || 0,
-            ret.tax_refund || 0,
-            ret.total_refund || 0
-        ]);
-
-        exportToCSV({
-            filename: `sale_returns_${new Date().toISOString().split("T")[0]}`,
-            headers,
-            rows
-        });
-    };
-
     const handleSave = useCallback(() => {
         const dataToSave: SaleReturnCreate = {
             ...formData,
@@ -749,9 +712,6 @@ export default function SaleReturnsPage() {
                     emptyMessage="No sale returns found"
                     autoHeight={false}
                     height="100%"
-                    selectionMode="multiple"
-                    selectedRows={rowSelection.selectedRows}
-                    onSelectionChange={rowSelection.setSelectedRows}
                 />
             </Box>
         </Box>
@@ -1406,12 +1366,12 @@ export default function SaleReturnsPage() {
                                         </InputAdornment>
                                     ),
                                 }}
-                                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                                sx={{ width: 190, flexShrink: 0 }}
                             />
                             <Box sx={{ width: 150, flexShrink: 0 }}>
                                 <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Status" size="small" />
                             </Box>
-                            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+                            <Box sx={{ width: 160, flexShrink: 0 }}>
                                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
                             </Box>
                             {(searchQuery || filterStatus || filterBranch) && (
@@ -1433,16 +1393,6 @@ export default function SaleReturnsPage() {
                                 sx={{ mr: 1 }}
                             >
                                 Add Sale Return
-                            </Button>
-                            <Button
-                                variant="outlined"
-                                size="small"
-                                startIcon={<DownloadIcon />}
-                                onClick={handleExportCSV}
-                                disabled={filteredReturns.length === 0}
-                                sx={{ mr: 1 }}
-                            >
-                                Export CSV
                             </Button>
                         </>
                     )

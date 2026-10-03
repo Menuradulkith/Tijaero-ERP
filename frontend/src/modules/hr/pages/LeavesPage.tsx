@@ -24,7 +24,6 @@ import {
   SelectableListItem,
   TConfirmDialog,
   TDetailSkeleton,
-  TExportButton,
   TStatusChip,
   TStatusFilter,
   type TFilterStatusOption,
@@ -561,7 +560,7 @@ export default function LeavesPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter
@@ -600,34 +599,6 @@ export default function LeavesPage() {
                   Apply for Leave
                 </Button>
               )}
-              <TExportButton
-                filename="leaves"
-                headers={[
-                  "Employee ID",
-                  "Employee",
-                  "Leave Type",
-                  "From Date",
-                  "To Date",
-                  "Duration",
-                  "Time",
-                  "Status",
-                  "Reason",
-                ]}
-                rows={() =>
-                  filtered.map((l) => [
-                    l.employee_id || "",
-                    l.employee_name || "",
-                    l.leave_type || "",
-                    l.from_date || "",
-                    l.to_date || "",
-                    l.leave_duration ?? "",
-                    l.leave_time || "",
-                    l.status || "",
-                    l.leave_reason || "",
-                  ])
-                }
-                disabled={filtered.length === 0}
-              />
             </>
           )
         }

@@ -22,7 +22,6 @@ import {
   TDataGrid,
   type TDataGridColumn,
   TDetailSkeleton,
-  TExportButton,
   TStatusChip,
   handleApiError,
   showErrorToast,
@@ -319,7 +318,7 @@ export default function EmployeeAssetsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 260, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 260 }}
               />
             </Box>
           )
@@ -332,19 +331,6 @@ export default function EmployeeAssetsPage() {
                   Add Asset Assignment
                 </Button>
               )}
-              <TExportButton
-                filename="employee_assets"
-                headers={["Employee ID", "Asset ID", "Assign Reason", "Revoked"]}
-                rows={() =>
-                  filtered.map((a) => [
-                    a.employee_id || "",
-                    a.asset_id ?? "",
-                    a.assign_reason || "",
-                    a.revoke_assignment ? "Yes" : "No",
-                  ])
-                }
-                disabled={filtered.length === 0}
-              />
             </>
           )
         }

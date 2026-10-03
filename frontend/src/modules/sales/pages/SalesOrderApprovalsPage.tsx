@@ -1071,12 +1071,12 @@ export default function SalesOrderApprovalsPage() {
                                     </InputAdornment>
                                 ),
                             }}
-                            sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                            sx={{ width: 190, flexShrink: 0 }}
                         />
                         <Box sx={{ width: 150, flexShrink: 0 }}>
                             <TStatusFilter options={SO_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Status" size="small" />
                         </Box>
-                        <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+                        <Box sx={{ width: 160, flexShrink: 0 }}>
                             <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
                         </Box>
                         {(searchQuery || filterStatus || filterBranch) && (

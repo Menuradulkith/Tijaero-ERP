@@ -58,7 +58,6 @@ import {
   TConfirmDialog,
   TDataGrid,
   type TDataGridColumn,
-  TExportButton,
   TPrintButton,
   TPrintPreviewDialog,
   TRemarkField,
@@ -70,7 +69,6 @@ import {
   showSuccessToast,
   useCrudMutation,
   useMasterDetailState,
-  useRowSelection,
   useTConfirmDialog,
   TActivityHistoryPanel,
 } from "@/components/tijaero";
@@ -227,8 +225,6 @@ export default function PurchaseReturnsPage() {
     extraDirty: lineItems.length > 0,
     onDiscard: () => { setLineItems([]); setFormStep(0); },
   });
-
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -818,9 +814,6 @@ export default function PurchaseReturnsPage() {
           emptyMessage="No purchase returns found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -1270,9 +1263,9 @@ export default function PurchaseReturnsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
-              <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+              <Box sx={{ width: 160, flexShrink: 0 }}>
                 <TStatusFilter options={RETURN_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
               </Box>
               <Box sx={{ width: 150, flexShrink: 0 }}>
@@ -1309,45 +1302,15 @@ export default function PurchaseReturnsPage() {
           : { children: returnTablePanel })}
         headerActions={
           isReturnDetailMode ? undefined : (
-            <>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={handleNewReturn}
-                sx={{ mr: 1 }}
-              >
-                Add Purchase Return
-              </Button>
-              <TExportButton
-                filename="purchase_returns"
-                headers={[
-                  "Return No",
-                  "GRN No",
-                  "PO No",
-                  "Supplier",
-                  "Branch",
-                  "Added Date",
-                  "Approved Date",
-                  "Status",
-                  "Remark",
-                ]}
-                rows={() =>
-                  rowSelection.pick(filteredReturns).map((ret) => [
-                    ret.purchasing_return_no || "",
-                    ret.grn_no || "",
-                    ret.po_no || "",
-                    ret.supplier_name || "",
-                    ret.branch_code || "",
-                    ret.added_date || "",
-                    ret.approved_date || "",
-                    ret.status || "",
-                    ret.remark || "",
-                  ])
-                }
-                disabled={filteredReturns.length === 0}
-              />
-            </>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleNewReturn}
+              sx={{ mr: 1 }}
+            >
+              Add Purchase Return
+            </Button>
           )
         }
       />

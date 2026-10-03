@@ -5,7 +5,6 @@
  */
 
 import { useMemo, useCallback, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -33,7 +32,6 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import HistoryIcon from "@mui/icons-material/History";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
-import DescriptionIcon from "@mui/icons-material/Description";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import SearchIcon from "@mui/icons-material/Search";
@@ -78,7 +76,6 @@ type QuoteApprovalRow = SalesQuote & { customer_display_name: string; agent_disp
 
 export default function QuotationApprovalsPage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedQuote, setSelectedQuote] = useState<SalesQuoteDetail | null>(null);
@@ -95,13 +92,6 @@ export default function QuotationApprovalsPage() {
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [bulkActionActive, setBulkActionActive] = useState(false);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
-
-  const handleOpenQuotation = useCallback(() => {
-    if (!selectedQuote) return;
-    navigate("/sales/quotations", {
-      state: { selectedQuoteId: selectedQuote.id },
-    });
-  }, [navigate, selectedQuote]);
 
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = (refData?.products || []) as Product[];
@@ -502,7 +492,7 @@ export default function QuotationApprovalsPage() {
         }
       />
 
-      {selectedQuote && (
+      {selectedQuote && selectedIsPending && (
         <ActionToolbar
           hasSelectedItem
           isCreating={false}
@@ -514,36 +504,24 @@ export default function QuotationApprovalsPage() {
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <Button
                 size="small"
-                variant="outlined"
-                startIcon={<DescriptionIcon />}
-                onClick={handleOpenQuotation}
+                variant="contained"
+                color="primary"
+                startIcon={<CheckCircleIcon />}
+                onClick={handleApprove}
+                disabled={approveMutation.isPending}
               >
-                Open Quotation
+                Approve
               </Button>
-              {selectedIsPending && (
-                <>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="primary"
-                    startIcon={<CheckCircleIcon />}
-                    onClick={handleApprove}
-                    disabled={approveMutation.isPending}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    startIcon={<CancelIcon />}
-                    onClick={() => setRejectDialogOpen(true)}
-                    disabled={rejectMutation.isPending}
-                  >
-                    Reject
-                  </Button>
-                </>
-              )}
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<CancelIcon />}
+                onClick={() => setRejectDialogOpen(true)}
+                disabled={rejectMutation.isPending}
+              >
+                Reject
+              </Button>
             </Box>
           }
         />
@@ -802,7 +780,7 @@ export default function QuotationApprovalsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 220, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TStatusFilter options={QUOTATION_STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
