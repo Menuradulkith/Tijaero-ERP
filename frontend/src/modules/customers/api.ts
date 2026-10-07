@@ -1,6 +1,9 @@
 import apiClient from "@/api/client";
 import {
   Customer,
+  CustomerContactPerson,
+  CustomerContactPersonCreate,
+  CustomerContactPersonUpdate,
   CustomerCreate,
   CustomerUpdate,
   CustomerCreditsSettle,
@@ -137,12 +140,29 @@ const cleanCustomerData = (data: CustomerCreate | CustomerUpdate) => {
     birthdate: data.birthdate?.trim() || null,
     id_card_number: data.id_card_number?.trim() || null,
     passport_no: data.passport_no?.trim() || null,
+    billing_address_line1: data.billing_address_line1?.trim() || null,
+    billing_address_line2: data.billing_address_line2?.trim() || null,
+    billing_city: data.billing_city?.trim() || null,
+    billing_state: data.billing_state?.trim() || null,
+    billing_postal_code: data.billing_postal_code?.trim() || null,
+    shipping_address_line1: data.shipping_address_line1?.trim() || null,
+    shipping_address_line2: data.shipping_address_line2?.trim() || null,
+    shipping_city: data.shipping_city?.trim() || null,
+    shipping_state: data.shipping_state?.trim() || null,
+    shipping_postal_code: data.shipping_postal_code?.trim() || null,
     payment_address: data.payment_address?.trim() || null,
     delivery_address: data.delivery_address?.trim() || null,
     bank_details: data.bank_details?.trim() || null,
     name_in_cheque_card: data.name_in_cheque_card?.trim() || null,
   };
 };
+
+// Empty strings from the form become null so optional fields (notably email,
+// which the backend validates) are cleared rather than rejected.
+const cleanContactPerson = <T extends object>(data: T) =>
+  Object.fromEntries(
+    Object.entries(data).map(([k, v]) => [k, v === "" ? null : v])
+  );
 
 export const customersApi = {
   getAll: async (skip = 0, limit = 100000, activeOnly = true) => {
@@ -162,6 +182,37 @@ export const customersApi = {
   getById: async (id: number) => {
     const response = await apiClient.get<Customer>(`/customers/${id}`);
     return response.data;
+  },
+
+  getContactPersons: async (customerId: number) => {
+    const response = await apiClient.get<CustomerContactPerson[]>(
+      `/customers/${customerId}/contact-persons`
+    );
+    return response.data;
+  },
+
+  createContactPerson: async (customerId: number, data: CustomerContactPersonCreate) => {
+    const response = await apiClient.post<CustomerContactPerson>(
+      `/customers/${customerId}/contact-persons`,
+      cleanContactPerson(data)
+    );
+    return response.data;
+  },
+
+  updateContactPerson: async (
+    customerId: number,
+    contactId: number,
+    data: CustomerContactPersonUpdate
+  ) => {
+    const response = await apiClient.patch<CustomerContactPerson>(
+      `/customers/${customerId}/contact-persons/${contactId}`,
+      cleanContactPerson(data)
+    );
+    return response.data;
+  },
+
+  deleteContactPerson: async (customerId: number, contactId: number) => {
+    await apiClient.delete(`/customers/${customerId}/contact-persons/${contactId}`);
   },
 
   create: async (data: CustomerCreate) => {

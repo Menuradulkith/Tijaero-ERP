@@ -67,6 +67,7 @@ import ApproverAuthDialog from "@/modules/purchasing/components/ApproverAuthDial
 import { useReferenceData } from "@/hooks";
 import type { SalesQuote, SalesQuoteDetail } from "@/modules/sales/quotation-types";
 import type { Customer } from "@/modules/customers/types";
+import { customerDisplayName } from "@/modules/customers/types";
 import type { Product } from "@/modules/inventory/types";
 
 // A quote row as shown in the browse table, with the customer name looked up
@@ -136,7 +137,7 @@ export default function QuotationApprovalsPage() {
   }, [products]);
 
   const getCustomerName = useCallback(
-    (customerId: number) => customerMap.get(customerId)?.customer_name || "Unknown",
+    (customerId: number) => customerDisplayName(customerMap.get(customerId)) || "Unknown",
     [customerMap],
   );
 

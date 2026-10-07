@@ -36,24 +36,43 @@ class Customer(Base, AuditMixin):
     # (0001, 0002, ...) — see CustomerRepository.get_next_customer_no.
     # Distinct from `id`, which is an internal PK not meant for display.
     customer_no = Column(String(10), unique=True, nullable=False, index=True)
-    title = Column(String(30), nullable=False)
+    # "individual" or "business" — decides which fields are required/shown.
+    customer_type = Column(String(20), nullable=False, default=CustomerType.INDIVIDUAL.value, server_default=CustomerType.INDIVIDUAL.value, index=True)
+    title = Column(String(30))
     customer_name = Column(String(255), nullable=False, index=True)
     name_in_cheque_card = Column(String(255))
     occupation = Column(String(255))
     company_name = Column(String(255))
+    tax_registration_number = Column(String(50))
+    company_registration_number = Column(String(50))
+    # Payment (billing) address, structured like Supplier.billing_*. The
+    # legacy single-line `payment_address` / `delivery_address` below are kept
+    # in sync from these on save (see customers.repository) because reports,
+    # CSV export and credit-eligibility checks read them.
+    billing_address_line1 = Column(String(255))
+    billing_address_line2 = Column(String(255))
+    billing_city = Column(String(120))
+    billing_state = Column(String(120))
+    billing_postal_code = Column(String(20))
+    # Delivery (shipping) address; empty means "same as payment address".
+    shipping_address_line1 = Column(String(255))
+    shipping_address_line2 = Column(String(255))
+    shipping_city = Column(String(120))
+    shipping_state = Column(String(120))
+    shipping_postal_code = Column(String(20))
     payment_address = Column(Text)
     delivery_address = Column(Text)
     bank_details = Column(Text)
     date_joined = Column(TIMESTAMP, nullable=False)
     birthdate = Column(Date)
     id_card_number = Column(String(12))
-    gender = Column(String(30), nullable=False)
-    civil_status = Column(String(30), nullable=False)
+    gender = Column(String(30))
+    civil_status = Column(String(30))
     passport_no = Column(String(50))
-    no_of_kids = Column(String(30), nullable=False)
+    no_of_kids = Column(String(30))
     email = Column(String(75), index=True)
     home_contact_number = Column(String(12))
-    mobile_contact_number = Column(String(12), nullable=False)
+    mobile_contact_number = Column(String(12))
     credit_days = Column(Integer, nullable=False)
     max_credit_limit = Column(Integer, nullable=False)
     left_credit_amount = Column(Integer)
@@ -70,6 +89,29 @@ class Customer(Base, AuditMixin):
     credits_settle = relationship("CustomerCreditsSettle", back_populates="customer")
     support_tickets = relationship("CustomerSupport", back_populates="customer")
     credit_notes = relationship("CustomerCreditNotes", back_populates="customer")
+    contact_persons = relationship(
+        "CustomerContactPerson",
+        back_populates="customer",
+        cascade="all, delete-orphan",
+        order_by="CustomerContactPerson.id",
+    )
+
+
+class CustomerContactPerson(Base, AuditMixin):
+    """A person to reach at a business customer (buyer, accountant, ...).
+    Only business customers have these; an individual is their own contact."""
+    __tablename__ = "customer_contact_person"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(30))
+    full_name = Column(String(255), nullable=False)
+    designation = Column(String(255))
+    email = Column(String(75))
+    phone = Column(String(20))
+    is_primary = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    customer = relationship("Customer", back_populates="contact_persons")
 
 
 class CustomerAdvancePayments(Base, AuditMixin):

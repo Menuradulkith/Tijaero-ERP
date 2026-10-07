@@ -9,8 +9,10 @@ import {
   TChip,
   ActionToolbar,
   canPrintDocument,
+  DetailPanelHeader,
   EmptyState,
   FormSection,
+  getStatusProps,
   handleApiError,
   MasterDetailLayout,
   modernTableStyles,
@@ -37,6 +39,7 @@ import {
 import { useReferenceData } from "@/hooks";
 import { minimumPriceApi } from "@/modules/inventory/api";
 import { customersApi } from "@/modules/customers/api";
+import { customerDisplayName } from "@/modules/customers/types";
 import { procurementQueueApi } from "@/modules/purchasing/api";
 import {
   Add as AddIcon,
@@ -457,7 +460,7 @@ export default function QuotationsPage() {
   };
 
   const getCustomerName = (customerId: number) => {
-    return customers?.find((c) => c.id === customerId)?.customer_name || `Customer #${customerId}`;
+    return customerDisplayName(customers?.find((c) => c.id === customerId)) || `Customer #${customerId}`;
   };
 
   // Calculate gross total (before item discounts)
@@ -1270,6 +1273,29 @@ export default function QuotationsPage() {
   const renderDetailPanel = () => {
     return (
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <DetailPanelHeader
+          breadcrumbs={[
+            { label: "Sales" },
+            { label: "Quotations", href: "/sales/quotations" },
+            ...(selectedQuote || isCreating
+              ? [{ label: isCreating ? "New Quotation" : selectedQuote?.quote_no || "" }]
+              : []),
+          ]}
+          title={selectedQuote ? selectedQuote.quote_no : ""}
+          titleIcon={<QuoteIcon color="primary" />}
+          isCreating={isCreating}
+          createTitle="New Quotation"
+          noSelectionTitle="Select a Quotation"
+          chips={
+            selectedQuote
+              ? (() => {
+                const s = getStatusProps(selectedQuote.status || "draft", "quoteStatus");
+                return [{ label: s.label, color: s.color }];
+              })()
+              : []
+          }
+        />
+
         <ActionToolbar
           canCreate={canCreate}
           canDelete={canDelete && canDeleteQuoteStatus}
@@ -1900,7 +1926,7 @@ export default function QuotationsPage() {
               <Autocomplete
                 size="small"
                 options={customers || []}
-                getOptionLabel={(option) => option.customer_name}
+                getOptionLabel={(option) => customerDisplayName(option)}
                 value={customers?.find((c) => c.id === formData.customer_id) || null}
                 onChange={(_, newValue) => setFormData({ ...formData, customer_id: newValue?.id || 0 })}
                 renderInput={(params) => (
@@ -2283,7 +2309,7 @@ export default function QuotationsPage() {
               <Autocomplete
                 size="small"
                 options={customers || []}
-                getOptionLabel={(option) => option.customer_name}
+                getOptionLabel={(option) => customerDisplayName(option)}
                 value={customers?.find((c) => c.id === filterCustomerId) || null}
                 onChange={(_, newValue) => setFilterCustomerId(newValue?.id || null)}
                 renderInput={(params) => <TextField {...params} placeholder="All Customers" />}

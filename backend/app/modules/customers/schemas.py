@@ -1,24 +1,41 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from typing import Optional, List
 from datetime import datetime, date
 from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema
+from app.modules.customers.enums import CustomerType
+
+# Person-only fields that an individual must supply but a business need not.
+_INDIVIDUAL_REQUIRED = ("title", "gender", "civil_status", "no_of_kids", "mobile_contact_number")
 
 class CustomerBase(BaseModel):
-    customer_name: str = Field(..., min_length=1, max_length=255, description="Customer name")
-    title: str = Field(..., max_length=30, description="Title (Mr/Ms/Mrs)")
+    customer_type: CustomerType = Field(default=CustomerType.INDIVIDUAL, description="individual or business")
+    customer_name: str = Field(..., min_length=1, max_length=255, description="Customer name (primary contact for a business)")
+    title: Optional[str] = Field(None, max_length=30, description="Title (Mr/Ms/Mrs); required for individuals")
     email: Optional[str] = Field(None, max_length=75, description="Customer email address")
-    mobile_contact_number: str = Field(..., max_length=12, description="Mobile contact number")
+    mobile_contact_number: Optional[str] = Field(None, max_length=12, description="Mobile contact number; required for individuals")
     home_contact_number: Optional[str] = Field(None, max_length=12, description="Home contact number")
-    company_name: Optional[str] = Field(None, max_length=255, description="Company name")
+    company_name: Optional[str] = Field(None, max_length=255, description="Company name; required for businesses")
+    tax_registration_number: Optional[str] = Field(None, max_length=50, description="Tax registration number")
+    company_registration_number: Optional[str] = Field(None, max_length=50, description="Company registration number")
     occupation: Optional[str] = Field(None, max_length=255, description="Occupation")
-    gender: str = Field(..., max_length=30, description="Gender")
-    civil_status: str = Field(..., max_length=30, description="Civil status")
-    no_of_kids: str = Field(..., max_length=30, description="Number of kids")
+    gender: Optional[str] = Field(None, max_length=30, description="Gender; required for individuals")
+    civil_status: Optional[str] = Field(None, max_length=30, description="Civil status; required for individuals")
+    no_of_kids: Optional[str] = Field(None, max_length=30, description="Number of kids; required for individuals")
     birthdate: Optional[date] = Field(None, description="Birth date")
     id_card_number: Optional[str] = Field(None, max_length=12, description="ID card number")
     passport_no: Optional[str] = Field(None, max_length=50, description="Passport number")
+    billing_address_line1: Optional[str] = Field(None, max_length=255, description="Payment address line 1")
+    billing_address_line2: Optional[str] = Field(None, max_length=255)
+    billing_city: Optional[str] = Field(None, max_length=120)
+    billing_state: Optional[str] = Field(None, max_length=120)
+    billing_postal_code: Optional[str] = Field(None, max_length=20)
+    shipping_address_line1: Optional[str] = Field(None, max_length=255, description="Delivery address line 1; empty = same as payment address")
+    shipping_address_line2: Optional[str] = Field(None, max_length=255)
+    shipping_city: Optional[str] = Field(None, max_length=120)
+    shipping_state: Optional[str] = Field(None, max_length=120)
+    shipping_postal_code: Optional[str] = Field(None, max_length=20)
     payment_address: Optional[str] = Field(None, description="Payment address")
     delivery_address: Optional[str] = Field(None, description="Delivery address")
     bank_details: Optional[str] = Field(None, description="Bank details")
@@ -33,9 +50,21 @@ class CustomerBase(BaseModel):
     country_id: Optional[int] = Field(None, description="Country ID")
 
 class CustomerCreate(CustomerBase):
-    pass
+    @model_validator(mode="after")
+    def check_required_for_type(self):
+        if self.customer_type == CustomerType.BUSINESS:
+            if not (self.company_name or "").strip():
+                raise ValueError("company_name is required for business customers")
+        else:
+            missing = [f for f in _INDIVIDUAL_REQUIRED if not (getattr(self, f) or "").strip()]
+            if missing:
+                raise ValueError(f"Required for individual customers: {', '.join(missing)}")
+        return self
 
 class CustomerUpdate(BaseModel):
+    customer_type: Optional[CustomerType] = None
+    tax_registration_number: Optional[str] = Field(None, max_length=50)
+    company_registration_number: Optional[str] = Field(None, max_length=50)
     customer_name: Optional[str] = Field(None, min_length=1, max_length=255)
     title: Optional[str] = Field(None, max_length=30)
     email: Optional[str] = Field(None, max_length=75)
@@ -49,6 +78,16 @@ class CustomerUpdate(BaseModel):
     birthdate: Optional[date] = None
     id_card_number: Optional[str] = Field(None, max_length=12)
     passport_no: Optional[str] = Field(None, max_length=50)
+    billing_address_line1: Optional[str] = Field(None, max_length=255)
+    billing_address_line2: Optional[str] = Field(None, max_length=255)
+    billing_city: Optional[str] = Field(None, max_length=120)
+    billing_state: Optional[str] = Field(None, max_length=120)
+    billing_postal_code: Optional[str] = Field(None, max_length=20)
+    shipping_address_line1: Optional[str] = Field(None, max_length=255)
+    shipping_address_line2: Optional[str] = Field(None, max_length=255)
+    shipping_city: Optional[str] = Field(None, max_length=120)
+    shipping_state: Optional[str] = Field(None, max_length=120)
+    shipping_postal_code: Optional[str] = Field(None, max_length=20)
     payment_address: Optional[str] = None
     delivery_address: Optional[str] = None
     bank_details: Optional[str] = None
@@ -72,6 +111,31 @@ class Customer(CustomerBase, TijaeroBaseSchema):
     updated_by: Optional[int] = None
     created_by_name: Optional[str] = None
     updated_by_name: Optional[str] = None
+
+class CustomerContactPersonBase(BaseModel):
+    title: Optional[str] = Field(None, max_length=30)
+    full_name: str = Field(..., min_length=1, max_length=255)
+    designation: Optional[str] = Field(None, max_length=255)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(None, max_length=20)
+    is_primary: bool = False
+
+class CustomerContactPersonCreate(CustomerContactPersonBase):
+    pass
+
+class CustomerContactPersonUpdate(BaseModel):
+    title: Optional[str] = Field(None, max_length=30)
+    full_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    designation: Optional[str] = Field(None, max_length=255)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(None, max_length=20)
+    is_primary: Optional[bool] = None
+
+class CustomerContactPerson(CustomerContactPersonBase, TijaeroBaseSchema):
+    id: int
+    customer_id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 class CustomerList(BaseModel):
     total: int

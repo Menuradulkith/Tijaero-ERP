@@ -584,7 +584,7 @@ export default function CommissionPaymentsPage() {
                   }))
                 }
                 renderInput={(params) => (
-                  <TextField {...params} label="Customer Agent *" placeholder="Select agent..." />
+                  <TextField {...params} label="Customer Agent" placeholder="Select agent..." required />
                 )}
               />
               <TextField
@@ -623,7 +623,7 @@ export default function CommissionPaymentsPage() {
               <TextField
                 select
                 size="small"
-                label="Branch *"
+                label="Branch"
                 value={formData.branch_code}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, branch_code: e.target.value }))
@@ -642,7 +642,7 @@ export default function CommissionPaymentsPage() {
             {formData.payment_method === "Bank Transfer" && (
               <FormSection title="Bank Transfer Details" columns={2}>
                 <TextField
-                  label="Bank Name *"
+                  label="Bank Name"
                   size="small"
                   value={formData.bank_name}
                   onChange={(e) =>
@@ -651,7 +651,7 @@ export default function CommissionPaymentsPage() {
                   required
                 />
                 <TextField
-                  label="Reference Number *"
+                  label="Reference Number"
                   size="small"
                   value={formData.reference_number}
                   onChange={(e) =>
@@ -666,7 +666,7 @@ export default function CommissionPaymentsPage() {
             {formData.payment_method === "Cheque" && (
               <FormSection title="Cheque Details" columns={2}>
                 <TextField
-                  label="Cheque Number *"
+                  label="Cheque Number"
                   size="small"
                   value={formData.reference_number}
                   onChange={(e) =>
@@ -676,7 +676,7 @@ export default function CommissionPaymentsPage() {
                   required
                 />
                 <TextField
-                  label="Bank Name *"
+                  label="Bank Name"
                   size="small"
                   value={formData.bank_name}
                   onChange={(e) =>

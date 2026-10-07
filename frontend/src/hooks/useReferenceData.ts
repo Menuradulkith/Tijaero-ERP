@@ -91,6 +91,8 @@ export interface SupplierRef {
 export interface CustomerRef {
   id: number;
   customer_name: string;
+  customer_type?: "individual" | "business";
+  company_name?: string;
   mobile_contact_number?: string;
   email?: string;
   is_customer_agent?: boolean;

@@ -5,6 +5,7 @@ from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
 from app.modules.customers import schemas, service
+from app.modules.customers.enums import CustomerType
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
@@ -25,10 +26,13 @@ def list_customers(
         100, ge=1, le=100000, description="Maximum number of records to return"
     ),
     active_only: bool = Query(False, description="Only return active customers"),
+    customer_type: Optional[CustomerType] = Query(None, description="Filter by customer type (individual / business)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
-    return service.customer_service.get_all_customers(db, skip, limit, active_only)
+    return service.customer_service.get_all_customers(
+        db, skip, limit, active_only, customer_type.value if customer_type else None
+    )
 
 
 @router.get(
@@ -42,10 +46,13 @@ def search_customers(
     q: str = Query(..., min_length=1, description="Search query"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
+    customer_type: Optional[CustomerType] = Query(None, description="Filter by customer type (individual / business)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
-    return service.customer_service.search_customers(db, q, skip, limit)
+    return service.customer_service.search_customers(
+        db, q, skip, limit, customer_type.value if customer_type else None
+    )
 
 
 import csv
@@ -161,6 +168,68 @@ def create_customer(
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_CREATE)),
 ):
     return service.customer_service.create_customer(db, customer, current_user.id)
+
+
+@router.get(
+    "/{customer_id}/contact-persons",
+    response_model=List[schemas.CustomerContactPerson],
+    summary="List Customer Contact Persons",
+    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+)
+def list_customer_contact_persons(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+):
+    return service.contact_person_service.list_contacts(db, customer_id)
+
+
+@router.post(
+    "/{customer_id}/contact-persons",
+    response_model=schemas.CustomerContactPerson,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add Customer Contact Person",
+    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
+)
+def create_customer_contact_person(
+    customer_id: int,
+    payload: schemas.CustomerContactPersonCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
+):
+    return service.contact_person_service.create_contact(db, customer_id, payload, current_user.id)
+
+
+@router.patch(
+    "/{customer_id}/contact-persons/{contact_id}",
+    response_model=schemas.CustomerContactPerson,
+    summary="Update Customer Contact Person",
+    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
+)
+def update_customer_contact_person(
+    customer_id: int,
+    contact_id: int,
+    payload: schemas.CustomerContactPersonUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
+):
+    return service.contact_person_service.update_contact(db, customer_id, contact_id, payload, current_user.id)
+
+
+@router.delete(
+    "/{customer_id}/contact-persons/{contact_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete Customer Contact Person",
+    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
+)
+def delete_customer_contact_person(
+    customer_id: int,
+    contact_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
+):
+    service.contact_person_service.delete_contact(db, customer_id, contact_id)
+    return None
 
 
 from datetime import date
