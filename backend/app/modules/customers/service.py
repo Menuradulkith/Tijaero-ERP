@@ -7,7 +7,7 @@ from decimal import Decimal
 from app.core import timezone as tz
 from app.common.audit import log_audit, diff_changes
 from app.modules.customers import repository, schemas
-from app.modules.customers.models import Customer, CustomerCuponCodes, CouponUsage, CustomerGiftVoucher, VoucherUsage
+from app.modules.customers.models import Customer, CustomerContactPerson, CustomerCuponCodes, CouponUsage, CustomerGiftVoucher, VoucherUsage
 from app.modules.products.models import Product
 
 class CustomerService:
@@ -44,13 +44,13 @@ class CustomerService:
         self._attach_user_names(db, [customer])
         return customer
 
-    def get_all_customers(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[Customer]:
-        customers = repository.customer_repository.get_all(db, skip, limit, active_only)
+    def get_all_customers(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False, customer_type: Optional[str] = None) -> List[Customer]:
+        customers = repository.customer_repository.get_all(db, skip, limit, active_only, customer_type)
         self._attach_user_names(db, customers)
         return customers
 
-    def search_customers(self, db: Session, query: str, skip: int = 0, limit: int = 100) -> List[Customer]:
-        customers = repository.customer_repository.search(db, query, skip, limit)
+    def search_customers(self, db: Session, query: str, skip: int = 0, limit: int = 100, customer_type: Optional[str] = None) -> List[Customer]:
+        customers = repository.customer_repository.search(db, query, skip, limit, customer_type)
         self._attach_user_names(db, customers)
         return customers
 
@@ -863,3 +863,111 @@ class VoucherService:
         )
 
 voucher_service = VoucherService()
+
+class CustomerContactPersonService:
+    """Contact persons of a business customer. At most one is primary."""
+
+    def _business_customer(self, db: Session, customer_id: int) -> Customer:
+        customer = repository.customer_repository.get_by_id(db, customer_id)
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Customer with id {customer_id} not found",
+            )
+        if customer.customer_type != "business":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Contact persons can only be added to business customers",
+            )
+        return customer
+
+    def _owned(self, db: Session, customer_id: int, contact_id: int) -> CustomerContactPerson:
+        contact = db.query(CustomerContactPerson).filter(
+            CustomerContactPerson.id == contact_id,
+            CustomerContactPerson.customer_id == customer_id,
+        ).first()
+        if not contact:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Contact person with id {contact_id} not found for this customer",
+            )
+        return contact
+
+    @staticmethod
+    def _clear_primary(db: Session, customer_id: int, except_id: Optional[int] = None) -> None:
+        q = db.query(CustomerContactPerson).filter(
+            CustomerContactPerson.customer_id == customer_id,
+            CustomerContactPerson.is_primary == True,  # noqa: E712
+        )
+        if except_id is not None:
+            q = q.filter(CustomerContactPerson.id != except_id)
+        q.update({"is_primary": False}, synchronize_session=False)
+
+    def list_contacts(self, db: Session, customer_id: int) -> List[CustomerContactPerson]:
+        if not repository.customer_repository.get_by_id(db, customer_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Customer with id {customer_id} not found",
+            )
+        return (
+            db.query(CustomerContactPerson)
+            .filter(CustomerContactPerson.customer_id == customer_id)
+            .order_by(CustomerContactPerson.is_primary.desc(), CustomerContactPerson.id)
+            .all()
+        )
+
+    def create_contact(
+        self, db: Session, customer_id: int, data: schemas.CustomerContactPersonCreate, user_id: int
+    ) -> CustomerContactPerson:
+        self._business_customer(db, customer_id)
+        existing = db.query(CustomerContactPerson).filter(
+            CustomerContactPerson.customer_id == customer_id
+        ).count()
+        values = data.model_dump()
+        # The first contact is primary by default.
+        is_primary = bool(values["is_primary"]) or existing == 0
+        if is_primary:
+            self._clear_primary(db, customer_id)
+        values["is_primary"] = is_primary
+        contact = CustomerContactPerson(
+            **values, customer_id=customer_id, created_by=user_id, updated_by=user_id
+        )
+        db.add(contact)
+        db.commit()
+        db.refresh(contact)
+        return contact
+
+    def update_contact(
+        self, db: Session, customer_id: int, contact_id: int,
+        data: schemas.CustomerContactPersonUpdate, user_id: int,
+    ) -> CustomerContactPerson:
+        contact = self._owned(db, customer_id, contact_id)
+        values = data.model_dump(exclude_unset=True)
+        if values.get("is_primary"):
+            self._clear_primary(db, customer_id, except_id=contact_id)
+        for field, value in values.items():
+            setattr(contact, field, value)
+        contact.updated_by = user_id
+        db.commit()
+        db.refresh(contact)
+        return contact
+
+    def delete_contact(self, db: Session, customer_id: int, contact_id: int) -> None:
+        contact = self._owned(db, customer_id, contact_id)
+        was_primary = contact.is_primary
+        db.delete(contact)
+        db.flush()
+        if was_primary:
+            # Promote the oldest remaining contact so a primary always exists.
+            nxt = (
+                db.query(CustomerContactPerson)
+                .filter(CustomerContactPerson.customer_id == customer_id)
+                .order_by(CustomerContactPerson.id)
+                .first()
+            )
+            if nxt:
+                nxt.is_primary = True
+        db.commit()
+
+
+contact_person_service = CustomerContactPersonService()

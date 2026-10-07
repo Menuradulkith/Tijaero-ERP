@@ -38,6 +38,7 @@ import {
     CouponValidationResponse,
     VoucherValidationResponse,
 } from "@/modules/customers/types";
+import { customerDisplayName } from "@/modules/customers/types";
 import { creditNotesApi } from "@/modules/finance/api";
 import { settingsApi } from "@/modules/settings/api";
 import { salesStockApi } from "@/modules/inventory/api";
@@ -733,7 +734,7 @@ export default function SalesPage() {
       filteredInvoices.map((invoice) => ({
         ...invoice,
         customer_name:
-          customers?.find((c) => c.id === invoice.customer_id)?.customer_name ||
+          customerDisplayName(customers?.find((c) => c.id === invoice.customer_id)) ||
           "Unknown Customer",
         branch_name:
           branches.find((b) => b.branch_code === invoice.branch_code)?.branch_name ||
@@ -1460,7 +1461,7 @@ export default function SalesPage() {
           const customer = customers?.find(
             (c) => c.id === state.formData.customer_id,
           );
-          const customerName = customer?.customer_name || "Customer";
+          const customerName = customerDisplayName(customer) || "Customer";
 
           const detailLines: {
             label: string;
@@ -2239,7 +2240,7 @@ export default function SalesPage() {
           <TextField
             label="Customer Name"
             size="small"
-            value={customer?.customer_name || ""}
+            value={customerDisplayName(customer) || ""}
             disabled
           />
           <TextField
@@ -2794,7 +2795,7 @@ export default function SalesPage() {
             <Autocomplete
               size="small"
               options={customers || []}
-              getOptionLabel={(option) => option.customer_name || ""}
+              getOptionLabel={(option) => customerDisplayName(option) || ""}
               value={
                 customers?.find((c) => c.id === state.formData.customer_id) ||
                 null

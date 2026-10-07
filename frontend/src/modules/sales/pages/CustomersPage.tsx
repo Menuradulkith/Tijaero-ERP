@@ -8,6 +8,9 @@ import HistoryIcon from "@mui/icons-material/History";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
+import LocationOnOutlinedIcon from "@mui/icons-material/LocationOnOutlined";
+import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import {
   Avatar,
   Box,
@@ -16,7 +19,6 @@ import {
   IconButton,
   InputAdornment,
   MenuItem,
-  Paper,
   Switch,
   TextField,
   Tooltip,
@@ -25,7 +27,7 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   TChip,
@@ -47,12 +49,22 @@ import {
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
+  TTabs,
+  TTabPanel,
+  type TTabConfig,
   SelectableListItem,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
+import CustomerContactPersons from "@/modules/sales/components/CustomerContactPersons";
 import { customersApi } from "@/modules/customers/api";
-import { Customer, CustomerCreate } from "@/modules/customers/types";
+import {
+  Customer,
+  CustomerContactPersonCreate,
+  CustomerCreate,
+  CustomerType,
+  customerDisplayName,
+} from "@/modules/customers/types";
 
 // Status filter options
 const CUSTOMER_STATUS_OPTIONS = [
@@ -65,13 +77,32 @@ const AGENT_FILTER_OPTIONS = [
   { value: "non-agent", label: "Non-Agents" },
 ];
 
+const CUSTOMER_TYPE_OPTIONS = [
+  { value: "individual", label: "Individual" },
+  { value: "business", label: "Company" },
+];
+
+type CustomerSection = "general" | "address" | "contactPerson" | "payment";
+
+// Same section layout as the Suppliers page. "Contact Person" only applies
+// to company customers, so it is dropped from the list for individuals.
+const CUSTOMER_DETAIL_TABS: (TTabConfig & { id: CustomerSection })[] = [
+  { id: "general", label: "General", icon: <PersonIcon fontSize="small" /> },
+  { id: "address", label: "Address", icon: <LocationOnOutlinedIcon fontSize="small" /> },
+  { id: "contactPerson", label: "Contact Person", icon: <PersonOutlineIcon fontSize="small" /> },
+  { id: "payment", label: "Payment", icon: <AccountBalanceWalletOutlinedIcon fontSize="small" /> },
+];
+
 const INITIAL_FORM_DATA: CustomerCreate = {
+  customer_type: "individual",
   customer_name: "",
   title: "mr",
   email: "",
   mobile_contact_number: "",
   home_contact_number: "",
   company_name: "",
+  tax_registration_number: "",
+  company_registration_number: "",
   occupation: "",
   gender: "m",
   civil_status: "single",
@@ -79,8 +110,16 @@ const INITIAL_FORM_DATA: CustomerCreate = {
   birthdate: "",
   id_card_number: "",
   passport_no: "",
-  payment_address: "",
-  delivery_address: "",
+  billing_address_line1: "",
+  billing_address_line2: "",
+  billing_city: "",
+  billing_state: "",
+  billing_postal_code: "",
+  shipping_address_line1: "",
+  shipping_address_line2: "",
+  shipping_city: "",
+  shipping_state: "",
+  shipping_postal_code: "",
   bank_details: "",
   name_in_cheque_card: "",
   credit_days: 0,
@@ -91,12 +130,15 @@ const INITIAL_FORM_DATA: CustomerCreate = {
 };
 
 const resetFormFromCustomer = (customer: Customer): CustomerCreate => ({
+  customer_type: customer.customer_type,
   customer_name: customer.customer_name,
   title: customer.title,
   email: customer.email || "",
-  mobile_contact_number: customer.mobile_contact_number,
+  mobile_contact_number: customer.mobile_contact_number || "",
   home_contact_number: customer.home_contact_number || "",
   company_name: customer.company_name || "",
+  tax_registration_number: customer.tax_registration_number || "",
+  company_registration_number: customer.company_registration_number || "",
   occupation: customer.occupation || "",
   gender: customer.gender,
   civil_status: customer.civil_status,
@@ -104,8 +146,16 @@ const resetFormFromCustomer = (customer: Customer): CustomerCreate => ({
   birthdate: customer.birthdate || "",
   id_card_number: customer.id_card_number || "",
   passport_no: customer.passport_no || "",
-  payment_address: customer.payment_address || "",
-  delivery_address: customer.delivery_address || "",
+  billing_address_line1: customer.billing_address_line1 || "",
+  billing_address_line2: customer.billing_address_line2 || "",
+  billing_city: customer.billing_city || "",
+  billing_state: customer.billing_state || "",
+  billing_postal_code: customer.billing_postal_code || "",
+  shipping_address_line1: customer.shipping_address_line1 || "",
+  shipping_address_line2: customer.shipping_address_line2 || "",
+  shipping_city: customer.shipping_city || "",
+  shipping_state: customer.shipping_state || "",
+  shipping_postal_code: customer.shipping_postal_code || "",
   bank_details: customer.bank_details || "",
   name_in_cheque_card: customer.name_in_cheque_card || "",
   credit_days: customer.credit_days,
@@ -147,6 +197,13 @@ export default function CustomersPage() {
   // separate "Search" step needed.
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterAgent, setFilterAgent] = useState<string | null>(null);
+  const [filterCategory, setFilterCategory] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<CustomerSection>("general");
+  // Delivery address is optional: blank means "same as payment address".
+  const [deliverySameAsPayment, setDeliverySameAsPayment] = useState(true);
+  // Contact persons entered while creating a company; saved right after the
+  // customer itself is created.
+  const [draftContactPersons, setDraftContactPersons] = useState<CustomerContactPersonCreate[]>([]);
 
   // Use reusable state hook
   const {
@@ -178,6 +235,7 @@ export default function CustomersPage() {
     setSearchQuery("");
     setFilterStatus(null);
     setFilterAgent(null);
+    setFilterCategory(null);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Data fetching - fetch ALL customers (including inactive) for this management page
@@ -208,6 +266,12 @@ export default function CustomersPage() {
       filtered = filtered.filter((customer) => customer.active === isActive);
     }
 
+    if (filterCategory) {
+      filtered = filtered.filter(
+        (customer) => customer.customer_type === filterCategory,
+      );
+    }
+
     // Apply agent filter
     if (filterAgent) {
       const isAgent = filterAgent === "agent";
@@ -226,6 +290,7 @@ export default function CustomersPage() {
     searchQuery,
     filterStatus,
     filterAgent,
+    filterCategory,
   ]);
 
   // Mutations
@@ -234,7 +299,21 @@ export default function CustomersPage() {
     invalidateQueryKeys: [["customers"], ["customers-all"], ["referenceData"]],
     successMessage: "Customer created successfully",
     errorMessage: "Failed to create customer",
-    onSuccess: (newCustomer) => {
+    onSuccess: async (newCustomer) => {
+      // Contact persons entered while creating a company are saved now that
+      // the customer has an id. A failure here shouldn't undo the customer.
+      if (newCustomer.customer_type === "business" && draftContactPersons.length > 0) {
+        try {
+          for (const draft of draftContactPersons) {
+            await customersApi.createContactPerson(newCustomer.id, draft);
+          }
+        } catch {
+          showErrorToast(
+            "Customer saved, but some contact persons could not be added. Add them from the Contact Person tab.",
+          );
+        }
+      }
+      setDraftContactPersons([]);
       // Reset state first to avoid "unsaved changes" prompt
       setIsCreating(false);
       setIsEditing(false);
@@ -276,7 +355,29 @@ export default function CustomersPage() {
     }
   }, [selectedCustomer, formData, setFormData, handleNewCustomer]);
 
-  const isFormValid = formData.customer_name && formData.mobile_contact_number;
+  const isBusiness = formData.customer_type === "business";
+  const detailTabs = useMemo(
+    () => CUSTOMER_DETAIL_TABS.filter((t) => t.id !== "contactPerson" || isBusiness),
+    [isBusiness],
+  );
+  // Falls back to General if the Contact Person tab disappears (e.g. the
+  // category is switched to Individual, or another customer is opened).
+  const currentSection: CustomerSection =
+    activeSection === "contactPerson" && !isBusiness ? "general" : activeSection;
+  // The toggle mirrors the saved data: a customer with no delivery address of
+  // their own is "same as payment address"; a new customer starts that way.
+  const savedDeliveryLine1 = selectedCustomer?.shipping_address_line1;
+  useEffect(() => {
+    setDeliverySameAsPayment(isCreating || !savedDeliveryLine1);
+  }, [selectedCustomer?.id, savedDeliveryLine1, isCreating]);
+  // Drafts belong to one "New Customer" session only.
+  useEffect(() => {
+    if (!isCreating) setDraftContactPersons([]);
+  }, [isCreating]);
+  // Individuals need a mobile number; companies need a company name instead.
+  const isFormValid =
+    formData.customer_name &&
+    (isBusiness ? formData.company_name : formData.mobile_contact_number);
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
 
@@ -324,9 +425,24 @@ export default function CustomersPage() {
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, height: "100%" }}>
             <CustomerAvatarCircle name={params.row.customer_name} size={30} />
             <Typography variant="body2" fontWeight={600}>
-              {`${params.row.title} ${params.row.customer_name}`}
+              {params.row.customer_type === "business"
+                ? params.row.customer_name
+                : `${params.row.title ?? ""} ${params.row.customer_name}`.trim()}
             </Typography>
           </Box>
+        ),
+      },
+      {
+        field: "customer_type",
+        header: "Category",
+        width: 110,
+        renderCell: (params: GridRenderCellParams<Customer>) => (
+          <TChip
+            label={params.row.customer_type === "business" ? "Company" : "Individual"}
+            size="small"
+            variant="outlined"
+            color={params.row.customer_type === "business" ? "primary" : "default"}
+          />
         ),
       },
       { field: "company_name", header: "Company", flex: 1, minWidth: 160 },
@@ -439,13 +555,23 @@ export default function CustomersPage() {
         ]}
         title={
           selectedCustomer
-            ? `${selectedCustomer.title} ${selectedCustomer.customer_name}`
+            ? customerDisplayName(selectedCustomer)
             : ""
         }
         titleIcon={<PersonIcon color="primary" />}
         isCreating={isCreating}
         createTitle="New Customer"
         noSelectionTitle="Select a Customer"
+        tabsSlot={
+          (selectedCustomer || isCreating) && (
+            <TTabs
+              tabs={detailTabs}
+              activeTab={currentSection}
+              onChange={(id) => setActiveSection(id as CustomerSection)}
+              showDivider={false}
+            />
+          )
+        }
         chips={
           selectedCustomer
             ? [
@@ -490,26 +616,64 @@ export default function CustomersPage() {
           />
         ) : (
           <>
+            <TTabPanel value={currentSection} index="general" padding={0}>
             {/* Personal Information */}
-            <FormSection title="Personal Information" columns={3}>
+            <FormSection
+              title={isBusiness ? "Company Information" : "Personal Information"}
+              columns={3}
+            >
               <TextField
-                label="Title"
+                label="Customer Category"
                 size="small"
                 select
-                value={formData.title}
+                value={formData.customer_type ?? "individual"}
                 onChange={(e) =>
-                  setFormData({ ...formData, title: e.target.value })
+                  setFormData({
+                    ...formData,
+                    customer_type: e.target.value as CustomerType,
+                  })
                 }
-                disabled={isDisabled}
+                // Category is fixed once a customer exists; changing it later
+                // would orphan the type-specific fields.
+                disabled={!isCreating}
               >
-                {TITLE_CHOICES.map((option) => (
+                {CUSTOMER_TYPE_OPTIONS.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
                     {option.label}
                   </MenuItem>
                 ))}
               </TextField>
+              {isBusiness ? (
+                <TextField
+                  label="Company Name"
+                  size="small"
+                  value={formData.company_name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, company_name: e.target.value })
+                  }
+                  disabled={isDisabled}
+                  required
+                />
+              ) : (
+                <TextField
+                  label="Title"
+                  size="small"
+                  select
+                  value={formData.title}
+                  onChange={(e) =>
+                    setFormData({ ...formData, title: e.target.value })
+                  }
+                  disabled={isDisabled}
+                >
+                  {TITLE_CHOICES.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
               <TextField
-                label="Customer Name"
+                label={isBusiness ? "Contact Person" : "Customer Name"}
                 size="small"
                 value={formData.customer_name}
                 onChange={(e) =>
@@ -518,24 +682,55 @@ export default function CustomersPage() {
                 disabled={isDisabled}
                 required
               />
-              <TextField
-                label="Company Name"
-                size="small"
-                value={formData.company_name}
-                onChange={(e) =>
-                  setFormData({ ...formData, company_name: e.target.value })
-                }
-                disabled={isDisabled}
-              />
-              <TextField
-                label="Occupation"
-                size="small"
-                value={formData.occupation}
-                onChange={(e) =>
-                  setFormData({ ...formData, occupation: e.target.value })
-                }
-                disabled={isDisabled}
-              />
+              {isBusiness ? (
+                <>
+                  <TextField
+                    label="Tax Registration No"
+                    size="small"
+                    value={formData.tax_registration_number}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        tax_registration_number: e.target.value,
+                      })
+                    }
+                    disabled={isDisabled}
+                  />
+                  <TextField
+                    label="Company Registration No"
+                    size="small"
+                    value={formData.company_registration_number}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        company_registration_number: e.target.value,
+                      })
+                    }
+                    disabled={isDisabled}
+                  />
+                </>
+              ) : (
+                <>
+                  <TextField
+                    label="Company Name"
+                    size="small"
+                    value={formData.company_name}
+                    onChange={(e) =>
+                      setFormData({ ...formData, company_name: e.target.value })
+                    }
+                    disabled={isDisabled}
+                  />
+                  <TextField
+                    label="Occupation"
+                    size="small"
+                    value={formData.occupation}
+                    onChange={(e) =>
+                      setFormData({ ...formData, occupation: e.target.value })
+                    }
+                    disabled={isDisabled}
+                  />
+                </>
+              )}
             </FormSection>
 
             {/* Contact Information */}
@@ -561,7 +756,7 @@ export default function CustomersPage() {
                   })
                 }
                 disabled={isDisabled}
-                required
+                required={!isBusiness}
               />
               <TextField
                 label="Home Contact"
@@ -577,7 +772,8 @@ export default function CustomersPage() {
               />
             </FormSection>
 
-            {/* ID & Documents */}
+            {/* ID & Documents (individuals only) */}
+            {!isBusiness && (
             <FormSection title="ID & Documents" columns={2}>
               <TextField
                 label="ID Card Number"
@@ -598,33 +794,159 @@ export default function CustomersPage() {
                 disabled={isDisabled}
               />
             </FormSection>
+            )}
 
-            {/* Address */}
-            <FormSection title="Address" columns={2}>
-              <TextField
-                label="Payment Address"
-                size="small"
-                value={formData.payment_address}
-                onChange={(e) =>
-                  setFormData({ ...formData, payment_address: e.target.value })
+            {/* Activity History (view mode only) */}
+            {selectedCustomer && !isCreating && !isEditing && (
+              <FormSection
+                title="Activity History"
+                columns={2}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                 }
+              >
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Created By
+                  </Typography>
+                  <Typography variant="body2">
+                    {selectedCustomer.created_by_name || "-"}
+                    {selectedCustomer.created_at ? ` on ${formatDateTimeReadable(selectedCustomer.created_at)}` : ""}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Last Modified By
+                  </Typography>
+                  <Typography variant="body2">
+                    {selectedCustomer.updated_by_name || "-"}
+                    {selectedCustomer.updated_at ? ` on ${formatDateTimeReadable(selectedCustomer.updated_at)}` : ""}
+                  </Typography>
+                </Box>
+              </FormSection>
+            )}
+            </TTabPanel>
+
+            <TTabPanel value={currentSection} index="address" padding={0} sx={{ pt: 2 }}>
+            <FormSection title="Payment Address" columns={2}>
+              <TextField
+                label="Address Line 1"
+                size="small"
+                value={formData.billing_address_line1}
+                onChange={(e) => setFormData({ ...formData, billing_address_line1: e.target.value })}
                 disabled={isDisabled}
-                multiline
-                rows={2}
               />
               <TextField
-                label="Delivery Address"
+                label="Address Line 2"
                 size="small"
-                value={formData.delivery_address}
-                onChange={(e) =>
-                  setFormData({ ...formData, delivery_address: e.target.value })
-                }
+                value={formData.billing_address_line2}
+                onChange={(e) => setFormData({ ...formData, billing_address_line2: e.target.value })}
                 disabled={isDisabled}
-                multiline
-                rows={2}
+              />
+              <TextField
+                label="City"
+                size="small"
+                value={formData.billing_city}
+                onChange={(e) => setFormData({ ...formData, billing_city: e.target.value })}
+                disabled={isDisabled}
+              />
+              <TextField
+                label="State / Province"
+                size="small"
+                value={formData.billing_state}
+                onChange={(e) => setFormData({ ...formData, billing_state: e.target.value })}
+                disabled={isDisabled}
+              />
+              <TextField
+                label="Postal Code"
+                size="small"
+                value={formData.billing_postal_code}
+                onChange={(e) => setFormData({ ...formData, billing_postal_code: e.target.value })}
+                disabled={isDisabled}
               />
             </FormSection>
 
+            <FormSection title="Delivery Address" columns={2}>
+              <FormControlLabel
+                sx={{ gridColumn: "span 2" }}
+                control={
+                  <Switch
+                    checked={deliverySameAsPayment}
+                    disabled={isDisabled}
+                    onChange={(e) => {
+                      const same = e.target.checked;
+                      setDeliverySameAsPayment(same);
+                      if (same) {
+                        setFormData({
+                          ...formData,
+                          shipping_address_line1: "",
+                          shipping_address_line2: "",
+                          shipping_city: "",
+                          shipping_state: "",
+                          shipping_postal_code: "",
+                        });
+                      }
+                    }}
+                  />
+                }
+                label="Same as payment address"
+              />
+              {!deliverySameAsPayment && (
+                <>
+                  <TextField
+                    label="Address Line 1"
+                    size="small"
+                    value={formData.shipping_address_line1}
+                    onChange={(e) => setFormData({ ...formData, shipping_address_line1: e.target.value })}
+                    disabled={isDisabled}
+                  />
+                  <TextField
+                    label="Address Line 2"
+                    size="small"
+                    value={formData.shipping_address_line2}
+                    onChange={(e) => setFormData({ ...formData, shipping_address_line2: e.target.value })}
+                    disabled={isDisabled}
+                  />
+                  <TextField
+                    label="City"
+                    size="small"
+                    value={formData.shipping_city}
+                    onChange={(e) => setFormData({ ...formData, shipping_city: e.target.value })}
+                    disabled={isDisabled}
+                  />
+                  <TextField
+                    label="State / Province"
+                    size="small"
+                    value={formData.shipping_state}
+                    onChange={(e) => setFormData({ ...formData, shipping_state: e.target.value })}
+                    disabled={isDisabled}
+                  />
+                  <TextField
+                    label="Postal Code"
+                    size="small"
+                    value={formData.shipping_postal_code}
+                    onChange={(e) => setFormData({ ...formData, shipping_postal_code: e.target.value })}
+                    disabled={isDisabled}
+                  />
+                </>
+              )}
+            </FormSection>
+            </TTabPanel>
+
+            <TTabPanel value={currentSection} index="contactPerson" padding={0} sx={{ pt: 2 }}>
+              <CustomerContactPersons
+                customerId={selectedCustomer && !isCreating ? selectedCustomer.id : undefined}
+                canEdit={canUpdate || isCreating}
+                drafts={draftContactPersons}
+                onDraftsChange={setDraftContactPersons}
+              />
+            </TTabPanel>
+
+            <TTabPanel value={currentSection} index="payment" padding={0} sx={{ pt: 2 }}>
             {/* Banking Details */}
             <FormSection title="Banking Details" columns={2}>
               <TextField
@@ -726,40 +1048,7 @@ export default function CustomersPage() {
                 />
               )}
             </FormSection>
-
-            {/* Activity History (view mode only) */}
-            {selectedCustomer && !isCreating && !isEditing && (
-              <FormSection
-                title="Activity History"
-                columns={2}
-                titleAction={
-                  <Tooltip title="View activity history">
-                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
-                      <HistoryIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                }
-              >
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Created By
-                  </Typography>
-                  <Typography variant="body2">
-                    {selectedCustomer.created_by_name || "-"}
-                    {selectedCustomer.created_at ? ` on ${formatDateTimeReadable(selectedCustomer.created_at)}` : ""}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Last Modified By
-                  </Typography>
-                  <Typography variant="body2">
-                    {selectedCustomer.updated_by_name || "-"}
-                    {selectedCustomer.updated_at ? ` on ${formatDateTimeReadable(selectedCustomer.updated_at)}` : ""}
-                  </Typography>
-                </Box>
-              </FormSection>
-            )}
+            </TTabPanel>
           </>
         )}
       </Box>
@@ -816,7 +1105,17 @@ export default function CustomersPage() {
                   size="small"
                 />
               </Box>
-              {(searchQuery || filterStatus || filterAgent) && (
+              <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+                <TStatusFilter
+                  options={CUSTOMER_TYPE_OPTIONS}
+                  value={filterCategory}
+                  onChange={setFilterCategory}
+                  label=""
+                  placeholder="All Categories"
+                  size="small"
+                />
+              </Box>
+              {(searchQuery || filterStatus || filterAgent || filterCategory) && (
                 <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
                   Clear
                 </Button>

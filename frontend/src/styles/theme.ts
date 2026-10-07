@@ -415,6 +415,21 @@ export const createAppTheme = (mode: PaletteMode) => {
           },
         },
       },
+      // The asterisk MUI adds to a required field's label (any TextField,
+      // Select, or Autocomplete renderInput with `required`) — a single
+      // override so every mandatory field's marker looks identical app-wide,
+      // instead of relying on each page's label text (some hand-typed a
+      // plain " *" that didn't match this at all; those were normalized to
+      // use `required` instead — see ui-theme-conventions memory).
+      MuiFormLabel: {
+        styleOverrides: {
+          asterisk: {
+            color: "#D9534F", // palette.error.main — kept as a literal since
+            // styleOverrides here are static objects, not theme callbacks.
+            fontWeight: 700,
+          },
+        },
+      },
       MuiTextField: {
         styleOverrides: {
           root: {

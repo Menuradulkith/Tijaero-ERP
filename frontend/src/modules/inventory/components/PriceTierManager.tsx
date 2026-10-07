@@ -297,15 +297,16 @@ const PriceTierManager: React.FC<PriceTierManagerProps> = ({
         <DialogContent>
           <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2, mt: 1 }}>
             <TextField
-              label="Cost Price *"
+              label="Cost Price"
               type="number"
               value={form.cost_price}
               onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
               inputProps={{ min: 0, step: "0.01" }}
               fullWidth
+              required
             />
             <TextField
-              label="Min. Selling Price *"
+              label="Min. Selling Price"
               type="number"
               value={form.minimum_selling_price}
               onChange={(e) =>
@@ -313,14 +314,16 @@ const PriceTierManager: React.FC<PriceTierManagerProps> = ({
               }
               inputProps={{ min: 0, step: "0.01" }}
               fullWidth
+              required
             />
             <TextField
-              label="Selling Price *"
+              label="Selling Price"
               type="number"
               value={form.selling_price}
               onChange={(e) => setForm({ ...form, selling_price: e.target.value })}
               inputProps={{ min: 0, step: "0.01" }}
               fullWidth
+              required
             />
             <TextField
               label="Website Price"

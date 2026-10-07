@@ -1377,21 +1377,20 @@ export default function SuppliersPage() {
     
     switch (fieldName) {
       case 'email':
-        if (!formData.email) return 'Email is required';
+        if (!formData.email) return undefined;
         if (!emailRegex.test(formData.email)) return 'Invalid email format';
         break;
       case 'mobile_contact_number':
-        if (!formData.mobile_contact_number) return 'Mobile number is required';
+        if (!formData.mobile_contact_number) return undefined;
         if (!phoneRegex.test(formData.mobile_contact_number)) return 'Invalid phone format';
         break;
       case 'home_contact_number':
         if (formData.home_contact_number && !phoneRegex.test(formData.home_contact_number)) return 'Invalid phone format';
         break;
       case 'company_name':
-        if (!formData.company_name) return 'Company name is required';
-        break;
+        return undefined;
       case 'credit_days':
-        if (!paymentTermsChosen) return 'Please select payment terms';
+        if (!paymentTermsChosen) return undefined;
         if (formData.credit_days === undefined || formData.credit_days < 0) return 'Payment terms must be 0 days or more';
         break;
       case 'max_credit_limit':

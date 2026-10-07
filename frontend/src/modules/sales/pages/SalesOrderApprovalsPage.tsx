@@ -59,6 +59,7 @@ import { usePermission } from "@/auth/permissions";
 
 import { customersApi } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
+import { customerDisplayName } from "@/modules/customers/types";
 import { salesApi } from "@/modules/sales/api";
 import { commissionsApi } from "@/modules/sales/commission-api";
 import ApproverAuthDialog from "../../purchasing/components/ApproverAuthDialog";
@@ -174,7 +175,7 @@ export default function SalesOrderApprovalsPage() {
             const customer = customerMap.get(order.customer_id);
             return (
                 order.invoice_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                customer?.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                customerDisplayName(customer).toLowerCase().includes(searchQuery.toLowerCase()) ||
                 customer?.company_name?.toLowerCase().includes(searchQuery.toLowerCase())
             );
         });
@@ -325,7 +326,7 @@ export default function SalesOrderApprovalsPage() {
                                     <>
                                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                             <Typography component="span" variant="caption">
-                                                {orderCustomer?.customer_name || "Unknown Customer"}
+                                                {customerDisplayName(orderCustomer) || "Unknown Customer"}
                                             </Typography>
                                             <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                                                 (Customer)
@@ -361,7 +362,7 @@ export default function SalesOrderApprovalsPage() {
                         }
                         secondaryText={
                             !isSelected
-                                ? `${orderCustomer?.customer_name || "Unknown"} - ${new Date(order.created_date).toLocaleDateString()}`
+                                ? `${customerDisplayName(orderCustomer) || "Unknown"} - ${new Date(order.created_date).toLocaleDateString()}`
                                 : undefined
                         }
                     />
@@ -434,7 +435,7 @@ export default function SalesOrderApprovalsPage() {
 
                         {/* Customer Information */}
                         <FormSection title="Customer Information" columns={2}>
-                            <TextField label="Customer Name" size="small" value={customer?.customer_name || ""} disabled />
+                            <TextField label="Customer Name" size="small" value={customerDisplayName(customer) || ""} disabled />
                             <TextField label="Company" size="small" value={customer?.company_name || "N/A"} disabled />
                             <TextField label="Contact" size="small" value={customer?.mobile_contact_number || ""} disabled />
                             <TextField label="Email" size="small" value={customer?.email || "N/A"} disabled />

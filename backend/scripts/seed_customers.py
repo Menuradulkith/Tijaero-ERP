@@ -390,14 +390,11 @@ def seed_customers():
                 skipped += 1
                 continue
             db.add(Customer(
-                title="Co",
+                customer_type=CustomerType.BUSINESS.value,
                 customer_name=company,
                 company_name=company,
                 mobile_contact_number=mobile,
                 email=email,
-                gender="Other",
-                civil_status="Other",
-                no_of_kids="0",
                 credit_days=credit_days,
                 max_credit_limit=float(max_credit),
                 active=True,
@@ -511,15 +508,13 @@ def seed_customers():
         if not biz:
             print(f"   Creating business customer: {biz_name}")
             biz = Customer(
-                title="Ms",
+                customer_type=CustomerType.BUSINESS.value,
                 customer_name=biz_name,
                 company_name="Acme Corporation",
+                tax_registration_number="TAX-ACME-001",
                 mobile_contact_number="555-0200",
                 email="contact@acme.com",
-                
-                gender="Other", # Placeholder for business
-                civil_status="Other",
-                no_of_kids="0",
+
                 credit_days=60,
                 max_credit_limit=50000.00,
                 active=True,

@@ -154,7 +154,13 @@ def get_reference_data(
 
         customers = customer_service.get_all_customers(db, skip=0, limit=500)
         result["customers"] = [
-            {"id": c.id, "customer_name": c.customer_name} for c in customers
+            {
+                "id": c.id,
+                "customer_name": c.customer_name,
+                "customer_type": c.customer_type,
+                "company_name": c.company_name,
+            }
+            for c in customers
         ]
 
     if "employees" in includes:

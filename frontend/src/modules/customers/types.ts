@@ -1,20 +1,47 @@
+export type CustomerType = "individual" | "business";
+
+/** Name to show in pickers, grids and documents: the company for business
+ *  customers, the person's name for individuals. */
+export const customerDisplayName = (
+  c?: { customer_type?: CustomerType; customer_name: string; company_name?: string } | null,
+): string =>
+  !c
+    ? ""
+    : c.customer_type === "business" && c.company_name
+      ? c.company_name
+      : c.customer_name;
+
 export interface Customer {
   id: number;
   /** Sequential display number (0001, 0002, ...) shown as the grid's first column. */
   customer_no: string;
+  customer_type: CustomerType;
   customer_name: string;
-  title: string;
+  /** Person-only fields below are null for business customers. */
+  title?: string;
   email?: string;
-  mobile_contact_number: string;
+  mobile_contact_number?: string;
   home_contact_number?: string;
   company_name?: string;
+  tax_registration_number?: string;
+  company_registration_number?: string;
   occupation?: string;
-  gender: string;
-  civil_status: string;
-  no_of_kids: string;
+  gender?: string;
+  civil_status?: string;
+  no_of_kids?: string;
   birthdate?: string;
   id_card_number?: string;
   passport_no?: string;
+  billing_address_line1?: string;
+  billing_address_line2?: string;
+  billing_city?: string;
+  billing_state?: string;
+  billing_postal_code?: string;
+  shipping_address_line1?: string;
+  shipping_address_line2?: string;
+  shipping_city?: string;
+  shipping_state?: string;
+  shipping_postal_code?: string;
   payment_address?: string;
   delivery_address?: string;
   bank_details?: string;
@@ -37,19 +64,32 @@ export interface Customer {
 }
 
 export interface CustomerCreate {
+  customer_type?: CustomerType;
   customer_name: string;
-  title: string;
+  title?: string;
   email?: string;
-  mobile_contact_number: string;
+  mobile_contact_number?: string;
   home_contact_number?: string;
   company_name?: string;
+  tax_registration_number?: string;
+  company_registration_number?: string;
   occupation?: string;
-  gender: string;
-  civil_status: string;
-  no_of_kids: string;
+  gender?: string;
+  civil_status?: string;
+  no_of_kids?: string;
   birthdate?: string;
   id_card_number?: string;
   passport_no?: string;
+  billing_address_line1?: string;
+  billing_address_line2?: string;
+  billing_city?: string;
+  billing_state?: string;
+  billing_postal_code?: string;
+  shipping_address_line1?: string;
+  shipping_address_line2?: string;
+  shipping_city?: string;
+  shipping_state?: string;
+  shipping_postal_code?: string;
   payment_address?: string;
   delivery_address?: string;
   bank_details?: string;
@@ -78,6 +118,16 @@ export interface CustomerUpdate {
   birthdate?: string;
   id_card_number?: string;
   passport_no?: string;
+  billing_address_line1?: string;
+  billing_address_line2?: string;
+  billing_city?: string;
+  billing_state?: string;
+  billing_postal_code?: string;
+  shipping_address_line1?: string;
+  shipping_address_line2?: string;
+  shipping_city?: string;
+  shipping_state?: string;
+  shipping_postal_code?: string;
   payment_address?: string;
   delivery_address?: string;
   bank_details?: string;
@@ -396,3 +446,27 @@ export interface CustomerSupportUpdate {
 export interface CustomerSupportWithCallLogs extends CustomerSupport {
   call_logs: CustomerCallLog[];
 }
+
+export interface CustomerContactPerson {
+  id: number;
+  customer_id: number;
+  title?: string;
+  full_name: string;
+  designation?: string;
+  email?: string;
+  phone?: string;
+  is_primary: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CustomerContactPersonCreate {
+  title?: string;
+  full_name: string;
+  designation?: string;
+  email?: string;
+  phone?: string;
+  is_primary?: boolean;
+}
+
+export type CustomerContactPersonUpdate = Partial<CustomerContactPersonCreate>;

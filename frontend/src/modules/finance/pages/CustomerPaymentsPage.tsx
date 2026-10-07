@@ -1514,7 +1514,7 @@ export default function CustomerPaymentsPage() {
           {/* Global Payment Date Field */}
           <Box sx={{ mb: 3, maxWidth: 250 }}>
             <TextField
-              label="Payment Date *"
+              label="Payment Date"
               size="small"
               fullWidth
               type="date"
@@ -1559,10 +1559,11 @@ export default function CustomerPaymentsPage() {
                 <TextField
                   size="small"
                   type="number"
-                  label={`Amount (${currencySymbol}) *`}
+                  label={`Amount (${currencySymbol})`}
                   value={row.amount}
                   onChange={(e) => updateSplitRow(row.id, { amount: Number(e.target.value) || 0 })}
                   sx={{ width: 160 }}
+                  required
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">{currencySymbol}</InputAdornment>
@@ -1587,7 +1588,7 @@ export default function CustomerPaymentsPage() {
               {row.method === "cheque" && (
                 <Box sx={{ display: "flex", gap: 1.5, mt: 1.5, flexWrap: "wrap" }}>
                   <TextField
-                    label="Cheque Number *"
+                    label="Cheque Number"
                     size="small"
                     value={row.cheque_number}
                     onChange={(e) => updateSplitRow(row.id, { cheque_number: e.target.value.replace(/\D/g, "") })}
@@ -1603,7 +1604,7 @@ export default function CustomerPaymentsPage() {
                     renderInput={(params) => (
                       <TextField
                         {...params}
-                        label="Bank Name *"
+                        label="Bank Name"
                         size="small"
                         required
                         helperText={
@@ -1631,7 +1632,7 @@ export default function CustomerPaymentsPage() {
               {row.method === "bank_transfer" && (
                 <Box sx={{ display: "flex", gap: 1.5, mt: 1.5, flexWrap: "wrap" }}>
                   <TextField
-                    label="Reference Number *"
+                    label="Reference Number"
                     size="small"
                     value={row.bank_transfer_ref}
                     onChange={(e) => updateSplitRow(row.id, { bank_transfer_ref: e.target.value })}
@@ -1666,7 +1667,7 @@ export default function CustomerPaymentsPage() {
                   <TextField
                     select
                     size="small"
-                    label="Card Type *"
+                    label="Card Type"
                     value={row.card_id || ""}
                     onChange={(e) => updateSplitRow(row.id, { card_id: Number(e.target.value) })}
                     sx={{ minWidth: 200 }}
@@ -1686,7 +1687,7 @@ export default function CustomerPaymentsPage() {
                     ))}
                   </TextField>
                   <TextField
-                    label="Card Reference Number *"
+                    label="Card Reference Number"
                     size="small"
                     value={row.card_ref_number}
                     onChange={(e) => updateSplitRow(row.id, { card_ref_number: e.target.value })}
