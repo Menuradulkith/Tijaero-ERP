@@ -5,9 +5,11 @@
  */
 
 import { useMemo, useCallback, useState, useEffect } from "react";
+import type { GridPaginationModel } from "@mui/x-data-grid";
+import { fetchAllPages } from "@/utils/fetchAllPages";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { useCurrencyStore } from "@/state/currencyStore";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
   TextField,
@@ -51,13 +53,10 @@ import {
   PO_STATUS_FILTER_OPTIONS,
   getStatusProps,
   showErrorToast,
-  showSuccessToast,
-  showWarningToast,
   modernTableStyles,
   TConfirmDialog,
   useCrudMutation,
   useTConfirmDialog,
-  useRowSelection,
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
@@ -65,9 +64,11 @@ import {
 // ConfirmDialog now uses TConfirmDialog from tijaero
 
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
+import { addWorkingDays, todayIso } from "@/modules/purchasing/utils/workingDays";
 import { approvalsApi } from "@/modules/common/api";
 import ApproverAuthDialog from "../components/ApproverAuthDialog";
-import { useReferenceData } from "@/hooks";
+import { useReferenceData, useDebounce } from "@/hooks";
 // OPTIMIZED: Removed individual imports for productsApi, branchApi - using aggregated endpoint
 import { PurchasingOrder, PurchasingOrderWithItems, Supplier } from "@/modules/purchasing/types";
 import { Product } from "@/modules/inventory/types";
@@ -82,7 +83,6 @@ export default function POApprovalsPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<PurchasingOrderWithItems | null>(null);
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -104,12 +104,6 @@ export default function POApprovalsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
-  // Whether the Approve/Reject flow currently in progress (auth dialog,
-  // reject-reason dialog) targets the single selected order's detail view,
-  // or every row ticked in the browse table.
-  const [bulkActionActive, setBulkActionActive] = useState(false);
-  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
-
   // OPTIMIZED: Single API call for products and branches (was 2 calls)
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = (refData?.products || []) as Product[];
@@ -134,11 +128,40 @@ export default function POApprovalsPage() {
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  // Fetch orders
-  const { data: orders = [], isLoading, refetch } = useQuery({
-    queryKey: ["purchase-orders"],
-    queryFn: () => purchaseOrdersApi.getAll(),
+  // Server-side paging: only the visible page is fetched (the old unbounded
+  // list stopped at 100 orders, so a pending PO beyond that could not be
+  // approved). Filters and sorting run in the database.
+  const [paging, setPaging] = useState<GridPaginationModel>({ page: 0, pageSize: 25 });
+  const [sort, setSort] = useState<{ field: string; sort: "asc" | "desc" } | null>(null);
+  const debouncedSearch = useDebounce(searchQuery, 300);
+  const debouncedRequestedBy = useDebounce(filterRequestedBy, 300);
+
+  useEffect(() => {
+    setPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
+  }, [debouncedSearch, filterStatus, filterBranch, filterDateFrom, filterDateTo, debouncedRequestedBy, sort]);
+
+  const pageParams = (page: number, size: number) => ({
+    page,
+    size,
+    q: debouncedSearch.trim(),
+    status: filterStatus ?? undefined,
+    branch_code: filterBranch ?? undefined,
+    added_from: filterDateFrom || undefined,
+    added_to: filterDateTo || undefined,
+    requested_by: debouncedRequestedBy.trim(),
+    sort_by: sort?.field ?? "added_date",
+    order: sort?.sort ?? "desc",
+  });
+
+  const { data: ordersPage, isFetching: isLoading, refetch } = useQuery({
+    queryKey: [
+      "purchase-orders", "paged", paging.page, paging.pageSize, debouncedSearch.trim(), filterStatus, filterBranch,
+      filterDateFrom, filterDateTo, debouncedRequestedBy.trim(), sort?.field, sort?.sort,
+    ],
+    queryFn: () => purchaseOrdersApi.getPage(pageParams(paging.page, paging.pageSize)),
     enabled: branchResolved,
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 1000,
   });
 
   // Fetch suppliers (needs separate call due to complex filters)
@@ -160,48 +183,7 @@ export default function POApprovalsPage() {
     return map;
   }, [products]);
 
-  // Filter and sort orders
-  const filteredOrders = useMemo(() => {
-    let filtered = orders.filter((order) => {
-      // Status filter
-      if (filterStatus && order.status?.toLowerCase() !== filterStatus.toLowerCase()) {
-        return false;
-      }
-      // Branch filter
-      if (filterBranch && order.branch_code !== filterBranch) {
-        return false;
-      }
-      // Requested date range filter (added_date = when the order was created)
-      if (filterDateFrom && order.added_date < filterDateFrom) {
-        return false;
-      }
-      if (filterDateTo && order.added_date.slice(0, 10) > filterDateTo) {
-        return false;
-      }
-      // Requested by filter
-      if (
-        filterRequestedBy &&
-        !(order.created_by_name || "").toLowerCase().includes(filterRequestedBy.toLowerCase())
-      ) {
-        return false;
-      }
-      // Search filter
-      const supplier = supplierMap.get(order.first_suppliers_id);
-      return (
-        order.purchasing_order_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        supplier?.company_name?.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    });
-
-    // Default order before the user sorts a column in the table itself
-    // (the table's own column-header sort takes over from there).
-    filtered.sort((a, b) => {
-      const timeDiff = new Date(b.added_date).getTime() - new Date(a.added_date).getTime();
-      return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
-    });
-
-    return filtered;
-  }, [orders, searchQuery, supplierMap, filterStatus, filterBranch, filterDateFrom, filterDateTo, filterRequestedBy]);
+  const filteredOrders: PurchasingOrder[] = useMemo(() => ordersPage?.items ?? [], [ordersPage]);
 
   // Handle selection
   const handleSelectOrder = useCallback(async (order: PurchasingOrder) => {
@@ -227,9 +209,6 @@ export default function POApprovalsPage() {
     getSuccessMessage: (_data, { silent }) => (silent ? undefined : "Purchase order approved successfully"),
     errorMessage: "Failed to approve order",
     onSuccess: (_data, { poId }) => {
-      queryClient.setQueryData<PurchasingOrder[]>(["purchase-orders"], (prev) =>
-        (prev || []).map((o) => (o.id === poId ? { ...o, status: "approved" } : o))
-      );
       setSelectedOrder((prev) => (prev && prev.id === poId ? { ...prev, status: "approved" } : prev));
     },
   });
@@ -242,9 +221,6 @@ export default function POApprovalsPage() {
     getSuccessMessage: (_data, { silent }) => (silent ? undefined : "Purchase order rejected"),
     errorMessage: "Failed to reject order",
     onSuccess: (_data, { poId, remarks }) => {
-      queryClient.setQueryData<PurchasingOrder[]>(["purchase-orders"], (prev) =>
-        (prev || []).map((o) => (o.id === poId ? { ...o, status: "rejected" } : o))
-      );
       setSelectedOrder((prev) =>
         prev && prev.id === poId ? { ...prev, status: "rejected", remarks: remarks } : prev
       );
@@ -289,6 +265,27 @@ export default function POApprovalsPage() {
     const totalAmount = (selectedOrder.items || []).reduce((sum: number, item: any) => sum + (item.quantity * item.unit_price), 0);
     if (!(await runPreApproveChecks(selectedOrder, totalAmount))) return;
 
+    // Warn (but allow) when a line is below the supplier's MOQ.
+    try {
+      const shortfalls = await findMoqShortfalls(
+        selectedOrder.first_suppliers_id,
+        selectedOrder.items || [],
+        (id) => queryClient.fetchQuery({ queryKey: ["supplier-products", id], queryFn: () => suppliersApi.getProducts(id) }),
+      );
+      if (shortfalls.length > 0) {
+        const proceed = await creditWarningDialog.confirm({
+          title: "Below Minimum Order Quantity",
+          message: formatMoqMessage(supplierMap.get(selectedOrder.first_suppliers_id)?.company_name || "Unknown", shortfalls),
+          confirmText: "Approve Anyway",
+          cancelText: "Cancel",
+          confirmColor: "warning",
+        });
+        if (!proceed) return;
+      }
+    } catch {
+      // MOQ is advisory; never block the approval because the lookup failed.
+    }
+
     // Check if it's after 6pm (18:00)
     const currentHour = new Date().getHours();
     const isAfterHours = currentHour >= 18;
@@ -311,73 +308,11 @@ export default function POApprovalsPage() {
     }
 
     // Instead of immediately mutating, open the step-up auth dialog
-    setBulkActionActive(false);
-    setAuthDialogOpen(true);
-  };
-
-  // Bulk approve: same checks as the single-order flow, run for every
-  // ticked pending row, then one shared step-up auth dialog covers the
-  // whole batch.
-  const handleBulkApproveClick = async () => {
-    if (selectedPendingRows.length === 0) return;
-
-    const currentHour = new Date().getHours();
-    if (currentHour >= 18) {
-      const confirmed = await confirmDialog.confirm({
-        title: "After-Hours Approval Warning",
-        message: `It is currently after 6:00 PM (now: ${new Date().toLocaleTimeString()}). Approving purchase orders after business hours is not recommended. Do you want to approve anyway?`,
-        confirmText: "Approve Anyway",
-        cancelText: "Cancel",
-        confirmColor: "warning",
-      });
-      if (!confirmed) return;
-    }
-
-    for (const row of selectedPendingRows) {
-      if (!(await runPreApproveChecks(row, row.total_amount))) return;
-    }
-
-    if (selectedPendingRows.some((row) => !row.approval_id)) {
-      showErrorToast("One or more selected orders have no approval record. Please contact support.");
-      return;
-    }
-
-    setBulkActionActive(true);
     setAuthDialogOpen(true);
   };
 
   const handleAuthSubmit = async (username: string, password: string) => {
     const credentials = { approver_username: username, approver_password: password };
-
-    if (bulkActionActive) {
-      setIsBulkProcessing(true);
-      const failed: string[] = [];
-      for (const row of selectedPendingRows) {
-        if (!row.approval_id) continue;
-        try {
-          await approveMutation.mutateAsync({
-            approvalId: row.approval_id,
-            poId: row.id,
-            credentials,
-            silent: true,
-          });
-        } catch {
-          failed.push(row.purchasing_order_no || `#${row.id}`);
-        }
-      }
-      const succeededCount = selectedPendingRows.length - failed.length;
-      if (failed.length === 0) {
-        showSuccessToast(`${succeededCount} purchase order(s) approved successfully`);
-      } else if (succeededCount > 0) {
-        showWarningToast(`${succeededCount} order(s) approved, but failed for: ${failed.join(", ")}`);
-      } else {
-        showErrorToast(`Failed to approve order(s): ${failed.join(", ")}`);
-      }
-      rowSelection.clearSelection();
-      setAuthDialogOpen(false);
-      setIsBulkProcessing(false);
-      return;
-    }
 
     if (!selectedOrder || !selectedOrder.approval_id) return;
     approveMutation.mutate(
@@ -395,40 +330,6 @@ export default function POApprovalsPage() {
   const handleReject = () => {
     if (!rejectReason.trim()) return;
 
-    if (bulkActionActive) {
-      if (selectedPendingRows.length === 0) return;
-      setIsBulkProcessing(true);
-      (async () => {
-        const failed: string[] = [];
-        for (const row of selectedPendingRows) {
-          if (!row.approval_id) continue;
-          try {
-            await rejectMutation.mutateAsync({
-              approvalId: row.approval_id,
-              poId: row.id,
-              remarks: rejectReason,
-              silent: true,
-            });
-          } catch {
-            failed.push(row.purchasing_order_no || `#${row.id}`);
-          }
-        }
-        const succeededCount = selectedPendingRows.length - failed.length;
-        if (failed.length === 0) {
-          showSuccessToast(`${succeededCount} purchase order(s) rejected`);
-        } else if (succeededCount > 0) {
-          showWarningToast(`${succeededCount} order(s) rejected, but failed for: ${failed.join(", ")}`);
-        } else {
-          showErrorToast(`Failed to reject order(s): ${failed.join(", ")}`);
-        }
-        rowSelection.clearSelection();
-        setRejectDialogOpen(false);
-        setRejectReason("");
-        setIsBulkProcessing(false);
-      })();
-      return;
-    }
-
     if (selectedOrder) {
       if (!selectedOrder.approval_id) {
         showErrorToast("This order has no approval record.");
@@ -440,16 +341,6 @@ export default function POApprovalsPage() {
         remarks: rejectReason
       });
     }
-  };
-
-  const handleBulkRejectClick = () => {
-    if (selectedPendingRows.length === 0) return;
-    if (selectedPendingRows.some((row) => !row.approval_id)) {
-      showErrorToast("One or more selected orders have no approval record. Please contact support.");
-      return;
-    }
-    setBulkActionActive(true);
-    setRejectDialogOpen(true);
   };
 
   const supplier = selectedOrder ? supplierMap.get(selectedOrder.first_suppliers_id) : null;
@@ -471,20 +362,6 @@ export default function POApprovalsPage() {
       })),
     [filteredOrders, supplierMap] // eslint-disable-line react-hooks/exhaustive-deps
   );
-
-  // Rows currently ticked in the browse table, restricted to ones actually
-  // pending approval (approve/reject only make sense for those). The
-  // "select all" header checkbox produces an "exclude" model (every row
-  // except whatever's in `ids`), not "include" (just the ticked ones), so
-  // both have to be handled here.
-  const selectedPendingRows = useMemo(() => {
-    const { type, ids } = rowSelection.selectedRows;
-    const isSelected = type === "include" ? (id: number) => ids.has(id) : (id: number) => !ids.has(id);
-    if (type === "include" && ids.size === 0) return [];
-    return orderRows.filter(
-      (row) => isSelected(row.id) && (row.status || "").toLowerCase() === "pending_approval",
-    );
-  }, [rowSelection.selectedRows, orderRows]);
 
   const orderColumns: TDataGridColumn<POApprovalRow>[] = useMemo(
     () => [
@@ -581,15 +458,19 @@ export default function POApprovalsPage() {
           rows={orderRows}
           columns={orderColumns}
           loading={isLoading}
+          serverPagination={{ rowCount: ordersPage?.total ?? 0, paginationModel: paging, onPaginationModelChange: setPaging }}
+          onServerSortChange={setSort}
+          exportAllRows={() =>
+            fetchAllPages((page) => purchaseOrdersApi.getPage(pageParams(page, 200))).then((rows) =>
+              rows.map((order) => ({ ...order, supplier_display_name: getSupplierName(order.first_suppliers_id) }))
+            )
+          }
           onRowClick={(row) => handleSelectOrder(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No orders found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -680,6 +561,17 @@ export default function POApprovalsPage() {
                     ? new Date(selectedOrder.good_received_note_date).toLocaleDateString()
                     : ""
                 }
+                helperText={(() => {
+                  // Mirrors the server: an untouched creation estimate is re-based on approval.
+                  const lead = supplier?.lead_time_days;
+                  if (!selectedIsPending || !lead || lead <= 0 || !selectedOrder.good_received_note_date) return undefined;
+                  const created = addWorkingDays(selectedOrder.purchasing_order_date, lead);
+                  const current = selectedOrder.good_received_note_date.split("T")[0];
+                  const rebased = addWorkingDays(todayIso(), lead);
+                  return current === created && rebased > current
+                    ? `Will move to ${new Date(rebased + "T00:00:00").toLocaleDateString()} when approved (${lead} working days from approval)`
+                    : undefined;
+                })()}
                 disabled
               />
               <TextField label="Branch" size="small" value={selectedOrder.branch_code} disabled />
@@ -698,7 +590,7 @@ export default function POApprovalsPage() {
             {/* Supplier Information */}
             <FormSection title="Supplier Information" columns={2}>
               <TextField label="Company" size="small" value={supplier?.company_name || "N/A"} disabled />
-              <TextField label="Contact" size="small" value={supplier?.mobile_contact_number || ""} disabled />
+              <TextField label="Contact No" size="small" value={supplier?.mobile_contact_number || ""} disabled />
               <TextField label="Email" size="small" value={supplier?.email || "N/A"} disabled />
             </FormSection>
 
@@ -798,21 +690,16 @@ export default function POApprovalsPage() {
       {/* Reject Dialog */}
       <Dialog
         open={rejectDialogOpen}
-        onClose={() => {
-          setRejectDialogOpen(false);
-          setBulkActionActive(false);
-        }}
+        onClose={() => setRejectDialogOpen(false)}
         maxWidth="sm"
         fullWidth
       >
         <DialogTitle>
-          {bulkActionActive ? `Reject ${selectedPendingRows.length} Purchase Orders` : "Reject Purchase Order"}
+          Reject Purchase Order
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {bulkActionActive
-              ? `Please provide a reason for rejecting these ${selectedPendingRows.length} purchase orders.`
-              : "Please provide a reason for rejecting this purchase order."}
+            Please provide a reason for rejecting this purchase order.
           </Typography>
           <TextField
             autoFocus
@@ -825,21 +712,14 @@ export default function POApprovalsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button
-            onClick={() => {
-              setRejectDialogOpen(false);
-              setBulkActionActive(false);
-            }}
-          >
-            Cancel
-          </Button>
+          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="error"
             onClick={handleReject}
-            disabled={!rejectReason.trim() || rejectMutation.isPending || isBulkProcessing}
+            disabled={!rejectReason.trim() || rejectMutation.isPending}
           >
-            {rejectMutation.isPending || isBulkProcessing ? "Rejecting..." : "Reject Order"}
+            {rejectMutation.isPending ? "Rejecting..." : "Reject Order"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -940,32 +820,6 @@ export default function POApprovalsPage() {
             </Box>
           )
         }
-        headerActions={
-          !isPOApprovalDetailMode && selectedPendingRows.length > 0 ? (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Button
-                size="small"
-                variant="contained"
-                color="primary"
-                startIcon={<CheckCircleIcon />}
-                onClick={handleBulkApproveClick}
-                disabled={isBulkProcessing}
-              >
-                Approve ({selectedPendingRows.length})
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                color="error"
-                startIcon={<CancelIcon />}
-                onClick={handleBulkRejectClick}
-                disabled={isBulkProcessing}
-              >
-                Reject ({selectedPendingRows.length})
-              </Button>
-            </Box>
-          ) : undefined
-        }
         onRefresh={() => refetch()}
         isLoading={isLoading}
         {...(isPOApprovalDetailMode
@@ -979,13 +833,9 @@ export default function POApprovalsPage() {
 
       <ApproverAuthDialog
         open={authDialogOpen}
-        title={bulkActionActive ? `Approver Login required (${selectedPendingRows.length} orders)` : undefined}
-        onClose={() => {
-          setAuthDialogOpen(false);
-          setBulkActionActive(false);
-        }}
+        onClose={() => setAuthDialogOpen(false)}
         onSubmit={handleAuthSubmit}
-        loading={approveMutation.isPending || isBulkProcessing}
+        loading={approveMutation.isPending}
       />
 
       <TActivityHistoryPanel

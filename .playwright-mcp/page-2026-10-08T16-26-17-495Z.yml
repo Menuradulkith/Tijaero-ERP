@@ -1,0 +1,50 @@
+- generic [ref=f7e4]:
+  - generic:
+    - generic [ref=f7e5]:
+      - button "Home" [ref=f7e6] [cursor=pointer]
+      - button "Hide Sidebar" [ref=f7e9] [cursor=pointer]
+      - button "Find Page" [ref=f7e12] [cursor=pointer]
+    - banner [ref=f7e15]:
+      - generic [ref=f7e17]:
+        - generic [ref=f7e18]:
+          - paragraph [ref=f7e19]: Admin User
+          - generic [ref=f7e20]: Superuser
+        - button "0" [ref=f7e21] [cursor=pointer]
+        - button "Tijaero.AI assistant" [ref=f7e25] [cursor=pointer]: Tijaero.AI
+        - button "A" [ref=f7e29] [cursor=pointer]
+    - navigation [ref=f7e31]:
+      - generic [ref=f7e33]:
+        - heading "TijaeroERP" [level=6] [ref=f7e38]
+        - separator [ref=f7e39]
+        - list [ref=f7e41]:
+          - listitem [ref=f7e43]:
+            - button "Dashboard" [ref=f7e44] [cursor=pointer]
+          - listitem [ref=f7e51]:
+            - button "Sales" [ref=f7e52] [cursor=pointer]
+          - listitem [ref=f7e61]:
+            - button "Purchasing" [ref=f7e62] [cursor=pointer]
+          - listitem [ref=f7e71]:
+            - button "Product Catalogs" [ref=f7e72] [cursor=pointer]
+          - listitem [ref=f7e81]:
+            - button "Finance" [ref=f7e82] [cursor=pointer]
+          - listitem [ref=f7e91]:
+            - button "HR" [ref=f7e92] [cursor=pointer]
+          - listitem [ref=f7e101]:
+            - button "Sales Stock" [ref=f7e102] [cursor=pointer]
+          - listitem [ref=f7e111]:
+            - button "Company Assets" [ref=f7e112] [cursor=pointer]
+          - listitem [ref=f7e119]:
+            - button "Support" [ref=f7e120] [cursor=pointer]
+          - listitem [ref=f7e130]:
+            - button "Reporting" [ref=f7e131] [cursor=pointer]
+          - listitem [ref=f7e138]:
+            - button "Branches" [ref=f7e139] [cursor=pointer]
+          - listitem [ref=f7e146]:
+            - button "Users" [ref=f7e147] [cursor=pointer]
+          - listitem [ref=f7e154]:
+            - button "Roles" [ref=f7e155] [cursor=pointer]
+          - listitem [ref=f7e162]:
+            - button "Settings" [ref=f7e163] [cursor=pointer]
+        - separator [ref=f7e169]
+        - list [ref=f7e170]
+  - main [ref=f7e171]

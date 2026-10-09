@@ -1,10 +1,70 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import List, Optional
+from typing import Annotated, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field, StringConstraints, field_validator, model_validator
 
-from app.common.base_schemas import TijaeroBaseSchema
+from app.common.base_schemas import TijaeroBaseSchema, VersionedSchema
+
+INT4_MAX = 2_147_483_647
+MAX_MONEY = 999_999_999.99
+
+
+def _blank_to_none(v):
+    if isinstance(v, str):
+        v = v.strip()
+        return v or None
+    return v
+
+
+def OptStr(n: int):
+    return Annotated[Optional[Annotated[str, StringConstraints(max_length=n)]], BeforeValidator(_blank_to_none)]
+
+
+def ReqStr(n: int):
+    return Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=n)]
+
+
+Money = Annotated[float, Field(ge=0, le=MAX_MONEY, allow_inf_nan=False)]
+PositiveMoney = Annotated[float, Field(gt=0, le=MAX_MONEY, allow_inf_nan=False)]
+Id = Annotated[int, Field(ge=1, le=INT4_MAX)]
+
+
+def _valid_until_ok(v):
+    if v is not None:
+        today = date.today()
+        if v < today:
+            raise ValueError("Valid-until date cannot be in the past")
+        if v > today + timedelta(days=730):
+            raise ValueError("Valid-until date must be within two years")
+    return v
+
+
+def _valid_until_loose(v):
+    """Edits resend the stored date; only a changed date is checked against today (in the service)."""
+    if v is not None:
+        today = date.today()
+        if v < today - timedelta(days=3650) or v > today + timedelta(days=730):
+            raise ValueError("Valid-until date is out of range")
+    return v
+
+
+def _delivery_loose(v):
+    if v is not None:
+        today = date.today()
+        if v < today - timedelta(days=3650) or v > today + timedelta(days=1095):
+            raise ValueError("Expected delivery date is out of range")
+    return v
+
+
+def _delivery_ok(v):
+    if v is not None:
+        today = date.today()
+        if v < today:
+            raise ValueError("Expected delivery date cannot be in the past")
+        if v > today + timedelta(days=1095):
+            raise ValueError("Expected delivery date must be within three years")
+    return v
 
 
 class QuoteTypeEnum(str, Enum):
@@ -38,24 +98,34 @@ class DiscountTypeEnum(str, Enum):
 
 
 class SalesQuoteItemBase(BaseModel):
-    """Base schema for quote items"""
+    """A quotation line as submitted (strict)."""
 
-    product_id: int
-    quantity: int = Field(..., gt=0)
-    selling_price: float = Field(..., ge=0)
-    minimum_selling_price: float = Field(..., ge=0)
-    warrenty_month: str = Field(..., max_length=30)
+    product_id: Id
+    quantity: int = Field(..., ge=1, le=1_000_000)
+    selling_price: Money
+    minimum_selling_price: Money
+    warrenty_month: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^\d{0,3}$")]
 
     # Quote specific
-    min_price: Optional[float] = Field(None, ge=0)  # For estimate range
-    max_price: Optional[float] = Field(None, ge=0)  # For estimate range
+    min_price: Optional[Money] = None  # For estimate range
+    max_price: Optional[Money] = None  # For estimate range
     is_price_estimate: bool = False
-    description: Optional[str] = None
-    discount_percent: float = Field(default=0, ge=0, le=100)
-    tax_rate: float = Field(default=0, ge=0, le=100)
-    remark: Optional[str] = None
+    description: OptStr(1000) = None
+    discount_percent: float = Field(default=0, ge=0, le=100, allow_inf_nan=False)
+    tax_rate: float = Field(default=0, ge=0, le=100, allow_inf_nan=False)
+    remark: OptStr(500) = None
     # Optional price tier — when set, selling/min prices come from the tier
-    price_tier_id: Optional[int] = None
+    price_tier_id: Optional[Id] = None
+
+    @model_validator(mode="after")
+    def _price_rules(self):
+        if self.selling_price <= 0 and not self.is_price_estimate:
+            raise ValueError("Selling price must be greater than zero (only price-estimate lines may be 0)")
+        if self.minimum_selling_price > self.selling_price:
+            raise ValueError("Selling price cannot be below the minimum selling price")
+        if self.min_price is not None and self.max_price is not None and self.min_price > self.max_price:
+            raise ValueError("Estimate minimum cannot exceed the estimate maximum")
+        return self
 
 
 class SalesQuoteItemCreate(SalesQuoteItemBase):
@@ -67,19 +137,19 @@ class SalesQuoteItemCreate(SalesQuoteItemBase):
 class SalesQuoteItemUpdate(BaseModel):
     """Schema for updating a quote item"""
 
-    product_id: Optional[int] = None
-    quantity: Optional[int] = Field(None, gt=0)
-    selling_price: Optional[float] = Field(None, ge=0)
-    minimum_selling_price: Optional[float] = Field(None, ge=0)
-    warrenty_month: Optional[str] = Field(None, max_length=30)
-    min_price: Optional[float] = Field(None, ge=0)
-    max_price: Optional[float] = Field(None, ge=0)
+    product_id: Optional[Id] = None
+    quantity: Optional[int] = Field(None, ge=1, le=1_000_000)
+    selling_price: Optional[Money] = None
+    minimum_selling_price: Optional[Money] = None
+    warrenty_month: Optional[Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^\d{0,3}$")]] = None
+    min_price: Optional[Money] = None
+    max_price: Optional[Money] = None
     is_price_estimate: Optional[bool] = None
-    description: Optional[str] = None
-    discount_percent: Optional[float] = Field(None, ge=0, le=100)
-    tax_rate: Optional[float] = Field(None, ge=0, le=100)
-    remark: Optional[str] = None
-    price_tier_id: Optional[int] = None
+    description: OptStr(1000) = None
+    discount_percent: Optional[float] = Field(None, ge=0, le=100, allow_inf_nan=False)
+    tax_rate: Optional[float] = Field(None, ge=0, le=100, allow_inf_nan=False)
+    remark: OptStr(500) = None
+    price_tier_id: Optional[Id] = None
 
 
 class SalesQuoteItem(TijaeroBaseSchema):
@@ -113,78 +183,110 @@ class SalesQuoteItemWithProduct(SalesQuoteItem):
 
 
 class SalesQuoteBase(BaseModel):
-    """Base schema for sales quote"""
+    """Base schema for sales quote (strict input)"""
 
     quote_type: QuoteTypeEnum = QuoteTypeEnum.QUOTATION
-    branch_code: str = Field(..., max_length=200)
-    customer_id: int
-    sale_rep_id: Optional[int] = None  # Optional - can be assigned later
-    customer_agent_id: Optional[int] = None
+    branch_code: ReqStr(200)
+    customer_id: Id
+    sale_rep_id: Optional[Id] = None  # Optional - can be assigned later
+    customer_agent_id: Optional[Id] = None
     valid_until: date
     expected_delivery_date: Optional[date] = None
 
     # Quote specific
     is_estimate: bool = True
-    payment_terms: Optional[str] = None
-    delivery_terms: Optional[str] = None
+    payment_terms: OptStr(255) = None
+    delivery_terms: OptStr(255) = None
 
     # Notes
-    remarks: Optional[str] = None
-    customer_notes: Optional[str] = None
-    terms_conditions: Optional[str] = None
+    remarks: OptStr(2000) = None
+    customer_notes: OptStr(2000) = None
+    terms_conditions: OptStr(5000) = None
 
     # Discount
     discount_type: DiscountTypeEnum = DiscountTypeEnum.NONE
-    discount_value: float = Field(default=0, ge=0)
+    discount_value: Money = 0
 
     # Tax
-    tax_mode: str = Field(default="none")  # none, inclusive, exclusive
-    tax_rate: float = Field(default=0, ge=0, le=100)
+    tax_mode: Literal["none", "inclusive", "exclusive"] = "none"
+    tax_rate: float = Field(default=0, ge=0, le=100, allow_inf_nan=False)
 
     # Flags
     special: bool = False
+
+    _v_valid = field_validator("valid_until")(_valid_until_ok)
+    _v_delivery = field_validator("expected_delivery_date")(_delivery_ok)
+
+    @model_validator(mode="after")
+    def _cross_rules(self):
+        if self.discount_type == DiscountTypeEnum.PERCENTAGE and self.discount_value > 100:
+            raise ValueError("A percentage discount cannot exceed 100")
+        if self.customer_agent_id and self.customer_agent_id == self.customer_id:
+            raise ValueError("A customer cannot be their own agent")
+        return self
 
 
 class SalesQuoteCreate(SalesQuoteBase):
     """Schema for creating a sales quote"""
 
-    items: List[SalesQuoteItemCreate]
+    items: List[SalesQuoteItemCreate] = Field(..., min_length=1, max_length=200)
 
 
 class SalesQuoteUpdate(BaseModel):
     """Schema for updating a sales quote"""
 
-    branch_code: Optional[str] = Field(None, max_length=200)
-    customer_id: Optional[int] = None
-    sale_rep_id: Optional[int] = None  # Optional
-    customer_agent_id: Optional[int] = None
+    branch_code: Optional[ReqStr(200)] = None
+    customer_id: Optional[Id] = None
+    sale_rep_id: Optional[Id] = None  # Optional
+    customer_agent_id: Optional[Id] = None
     valid_until: Optional[date] = None
     expected_delivery_date: Optional[date] = None
 
     is_estimate: Optional[bool] = None
-    payment_terms: Optional[str] = None
-    delivery_terms: Optional[str] = None
+    payment_terms: OptStr(255) = None
+    delivery_terms: OptStr(255) = None
 
-    remarks: Optional[str] = None
-    customer_notes: Optional[str] = None
-    terms_conditions: Optional[str] = None
+    remarks: OptStr(2000) = None
+    customer_notes: OptStr(2000) = None
+    terms_conditions: OptStr(5000) = None
 
     discount_type: Optional[DiscountTypeEnum] = None
-    discount_value: Optional[float] = Field(None, ge=0)
+    discount_value: Optional[Money] = None
 
     special: Optional[bool] = None
 
-    items: Optional[List[SalesQuoteItemCreate]] = None
+    items: Optional[List[SalesQuoteItemCreate]] = Field(default=None, min_length=1, max_length=200)
+
+    # Optimistic concurrency: the `version` token of the quote you loaded.
+    expected_version: Optional[str] = Field(default=None, max_length=64)
+
+    _v_valid = field_validator("valid_until")(_valid_until_loose)
+    _v_delivery = field_validator("expected_delivery_date")(_delivery_loose)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_null_required(cls, values):
+        if isinstance(values, dict):
+            for n in ("branch_code", "customer_id", "valid_until", "discount_type", "discount_value"):
+                if n in values and values[n] is None:
+                    raise ValueError(f"{n} cannot be null")
+        return values
+
+    @model_validator(mode="after")
+    def _cross_rules(self):
+        if self.discount_type == DiscountTypeEnum.PERCENTAGE and (self.discount_value or 0) > 100:
+            raise ValueError("A percentage discount cannot exceed 100")
+        return self
 
 
 class SalesQuoteStatusUpdate(BaseModel):
     """Schema for updating quote status"""
 
     status: QuoteStatusEnum
-    remarks: Optional[str] = None
+    remarks: OptStr(2000) = None
 
 
-class SalesQuote(TijaeroBaseSchema):
+class SalesQuote(TijaeroBaseSchema, VersionedSchema):
     """Schema for sales quote response"""
 
     id: int
@@ -291,16 +393,16 @@ class ConvertToInvoiceRequest(BaseModel):
     """Schema for converting quote to invoice"""
 
     payment_method: str = Field(..., max_length=30)
-    cash_amount: float = Field(default=0, ge=0)
-    card_visa_amount: float = Field(default=0, ge=0)
-    card_mastercard_amount: float = Field(default=0, ge=0)
-    card_amex_amount: float = Field(default=0, ge=0)
-    cheque_amount: float = Field(default=0, ge=0)
+    cash_amount: Money = 0
+    card_visa_amount: Money = 0
+    card_mastercard_amount: Money = 0
+    card_amex_amount: Money = 0
+    cheque_amount: Money = 0
     cheque_date: Optional[date] = None
-    bank_transfer_amount: float = Field(default=0, ge=0)
-    credit_amount: float = Field(default=0, ge=0)
-    payment_adjustments: float = Field(default=0)
-    remarks: Optional[str] = None
+    bank_transfer_amount: Money = 0
+    credit_amount: Money = 0
+    payment_adjustments: float = Field(default=0, ge=-MAX_MONEY, le=MAX_MONEY, allow_inf_nan=False)
+    remarks: OptStr(2000) = None
 
 
 class ConvertToInvoiceResponse(BaseModel):
@@ -315,25 +417,30 @@ class ConvertToInvoiceResponse(BaseModel):
 
 class PartialSOItemRequest(BaseModel):
     """One item to include in a partial SO conversion"""
-    item_id: int  # SalesQuoteItem.id
-    quantity: int = Field(..., gt=0)  # quantity to convert (may be less than total)
+    item_id: Id  # SalesQuoteItem.id
+    quantity: int = Field(..., ge=1, le=1_000_000)  # quantity to convert (may be less than total)
 
 
 class CreatePartialSORequest(BaseModel):
     """Request to create a Sales Order from selected/partial quotation items"""
-    items: List[PartialSOItemRequest] = Field(..., min_length=1)
+    items: List[PartialSOItemRequest] = Field(..., min_length=1, max_length=200)
     payment_method: str = Field(default="cash", max_length=30)
-    remarks: Optional[str] = None
+    remarks: OptStr(2000) = None
 
 
 class CancelQuoteItemRequest(BaseModel):
     """Request to cancel one item on a quotation"""
-    reason: Optional[str] = None
+    reason: OptStr(500) = None
+
+
+class CancelQuoteRequest(BaseModel):
+    """Cancelling a quotation needs a reason."""
+    reason: ReqStr(500)
 
 
 class MarkQuoteItemsRequest(BaseModel):
     """Mark selected quotation items as procurement (PO/ITN)"""
-    item_ids: List[int] = Field(..., min_length=1)
+    item_ids: List[Id] = Field(..., min_length=1, max_length=200)
 
 
 # ==================== Revision Schema ====================
@@ -342,7 +449,7 @@ class MarkQuoteItemsRequest(BaseModel):
 class CreateRevisionRequest(BaseModel):
     """Schema for creating a quote revision"""
 
-    remarks: Optional[str] = None  # Reason for revision
+    remarks: OptStr(500) = None  # Reason for revision
 
 
 class CreateRevisionResponse(BaseModel):
@@ -371,6 +478,9 @@ class SalesQuoteFilter(BaseModel):
     date_to: Optional[date] = None
     is_expired: Optional[bool] = None
     search: Optional[str] = None  # Search in quote_no, customer name
+    branch_codes: Optional[List[str]] = None  # allowed branches (access control)
+    sort_by: Optional[str] = None
+    order: str = "desc"
 
 
 # ==================== Stock Availability Schema ====================
@@ -432,8 +542,8 @@ class ReleaseReservationRequest(BaseModel):
     (or a single item on it) back to available. Business rule: reservations
     are never released automatically — only on quotation cancellation or an
     authorized user's explicit action here."""
-    item_id: Optional[int] = None
-    reason: Optional[str] = None
+    item_id: Optional[Id] = None
+    reason: OptStr(500) = None
 
 
 class ReleaseReservationResponse(BaseModel):
@@ -442,35 +552,12 @@ class ReleaseReservationResponse(BaseModel):
     message: str
 
 
-# ==================== Create PO from Quotation Schema ====================
-
-
-class CreatePOFromQuoteRequest(BaseModel):
-    """Request to create a PO from an accepted quotation"""
-    first_suppliers_id: int
-    second_suppliers_id: int
-    payment_method: str = Field(..., max_length=30)
-    purchasing_invoice_no: str = Field(..., max_length=200)
-    good_received_note_date: date
-    remarks: Optional[str] = None
-    credit_date: Optional[int] = None
-
-
-class CreatePOFromQuoteResponse(BaseModel):
-    """Response after creating PO from quotation"""
-    quote_id: int
-    quote_no: str
-    purchasing_order_id: int
-    purchasing_order_no: str
-    message: str
-
-
 # ==================== Reject Quote Schema ====================
 
 
 class RejectQuoteRequest(BaseModel):
     """Request to reject a quote"""
-    reason: Optional[str] = None
+    reason: OptStr(500) = None
     cancel_linked_po: bool = False  # Whether to cancel the linked PO if one exists
 
 
@@ -479,5 +566,5 @@ class RejectQuoteRequest(BaseModel):
 
 class CustomerApprovalRequest(BaseModel):
     """Request to mark customer approval"""
-    approved_by_customer: Optional[str] = None  # Customer contact name
-    remarks: Optional[str] = None
+    approved_by_customer: OptStr(255) = None  # Customer contact name
+    remarks: OptStr(2000) = None

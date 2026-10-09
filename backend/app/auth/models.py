@@ -139,7 +139,15 @@ class Branch(Base, AuditMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     branch_name = Column(String(255), unique=True, nullable=False)
+    # Legacy single-line address, kept in sync from the structured columns
+    # below on every save (see BranchRepository._sync_legacy_address).
     address = Column(Text)
+    # Structured address, same shape as Supplier.billing_* / Customer.billing_*.
+    address_line1 = Column(String(255))
+    address_line2 = Column(String(255))
+    city = Column(String(120))
+    state = Column(String(120))
+    postal_code = Column(String(20))
     email = Column(String(75), unique=True)
     contact_number = Column(String(255))
     branch_code = Column(String(255), unique=True, nullable=False)
@@ -177,6 +185,18 @@ class UserPasscode(Base, AuditMixin):
     locked_out = Column(Boolean, default=False, nullable=False)
     # Anchor timestamp used for expiry: refreshed whenever passcode is (re)set
     created_at_ts = Column(TIMESTAMP, nullable=False, server_default=func.now())
+
+
+class RevokedToken(Base):
+    """Denylist of JWT IDs (jti) invalidated before their natural expiry,
+    e.g. by logout. Rows can be purged once expires_at has passed because the
+    token would be rejected as expired anyway."""
+
+    __tablename__ = "auth_revoked_token"
+
+    jti = Column(String(64), primary_key=True)
+    expires_at = Column(TIMESTAMP, nullable=False, index=True)
+    revoked_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
 
 
 class UserPasscodeHistory(Base, AuditMixin):

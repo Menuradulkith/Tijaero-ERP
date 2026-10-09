@@ -35,6 +35,7 @@ import {
   GridPreferencePanelsValue,
   GridRowParams,
   GridPaginationModel,
+  GridSortModel,
   GridRowSelectionModel,
   GridSlotProps,
   GridValidRowModel,
@@ -124,6 +125,23 @@ export interface TDataGridProps<R extends GridValidRowModel = GridValidRowModel>
   storageKey?: string;
   /** File name (without extension) for Export CSV. Defaults to "export". */
   exportFileName?: string;
+  /**
+   * Server-side paging: when set, `rows` is only the current page and the
+   * grid shows `rowCount` as the total. The page owns `paginationModel`.
+   */
+  serverPagination?: {
+    rowCount: number;
+    paginationModel: GridPaginationModel;
+    onPaginationModelChange: (model: GridPaginationModel) => void;
+  };
+  /**
+   * With server-side paging `rows` is one page, so Export would only cover it.
+   * Provide this to fetch every row that matches the current filters; the grid
+   * writes them out (visible columns, formula-safe) when nothing is ticked.
+   */
+  exportAllRows?: () => Promise<R[]>;
+  /** Server-side sorting: called with the active sort (or null when cleared). */
+  onServerSortChange?: (sort: { field: string; sort: "asc" | "desc" } | null) => void;
 }
 
 // Row density: the ERP list-table style uses 40px rows by default, with a
@@ -159,6 +177,7 @@ declare module "@mui/x-data-grid" {
     tDensity?: TDensity;
     onTDensityChange?: (density: TDensity) => void;
     exportFileName?: string;
+    onExportAll?: () => Promise<void>;
   }
 }
 
@@ -168,7 +187,8 @@ declare module "@mui/x-data-grid" {
  * it adds no height — the page's own toolbar above keeps search/filters.
  */
 function TDataGridFooter(props: GridSlotProps["footer"]) {
-  const { tDensity = "standard", onTDensityChange, exportFileName, ...containerProps } = props;
+  const { tDensity = "standard", onTDensityChange, exportFileName, onExportAll, ...containerProps } = props;
+  const [exporting, setExporting] = React.useState(false);
   const apiRef = useGridApiContext();
   const [densityAnchor, setDensityAnchor] = React.useState<HTMLElement | null>(null);
   const current = DENSITY_OPTIONS.find((d) => d.value === tDensity) ?? DENSITY_OPTIONS[1];
@@ -238,7 +258,17 @@ function TDataGridFooter(props: GridSlotProps["footer"]) {
             size="small"
             sx={controlSx}
             startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
-            onClick={() =>
+            disabled={exporting}
+            onClick={async () => {
+              if (onExportAll && !hasSelection) {
+                setExporting(true);
+                try {
+                  await onExportAll();
+                } finally {
+                  setExporting(false);
+                }
+                return;
+              }
               apiRef.current.exportDataAsCsv({
                 fileName: exportFileName || "export",
                 utf8WithBom: true,
@@ -247,8 +277,8 @@ function TDataGridFooter(props: GridSlotProps["footer"]) {
                 getRowsToExport: hasSelection
                   ? ({ apiRef: api }) => [...api.current.getSelectedRows().keys()]
                   : undefined,
-              })
-            }
+              });
+            }}
           >
             <span className="tdg-label">Export{hasSelection ? ` (${selectedCount})` : ""}</span>
           </Button>
@@ -351,6 +381,34 @@ const toGridColDef = <R extends GridValidRowModel>(
   return base;
 };
 
+// CSV cells starting with = + - @ (or a tab/CR) are read as formulas by
+// spreadsheets; a leading ' makes them plain text.
+const csvCell = (value: unknown): string => {
+  let text = value === null || value === undefined ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
+  // Plain numbers, phone numbers (+94...) and a lone "-" are not formulas.
+  const harmless = /^([+-]?\d[\d ]*(\.\d+)?|-)$/.test(text);
+  if (!harmless && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+
+function downloadCsv<R extends GridValidRowModel>(
+  rows: R[],
+  columns: TDataGridColumn<R>[],
+  hidden: GridColumnVisibilityModel,
+  fileName: string
+) {
+  const cols = columns.filter((c) => !c.hide && c.header && hidden[c.field] !== false);
+  const lines = [cols.map((c) => csvCell(c.header)).join(",")];
+  for (const row of rows) lines.push(cols.map((c) => csvCell((row as Record<string, unknown>)[c.field])).join(","));
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${fileName}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
   rows,
   columns,
@@ -371,11 +429,16 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
   toolbar,
   storageKey,
   exportFileName,
+  serverPagination,
+  onServerSortChange,
+  exportAllRows,
 }: TDataGridProps<R>) {
-  const [paginationModel, setPaginationModel] = React.useState<GridPaginationModel>({
+  const [localPagination, setLocalPagination] = React.useState<GridPaginationModel>({
     page: 0,
     pageSize,
   });
+  const paginationModel = serverPagination?.paginationModel ?? localPagination;
+  const setPaginationModel = serverPagination?.onPaginationModelChange ?? setLocalPagination;
 
   const gridColumns = React.useMemo(
     () => columns.filter(c => !c.hide).map(toGridColDef),
@@ -481,6 +544,16 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
           autoHeight={autoHeight}
           paginationModel={paginationModel}
           onPaginationModelChange={setPaginationModel}
+          {...(serverPagination
+            ? { paginationMode: "server" as const, rowCount: serverPagination.rowCount }
+            : {})}
+          {...(onServerSortChange
+            ? {
+                sortingMode: "server" as const,
+                onSortModelChange: (m: GridSortModel) =>
+                  onServerSortChange(m[0] && m[0].sort ? { field: m[0].field, sort: m[0].sort } : null),
+              }
+            : {})}
           pageSizeOptions={pageSizeOptions}
           disableColumnMenu={disableColumnMenu}
           // Always true: selection must only happen via the checkbox itself
@@ -501,7 +574,14 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
             noResultsOverlay: emptyState,
           }}
           slotProps={{
-            footer: { tDensity, onTDensityChange: handleDensityChange, exportFileName },
+            footer: {
+              tDensity,
+              onTDensityChange: handleDensityChange,
+              exportFileName,
+              onExportAll: exportAllRows
+                ? async () => downloadCsv(await exportAllRows(), columns, columnVisibilityModel, exportFileName || "export")
+                : undefined,
+            },
             loadingOverlay: { variant: "skeleton", noRowsVariant: "skeleton" },
           }}
           sx={{

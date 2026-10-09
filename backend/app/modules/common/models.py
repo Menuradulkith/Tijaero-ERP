@@ -29,8 +29,8 @@ class Country(Base, AuditMixin):
     equivalent_fips_code = Column(String(4))
 
     users = relationship("User", back_populates="country")
-    customers = relationship("Customer", back_populates="country")
-    suppliers = relationship("Supplier", back_populates="country")
+    customers = relationship("Customer", back_populates="country", foreign_keys="Customer.country_id")
+    suppliers = relationship("Supplier", back_populates="country", foreign_keys="Supplier.country_id")
 
 class Approvals(Base, AuditMixin):
     __tablename__ = "approvals"

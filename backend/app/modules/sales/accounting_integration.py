@@ -71,7 +71,8 @@ from app.modules.finance.accounting_models import (
 )
 from app.modules.sales.models import Invoice, InvoiceItems, SaleReturn, SaleReturnItems
 from app.modules.inventory.models import SalesStock
-from app.modules.products.models import Product, ProductPriceTier
+from app.modules.products.models import Product
+from app.modules.products.price_tier_models import ProductPriceTier
 from app.modules.finance.gl_posting_service import GLPostingService
 
 logger = logging.getLogger(__name__)

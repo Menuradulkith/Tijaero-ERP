@@ -26,8 +26,11 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { GridPaginationModel } from "@mui/x-data-grid";
+import { useDebounce } from "@/hooks";
+import { fetchAllPages } from "@/utils/fetchAllPages";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   TChip,
@@ -41,6 +44,10 @@ import {
   showSuccessToast,
   TConfirmDialog,
   TDetailSkeleton,
+  SUPPLIER_PAYMENT_TERMS,
+  getPaymentTermsLabel,
+  SUPPLIER_PAYMENT_TERMS_CUSTOM,
+  TAutocomplete,
   TITLE_CHOICES,
   TStatusFilter,
   useCrudMutation,
@@ -50,12 +57,17 @@ import {
   TDataGrid,
   type TDataGridColumn,
   TTabs,
+  TPhoneField,
+  normalizePhone,
+  isValidPhone,
   TTabPanel,
   type TTabConfig,
   SelectableListItem,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
+import { useCurrencyStore } from "@/state/currencyStore";
+import { useReferenceData, type CountryRef, type CurrencyRef } from "@/hooks/useReferenceData";
 import CustomerContactPersons from "@/modules/sales/components/CustomerContactPersons";
 import { customersApi } from "@/modules/customers/api";
 import {
@@ -96,7 +108,7 @@ const CUSTOMER_DETAIL_TABS: (TTabConfig & { id: CustomerSection })[] = [
 const INITIAL_FORM_DATA: CustomerCreate = {
   customer_type: "individual",
   customer_name: "",
-  title: "mr",
+  title: "",
   email: "",
   mobile_contact_number: "",
   home_contact_number: "",
@@ -115,15 +127,24 @@ const INITIAL_FORM_DATA: CustomerCreate = {
   billing_city: "",
   billing_state: "",
   billing_postal_code: "",
+  billing_country_id: undefined,
   shipping_address_line1: "",
   shipping_address_line2: "",
   shipping_city: "",
   shipping_state: "",
   shipping_postal_code: "",
+  shipping_country_id: undefined,
   bank_details: "",
   name_in_cheque_card: "",
+  bank_account_name: "",
+  bank_name: "",
+  bank_account_no: "",
+  bank_branch: "",
+  bank_branch_code: "",
+  bank_swift_code: "",
   credit_days: 0,
   max_credit_limit: 0,
+  default_currency: undefined,
   active: true,
   is_customer_agent: false,
   commission_rate: 0,
@@ -134,8 +155,8 @@ const resetFormFromCustomer = (customer: Customer): CustomerCreate => ({
   customer_name: customer.customer_name,
   title: customer.title,
   email: customer.email || "",
-  mobile_contact_number: customer.mobile_contact_number || "",
-  home_contact_number: customer.home_contact_number || "",
+  mobile_contact_number: normalizePhone(customer.mobile_contact_number),
+  home_contact_number: normalizePhone(customer.home_contact_number),
   company_name: customer.company_name || "",
   tax_registration_number: customer.tax_registration_number || "",
   company_registration_number: customer.company_registration_number || "",
@@ -151,12 +172,21 @@ const resetFormFromCustomer = (customer: Customer): CustomerCreate => ({
   billing_city: customer.billing_city || "",
   billing_state: customer.billing_state || "",
   billing_postal_code: customer.billing_postal_code || "",
+  billing_country_id: customer.billing_country_id,
   shipping_address_line1: customer.shipping_address_line1 || "",
   shipping_address_line2: customer.shipping_address_line2 || "",
   shipping_city: customer.shipping_city || "",
   shipping_state: customer.shipping_state || "",
   shipping_postal_code: customer.shipping_postal_code || "",
+  shipping_country_id: customer.shipping_country_id,
+  default_currency: customer.default_currency || undefined,
   bank_details: customer.bank_details || "",
+  bank_account_name: customer.bank_account_name || "",
+  bank_name: customer.bank_name || "",
+  bank_account_no: customer.bank_account_no || "",
+  bank_branch: customer.bank_branch || "",
+  bank_branch_code: customer.bank_branch_code || "",
+  bank_swift_code: customer.bank_swift_code || "",
   name_in_cheque_card: customer.name_in_cheque_card || "",
   credit_days: customer.credit_days,
   max_credit_limit: customer.max_credit_limit,
@@ -203,6 +233,12 @@ export default function CustomersPage() {
   const [deliverySameAsPayment, setDeliverySameAsPayment] = useState(true);
   // Contact persons entered while creating a company; saved right after the
   // customer itself is created.
+  const [paymentTermsCustom, setPaymentTermsCustom] = useState(false);
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
+  const systemCurrencyCode = useCurrencyStore((s) => s.code);
+  const { data: countryRefData } = useReferenceData(["countries", "currencies"]);
+  const countries: CountryRef[] = countryRefData?.countries || [];
+  const currencies: CurrencyRef[] = countryRefData?.currencies || [];
   const [draftContactPersons, setDraftContactPersons] = useState<CustomerContactPersonCreate[]>([]);
 
   // Use reusable state hook
@@ -238,60 +274,39 @@ export default function CustomersPage() {
     setFilterCategory(null);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Data fetching - fetch ALL customers (including inactive) for this management page
-  const { data: customers, isLoading } = useQuery({
-    queryKey: ["customers"],
-    queryFn: () => customersApi.getAll(0, 1000, false), // activeOnly=false to get all customers
+  // Server-side paging (inactive customers included): the grid fetches only the
+  // visible page; search, the status / category / agent filters and column
+  // sorting run in the database and the API returns the total for the footer.
+  const [paging, setPaging] = useState<GridPaginationModel>({ page: 0, pageSize: 25 });
+  const [sort, setSort] = useState<{ field: string; sort: "asc" | "desc" } | null>(null);
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
+  // Any change to the search, a filter or the sort starts again from page 1.
+  useEffect(() => {
+    setPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
+  }, [debouncedSearch, filterStatus, filterAgent, filterCategory, sort]);
+
+  const pageParams = (page: number, size: number) => ({
+    page,
+    size,
+    q: debouncedSearch.trim(),
+    active: filterStatus ? filterStatus === "active" : undefined,
+    customer_type: filterCategory ?? undefined,
+    agent: filterAgent ? filterAgent === "agent" : undefined,
+    sort_by: sort?.field,
+    order: sort?.sort,
   });
 
-  // Filter and sort
-  const filteredCustomers = useMemo(() => {
-    if (!customers) return [];
-
-    let filtered = customers.filter(
-      (customer) =>
-        customer.customer_name
-          .toLowerCase()
-          .includes(searchQuery.toLowerCase()) ||
-        customer.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        customer.mobile_contact_number?.includes(searchQuery) ||
-        customer.company_name
-          ?.toLowerCase()
-          .includes(searchQuery.toLowerCase()),
-    );
-
-    // Apply status filter
-    if (filterStatus) {
-      const isActive = filterStatus === "active";
-      filtered = filtered.filter((customer) => customer.active === isActive);
-    }
-
-    if (filterCategory) {
-      filtered = filtered.filter(
-        (customer) => customer.customer_type === filterCategory,
-      );
-    }
-
-    // Apply agent filter
-    if (filterAgent) {
-      const isAgent = filterAgent === "agent";
-      filtered = filtered.filter(
-        (customer) => customer.is_customer_agent === isAgent,
-      );
-    }
-
-    // Default order before the user sorts a column in the table itself
-    // (the table's own column-header sort takes over from there).
-    filtered.sort((a, b) => a.customer_name.localeCompare(b.customer_name));
-
-    return filtered;
-  }, [
-    customers,
-    searchQuery,
-    filterStatus,
-    filterAgent,
-    filterCategory,
-  ]);
+  const { data: customersPage, isFetching: isLoading } = useQuery({
+    queryKey: [
+      "customers", "paged", paging.page, paging.pageSize, debouncedSearch.trim(), filterStatus, filterAgent, filterCategory,
+      sort?.field, sort?.sort,
+    ],
+    queryFn: () => customersApi.getPage(pageParams(paging.page, paging.pageSize)),
+    placeholderData: keepPreviousData,
+    staleTime: 30 * 1000,
+  });
+  const filteredCustomers: Customer[] = useMemo(() => customersPage?.items ?? [], [customersPage]);
 
   // Mutations
   const createMutation = useCrudMutation({
@@ -337,11 +352,27 @@ export default function CustomersPage() {
   const confirmDialog = useTConfirmDialog();
 
   // Handlers
-  const handleSave = useCallback(() => {
-    if (isCreating) {
-      createMutation.mutate(formData);
-    } else if (selectedCustomer) {
-      updateMutation.mutate({ id: selectedCustomer.id, data: formData });
+  // One save at a time: Enter + click (or two quick clicks) used to create the customer twice.
+  const saveInFlightRef = useRef(false);
+  const handleSave = useCallback(async () => {
+    if (saveInFlightRef.current) return;
+    // Companies have no separate contact person field; the company name is
+    // the customer's display name.
+    const payload: CustomerCreate =
+      formData.customer_type === "business"
+        ? { ...formData, customer_name: formData.company_name ?? "" }
+        : formData;
+    saveInFlightRef.current = true;
+    try {
+      if (isCreating) {
+        await createMutation.mutateAsync(payload).catch(() => undefined);
+      } else if (selectedCustomer) {
+        await updateMutation
+          .mutateAsync({ id: selectedCustomer.id, data: { ...payload, expected_version: selectedCustomer.version } as CustomerCreate })
+          .catch(() => undefined);
+      }
+    } finally {
+      saveInFlightRef.current = false;
     }
   }, [isCreating, selectedCustomer, formData, createMutation, updateMutation]);
 
@@ -375,11 +406,85 @@ export default function CustomersPage() {
     if (!isCreating) setDraftContactPersons([]);
   }, [isCreating]);
   // Individuals need a mobile number; companies need a company name instead.
-  const isFormValid =
-    formData.customer_name &&
-    (isBusiness ? formData.company_name : formData.mobile_contact_number);
+  // Contact No 1 and 2 must be different numbers.
+  const phonesMatch =
+    !!formData.mobile_contact_number &&
+    formData.mobile_contact_number === formData.home_contact_number;
+  // Each tab saves on its own: only the fields of the section being saved
+  // gate Save, so a customer can be created from General alone and the
+  // Address / Payment tabs filled in afterwards.
+  const isGeneralValid = !!(
+    (isBusiness ? formData.company_name?.trim() : formData.customer_name && formData.title) &&
+    formData.mobile_contact_number &&
+    isValidPhone(formData.mobile_contact_number) &&
+    isValidPhone(formData.home_contact_number) &&
+    !phonesMatch
+  );
+  const isAddressValid = !!(
+    formData.billing_address_line1?.trim() &&
+    formData.billing_city?.trim() &&
+    formData.billing_country_id &&
+    (deliverySameAsPayment ||
+      (formData.shipping_address_line1?.trim() &&
+        formData.shipping_city?.trim() &&
+        formData.shipping_country_id))
+  );
+  const isPaymentValid = !!(
+    formData.bank_account_name?.trim() &&
+    formData.bank_name?.trim() &&
+    formData.bank_account_no?.trim()
+  );
+  // A new customer only needs General; afterwards Save validates the tab it is on.
+  const isFormValid = isCreating
+    ? isGeneralValid
+    : currentSection === "address"
+      ? isAddressValid
+      : currentSection === "payment"
+        ? isPaymentValid
+        : isGeneralValid;
+
+  // Address and Payment stay editable without an Edit click for as long as
+  // they have nothing saved in them yet (users who can update customers).
+  const isAddressUnfilled =
+    !selectedCustomer ||
+    [
+      selectedCustomer.billing_address_line1,
+      selectedCustomer.billing_address_line2,
+      selectedCustomer.billing_city,
+      selectedCustomer.billing_state,
+      selectedCustomer.billing_postal_code,
+      selectedCustomer.shipping_address_line1,
+      selectedCustomer.shipping_address_line2,
+      selectedCustomer.shipping_city,
+      selectedCustomer.shipping_state,
+      selectedCustomer.shipping_postal_code,
+    ].every((field) => !field) &&
+      !selectedCustomer.billing_country_id &&
+      !selectedCustomer.shipping_country_id;
+  const isPaymentUnfilled =
+    !selectedCustomer ||
+    (!selectedCustomer.bank_account_name &&
+      !selectedCustomer.bank_name &&
+      !selectedCustomer.bank_account_no);
+  const isAddressEditable = isEditing || isCreating || (canUpdate && isAddressUnfilled);
+  const isPaymentEditable = isEditing || isCreating || (canUpdate && isPaymentUnfilled);
+  // Contact persons save through their own dialog, never the toolbar.
+  const showToolbarSave =
+    currentSection === "contactPerson"
+      ? false
+      : currentSection === "address"
+        ? isAddressEditable
+        : currentSection === "payment"
+          ? isPaymentEditable
+          : isEditing || isCreating;
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
+  // A new customer starts on the system currency (saved with it, not just shown).
+  useEffect(() => {
+    if (isCreating && !formData.default_currency) {
+      setFormData((prev) => ({ ...prev, default_currency: systemCurrencyCode }));
+    }
+  }, [isCreating, formData.default_currency, systemCurrencyCode, setFormData]);
 
   // Whether we're showing a single customer's detail view (selected or
   // being created) instead of the browse table.
@@ -445,8 +550,7 @@ export default function CustomersPage() {
           />
         ),
       },
-      { field: "company_name", header: "Company", flex: 1, minWidth: 160 },
-      { field: "mobile_contact_number", header: "Contact", width: 150 },
+      { field: "mobile_contact_number", header: "Contact No", width: 150 },
       {
         field: "is_customer_agent",
         header: "Type",
@@ -473,6 +577,13 @@ export default function CustomersPage() {
             color={params.row.active ? "success" : "default"}
           />
         ),
+      },
+      {
+        field: "credit_days",
+        header: "Payment Terms",
+        width: 140,
+        renderCell: (params: GridRenderCellParams<Customer>) =>
+          getPaymentTermsLabel(params.row.credit_days),
       },
       {
         field: "max_credit_limit",
@@ -515,6 +626,9 @@ export default function CustomersPage() {
           rows={filteredCustomers}
           columns={customerColumns}
           loading={isLoading}
+          serverPagination={{ rowCount: customersPage?.total ?? 0, paginationModel: paging, onPaginationModelChange: setPaging }}
+          onServerSortChange={setSort}
+          exportAllRows={() => fetchAllPages((page) => customersApi.getPage(pageParams(page, 200)))}
           onRowClick={(row) => handleSelectCustomer(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
@@ -594,7 +708,7 @@ export default function CustomersPage() {
         canUpdate={canUpdate}
         hasSelectedItem={!!selectedCustomer}
         isCreating={isCreating}
-        isEditing={isEditing}
+        isEditing={showToolbarSave}
         isSaving={isSaving}
         isFormValid={!!isFormValid}
         onNew={handleNewCustomer}
@@ -646,6 +760,7 @@ export default function CustomersPage() {
               {isBusiness ? (
                 <TextField
                   label="Company Name"
+                  inputProps={{ maxLength: 255 }}
                   size="small"
                   value={formData.company_name}
                   onChange={(e) =>
@@ -658,8 +773,9 @@ export default function CustomersPage() {
                 <TextField
                   label="Title"
                   size="small"
+                  required
                   select
-                  value={formData.title}
+                  value={formData.title ?? ""}
                   onChange={(e) =>
                     setFormData({ ...formData, title: e.target.value })
                   }
@@ -672,20 +788,24 @@ export default function CustomersPage() {
                   ))}
                 </TextField>
               )}
-              <TextField
-                label={isBusiness ? "Contact Person" : "Customer Name"}
-                size="small"
-                value={formData.customer_name}
-                onChange={(e) =>
-                  setFormData({ ...formData, customer_name: e.target.value })
-                }
-                disabled={isDisabled}
-                required
-              />
+              {!isBusiness && (
+                <TextField
+                  label="Customer Name"
+                  inputProps={{ maxLength: 255 }}
+                  size="small"
+                  value={formData.customer_name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, customer_name: e.target.value })
+                  }
+                  disabled={isDisabled}
+                  required
+                />
+              )}
               {isBusiness ? (
                 <>
                   <TextField
                     label="Tax Registration No"
+                    inputProps={{ maxLength: 50 }}
                     size="small"
                     value={formData.tax_registration_number}
                     onChange={(e) =>
@@ -698,6 +818,7 @@ export default function CustomersPage() {
                   />
                   <TextField
                     label="Company Registration No"
+                    inputProps={{ maxLength: 50 }}
                     size="small"
                     value={formData.company_registration_number}
                     onChange={(e) =>
@@ -709,34 +830,28 @@ export default function CustomersPage() {
                     disabled={isDisabled}
                   />
                 </>
-              ) : (
-                <>
-                  <TextField
-                    label="Company Name"
-                    size="small"
-                    value={formData.company_name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, company_name: e.target.value })
-                    }
-                    disabled={isDisabled}
-                  />
-                  <TextField
-                    label="Occupation"
-                    size="small"
-                    value={formData.occupation}
-                    onChange={(e) =>
-                      setFormData({ ...formData, occupation: e.target.value })
-                    }
-                    disabled={isDisabled}
-                  />
-                </>
-              )}
+              ) : null}
+              <TextField
+                select
+                label="Currency"
+                size="small"
+                value={formData.default_currency || systemCurrencyCode}
+                onChange={(e) => setFormData({ ...formData, default_currency: e.target.value })}
+                disabled={isDisabled}
+              >
+                {currencies.map((currency) => (
+                  <MenuItem key={currency.code} value={currency.code}>
+                    {currency.code} — {currency.name} ({currency.symbol})
+                  </MenuItem>
+                ))}
+              </TextField>
             </FormSection>
 
             {/* Contact Information */}
             <FormSection title="Contact Information" columns={3}>
               <TextField
                 label="Email"
+                inputProps={{ maxLength: 75 }}
                 size="small"
                 type="email"
                 value={formData.email}
@@ -745,30 +860,19 @@ export default function CustomersPage() {
                 }
                 disabled={isDisabled}
               />
-              <TextField
-                label="Mobile Contact"
-                size="small"
+              <TPhoneField
+                label="Contact No 1"
                 value={formData.mobile_contact_number}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    mobile_contact_number: e.target.value,
-                  })
-                }
+                onChange={(v) => setFormData({ ...formData, mobile_contact_number: v })}
                 disabled={isDisabled}
-                required={!isBusiness}
+                required
               />
-              <TextField
-                label="Home Contact"
-                size="small"
+              <TPhoneField
+                label="Contact No 2"
                 value={formData.home_contact_number}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    home_contact_number: e.target.value,
-                  })
-                }
+                onChange={(v) => setFormData({ ...formData, home_contact_number: v })}
                 disabled={isDisabled}
+                helperText={phonesMatch ? "Contact No 2 must be different from Contact No 1" : undefined}
               />
             </FormSection>
 
@@ -777,6 +881,7 @@ export default function CustomersPage() {
             <FormSection title="ID & Documents" columns={2}>
               <TextField
                 label="ID Card Number"
+                inputProps={{ maxLength: 12 }}
                 size="small"
                 value={formData.id_card_number}
                 onChange={(e) =>
@@ -786,6 +891,7 @@ export default function CustomersPage() {
               />
               <TextField
                 label="Passport No"
+                inputProps={{ maxLength: 50 }}
                 size="small"
                 value={formData.passport_no}
                 onChange={(e) =>
@@ -835,38 +941,56 @@ export default function CustomersPage() {
             <FormSection title="Payment Address" columns={2}>
               <TextField
                 label="Address Line 1"
+                inputProps={{ maxLength: 255 }}
                 size="small"
+                required
                 value={formData.billing_address_line1}
                 onChange={(e) => setFormData({ ...formData, billing_address_line1: e.target.value })}
-                disabled={isDisabled}
+                disabled={!isAddressEditable}
               />
               <TextField
                 label="Address Line 2"
+                inputProps={{ maxLength: 255 }}
                 size="small"
                 value={formData.billing_address_line2}
                 onChange={(e) => setFormData({ ...formData, billing_address_line2: e.target.value })}
-                disabled={isDisabled}
+                disabled={!isAddressEditable}
               />
               <TextField
                 label="City"
+                inputProps={{ maxLength: 120 }}
                 size="small"
+                required
                 value={formData.billing_city}
                 onChange={(e) => setFormData({ ...formData, billing_city: e.target.value })}
-                disabled={isDisabled}
+                disabled={!isAddressEditable}
               />
               <TextField
                 label="State / Province"
+                inputProps={{ maxLength: 120 }}
                 size="small"
                 value={formData.billing_state}
                 onChange={(e) => setFormData({ ...formData, billing_state: e.target.value })}
-                disabled={isDisabled}
+                disabled={!isAddressEditable}
               />
               <TextField
                 label="Postal Code"
+                inputProps={{ maxLength: 20 }}
                 size="small"
                 value={formData.billing_postal_code}
                 onChange={(e) => setFormData({ ...formData, billing_postal_code: e.target.value })}
-                disabled={isDisabled}
+                disabled={!isAddressEditable}
+              />
+              <TAutocomplete<CountryRef>
+                label="Country"
+                required
+                options={countries}
+                value={countries.find((c) => c.id === formData.billing_country_id) || null}
+                onChange={(value) =>
+                  setFormData({ ...formData, billing_country_id: (value as CountryRef | null)?.id })
+                }
+                getOptionLabel={(c) => c.name}
+                disabled={!isAddressEditable}
               />
             </FormSection>
 
@@ -876,7 +1000,7 @@ export default function CustomersPage() {
                 control={
                   <Switch
                     checked={deliverySameAsPayment}
-                    disabled={isDisabled}
+                    disabled={!isAddressEditable}
                     onChange={(e) => {
                       const same = e.target.checked;
                       setDeliverySameAsPayment(same);
@@ -888,6 +1012,7 @@ export default function CustomersPage() {
                           shipping_city: "",
                           shipping_state: "",
                           shipping_postal_code: "",
+                          shipping_country_id: undefined,
                         });
                       }
                     }}
@@ -899,38 +1024,56 @@ export default function CustomersPage() {
                 <>
                   <TextField
                     label="Address Line 1"
+                    inputProps={{ maxLength: 255 }}
                     size="small"
+                    required
                     value={formData.shipping_address_line1}
                     onChange={(e) => setFormData({ ...formData, shipping_address_line1: e.target.value })}
-                    disabled={isDisabled}
+                    disabled={!isAddressEditable}
                   />
                   <TextField
                     label="Address Line 2"
+                    inputProps={{ maxLength: 255 }}
                     size="small"
                     value={formData.shipping_address_line2}
                     onChange={(e) => setFormData({ ...formData, shipping_address_line2: e.target.value })}
-                    disabled={isDisabled}
+                    disabled={!isAddressEditable}
                   />
                   <TextField
                     label="City"
+                    inputProps={{ maxLength: 120 }}
                     size="small"
+                    required
                     value={formData.shipping_city}
                     onChange={(e) => setFormData({ ...formData, shipping_city: e.target.value })}
-                    disabled={isDisabled}
+                    disabled={!isAddressEditable}
                   />
                   <TextField
                     label="State / Province"
+                    inputProps={{ maxLength: 120 }}
                     size="small"
                     value={formData.shipping_state}
                     onChange={(e) => setFormData({ ...formData, shipping_state: e.target.value })}
-                    disabled={isDisabled}
+                    disabled={!isAddressEditable}
                   />
                   <TextField
                     label="Postal Code"
+                    inputProps={{ maxLength: 20 }}
                     size="small"
                     value={formData.shipping_postal_code}
                     onChange={(e) => setFormData({ ...formData, shipping_postal_code: e.target.value })}
-                    disabled={isDisabled}
+                    disabled={!isAddressEditable}
+                  />
+                  <TAutocomplete<CountryRef>
+                    label="Country"
+                    required
+                    options={countries}
+                    value={countries.find((c) => c.id === formData.shipping_country_id) || null}
+                    onChange={(value) =>
+                      setFormData({ ...formData, shipping_country_id: (value as CountryRef | null)?.id })
+                    }
+                    getOptionLabel={(c) => c.name}
+                    disabled={!isAddressEditable}
                   />
                 </>
               )}
@@ -948,57 +1091,119 @@ export default function CustomersPage() {
 
             <TTabPanel value={currentSection} index="payment" padding={0} sx={{ pt: 2 }}>
             {/* Banking Details */}
-            <FormSection title="Banking Details" columns={2}>
+            <FormSection title="Banking Details" columns={3}>
               <TextField
-                label="Bank Details"
+                label="Account Name"
                 size="small"
-                value={formData.bank_details}
-                onChange={(e) =>
-                  setFormData({ ...formData, bank_details: e.target.value })
-                }
-                disabled={isDisabled}
+                value={formData.bank_account_name ?? ""}
+                onChange={(e) => setFormData({ ...formData, bank_account_name: e.target.value })}
+                disabled={!isPaymentEditable}
+                required
+                inputProps={{ maxLength: 255 }}
               />
               <TextField
-                label="Name in Cheque/Card"
+                label="Bank Name"
                 size="small"
-                value={formData.name_in_cheque_card}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    name_in_cheque_card: e.target.value,
-                  })
-                }
-                disabled={isDisabled}
+                value={formData.bank_name ?? ""}
+                onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                disabled={!isPaymentEditable}
+                required
+                inputProps={{ maxLength: 255 }}
+              />
+              <TextField
+                label="Account No"
+                size="small"
+                value={formData.bank_account_no ?? ""}
+                onChange={(e) => setFormData({ ...formData, bank_account_no: e.target.value })}
+                disabled={!isPaymentEditable}
+                required
+                inputProps={{ maxLength: 50 }}
+              />
+              <TextField
+                label="Branch"
+                size="small"
+                value={formData.bank_branch ?? ""}
+                onChange={(e) => setFormData({ ...formData, bank_branch: e.target.value })}
+                disabled={!isPaymentEditable}
+                inputProps={{ maxLength: 255 }}
+              />
+              <TextField
+                label="Branch Code"
+                size="small"
+                value={formData.bank_branch_code ?? ""}
+                onChange={(e) => setFormData({ ...formData, bank_branch_code: e.target.value })}
+                disabled={!isPaymentEditable}
+                inputProps={{ maxLength: 30 }}
+              />
+              <TextField
+                label="Swift Code"
+                size="small"
+                value={formData.bank_swift_code ?? ""}
+                onChange={(e) => setFormData({ ...formData, bank_swift_code: e.target.value })}
+                disabled={!isPaymentEditable}
+                inputProps={{ maxLength: 20 }}
               />
             </FormSection>
 
             {/* Credit Settings */}
-            <FormSection title="Credit Settings" columns={3}>
+            <FormSection title="Payment" columns={3}>
               <TextField
-                label="Credit Days"
+                select
+                label="Payment Terms"
                 size="small"
-                type="number"
-                value={formData.credit_days}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    credit_days: parseInt(e.target.value) || 0,
-                  })
+                value={
+                  paymentTermsCustom ||
+                  !SUPPLIER_PAYMENT_TERMS.some((t) => t.value === formData.credit_days)
+                    ? SUPPLIER_PAYMENT_TERMS_CUSTOM
+                    : formData.credit_days
                 }
-                disabled={isDisabled}
-              />
+                onChange={(e) => {
+                  if (e.target.value === SUPPLIER_PAYMENT_TERMS_CUSTOM) {
+                    setPaymentTermsCustom(true);
+                    return;
+                  }
+                  setPaymentTermsCustom(false);
+                  setFormData({ ...formData, credit_days: Number(e.target.value) });
+                }}
+                disabled={!isPaymentEditable}
+                helperText="How many days after invoicing this customer is expected to pay"
+              >
+                {SUPPLIER_PAYMENT_TERMS.map((term) => (
+                  <MenuItem key={term.value} value={term.value}>
+                    {term.label}
+                  </MenuItem>
+                ))}
+                <MenuItem value={SUPPLIER_PAYMENT_TERMS_CUSTOM}>Custom</MenuItem>
+              </TextField>
+              {(paymentTermsCustom ||
+                !SUPPLIER_PAYMENT_TERMS.some((t) => t.value === formData.credit_days)) && (
+                <TextField
+                  label="Custom Payment Terms (days)"
+                  size="small"
+                  type="number"
+                  value={formData.credit_days}
+                  onChange={(e) =>
+                    setFormData({ ...formData, credit_days: parseInt(e.target.value) || 0 })
+                  }
+                  disabled={!isPaymentEditable}
+                  inputProps={{ min: 0 }}
+                />
+              )}
               <TextField
                 label="Max Credit Limit"
                 size="small"
                 type="number"
                 value={formData.max_credit_limit}
                 onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    max_credit_limit: parseFloat(e.target.value) || 0,
-                  })
+                  setFormData({ ...formData, max_credit_limit: parseInt(e.target.value) || 0 })
                 }
-                disabled={isDisabled}
+                disabled={!isPaymentEditable}
+                inputProps={{ min: 0 }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">{currencySymbol}</InputAdornment>
+                  ),
+                }}
               />
               <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                 <FormControlLabel
@@ -1008,7 +1213,7 @@ export default function CustomersPage() {
                       onChange={(e) =>
                         setFormData({ ...formData, active: e.target.checked })
                       }
-                      disabled={isDisabled}
+                      disabled={!isPaymentEditable}
                     />
                   }
                   label="Active"
@@ -1023,7 +1228,7 @@ export default function CustomersPage() {
                           is_customer_agent: e.target.checked,
                         })
                       }
-                      disabled={isDisabled}
+                      disabled={!isPaymentEditable}
                     />
                   }
                   label="Agent"
@@ -1041,7 +1246,7 @@ export default function CustomersPage() {
                       commission_rate: parseFloat(e.target.value) || 0,
                     })
                   }
-                  disabled={isDisabled}
+                  disabled={!isPaymentEditable}
                   inputProps={{ min: 0, max: 100, step: 0.01 }}
                   helperText="Default commission percentage for this agent"
                   sx={{ mt: 1 }}

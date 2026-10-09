@@ -100,7 +100,7 @@ class TestAddToQueue:
         queued = svc.add_to_queue([_queue_item(quote_item, supplier_b.id, unit_price="150.00")], added_by=1)
 
         assert len(queued) == 1
-        entries = svc.list_queue()
+        entries = svc.list_queue(branch_codes=[branch.branch_code])
         assert len(entries) == 1
         assert entries[0].supplier_id == supplier_b.id
         assert entries[0].unit_price == Decimal("150.00")
@@ -141,14 +141,14 @@ class TestQueueClearedOnPOCreation:
         queue_svc.add_to_queue(
             [_queue_item(item_a, supplier.id), _queue_item(item_b, supplier.id)], added_by=1
         )
-        assert len(queue_svc.list_queue()) == 2
+        assert len(queue_svc.list_queue(branch_codes=[branch.branch_code])) == 2
 
         po_svc = po_service_module.PurchasingOrderService(db)
         po_svc.create_order_batch(
             [_po_group_for_quote_item(branch.branch_code, supplier.id, item_a)], created_by=1
         )
 
-        remaining = queue_svc.list_queue()
+        remaining = queue_svc.list_queue(branch_codes=[branch.branch_code])
         assert len(remaining) == 1
         assert remaining[0].quote_item_id == item_b.id
 
@@ -174,7 +174,7 @@ class TestListQueueAcrossQuotations:
             added_by=1,
         )
 
-        entries = queue_svc.list_queue()
+        entries = queue_svc.list_queue(branch_codes=[branch.branch_code])
         assert {e.quote_id for e in entries} == {quote_1.id, quote_2.id}
         assert all(e.supplier_id == supplier.id for e in entries)
         assert {e.quote_no for e in entries} == {quote_1.quote_no, quote_2.quote_no}
@@ -196,7 +196,7 @@ class TestQueueProcurementQuantities:
         queue_svc = po_service_module.ProcurementQueueService(db)
         queue_svc.add_to_queue([_queue_item(quote_item, supplier.id, qty=7)], added_by=1)
 
-        entry = next(e for e in queue_svc.list_queue() if e.quote_item_id == quote_item.id)
+        entry = next(e for e in queue_svc.list_queue(branch_codes=[branch.branch_code]) if e.quote_item_id == quote_item.id)
         assert entry.required_quantity == 10
         assert entry.available_quantity == 3
         assert entry.ordered_quantity == 0
@@ -249,7 +249,7 @@ class TestQueueProcurementQuantities:
         ))
         db.flush()
 
-        entry = next(e for e in queue_svc.list_queue() if e.quote_item_id == quote_item.id)
+        entry = next(e for e in queue_svc.list_queue(branch_codes=[branch.branch_code]) if e.quote_item_id == quote_item.id)
         assert entry.required_quantity == 10
         assert entry.available_quantity == 3
         assert entry.ordered_quantity == 2

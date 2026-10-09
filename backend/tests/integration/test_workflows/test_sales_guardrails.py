@@ -443,7 +443,7 @@ class TestCouponGuards:
 class TestSaleReturnGuards:
     def _sold(self, db, make_branch, make_customer, make_product, make_user):
         branch, customer, product = make_branch(), make_customer(), make_product()
-        user, _ = make_user()
+        user, _ = make_user(branches=[branch])
         location = _location(db, branch)
         invoice = _invoice(db, branch, customer, subtotal="600.00")
         item = _invoice_item(db, invoice, product, qty=2, price="300.00")
@@ -526,7 +526,7 @@ class TestSaleReturnProcessing:
         self, db, make_branch, make_customer, make_product, make_user
     ):
         branch, customer, product = make_branch(), make_customer(), make_product()
-        user, _ = make_user()
+        user, _ = make_user(branches=[branch])
         location = _location(db, branch)
         invoice = _invoice(db, branch, customer, subtotal="600.00")
         item = _invoice_item(db, invoice, product, qty=2, price="300.00")
@@ -544,7 +544,7 @@ class TestSaleReturnProcessing:
         self, db, make_branch, make_customer, make_product, make_user
     ):
         branch, customer, product = make_branch(), make_customer(), make_product()
-        user, _ = make_user()
+        user, _ = make_user(branches=[branch])
         location = _location(db, branch)
         invoice = _invoice(db, branch, customer, subtotal="600.00")
         item = _invoice_item(db, invoice, product, qty=2, price="300.00")

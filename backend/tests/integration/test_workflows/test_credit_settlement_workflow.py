@@ -19,7 +19,7 @@ class TestCreditSettlementWorkflow:
         db.flush()
 
         product = make_product()
-        user, _ = make_user()
+        user, _ = make_user(branches=[branch])
         svc = SalesService()
 
         # Create SalesStock

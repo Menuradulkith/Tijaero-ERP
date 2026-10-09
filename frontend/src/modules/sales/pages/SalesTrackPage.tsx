@@ -782,7 +782,7 @@ export default function SalesTrackPage() {
                           <InfoRow label="Company" value={customer.company_name} />
                         )}
                         {customer.email && <InfoRow label="Email" value={customer.email} />}
-                        {customer.mobile_contact_number && <InfoRow label="Phone" value={customer.mobile_contact_number} />}
+                        {customer.mobile_contact_number && <InfoRow label="Contact No" value={customer.mobile_contact_number} />}
                         {customer.payment_address && <InfoRow label="Address" value={customer.payment_address} />}
                       </TableBody>
                     </Table>

@@ -37,14 +37,22 @@ export interface Customer {
   billing_city?: string;
   billing_state?: string;
   billing_postal_code?: string;
+  billing_country_id?: number;
   shipping_address_line1?: string;
   shipping_address_line2?: string;
   shipping_city?: string;
   shipping_state?: string;
   shipping_postal_code?: string;
+  shipping_country_id?: number;
   payment_address?: string;
   delivery_address?: string;
   bank_details?: string;
+  bank_account_name?: string;
+  bank_name?: string;
+  bank_account_no?: string;
+  bank_branch?: string;
+  bank_branch_code?: string;
+  bank_swift_code?: string;
   name_in_cheque_card?: string;
   credit_days: number;
   max_credit_limit: number;
@@ -54,9 +62,12 @@ export interface Customer {
   is_customer_agent: boolean;
   commission_rate?: number;
   country_id?: number;
+  default_currency?: string;
   date_joined: string;
   created_at: string;
   updated_at: string;
+  /** Concurrency token: echo it back as expected_version on update. */
+  version?: string;
   created_by?: number;
   updated_by?: number;
   created_by_name?: string;
@@ -85,14 +96,22 @@ export interface CustomerCreate {
   billing_city?: string;
   billing_state?: string;
   billing_postal_code?: string;
+  billing_country_id?: number;
   shipping_address_line1?: string;
   shipping_address_line2?: string;
   shipping_city?: string;
   shipping_state?: string;
   shipping_postal_code?: string;
+  shipping_country_id?: number;
   payment_address?: string;
   delivery_address?: string;
   bank_details?: string;
+  bank_account_name?: string;
+  bank_name?: string;
+  bank_account_no?: string;
+  bank_branch?: string;
+  bank_branch_code?: string;
+  bank_swift_code?: string;
   name_in_cheque_card?: string;
   credit_days?: number;
   max_credit_limit?: number;
@@ -102,9 +121,11 @@ export interface CustomerCreate {
   is_customer_agent?: boolean;
   commission_rate?: number;
   country_id?: number;
+  default_currency?: string;
 }
 
 export interface CustomerUpdate {
+  expected_version?: string;
   customer_name?: string;
   title?: string;
   email?: string;
@@ -123,14 +144,22 @@ export interface CustomerUpdate {
   billing_city?: string;
   billing_state?: string;
   billing_postal_code?: string;
+  billing_country_id?: number;
   shipping_address_line1?: string;
   shipping_address_line2?: string;
   shipping_city?: string;
   shipping_state?: string;
   shipping_postal_code?: string;
+  shipping_country_id?: number;
   payment_address?: string;
   delivery_address?: string;
   bank_details?: string;
+  bank_account_name?: string;
+  bank_name?: string;
+  bank_account_no?: string;
+  bank_branch?: string;
+  bank_branch_code?: string;
+  bank_swift_code?: string;
   name_in_cheque_card?: string;
   credit_days?: number;
   max_credit_limit?: number;
@@ -140,6 +169,7 @@ export interface CustomerUpdate {
   is_customer_agent?: boolean;
   commission_rate?: number;
   country_id?: number;
+  default_currency?: string;
 }
 
 

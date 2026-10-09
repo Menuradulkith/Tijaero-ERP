@@ -6,12 +6,38 @@ import type {
   PaginatedResponse,
 } from "@/api/types";
 
+const ADDRESS_FIELDS = ["address_line1", "address_line2", "city", "state", "postal_code"] as const;
+
+/**
+ * Normalizes a create/update body: trims text, turns empty optional values
+ * into null (EmailStr and the length-limited columns reject ""), and never
+ * sends the legacy single-line `address` — the server derives it from the
+ * structured fields.
+ */
+const cleanPayload = (data: BranchCreate | BranchUpdate): Record<string, unknown> => {
+  const out: Record<string, unknown> = { ...data };
+  delete out.address;
+  out.email = data.email?.trim() || null;
+  out.contact_number = data.contact_number?.trim() || null;
+  for (const field of ADDRESS_FIELDS) {
+    if (field in data) out[field] = data[field]?.trim() || null;
+  }
+  if (typeof data.branch_name === "string") out.branch_name = data.branch_name.trim();
+  if ("branch_code" in data && typeof data.branch_code === "string") out.branch_code = data.branch_code.trim();
+  return out;
+};
+
 export const branchApi = {
-  getAll: async (page = 1, size = 100000): Promise<PaginatedResponse<Branch>> => {
+  /**
+   * `activeOnly` should be set for anything a user picks from (filters,
+   * assignment pickers): deactivated branches must not be offered there.
+   */
+  getAll: async (page = 1, size = 100000, activeOnly = false): Promise<PaginatedResponse<Branch>> => {
     const response = await apiClient.get<PaginatedResponse<Branch>>(
-      "/branches",
+      // Trailing slash matches the backend route; without it FastAPI answers with a 307 redirect.
+      "/branches/",
       {
-        params: { page, size },
+        params: activeOnly ? { page, size, active_only: true } : { page, size },
       }
     );
     return response.data;
@@ -56,26 +82,12 @@ export const branchApi = {
   },
 
   create: async (data: BranchCreate): Promise<Branch> => {
-    // Clean up empty strings to null for optional EmailStr fields
-    const cleanData = {
-      ...data,
-      email: data.email?.trim() || null,
-      address: data.address?.trim() || null,
-      contact_number: data.contact_number?.trim() || null,
-    };
-    const response = await apiClient.post<Branch>("/branches", cleanData);
+    const response = await apiClient.post<Branch>("/branches/", cleanPayload(data));
     return response.data;
   },
 
   update: async (id: number, data: BranchUpdate): Promise<Branch> => {
-    // Clean up empty strings to null for optional EmailStr fields
-    const cleanData = {
-      ...data,
-      email: data.email?.trim() || null,
-      address: data.address?.trim() || null,
-      contact_number: data.contact_number?.trim() || null,
-    };
-    const response = await apiClient.put<Branch>(`/branches/${id}`, cleanData);
+    const response = await apiClient.put<Branch>(`/branches/${id}`, cleanPayload(data));
     return response.data;
   },
 };

@@ -12,7 +12,7 @@ class Settings(Base, AuditMixin):
     id = Column(Integer, primary_key=True, index=True)
     company_name = Column(String(255), nullable=False)
     company_address = Column(Text, nullable=False)
-    company_telephone_number = Column(String(12))
+    company_telephone_number = Column(String(20))
     company_fax_number = Column(String(12))
     company_email = Column(String(254), nullable=False)
     company_logo_id = Column(Integer)

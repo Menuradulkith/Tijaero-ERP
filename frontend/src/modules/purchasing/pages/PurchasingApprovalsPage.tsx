@@ -1,8 +1,7 @@
 /**
  * Purchasing Approvals Page
  * 
- * Overview page for purchasing approval workflows including PO Approvals
- * and Return Approvals.
+ * Overview page for purchasing approval workflows (PO Approvals).
  * Follows the same pattern as Finance ApprovalsPage.
  */
 
@@ -12,13 +11,12 @@ import { useQuery } from "@tanstack/react-query";
 import {
   FactCheck as ApprovalIcon,
   ReceiptLong as POIcon,
-  AssignmentReturn as ReturnIcon,
   CheckCircle as CheckIcon,
 } from "@mui/icons-material";
 
 // Tijaero Components
 import { TPageHeader, TStatCard } from "@/components/tijaero";
-import { purchaseOrdersApi, purchaseReturnsApi } from "@/modules/purchasing/api";
+import { purchaseOrdersApi } from "@/modules/purchasing/api";
 
 interface ApprovalCard {
   title: string;
@@ -36,13 +34,6 @@ const approvalTypes: ApprovalCard[] = [
     path: "/purchasing/approvals/po-approvals",
     color: "primary",
   },
-  {
-    title: "Return Approvals",
-    description: "Review and approve pending purchase return requests",
-    icon: <ReturnIcon sx={{ fontSize: 48 }} />,
-    path: "/purchasing/approvals/return-approvals",
-    color: "warning",
-  },
 ];
 
 export default function PurchasingApprovalsPage() {
@@ -52,13 +43,6 @@ export default function PurchasingApprovalsPage() {
   const { data: pendingPOs } = useQuery({
     queryKey: ["purchasing-approvals", "pending-pos"],
     queryFn: () => purchaseOrdersApi.getAll({ status: "pending_approval" }),
-    refetchInterval: 30_000,
-  });
-
-  // Live pending return count
-  const { data: pendingReturns } = useQuery({
-    queryKey: ["purchasing-approvals", "pending-returns"],
-    queryFn: () => purchaseReturnsApi.getAll({ status_filter: "pending_approval" }),
     refetchInterval: 30_000,
   });
 
@@ -74,8 +58,6 @@ export default function PurchasingApprovalsPage() {
   });
 
   const pendingPOCount = pendingPOs?.length ?? 0;
-  const pendingReturnCount = pendingReturns?.length ?? 0;
-  const totalPending = pendingPOCount + pendingReturnCount;
   const approvedTodayCount = approvedPOs?.length ?? 0;
 
   return (
@@ -83,7 +65,7 @@ export default function PurchasingApprovalsPage() {
       {/* Page Header */}
       <TPageHeader
         title="Purchasing Approvals"
-        subtitle="Manage purchase order and return approvals"
+        subtitle="Manage purchase order approvals"
         icon={<ApprovalIcon />}
       />
 
@@ -146,26 +128,10 @@ export default function PurchasingApprovalsPage() {
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <TStatCard
-            title="Pending Returns"
-            value={pendingReturnCount}
-            icon={<ReturnIcon />}
-            color="warning"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
             title="Approved Today"
             value={approvedTodayCount}
             icon={<CheckIcon />}
             color="success"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TStatCard
-            title="Total Pending"
-            value={totalPending}
-            icon={<ApprovalIcon />}
-            color="info"
           />
         </Grid>
       </Grid>

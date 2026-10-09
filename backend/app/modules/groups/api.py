@@ -2,16 +2,19 @@
 Groups/Roles API endpoints
 """
 
-from typing import List
+from typing import Annotated, List
 
-from app.auth import schemas, service
+from app.auth import schemas, service, user_access
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/groups", tags=["groups"])
+
+# Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
+GroupId = Annotated[int, Path(ge=1, le=2_147_483_647)]
 
 
 @router.get(
@@ -37,7 +40,7 @@ def list_groups(
     dependencies=[Depends(require_permission(*Permissions.GROUP_VIEW))],
 )
 def get_group(
-    group_id: int,
+    group_id: GroupId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.GROUP_VIEW)),
 ):
@@ -57,7 +60,10 @@ def create_group(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.GROUP_CREATE)),
 ):
-    """Create a new group/role with permissions."""
+    """Create a new group/role with permissions (only permissions the caller holds)."""
+    user_access.assert_can_grant_permissions(
+        current_user, user_access.load_permissions(db, group.permission_ids)
+    )
     return service.group_service.create_group(db, group, created_by=current_user.id)
 
 
@@ -68,25 +74,19 @@ def create_group(
     dependencies=[Depends(require_permission(*Permissions.GROUP_UPDATE))],
 )
 def update_group(
-    group_id: int,
+    group_id: GroupId,
     group: schemas.GroupUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.GROUP_UPDATE)),
 ):
-    """Update group information and permissions."""
+    """Update group information and permissions.
+
+    A non-superuser may only change a role whose permissions they fully hold,
+    and may only grant permissions they hold themselves."""
+    target = service.group_service.get_group(db, group_id)
+    user_access.assert_can_edit_role(current_user, target)
+    if group.permission_ids is not None:
+        user_access.assert_can_grant_permissions(
+            current_user, user_access.load_permissions(db, group.permission_ids)
+        )
     return service.group_service.update_group(db, group_id, group, updated_by=current_user.id)
-
-
-@router.delete(
-    "/{group_id}",
-    status_code=status.HTTP_200_OK,
-    summary="Delete Group",
-    dependencies=[Depends(require_permission(*Permissions.GROUP_DELETE))],
-)
-def delete_group(
-    group_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.GROUP_DELETE)),
-):
-    """Delete a group by ID."""
-    return service.group_service.delete_group(db, group_id, deleted_by=current_user.id)

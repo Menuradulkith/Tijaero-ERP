@@ -1,11 +1,14 @@
 /**
  * UserAvatarUploader - Browse/preview/remove control for a user's profile
- * picture, uploaded via POST /users/{id}/profile-picture.
+ * picture, uploaded via POST /users/{id}/profile-picture. Same layout as the
+ * supplier logo control: while creating a brand-new user (no id yet) the
+ * picked file is held locally (draftFile) and uploaded once the user is saved.
  */
-import { useRef, useState } from "react";
-import { Avatar, Box, Button, IconButton, Tooltip } from "@mui/material";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Box, Button, IconButton, Tooltip } from "@mui/material";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import DeleteIcon from "@mui/icons-material/Delete";
+import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import { showErrorToast, showSuccessToast, handleApiError } from "@/components/tijaero";
 import { usersApi } from "../api";
 
@@ -23,18 +26,54 @@ export function profilePictureUrl(path?: string): string | undefined {
 }
 
 interface UserAvatarUploaderProps {
-  user: { id: number; profile_picture_path?: string; username: string };
+  /** The saved user to upload/remove the picture against. Omit while
+   * creating a new user - pass draftFile / onDraftFileChange instead. */
+  user?: { id: number; profile_picture_path?: string; username: string };
   disabled?: boolean;
   /** Called with the new profile_picture_path (null after removal) so the caller can update its own state. */
   onUpdated?: (profilePicturePath: string | null) => void;
+  /** Draft mode (no user id yet): the currently-selected local file. */
+  draftFile?: File | null;
+  /** Draft mode: called with the newly-picked file (or null on remove). */
+  onDraftFileChange?: (file: File | null) => void;
 }
 
-export default function UserAvatarUploader({ user, disabled = false, onUpdated }: UserAvatarUploaderProps) {
+export default function UserAvatarUploader({
+  user,
+  disabled = false,
+  onUpdated,
+  draftFile,
+  onDraftFileChange,
+}: UserAvatarUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  const currentUrl = previewUrl ?? profilePictureUrl(user.profile_picture_path);
+  const isDraftMode = !user;
+
+  // The local preview belongs to one user only: clear it when a different
+  // user is shown, and remember which one is current so a late response for
+  // one user does not touch another user's preview/spinner.
+  const currentUserIdRef = useRef<number | undefined>(user?.id);
+  useEffect(() => {
+    currentUserIdRef.current = user?.id;
+    setPreviewUrl(null);
+    setUploading(false);
+  }, [user?.id]);
+
+  const draftPreviewUrl = useMemo(
+    () => (draftFile ? URL.createObjectURL(draftFile) : null),
+    [draftFile]
+  );
+  useEffect(() => {
+    return () => {
+      if (draftPreviewUrl) URL.revokeObjectURL(draftPreviewUrl);
+    };
+  }, [draftPreviewUrl]);
+
+  const currentUrl = isDraftMode
+    ? draftPreviewUrl
+    : (previewUrl ?? profilePictureUrl(user?.profile_picture_path) ?? null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -46,42 +85,89 @@ export default function UserAvatarUploader({ user, disabled = false, onUpdated }
       return;
     }
 
+    if (isDraftMode) {
+      onDraftFileChange?.(file);
+      return;
+    }
+
+    const userId = user!.id;
     const objectUrl = URL.createObjectURL(file);
     setPreviewUrl(objectUrl);
     setUploading(true);
     try {
-      const updated = await usersApi.uploadProfilePicture(user.id, file);
+      const updated = await usersApi.uploadProfilePicture(userId, file);
       onUpdated?.(updated.profile_picture_path ?? null);
       showSuccessToast("Profile picture uploaded");
     } catch (err) {
       showErrorToast(handleApiError(err, "Failed to upload profile picture"));
-      setPreviewUrl(null);
     } finally {
+      // Hand display back to the saved path (the object URL is revoked below).
+      if (currentUserIdRef.current === userId) {
+        setPreviewUrl(null);
+        setUploading(false);
+      }
       URL.revokeObjectURL(objectUrl);
-      setUploading(false);
     }
   };
 
   const handleRemove = async () => {
+    if (isDraftMode) {
+      onDraftFileChange?.(null);
+      return;
+    }
+    const userId = user!.id;
     setUploading(true);
     try {
-      await usersApi.removeProfilePicture(user.id);
-      setPreviewUrl(null);
+      await usersApi.removeProfilePicture(userId);
       onUpdated?.(null);
       showSuccessToast("Profile picture removed");
     } catch (err) {
       showErrorToast(handleApiError(err, "Failed to remove profile picture"));
     } finally {
-      setUploading(false);
+      if (currentUserIdRef.current === userId) {
+        setPreviewUrl(null);
+        setUploading(false);
+      }
     }
   };
 
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-      <Avatar src={currentUrl} sx={{ width: 64, height: 64, fontSize: "1.5rem" }}>
-        {!currentUrl && (user.username?.[0]?.toUpperCase() || "U")}
-      </Avatar>
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        border: "1px solid",
+        borderColor: "divider",
+        borderRadius: 1,
+        p: 2,
+      }}
+    >
+      <Box
+        sx={{
+          flex: 1,
+          height: 96,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          bgcolor: "action.hover",
+          borderRadius: 1,
+          overflow: "hidden",
+        }}
+      >
+        {currentUrl ? (
+          <Box
+            component="img"
+            src={currentUrl}
+            alt={`${user?.username || "User"} profile picture`}
+            sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+          />
+        ) : (
+          <ImageOutlinedIcon sx={{ fontSize: 48, color: "text.disabled" }} />
+        )}
+      </Box>
+
+      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
         <input
           ref={inputRef}
           type="file"
@@ -96,7 +182,7 @@ export default function UserAvatarUploader({ user, disabled = false, onUpdated }
           onClick={() => inputRef.current?.click()}
           disabled={disabled || uploading}
         >
-          Change Picture
+          Browse
         </Button>
         {currentUrl && (
           <Tooltip title="Remove picture">

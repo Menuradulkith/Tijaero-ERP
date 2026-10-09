@@ -9,15 +9,21 @@ from app.modules.products import repository, schemas, models
 # Unique index (see alembic s66_catalog_unique_guards) → user-facing message,
 # for when two concurrent saves both pass the service's pre-checks.
 PRODUCT_UNIQUE_MESSAGES = {
+    "uq_products_name_ci": "A product with this name already exists.",
+    "uq_products_item_code_ci": "A product with this item code already exists.",
     "uq_products_name_lower": "A product with this name already exists.",
     "uq_products_item_code_lower": "A product with this item code already exists.",
     "products_item_code_key": "A product with this item code already exists.",
 }
 CATEGORY_UNIQUE_MESSAGES = {
+    "uq_category_name_ci": "A category with this name already exists.",
+    "uq_category_code_ci": "A category with this code already exists.",
     "uq_category_name_lower": "A category with this name already exists.",
     "uq_category_code_lower": "A category with this code already exists.",
 }
 BRAND_UNIQUE_MESSAGES = {
+    "uq_items_brand_name_ci": "A brand with this name already exists.",
+    "uq_items_brand_code_ci": "A brand with this code already exists.",
     "uq_items_brand_name_lower": "A brand with this name already exists.",
     "uq_items_brand_code_lower": "A brand with this code already exists.",
 }
@@ -53,12 +59,40 @@ def _touch(record) -> None:
     record.updated_at = tz.now()
 
 
-def _validate_minimum_price(minimum_price: Optional[float], cost_price: Optional[float]) -> None:
+def _validate_minimum_price(
+    minimum_price: Optional[float], cost_price: Optional[float], selling_price: Optional[float] = None
+) -> None:
+    """selling >= minimum >= cost. The tier endpoints already enforced this; the
+    product-level paths only checked the cost side, so a minimum above the selling
+    price (which makes the product unsellable) was accepted."""
     if minimum_price is not None and cost_price is not None and float(minimum_price) < float(cost_price):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Minimum selling price cannot be less than cost price."
         )
+    if minimum_price is not None and selling_price is not None and float(minimum_price) > float(selling_price):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Minimum selling price cannot be greater than the selling price."
+        )
+
+
+def _require_active_refs(db: Session, category_id: Optional[int], brand_id: Optional[int]) -> None:
+    """A new product (or a changed category/brand) must point at an active category and brand."""
+    if category_id is not None:
+        category = db.query(models.Category).filter(models.Category.id == category_id).first()
+        if category is not None and not category.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Category '{category.name.strip()}' is inactive and cannot be assigned to a product.",
+            )
+    if brand_id is not None:
+        brand = db.query(models.ItemsBrand).filter(models.ItemsBrand.id == brand_id).first()
+        if brand is not None and not brand.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Brand '{brand.brand_name.strip()}' is inactive and cannot be assigned to a product.",
+            )
 
 def _attach_user_names(db: Session, records: List) -> None:
     """Resolve created_by/updated_by ids to display names, in one batched
@@ -127,6 +161,16 @@ class ProductService:
         _attach_preferred_suppliers(db, products)
         return products
 
+    def products_page(self, db: Session, page: int, size: int, **filters) -> dict:
+        rows, total = repository.products_page(db, page=page, size=size, **filters)
+        _attach_user_names(db, rows)
+        _attach_minimum_prices(db, rows)
+        _attach_preferred_suppliers(db, rows)
+        for r in rows:
+            r.category_name = r.category.name if r.category else None
+            r.brand_name = r.brand.brand_name if r.brand else None
+        return {"items": rows, "total": total, "page": page, "size": size, "pages": -(-total // size)}
+
     def search_products(self, db: Session, query: str, skip: int = 0, limit: int = 100) -> List[schemas.Product]:
         products = repository.product_repository.search(db, query, skip, limit)
         _attach_user_names(db, products)
@@ -159,7 +203,8 @@ class ProductService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Website price cannot be less than cost price."
             )
-        _validate_minimum_price(product.minimum_selling_price, product.cost_price)
+        _validate_minimum_price(product.minimum_selling_price, product.cost_price, product.selling_price)
+        _require_active_refs(db, product.category_id, product.items_brand_id)
 
         # Product, default price tier, initial minimum price and audit row all
         # commit together. The pre-checks above only give friendly messages;
@@ -236,9 +281,29 @@ class ProductService:
         # silently leaves a minimum below cost. Only enforced when one of the
         # two is actually changing, so a product with older out-of-rule data
         # can still be saved for unrelated edits (e.g. its description).
-        if cost_changed or min_price_changed:
+        selling_changed = product.selling_price is not None and (
+            curr_product.selling_price is None or float(product.selling_price) != float(curr_product.selling_price)
+        )
+        if cost_changed or min_price_changed or selling_changed:
             effective_min = product.minimum_selling_price if product.minimum_selling_price is not None else current_min_value
-            _validate_minimum_price(effective_min, new_cost_price)
+            _validate_minimum_price(effective_min, new_cost_price, new_selling_price)
+
+        # website_active needs a website price (checked when either field is part of this save).
+        submitted = product.model_fields_set
+        if ("website_active" in submitted or "website_price" in submitted):
+            new_site_active = product.website_active if product.website_active is not None else curr_product.website_active
+            if new_site_active and not new_website_price:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Website price is required when the product is active on the website.",
+                )
+        # Only a *changed* category/brand has to be active: an existing assignment to a
+        # since-deactivated one must not block unrelated edits.
+        _require_active_refs(
+            db,
+            product.category_id if product.category_id not in (None, curr_product.category_id) else None,
+            product.items_brand_id if product.items_brand_id not in (None, curr_product.items_brand_id) else None,
+        )
 
         submitted_fields = product.model_dump(exclude_unset=True, exclude=schemas.NON_COLUMN_UPDATE_FIELDS)
         before_values = {field: getattr(curr_product, field) for field in submitted_fields}
@@ -352,6 +417,11 @@ class CategoryService:
         _attach_user_names(db, categories)
         return categories
 
+    def categories_page(self, db: Session, page: int, size: int, **filters) -> dict:
+        rows, total = repository.categories_page(db, page=page, size=size, **filters)
+        _attach_user_names(db, rows)
+        return {"items": rows, "total": total, "page": page, "size": size, "pages": -(-total // size)}
+
     def create_category(self, db: Session, category: schemas.CategoryCreate, user_id: int) -> schemas.Category:
         existing = repository.category_repository.get_by_code(db, category.category_code)
         if existing:
@@ -448,6 +518,11 @@ class BrandService:
         brands = repository.brand_repository.get_all(db, skip, limit, active_only)
         _attach_user_names(db, brands)
         return brands
+
+    def brands_page(self, db: Session, page: int, size: int, **filters) -> dict:
+        rows, total = repository.brands_page(db, page=page, size=size, **filters)
+        _attach_user_names(db, rows)
+        return {"items": rows, "total": total, "page": page, "size": size, "pages": -(-total // size)}
 
     def create_brand(self, db: Session, brand: schemas.BrandCreate, user_id: Optional[int] = None) -> schemas.Brand:
         existing = repository.brand_repository.get_by_code(db, brand.brand_code)
@@ -563,7 +638,7 @@ class MinimumPriceService:
                 detail=f"Product with id {product_id} not found"
             )
 
-        _validate_minimum_price(minimum_price, product.cost_price)
+        _validate_minimum_price(minimum_price, product.cost_price, product.selling_price)
 
         price = repository.minimum_price_repository.create(db, product_id, minimum_price, commit=False)
         _touch(product)  # see update_product: keeps the stale check meaningful

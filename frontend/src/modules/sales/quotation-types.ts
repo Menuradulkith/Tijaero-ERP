@@ -61,6 +61,8 @@ export interface SalesQuoteItemWithProduct extends SalesQuoteItem {
 // ==================== Quote Types ====================
 
 export interface SalesQuote {
+  /** Concurrency token: echo it back as expected_version on update. */
+  version?: string;
   id: number;
   quote_no: string;
   quote_type: QuoteType;
@@ -169,6 +171,7 @@ export interface SalesQuoteCreate {
 }
 
 export interface SalesQuoteUpdate {
+  expected_version?: string;
   branch_code?: string;
   customer_id?: number;
   sale_rep_id?: number;
@@ -325,27 +328,6 @@ export interface ReleaseReservationResponse {
   units_released: number;
   message: string;
 }
-
-// ==================== Create PO from Quotation Types ====================
-
-export interface CreatePOFromQuoteRequest {
-  first_suppliers_id: number;
-  second_suppliers_id: number;
-  payment_method: string;
-  purchasing_invoice_no: string;
-  good_received_note_date: string;
-  remarks?: string;
-  credit_date?: number;
-}
-
-export interface CreatePOFromQuoteResponse {
-  quote_id: number;
-  quote_no: string;
-  purchasing_order_id: number;
-  purchasing_order_no: string;
-  message: string;
-}
-
 
 // ==================== Reject Quote Types ====================
 

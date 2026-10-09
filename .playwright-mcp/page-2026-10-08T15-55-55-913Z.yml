@@ -1,0 +1,50 @@
+- generic [ref=e4]:
+  - generic:
+    - generic [ref=e5]:
+      - button "Home" [ref=e6] [cursor=pointer]
+      - button "Hide Sidebar" [ref=e9] [cursor=pointer]
+      - button "Find Page" [ref=e12] [cursor=pointer]
+    - banner [ref=e15]:
+      - generic [ref=e17]:
+        - generic [ref=e18]:
+          - paragraph [ref=e19]: Admin User
+          - generic [ref=e20]: Superuser
+        - button "0" [ref=e21] [cursor=pointer]
+        - button "Tijaero.AI assistant" [ref=e25] [cursor=pointer]: Tijaero.AI
+        - button "A" [ref=e29] [cursor=pointer]
+    - navigation [ref=e31]:
+      - generic [ref=e33]:
+        - heading "TijaeroERP" [level=6] [ref=e38]
+        - separator [ref=e39]
+        - list [ref=e41]:
+          - listitem [ref=e43]:
+            - button "Dashboard" [ref=e44] [cursor=pointer]
+          - listitem [ref=e51]:
+            - button "Sales" [ref=e52] [cursor=pointer]
+          - listitem [ref=e61]:
+            - button "Purchasing" [ref=e62] [cursor=pointer]
+          - listitem [ref=e71]:
+            - button "Product Catalogs" [ref=e72] [cursor=pointer]
+          - listitem [ref=e81]:
+            - button "Finance" [ref=e82] [cursor=pointer]
+          - listitem [ref=e91]:
+            - button "HR" [ref=e92] [cursor=pointer]
+          - listitem [ref=e101]:
+            - button "Sales Stock" [ref=e102] [cursor=pointer]
+          - listitem [ref=e111]:
+            - button "Company Assets" [ref=e112] [cursor=pointer]
+          - listitem [ref=e119]:
+            - button "Support" [ref=e120] [cursor=pointer]
+          - listitem [ref=e130]:
+            - button "Reporting" [ref=e131] [cursor=pointer]
+          - listitem [ref=e138]:
+            - button "Branches" [ref=e139] [cursor=pointer]
+          - listitem [ref=e146]:
+            - button "Users" [ref=e147] [cursor=pointer]
+          - listitem [ref=e154]:
+            - button "Roles" [ref=e155] [cursor=pointer]
+          - listitem [ref=e162]:
+            - button "Settings" [ref=e163] [cursor=pointer]
+        - separator [ref=e169]
+        - list [ref=e170]
+  - main [ref=e171]

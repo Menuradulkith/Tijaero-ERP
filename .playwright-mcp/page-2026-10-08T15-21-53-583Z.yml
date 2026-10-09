@@ -1,0 +1,23 @@
+- generic [ref=f22e6]:
+  - heading "Welcome Back" [level=1] [ref=f22e10]
+  - paragraph [ref=f22e11]: Sign in to access your ERP dashboard
+  - tablist [ref=f22e14]:
+    - tab "Password" [selected] [ref=f22e15] [cursor=pointer]
+    - tab "Passcode" [ref=f22e18] [cursor=pointer]
+  - tabpanel "Password" [ref=f22e22]:
+    - generic [ref=f22e23]:
+      - generic [ref=f22e24]:
+        - generic [ref=f22e25]: Username
+        - generic [ref=f22e26]:
+          - textbox "Username" [active] [ref=f22e30]
+          - group [aria-hidden]:
+            - generic: Username
+      - generic [ref=f22e31]:
+        - generic [ref=f22e32]: Password
+        - generic [ref=f22e33]:
+          - textbox "Password" [ref=f22e37]
+          - button [ref=f22e39] [cursor=pointer]
+          - group [aria-hidden]:
+            - generic: Password
+      - button "Sign In" [ref=f22e42] [cursor=pointer]
+  - paragraph [ref=f22e44]: If you don't have an account, please contact your administrator to get access.

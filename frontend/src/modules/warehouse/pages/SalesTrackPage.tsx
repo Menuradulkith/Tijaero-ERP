@@ -627,7 +627,7 @@ export default function SalesTrackPage() {
                       <InfoRow label="Name" value={customer.customer_name} />
                       {customer.company_name && <InfoRow label="Company" value={customer.company_name} />}
                       {customer.email && <InfoRow label="Email" value={customer.email} />}
-                      {customer.mobile_contact_number && <InfoRow label="Phone" value={customer.mobile_contact_number} />}
+                      {customer.mobile_contact_number && <InfoRow label="Contact No" value={customer.mobile_contact_number} />}
                       {customer.payment_address && <InfoRow label="Address" value={customer.payment_address} />}
                       <Divider sx={{ my: 1 }} />
                       <InfoRow label="Credit Days" value={customer.credit_days} />

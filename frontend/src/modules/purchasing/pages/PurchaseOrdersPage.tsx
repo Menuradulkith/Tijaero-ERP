@@ -44,9 +44,12 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { GridPaginationModel } from "@mui/x-data-grid";
+import { useDebounce } from "@/hooks";
+import { fetchAllPages } from "@/utils/fetchAllPages";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 // Import tijaero components
 import {
     ActionToolbar,
@@ -77,10 +80,12 @@ import {
     useMasterDetailState,
     useTConfirmDialog,
     TActivityHistoryPanel,
+  continueOrReveal,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
 import PurchaseOrderCreateWizard, {
   type PurchaseOrderWizardHandle,
   type PurchaseOrderWizardState,
@@ -182,7 +187,6 @@ export default function PurchaseOrdersPage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const location = useLocation();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const user = useAuthStore((s) => s.user);
 
@@ -522,13 +526,55 @@ export default function PurchaseOrdersPage() {
   // branchResolved: true once we've either confirmed no default branch exists, or the filter has been set
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  const { data: orders, isLoading } = useQuery({
-    queryKey: ["purchaseOrders"],
-    queryFn: () => purchaseOrdersApi.getAll(),
-    enabled: branchResolved,
+  // Server-side paging: the grid fetches only the visible page; search, the
+  // branch / supplier / status filters and column sorting run in the database
+  // and the API returns the total for the footer ("1-25 of N").
+  const [paging, setPaging] = useState<GridPaginationModel>({ page: 0, pageSize: 25 });
+  const [sort, setSort] = useState<{ field: string; sort: "asc" | "desc" } | null>(null);
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
+  // Any change to the search, a filter or the sort starts again from page 1.
+  useEffect(() => {
+    setPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
+  }, [debouncedSearch, filterBranch, filterSupplier, filterStatus, sort]);
+
+  const pageParams = (page: number, size: number) => ({
+    page,
+    size,
+    q: debouncedSearch.trim(),
+    status: filterStatus ?? undefined,
+    supplier_id: filterSupplier ?? undefined,
+    branch_code: filterBranch ?? undefined,
+    sort_by: sort?.field,
+    order: sort?.sort,
   });
 
-  const nextPONumber = useMemo(() => getNextNumber('PO', (orders || []).map((o: PurchasingOrder) => ({ no: o.purchasing_order_no })), formData.branch_code), [orders, formData.branch_code]);
+  const { data: ordersPage, isFetching: isLoading } = useQuery({
+    queryKey: [
+      "purchaseOrders", "paged", paging.page, paging.pageSize, debouncedSearch.trim(), filterBranch, filterSupplier, filterStatus,
+      sort?.field, sort?.sort,
+    ],
+    queryFn: () => purchaseOrdersApi.getPage(pageParams(paging.page, paging.pageSize)),
+    enabled: branchResolved,
+    placeholderData: keepPreviousData,
+    staleTime: 30 * 1000,
+  });
+  const orders = ordersPage?.items;
+
+  // Other POs created in the same multi-supplier purchase as the open one
+  const { data: batchPage } = useQuery({
+    queryKey: ["purchaseOrders", "batch", selectedOrder?.purchase_batch_id],
+    queryFn: () => purchaseOrdersApi.getPage({ page: 0, size: 50, batch_id: selectedOrder!.purchase_batch_id! }),
+    enabled: !!selectedOrder?.purchase_batch_id,
+    staleTime: 30 * 1000,
+  });
+  const batchSiblings = useMemo(
+    () => (batchPage?.items ?? []).filter((o) => o.id !== selectedOrder?.id),
+    [batchPage, selectedOrder?.id],
+  );
+
+  // The server assigns the number when the order is saved.
+  const nextPONumber = "Assigned on save";
 
   // Check daily PO limit for a branch
   const checkDailyLimit = useCallback(
@@ -573,70 +619,28 @@ export default function PurchaseOrdersPage() {
     return product ? product.name : `Product #${productId}`;
   };
 
-  const filteredOrders = useMemo(() => {
-    if (!orders) return [];
-
-    let filtered = orders.filter(
-      (order) =>
-        order.purchasing_order_no
-          ?.toLowerCase()
-          .includes(searchQuery.toLowerCase()) ||
-        String(order.id).includes(searchQuery),
-    );
-
-    // Apply branch filter
-    if (filterBranch) {
-      filtered = filtered.filter((order) => order.branch_code === filterBranch);
-    }
-
-    // Apply supplier filter (matches either primary or secondary supplier)
-    if (filterSupplier) {
-      filtered = filtered.filter(
-        (order) =>
-          order.first_suppliers_id === filterSupplier ||
-          order.second_suppliers_id === filterSupplier,
-      );
-    }
-
-    // Apply status filter
-    if (filterStatus) {
-      filtered = filtered.filter((order) => order.status === filterStatus);
-    }
-
-    // Default order before the user sorts a column in the table itself
-    // (the table's own column-header sort takes over from there).
-    filtered.sort((a, b) => {
-      const diff = new Date(b.added_date || "").getTime() - new Date(a.added_date || "").getTime();
-      return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-    });
-
-    return filtered;
-  }, [orders, searchQuery, filterBranch, filterSupplier, filterStatus]);
+  const filteredOrders: PurchasingOrder[] = useMemo(() => orders ?? [], [orders]);
 
   // Open the ?focus=<id> deep-link target (used by the AI assistant to open
   // a specific PO). Nothing is auto-selected otherwise — the default view is
   // the browse table.
   const focusHandled = useRef(false);
   useEffect(() => {
-    if (isCreating || filteredOrders.length === 0) return;
+    if (isCreating) return;
     const focusId = Number(searchParams.get("focus"));
     if (focusId && !focusHandled.current) {
-      const target = filteredOrders.find((o) => o.id === focusId);
-      if (target) {
-        focusHandled.current = true;
-        handleSelectOrderWithItems(target);
-        const next = new URLSearchParams(searchParams);
-        next.delete("focus");
-        setSearchParams(next, { replace: true });
-      }
+      focusHandled.current = true;
+      purchaseOrdersApi
+        .getById(focusId)
+        .then((target) => {
+          handleSelectOrderWithItems(target);
+        })
+        .catch(() => showErrorToast("Could not open that purchase order"));
+      const next = new URLSearchParams(searchParams);
+      next.delete("focus");
+      setSearchParams(next, { replace: true });
     }
-  }, [
-    filteredOrders,
-    isCreating,
-    handleSelectOrderWithItems,
-    searchParams,
-    setSearchParams,
-  ]);
+  }, [isCreating, handleSelectOrderWithItems, searchParams, setSearchParams]);
 
   // Handle navigation state from Quotation page (auto-select PO created from quotation)
   const navStateHandled = useRef(false);
@@ -657,7 +661,7 @@ export default function PurchaseOrdersPage() {
     }
   }, [location.state, queryClient]);
 
-  // After orders are (re)loaded, select the PO from navigation state
+  // Select the PO from navigation state (opened by id, so it works whatever page the list is on)
   const navSelectHandled = useRef(false);
   useEffect(() => {
     const navState = location.state as {
@@ -665,26 +669,21 @@ export default function PurchaseOrdersPage() {
       purchaseOrderId?: number;
       purchaseOrderNo?: string;
     } | null;
-    if (
-      navState?.fromQuotation &&
-      navState.purchaseOrderId &&
-      orders &&
-      !navSelectHandled.current
-    ) {
-      const createdPO = orders.find(
-        (o: PurchasingOrder) => o.id === navState.purchaseOrderId,
-      );
-      if (createdPO) {
-        navSelectHandled.current = true;
-        handleSelectOrderWithItems(createdPO);
-        showSuccessToast(
-          `Navigated to PO ${navState.purchaseOrderNo || createdPO.purchasing_order_no} created from quotation`,
-        );
-        // Clear navigation state to prevent re-triggering
-        window.history.replaceState({}, document.title);
-      }
+    if (navState?.fromQuotation && navState.purchaseOrderId && !navSelectHandled.current) {
+      navSelectHandled.current = true;
+      purchaseOrdersApi
+        .getById(navState.purchaseOrderId)
+        .then((createdPO) => {
+          handleSelectOrderWithItems(createdPO);
+          showSuccessToast(
+            `Navigated to PO ${navState.purchaseOrderNo || createdPO.purchasing_order_no} created from quotation`,
+          );
+          // Clear navigation state to prevent re-triggering
+          window.history.replaceState({}, document.title);
+        })
+        .catch(() => undefined);
     }
-  }, [orders, location.state, handleSelectOrderWithItems]);
+  }, [location.state, handleSelectOrderWithItems]);
 
   // Handle navigation from Suppliers page — auto-create PO for supplier
   const supplierNavHandled = useRef(false);
@@ -902,6 +901,28 @@ export default function PurchaseOrdersPage() {
       ...formData,
       items: lineItems.map(({ _id, ...item }) => item),
     };
+
+    // Warn (but allow) when a line is below the supplier's MOQ.
+    try {
+      const shortfalls = await findMoqShortfalls(
+        formData.first_suppliers_id,
+        lineItems,
+        (id) => queryClient.fetchQuery({ queryKey: ["supplier-products", id], queryFn: () => suppliersApi.getProducts(id) }),
+      );
+      if (shortfalls.length > 0) {
+        const supplierName = suppliers?.find((s) => s.id === formData.first_suppliers_id)?.company_name || "Unknown";
+        const proceed = await creditWarningDialog.confirm({
+          title: "Below Minimum Order Quantity",
+          message: formatMoqMessage(supplierName, shortfalls),
+          confirmText: "Continue Anyway",
+          cancelText: "Go Back",
+          confirmColor: "warning",
+        });
+        if (!proceed) return;
+      }
+    } catch {
+      // MOQ is advisory; never block the save because the lookup failed.
+    }
 
     // Check credit limit if payment method is Credit
     const isCreditPayment = formData.payment_method?.toLowerCase() === "credit";
@@ -1199,6 +1220,13 @@ export default function PurchaseOrdersPage() {
           rows={purchaseOrderRows}
           columns={purchaseOrderColumns}
           loading={isLoading}
+          serverPagination={{ rowCount: ordersPage?.total ?? 0, paginationModel: paging, onPaginationModelChange: setPaging }}
+          onServerSortChange={setSort}
+          exportAllRows={() =>
+            fetchAllPages((page) => purchaseOrdersApi.getPage(pageParams(page, 200))).then((rows) =>
+              rows.map((order) => ({ ...order, supplier_display_name: getSupplierName(order) }))
+            )
+          }
           onRowClick={(row) => handleSelectOrderWithItems(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
@@ -1272,8 +1300,12 @@ export default function PurchaseOrdersPage() {
               <Button
                 size="small"
                 variant="contained"
-                onClick={() => (wizardState?.isLastStep ? wizardRef.current?.confirm() : wizardRef.current?.goNext())}
-                disabled={!wizardState?.canAdvance}
+                onClick={() =>
+                  continueOrReveal(!!wizardState?.canAdvance, () =>
+                    wizardState?.isLastStep ? wizardRef.current?.confirm() : wizardRef.current?.goNext(),
+                  )
+                }
+                disabled={!!wizardState?.isSubmitting}
                 endIcon={!wizardState?.isLastStep ? <ArrowForwardIcon /> : undefined}
               >
                 {wizardState?.primaryActionLabel ?? "Next"}
@@ -1669,11 +1701,7 @@ export default function PurchaseOrdersPage() {
                     </FormSection>
 
                     {selectedOrder.purchase_batch_id && (() => {
-                      const siblingOrders = (orders || []).filter(
-                        (o) =>
-                          o.purchase_batch_id === selectedOrder.purchase_batch_id &&
-                          o.id !== selectedOrder.id,
-                      );
+                      const siblingOrders = batchSiblings;
                       if (siblingOrders.length === 0) return null;
                       return (
                         <Alert severity="info" sx={{ mb: 2 }}>
@@ -1699,20 +1727,43 @@ export default function PurchaseOrdersPage() {
                       );
                     })()}
 
+                    {selectedOrder.status?.toLowerCase() === "rejected" && (
+                      <Alert severity="error" sx={{ mb: 2 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>Rejected</Typography>
+                        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                          Reason: {selectedOrder.rejection_reason || "No reason recorded."}
+                        </Typography>
+                      </Alert>
+                    )}
+
+                    {selectedOrder.status?.toLowerCase() === "cancelled" && (
+                      <Alert severity="warning" sx={{ mb: 2 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          Cancelled
+                          {selectedOrder.cancelled_date
+                            ? ` on ${new Date(selectedOrder.cancelled_date).toLocaleDateString()}`
+                            : ""}
+                        </Typography>
+                        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                          Reason: {selectedOrder.cancellation_reason || "No reason recorded."}
+                        </Typography>
+                      </Alert>
+                    )}
+
+                    {selectedOrder.status?.toLowerCase() === "short_closed" && (
+                      <Alert severity="warning" sx={{ mb: 2 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>Short-closed</Typography>
+                        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                          Reason: {selectedOrder.short_close_reason || "No reason recorded."}
+                        </Typography>
+                      </Alert>
+                    )}
+
                     {selectedOrder.sales_quote_id && (
                       <Alert severity="info" sx={{ mb: 2 }}>
                         <Typography variant="body2">
                           Created from Sales Quotation{" "}
-                          <Typography
-                            component="span"
-                            variant="body2"
-                            sx={{ fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}
-                            onClick={() =>
-                              navigate("/sales/quotations", {
-                                state: { selectedQuoteId: selectedOrder.sales_quote_id },
-                              })
-                            }
-                          >
+                          <Typography component="span" variant="body2" sx={{ fontWeight: 600 }}>
                             {selectedOrder.sales_quote_no || `Quote #${selectedOrder.sales_quote_id}`}
                           </Typography>
                           .
@@ -1989,7 +2040,7 @@ export default function PurchaseOrdersPage() {
                         )}
                         <TableRow sx={modernTableStyles.footerRow}>
                           <TableCell
-                            colSpan={4}
+                            colSpan={6}
                             align="right"
                           >
                             <Typography fontWeight="bold">Total:</Typography>

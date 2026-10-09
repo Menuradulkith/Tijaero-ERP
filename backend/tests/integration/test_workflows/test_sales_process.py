@@ -132,14 +132,15 @@ class TestQuoteCreate:
         self, db, make_branch, make_customer, make_product
     ):
         branch, customer, product = make_branch(), make_customer(), make_product()
-        # selling_price below minimum_selling_price must raise.
-        with pytest.raises(HTTPException) as exc:
+        # selling_price below minimum_selling_price must raise (the schema now refuses it up front).
+        from pydantic import ValidationError
+
+        with pytest.raises((HTTPException, ValidationError)) as exc:
             _make_quote(
                 db, branch, customer,
                 [_item(product.id, price=50.0, minimum=100.0)],
             )
-        assert exc.value.status_code == 400
-        assert "minimum" in exc.value.detail.lower()
+        assert "minimum" in str(getattr(exc.value, "detail", exc.value)).lower()
 
     def test_discount_applied_to_total(self, db, make_branch, make_customer, make_product):
         branch, customer, product = make_branch(), make_customer(), make_product()
@@ -193,17 +194,24 @@ class TestStatusMachine:
             db, quote_id, SalesQuoteStatusUpdate(status=status_enum)
         )
 
-    def test_draft_to_sent(self, db, make_branch, make_customer, make_product):
+    def test_system_managed_statuses_cannot_be_set_by_hand(self, db, make_branch, make_customer, make_product):
+        # approved / completed / sent are decided by the approval workflow and the document actions,
+        # never by a manual status change (that used to bypass the approval).
         branch, customer, product = make_branch(), make_customer(), make_product()
         quote = _make_quote(db, branch, customer, [_item(product.id)])
-        updated = self._set_status(db, quote.id, QuoteStatusEnum.SENT)
-        assert updated.status == "sent"
+        for target in (QuoteStatusEnum.SENT, QuoteStatusEnum.COMPLETED, QuoteStatusEnum.APPROVED, QuoteStatusEnum.REJECTED):
+            with pytest.raises(HTTPException) as exc:
+                self._set_status(db, quote.id, target)
+            assert exc.value.status_code == 400
 
-    def test_draft_to_completed(self, db, make_branch, make_customer, make_product):
+    def test_accept_needs_prior_approval(self, db, make_branch, make_customer, make_product):
         branch, customer, product = make_branch(), make_customer(), make_product()
         quote = _make_quote(db, branch, customer, [_item(product.id)])
-        updated = self._set_status(db, quote.id, QuoteStatusEnum.COMPLETED)
-        assert updated.status == "completed"
+        with pytest.raises(HTTPException) as exc:
+            self._set_status(db, quote.id, QuoteStatusEnum.ACCEPTED)
+        assert exc.value.status_code == 400
+        SERVICE.resolve_quote_approval(db, quote.id, approve=True, user_id=1)
+        assert self._set_status(db, quote.id, QuoteStatusEnum.ACCEPTED).status == "accepted"
 
     def test_cannot_leave_cancelled_state(self, db, make_branch, make_customer, make_product):
         branch, customer, product = make_branch(), make_customer(), make_product()

@@ -99,6 +99,7 @@ class SupplierService:
             )
 
     def create_supplier(self, supplier: schemas.SupplierCreate, created_by: Optional[int] = None) -> models.Supplier:
+        self._check_currency(supplier.default_currency)
         self._check_duplicate_fields(supplier)
         with self._duplicate_guard():
             created = self.repo.create(supplier)
@@ -235,6 +236,46 @@ class SupplierService:
         self._attach_user_names(suppliers)
         return suppliers
 
+    def list_suppliers_page(self, page: int, size: int, **filters) -> dict:
+        rows, total = self.repo.get_page(page=page, size=size, **filters)
+        lead_times = self.repo.get_average_lead_times([s.id for s in rows])
+        for s in rows:
+            s.average_lead_time_days = lead_times.get(s.id)
+        self._attach_user_names(rows)
+        return {"items": rows, "total": total, "page": page, "size": size, "pages": -(-total // size)}
+
+    def _check_currency(self, code: Optional[str]) -> None:
+        """default_currency must be one of the configured currencies."""
+        if not code:
+            return
+        from app.modules.settings.models import Currency
+        exists = self.repo.db.query(Currency.id).filter(Currency.code == code).first()
+        if not exists:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Currency '{code}' is not a configured currency.",
+            )
+
+    def list_suppliers_page(self, page: int, size: int, **filters) -> dict:
+        rows, total = self.repo.get_page(page=page, size=size, **filters)
+        lead_times = self.repo.get_average_lead_times([s.id for s in rows])
+        for s in rows:
+            s.average_lead_time_days = lead_times.get(s.id)
+        self._attach_user_names(rows)
+        return {"items": rows, "total": total, "page": page, "size": size, "pages": -(-total // size)}
+
+    def _check_currency(self, code: Optional[str]) -> None:
+        """default_currency must be one of the configured currencies."""
+        if not code:
+            return
+        from app.modules.settings.models import Currency
+        exists = self.repo.db.query(Currency.id).filter(Currency.code == code).first()
+        if not exists:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Currency '{code}' is not a configured currency.",
+            )
+
     def _ensure_can_deactivate(self, supplier: models.Supplier) -> None:
         """Must run while holding the supplier row lock: PO / payment / GRN
         creation take a shared lock on the supplier (see
@@ -303,6 +344,8 @@ class SupplierService:
         if supplier_update.active is False and before.active:
             self._ensure_can_deactivate(before)
 
+        self._check_currency(supplier_update.default_currency)
+        self._check_currency(supplier_update.default_currency)
         self._check_duplicate_fields(supplier_update, exclude_id=supplier_id)
 
         before_values = {field: getattr(before, field) for field in submitted_fields}
@@ -365,13 +408,21 @@ class SupplierPaymentMethodService:
     def create_payment_method(
         self, supplier_id: int, data: schemas.SupplierPaymentMethodCreate
     ) -> models.SupplierPaymentMethod:
-        self._ensure_supplier(supplier_id)
+        supplier = self._ensure_supplier(supplier_id)
+        if not supplier.active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot add a payment method to an inactive supplier.")
         return self.repo.create(supplier_id, data)
 
     def update_payment_method(
         self, supplier_id: int, method_id: int, data: schemas.SupplierPaymentMethodUpdate
     ) -> models.SupplierPaymentMethod:
-        self._get_owned_method(supplier_id, method_id)
+        existing = self._get_owned_method(supplier_id, method_id)
+        merged = {c.name: getattr(existing, c.name) for c in existing.__table__.columns}
+        merged.update(data.model_dump(exclude_unset=True))
+        try:
+            schemas.check_payment_method_rules(merged)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
         return self.repo.update(method_id, data)
 
     def delete_payment_method(self, supplier_id: int, method_id: int) -> None:
@@ -429,7 +480,9 @@ class SupplierContactPersonService:
     def create_contact(
         self, supplier_id: int, data: schemas.SupplierContactPersonCreate
     ) -> models.SupplierContactPerson:
-        self._ensure_supplier(supplier_id)
+        supplier = self._ensure_supplier(supplier_id)
+        if not supplier.active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot add a contact person to an inactive supplier.")
         self._check_duplicate_fields(data)
         return self.repo.create(supplier_id, data)
 
@@ -581,6 +634,11 @@ class PurchasingOrderService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Cannot create a purchase order from quotation {quote.quote_no} — it has not been approved."
                 )
+            if order.branch_code != quote.branch_code:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Purchase order branch '{order.branch_code}' does not match quotation {quote.quote_no} (branch '{quote.branch_code}')."
+                )
 
         self.supplier_repo.lock_for_document(order.first_suppliers_id, order.second_suppliers_id)
         first_supplier = self.supplier_repo.get_by_id(order.first_suppliers_id)
@@ -626,6 +684,12 @@ class PurchasingOrderService:
         # same quotation line. ──
         if order.items:
             from app.modules.sales.quotation_models import SalesQuoteItem
+            # the same quotation line may appear on several PO lines: check the sum
+            line_totals: dict = {}
+            for po_item in order.items:
+                qid_ = getattr(po_item, "quote_item_id", None)
+                if qid_:
+                    line_totals[qid_] = line_totals.get(qid_, 0) + po_item.quantity
             for po_item in order.items:
                 quote_item_id = getattr(po_item, "quote_item_id", None)
                 if not quote_item_id:
@@ -646,16 +710,11 @@ class PurchasingOrderService:
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Quotation item {quote_item.id} does not belong to quote {order.sales_quote_id}"
                     )
-                if quote_item.item_status in ("po_created", "itn_created", "so_created", "completed", "cancelled"):
+                _check_quote_item_open(quote_item, line_totals[quote_item_id])
+                if po_item.unit_price > quote_item.selling_price:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Quotation item {quote_item.id} already has a purchase order (status: {quote_item.item_status})."
-                    )
-                remaining = quote_item.quantity - (quote_item.converted_qty or 0)
-                if po_item.quantity > remaining:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Quotation item {quote_item.id} only has {remaining} unit(s) left to procure, but {po_item.quantity} were requested."
+                        detail=f"Unit price {po_item.unit_price} for quotation item {quote_item.id} is higher than its selling price {quote_item.selling_price}; a purchase above the selling price would sell at a loss."
                     )
 
     def _fulfill_quote_items(self, order: schemas.PurchasingOrderCreate) -> None:
@@ -671,8 +730,10 @@ class PurchasingOrderService:
             quote_item = self.db.query(SalesQuoteItem).filter(SalesQuoteItem.id == quote_item_id).first()
             if not quote_item:
                 continue
-            quote_item.item_status = "po_created"
             quote_item.converted_qty = (quote_item.converted_qty or 0) + po_item.quantity
+            # Fully ordered -> po_created; a partial order keeps the item open ("procurement")
+            # so the rest can still be ordered.
+            quote_item.item_status = "po_created" if quote_item.converted_qty >= quote_item.quantity else "procurement"
 
             # A PO now exists for this item — it no longer belongs in the
             # procurement queue (TOP page), regardless of which entry point
@@ -680,6 +741,34 @@ class PurchasingOrderService:
             self.db.query(models.ProcurementQueueItem).filter(
                 models.ProcurementQueueItem.quote_item_id == quote_item_id
             ).delete()
+
+    def _release_quote_items(self, order: models.PurchasingOrder) -> None:
+        """A cancelled / rejected PO gives its quantities back to the quotation items it
+        was ordered for, so they can be procured again; the quotation status follows."""
+        from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
+        from app.modules.sales.quotation_service import sales_quote_service
+
+        touched_quotes = set()
+        for po_item in order.items or []:
+            qid = getattr(po_item, "quote_item_id", None)
+            if not qid:
+                continue
+            qi = self.db.query(SalesQuoteItem).filter(SalesQuoteItem.id == qid).with_for_update().first()
+            if not qi or qi.item_status in ("itn_created", "so_created", "completed", "cancelled"):
+                continue
+            qi.converted_qty = max((qi.converted_qty or 0) - po_item.quantity, 0)
+            if qi.converted_qty >= qi.quantity:
+                qi.item_status = "po_created"
+            elif qi.converted_qty > 0:
+                qi.item_status = "procurement"
+            else:
+                qi.item_status = "pending"
+            touched_quotes.add(qi.quote_id)
+        for quote_id in touched_quotes:
+            quote = self.db.query(SalesQuote).filter(SalesQuote.id == quote_id).first()
+            if quote:
+                self.db.refresh(quote, attribute_names=["items"])
+                sales_quote_service.recompute_quote_status(self.db, quote)
 
     def create_order(self, order: schemas.PurchasingOrderCreate, created_by: int = 1) -> models.PurchasingOrder:
         self._lock_daily_po_limit(order.branch_code)
@@ -870,6 +959,9 @@ class PurchasingOrderService:
     def list_orders(self, filters: schemas.PurchaseOrderListFilter) -> List[models.PurchasingOrder]:
         return self.repo.get_all(filters)
 
+    def list_orders_page(self, filters: schemas.PurchaseOrderListFilter, page: int, size: int, sort_by=None, order="desc"):
+        return self.repo.get_page(filters, page, size, sort_by, order)
+
     def get_available_stock_by_product(self, product_ids: List[int], branch_code: str) -> Dict[int, int]:
         """Currently-available stock count per product at a branch — same
         "available" definition (status + is_active) as the procurement
@@ -892,6 +984,54 @@ class PurchasingOrderService:
         )
         return {product_id: int(count) for product_id, count in stock_rows}
 
+    def get_in_transit_by_product(self, product_ids: List[int], branch_code: str) -> Dict[int, int]:
+        """Units still on their way per product at a branch: ordered on
+        approved / partially received purchase orders, minus what the GRNs
+        have already received. Pending-approval, rejected, cancelled,
+        completed and short-closed orders never count."""
+        if not product_ids:
+            return {}
+        open_statuses = (PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.PARTIALLY_COMPLETED)
+        ordered = dict(
+            self.db.query(
+                models.PurchasingOrderItems.product_id,
+                func.coalesce(func.sum(models.PurchasingOrderItems.quantity), 0),
+            )
+            .join(models.PurchasingOrder, models.PurchasingOrder.id == models.PurchasingOrderItems.purchasingorders_id)
+            .filter(
+                models.PurchasingOrderItems.product_id.in_(product_ids),
+                models.PurchasingOrder.branch_code == branch_code,
+                models.PurchasingOrder.status.in_(open_statuses),
+            )
+            .group_by(models.PurchasingOrderItems.product_id)
+            .all()
+        )
+        received = dict(
+            self.db.query(
+                models.PurchasingOrderItems.product_id,
+                func.count(models.GoodReceivedItems.id),
+            )
+            .join(
+                models.GoodReceivedItems,
+                models.GoodReceivedItems.purchasing_order_items_id == models.PurchasingOrderItems.id,
+            )
+            .join(models.PurchasingOrder, models.PurchasingOrder.id == models.PurchasingOrderItems.purchasingorders_id)
+            .filter(
+                models.PurchasingOrderItems.product_id.in_(product_ids),
+                models.PurchasingOrder.branch_code == branch_code,
+                models.PurchasingOrder.status.in_(open_statuses),
+                models.GoodReceivedItems.active == True,
+            )
+            .group_by(models.PurchasingOrderItems.product_id)
+            .all()
+        )
+        result = {}
+        for product_id, qty in ordered.items():
+            remaining = int(qty) - int(received.get(product_id, 0))
+            if remaining > 0:
+                result[product_id] = remaining
+        return result
+
     def update_order(self, order_id: int, order_update: schemas.PurchasingOrderUpdate, updated_by: Optional[int] = None) -> models.PurchasingOrder:
         existing_po = self.repo.get_by_id(order_id)
         if not existing_po:
@@ -912,13 +1052,25 @@ class PurchasingOrderService:
                 detail=f"Cannot edit purchase order. Purchase orders that have received goods (GRN created) cannot be edited."
             )
         
-        # Prevent manual status update to 'approved' via generic update endpoint
-        if order_update.status == "approved" and existing_po.status in ["pending", "pending_approval"]:
-             raise HTTPException(
+        if existing_po.status in (PurchaseOrderStatus.CANCELLED, PurchaseOrderStatus.SHORT_CLOSED):
+            raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Purchase orders cannot be manually approved. Please use the Approval Dashboard."
+                detail=f"Cannot edit purchase order: it is {existing_po.status}."
             )
-        
+
+        # Dates must stay consistent once the edit is merged with the stored order.
+        new_order_date = order_update.purchasing_order_date or existing_po.purchasing_order_date
+        new_grn_date = order_update.good_received_note_date or existing_po.good_received_note_date
+        if new_grn_date < new_order_date:
+            raise HTTPException(status_code=422, detail="Expected delivery date cannot be before the order date")
+        new_first = order_update.first_suppliers_id or existing_po.first_suppliers_id
+        new_second = order_update.second_suppliers_id if "second_suppliers_id" in submitted_fields else existing_po.second_suppliers_id
+        if new_second and new_second == new_first:
+            raise HTTPException(status_code=422, detail="Second supplier must differ from the first supplier")
+        if order_update.branch_code and order_update.branch_code != existing_po.branch_code:
+            from app.common.branch_validation import validate_branch_is_active
+            validate_branch_is_active(self.db, order_update.branch_code)
+
         # If updating suppliers, verify they are active
         self.supplier_repo.lock_for_document(order_update.first_suppliers_id, order_update.second_suppliers_id)
         if order_update.first_suppliers_id is not None:
@@ -1058,6 +1210,7 @@ class PurchasingOrderService:
                 detail="Cannot cancel: goods have already been received for this order. Use Short-Close instead."
             )
 
+        self._release_quote_items(order)
         order.status = PurchaseOrderStatus.CANCELLED
         order.cancellation_reason = reason
         order.cancelled_date = tz.now()
@@ -1120,6 +1273,37 @@ class PurchasingOrderService:
         self.db.refresh(order)
         return order
 
+    def _recalculate_expected_delivery(self, order: models.PurchasingOrder) -> None:
+        """Restart the supplier's lead time from the approval date.
+
+        The expected delivery date is first estimated at creation as order
+        date + supplier lead time (working days), but the supplier only
+        starts the clock once the approved order reaches them. If the date
+        still equals that creation estimate (i.e. nobody changed it by hand),
+        move it to approval date + lead time. A manually set date is left alone.
+        """
+        from datetime import date as _date
+        from app.common.working_days import add_working_days
+
+        supplier = self.db.query(models.Supplier).filter(
+            models.Supplier.id == order.first_suppliers_id
+        ).first()
+        lead_days = supplier.lead_time_days if supplier else None
+        if not lead_days or lead_days <= 0:
+            return
+
+        creation_estimate = add_working_days(order.purchasing_order_date, lead_days)
+        if order.good_received_note_date != creation_estimate:
+            return
+
+        new_estimate = add_working_days(_date.today(), lead_days)
+        if new_estimate <= creation_estimate:
+            return
+        # The wizard fills the required (needed-by) date with the same value.
+        if order.required_date == order.good_received_note_date:
+            order.required_date = new_estimate
+        order.good_received_note_date = new_estimate
+
     def approve_order(self, order_id: int, approve: bool, remarks: Optional[str] = None, user_id: int = 0) -> models.PurchasingOrder:
         """
         Approve or reject a purchase order.
@@ -1149,6 +1333,12 @@ class PurchasingOrderService:
                     detail=f"Order is not pending approval. Current status: {order.status}"
                 )
             
+        if not approve and not (remarks or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A reason is required to reject a purchase order"
+            )
+
         # Perform credit check if approving
         if approve and order.payment_method and order.payment_method.lower() == "credit":
             
@@ -1185,7 +1375,9 @@ class PurchasingOrderService:
         # Update PO Status
         if approve:
             order.status = PurchaseOrderStatus.APPROVED
+            self._recalculate_expected_delivery(order)
         else:
+            self._release_quote_items(order)
             order.status = PurchaseOrderStatus.REJECTED
 
         log_audit(
@@ -1199,6 +1391,26 @@ class PurchasingOrderService:
         self.db.commit()
         self.db.refresh(order)
         return order
+
+def _check_quote_item_open(quote_item, quantity: int) -> None:
+    """A quotation line can be (partly) ordered while it is still open and has units left."""
+    if quote_item.item_status in ("itn_created", "so_created", "completed", "cancelled"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Quotation item {quote_item.id} cannot be ordered (status: {quote_item.item_status}).",
+        )
+    remaining = quote_item.quantity - (quote_item.converted_qty or 0)
+    if remaining <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Quotation item {quote_item.id} already has a purchase order for its full quantity.",
+        )
+    if quantity > remaining:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Quotation item {quote_item.id} only has {remaining} unit(s) left to procure, but {quantity} were requested.",
+        )
+
 
 class ProcurementQueueService:
     """
@@ -1214,11 +1426,13 @@ class ProcurementQueueService:
         self.db = db
 
     def add_to_queue(
-        self, items: List[schemas.ProcurementQueueItemCreate], added_by: int = 0
+        self,
+        items: List[schemas.ProcurementQueueItemCreate],
+        added_by: int = 0,
+        allowed_branches: Optional[List[str]] = None,
     ) -> List[models.ProcurementQueueItem]:
-        from app.modules.sales.quotation_models import SalesQuoteItem
+        from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem, QuoteStatus
 
-        terminal_statuses = ("po_created", "itn_created", "so_created", "completed", "cancelled")
         result: List[models.ProcurementQueueItem] = []
 
         for item in items:
@@ -1230,16 +1444,25 @@ class ProcurementQueueService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Quotation item with id {item.quote_item_id} not found"
                 )
-            if quote_item.item_status in terminal_statuses:
+            quote = self.db.query(SalesQuote).filter(SalesQuote.id == quote_item.quote_id).first()
+            if allowed_branches is not None and (not quote or quote.branch_code not in allowed_branches):
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Quotation item {quote_item.id} already has a purchase order (status: {quote_item.item_status})."
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied to this quotation's branch",
                 )
-            remaining = quote_item.quantity - (quote_item.converted_qty or 0)
-            if item.quantity > remaining:
+            if not quote or not quote.approval or quote.status in (
+                QuoteStatus.REJECTED.value, QuoteStatus.CANCELLED.value, QuoteStatus.REVISED.value,
+                QuoteStatus.EXPIRED.value, QuoteStatus.COMPLETED.value,
+            ):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Quotation item {quote_item.id} only has {remaining} unit(s) left to procure, but {item.quantity} were requested."
+                    detail="The quotation is not approved or is closed; its items cannot be queued for procurement.",
+                )
+            _check_quote_item_open(quote_item, item.quantity)
+            if item.unit_price > quote_item.selling_price:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unit price {item.unit_price} is higher than the quotation selling price {quote_item.selling_price}.",
                 )
 
             supplier_repo = repository.SupplierRepository(self.db)
@@ -1360,15 +1583,27 @@ class ProcurementQueueService:
             )
         return result
 
-    def remove_from_queue(self, queue_item_id: int) -> None:
-        deleted = self.db.query(models.ProcurementQueueItem).filter(
+    def remove_from_queue(self, queue_item_id: int, allowed_branches: Optional[List[str]] = None) -> None:
+        from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
+
+        entry = self.db.query(models.ProcurementQueueItem).filter(
             models.ProcurementQueueItem.id == queue_item_id
-        ).delete()
-        if not deleted:
+        ).with_for_update().first()
+        if not entry:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Procurement queue item with id {queue_item_id} not found"
             )
+        if allowed_branches is not None:
+            branch = (
+                self.db.query(SalesQuote.branch_code)
+                .join(SalesQuoteItem, SalesQuoteItem.quote_id == SalesQuote.id)
+                .filter(SalesQuoteItem.id == entry.quote_item_id)
+                .scalar()
+            )
+            if branch not in allowed_branches:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this queue entry's branch")
+        self.db.delete(entry)
         self.db.commit()
 
 

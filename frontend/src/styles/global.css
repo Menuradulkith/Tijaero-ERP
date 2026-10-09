@@ -37,3 +37,16 @@ html, body, #root {
  * outline. It's also theme-mode aware (isLight), unlike a
  * prefers-color-scheme media query, so it follows the app's own light/dark
  * toggle rather than the OS setting. */
+
+/* Shown after Save is clicked on an incomplete form (see
+ * components/tijaero/toolbars/revealRequiredFields.ts). Targets only required
+ * fields that are still empty, so each one stops being highlighted as soon as
+ * it is filled. */
+html[data-show-required="true"] .MuiFormControl-root:has(input:required:invalid, textarea:required:invalid) .MuiOutlinedInput-notchedOutline {
+  border-color: #d32f2f !important;
+  border-width: 2px !important;
+}
+
+html[data-show-required="true"] .MuiFormControl-root:has(input:required:invalid, textarea:required:invalid) .MuiInputLabel-root {
+  color: #d32f2f !important;
+}

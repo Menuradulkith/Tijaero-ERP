@@ -31,6 +31,7 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -53,6 +54,8 @@ import { useCurrencyStore } from "@/state/currencyStore";
 import { useReferenceData } from "@/hooks";
 import { productsApi } from "@/modules/inventory/api";
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
+import { addWorkingDays } from "@/modules/purchasing/utils/workingDays";
 import type {
   PurchasingOrderBatchResponse,
   PurchasingOrderCreate,
@@ -105,7 +108,7 @@ export interface PurchaseOrderWizardState {
 /** Imperative controls the parent page's ActionToolbar drives directly. */
 export interface PurchaseOrderWizardHandle {
   goBack: () => void;
-  goNext: () => void;
+  goNext: () => void | Promise<void>;
   confirm: () => void;
 }
 
@@ -137,6 +140,9 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
   // One GRN Date per resulting PO (i.e. per supplier group), keyed by
   // supplier id — set in Step 2, once the lines are already grouped.
   const [requiredDates, setRequiredDates] = useState<Record<number, string>>({});
+  // Suppliers whose date the user has typed in themselves; the lead-time
+  // estimate is only ever applied to the ones not in here.
+  const manualDateSuppliers = useRef<Set<number>>(new Set());
   // One Payment Method per resulting PO (i.e. per supplier group), keyed by
   // supplier id — sits next to that group's GRN Date.
   const [paymentMethods, setPaymentMethods] = useState<Record<number, string>>({});
@@ -189,6 +195,19 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     queryFn: () => purchaseOrdersApi.getAvailableStock(productIdsNeedingSuppliers, branchCode),
     enabled: !!branchCode && productIdsNeedingSuppliers.length > 0,
   });
+
+  // Units already ordered on approved POs for these products and not yet
+  // received — so the user doesn't re-order what is already on its way.
+  const { data: inTransitByProduct } = useQuery({
+    queryKey: ["po-wizard-in-transit", branchCode, productIdsNeedingSuppliers],
+    queryFn: () => purchaseOrdersApi.getInTransit(productIdsNeedingSuppliers, branchCode),
+    enabled: !!branchCode && productIdsNeedingSuppliers.length > 0,
+  });
+
+  const getInTransitQty = useCallback(
+    (productId: number) => inTransitByProduct?.[productId] ?? 0,
+    [inTransitByProduct],
+  );
 
   const getAvailableQty = useCallback(
     (productId: number) => availableStockByProduct?.[productId] ?? 0,
@@ -269,6 +288,22 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     }));
   }, [lines, suppliers]);
 
+  // Pre-fill each group's Expected Delivery Date with order date + the
+  // supplier's lead time in working days. It's an estimate (re-based on the
+  // approval date when the PO is approved) and stays fully editable.
+  useEffect(() => {
+    setRequiredDates((prev) => {
+      let next = prev;
+      for (const group of supplierGroups) {
+        const lead = group.supplier?.lead_time_days;
+        if (!lead || lead <= 0 || manualDateSuppliers.current.has(group.supplierId)) continue;
+        const estimate = addWorkingDays(TODAY_STR, lead);
+        if (prev[group.supplierId] !== estimate) next = { ...next, [group.supplierId]: estimate };
+      }
+      return next;
+    });
+  }, [supplierGroups]);
+
   const grandTotal = useMemo(() => supplierGroups.reduce((sum, g) => sum + g.total, 0), [supplierGroups]);
 
   // Every resulting PO (one per supplier group) needs its own GRN Date
@@ -286,13 +321,50 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     [paymentMethods],
   );
 
-  const handleNext = useCallback(() => setActiveStep((s) => Math.min(s + 1, WIZARD_STEPS.length - 1)), []);
+  // Ordering below a supplier's MOQ is allowed, but the user is told first
+  // (before Review & Confirm, and again before the POs are saved). Returns
+  // false if they choose to go back and fix the quantities.
+  const confirmMoq = useCallback(async (): Promise<boolean> => {
+    try {
+      const messages: string[] = [];
+      for (const group of supplierGroups) {
+        const shortfalls = await findMoqShortfalls(
+          group.supplierId,
+          group.lines,
+          (id) => queryClient.fetchQuery({ queryKey: ["supplier-products", id], queryFn: () => suppliersApi.getProducts(id) }),
+        );
+        if (shortfalls.length > 0) {
+          messages.push(formatMoqMessage(group.supplier?.company_name || "Unknown", shortfalls));
+        }
+      }
+      if (messages.length === 0) return true;
+      return await creditWarningDialog.confirm({
+        title: "Below Minimum Order Quantity",
+        message: messages.join("\n\n"),
+        confirmText: "Continue Anyway",
+        cancelText: "Go Back",
+        confirmColor: "warning",
+      });
+    } catch {
+      // MOQ is advisory; never block the order because the lookup failed.
+      return true;
+    }
+  }, [supplierGroups, queryClient, creditWarningDialog]);
+
+  const handleNext = useCallback(async () => {
+    if (activeStep === 0 && !(await confirmMoq())) return;
+    setActiveStep((s) => Math.min(s + 1, WIZARD_STEPS.length - 1));
+  }, [activeStep, confirmMoq]);
   const handleBack = useCallback(() => setActiveStep((s) => Math.max(s - 1, 0)), []);
 
   const handleConfirm = useCallback(async () => {
     if (isSubmitting || supplierGroups.length === 0) return;
     setIsSubmitting(true);
     try {
+      if (!(await confirmMoq())) {
+        setIsSubmitting(false);
+        return;
+      }
       // Run a credit check per supplier group that's set to "Credit".
       for (const group of supplierGroups) {
         if (getPaymentMethod(group.supplierId).toLowerCase() !== "credit") continue;
@@ -370,6 +442,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     requiredDates,
     groupRemarks,
     creditWarningDialog,
+    confirmMoq,
     currencySymbol,
     queryClient,
     onCreated,
@@ -431,6 +504,9 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                     <TableCell align="right" sx={{ width: 110 }}>
                       Available Qty
                     </TableCell>
+                    <TableCell align="right" sx={{ width: 110 }}>
+                      In-Transit Qty
+                    </TableCell>
                     <TableCell align="right" sx={{ width: 90 }}>
                       Quantity
                     </TableCell>
@@ -461,7 +537,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                               handleSelectProduct(line._id, newValue?.id || 0)
                             }
                             renderInput={(params) => (
-                              <TextField {...params} placeholder="Select Product" size="small" />
+                              <TextField {...params} placeholder="Select Product" size="small" required />
                             )}
                             sx={{ minWidth: 170 }}
                           />
@@ -474,6 +550,11 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                         <TableCell align="right">
                           <Typography variant="body2" color="text.secondary">
                             {line.product_id ? getAvailableQty(line.product_id) : "-"}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" color="text.secondary">
+                            {line.product_id ? getInTransitQty(line.product_id) : "-"}
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
@@ -526,6 +607,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                                   !line.product_id ? "Select a product first" : "Select supplier"
                                 }
                                 size="small"
+                                required
                               />
                             )}
                             noOptionsText={
@@ -586,8 +668,14 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                   required
                   error={!requiredDates[group.supplierId] || requiredDates[group.supplierId] < TODAY_STR}
                   value={requiredDates[group.supplierId] || ""}
-                  onChange={(e) =>
-                    setRequiredDates((prev) => ({ ...prev, [group.supplierId]: e.target.value }))
+                  onChange={(e) => {
+                    manualDateSuppliers.current.add(group.supplierId);
+                    setRequiredDates((prev) => ({ ...prev, [group.supplierId]: e.target.value }));
+                  }}
+                  helperText={
+                    !manualDateSuppliers.current.has(group.supplierId) && group.supplier?.lead_time_days
+                      ? `Estimated: ${group.supplier.lead_time_days} working days lead time. Recalculated when approved.`
+                      : undefined
                   }
                   InputLabelProps={{ shrink: true }}
                   inputProps={{ min: TODAY_STR }}

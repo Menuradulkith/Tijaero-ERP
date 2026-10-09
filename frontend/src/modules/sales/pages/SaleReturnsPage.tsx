@@ -74,6 +74,7 @@ import {
     TActivityHistoryPanel,
     SelectableListItem,
     TRemarkField,
+  continueOrReveal,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -761,8 +762,7 @@ export default function SaleReturnsPage() {
                             size="small"
                             variant="contained"
                             color="warning"
-                            onClick={handleNextStep}
-                            disabled={!isStep1Valid}
+                            onClick={() => continueOrReveal(!!isStep1Valid, handleNextStep)}
                             endIcon={<ArrowForwardIcon />}
                         >
                             Next

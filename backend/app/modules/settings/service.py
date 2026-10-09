@@ -6,6 +6,7 @@ from app.core import timezone as tz
 from app.core.security import get_password_hash, verify_password
 from fastapi import HTTPException, status
 from sqlalchemy import and_, desc, func, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -153,7 +154,13 @@ class PreferencesService:
         """Update user preferences"""
         preferences = self.get_user_preferences(user_id)
 
-        update_data = preferences_update.dict(exclude_unset=True)
+        update_data = preferences_update.model_dump(exclude_unset=True)
+        branch = update_data.get("default_branch")
+        if branch:
+            from app.auth.models import Branch
+            exists = self.db.query(Branch.id).filter(func.lower(Branch.branch_name) == branch.lower()).first()
+            if not exists:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Branch '{branch}' does not exist")
         for field, value in update_data.items():
             setattr(preferences, field, value)
 
@@ -175,7 +182,10 @@ class ProfileService:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        update_data = profile_update.dict(exclude_unset=True)
+        update_data = profile_update.model_dump(exclude_unset=True)
+        # date_joined is NOT NULL: a blank value means "leave as is"
+        if update_data.get("date_joined") is None:
+            update_data.pop("date_joined", None)
         for field, value in update_data.items():
             setattr(user, field, value)
 
@@ -236,7 +246,17 @@ class CompanySettingsService:
         self, settings_update: schemas.CompanySettingsUpdate
     ) -> models.Settings:
         settings = self.get_company_settings()
-        update_data = settings_update.dict(exclude_unset=True)
+        update_data = settings_update.model_dump(exclude_unset=True)
+        code = update_data.get("default_currency")
+        if code:
+            ok = self.db.query(models.Currency.id).filter(
+                models.Currency.code == code, models.Currency.is_active.is_(True)
+            ).first()
+            if not ok:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Currency '{code}' is not a configured, active currency.",
+                )
         for field, value in update_data.items():
             setattr(settings, field, value)
 
@@ -278,7 +298,15 @@ class CurrencyService:
             is_active=data.is_active,
         )
         self.db.add(currency)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError:
+            # A concurrent create of the same code slipped past the check above.
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Currency code already exists",
+            )
         self.db.refresh(currency)
         return currency
 
@@ -291,7 +319,14 @@ class CurrencyService:
         if not currency:
             raise HTTPException(status_code=404, detail="Currency not found")
 
-        update_data = data.dict(exclude_unset=True)
+        update_data = data.model_dump(exclude_unset=True)
+        if update_data.get("is_active") is False:
+            active_code = CompanySettingsService(self.db).get_company_settings().default_currency
+            if currency.code == active_code:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot deactivate the active currency. Choose another active currency first.",
+                )
         for field, value in update_data.items():
             setattr(currency, field, value)
 

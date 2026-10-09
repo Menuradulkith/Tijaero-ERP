@@ -17,6 +17,7 @@ of the service layer:
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -96,3 +97,32 @@ def assert_amount_within(
     if a > m:
         raise ValueError(f"{label} {a} exceeds allowed maximum {m}.")
     return a
+
+
+# ---- contact numbers -----------------------------------------------------
+
+_PHONE_SEPARATORS = re.compile(r"[\s\-.()]")
+_E164 = re.compile(r"^\+[1-9]\d{6,14}$")
+# Local Sri Lankan numbers (0771234567) are accepted and stored as +94...,
+# matching the default country of the ERP's contact number input.
+_LK_LOCAL = re.compile(r"^0\d{9}$")
+
+
+def normalize_phone_number(value: Any) -> Any:
+    """Validate a contact number and return it in E.164 form (+94771234567).
+
+    Blank -> None. Spaces, dashes, dots and brackets are ignored. Use with
+    ``field_validator(..., mode="before")`` on Create/Update schemas only, so
+    older records in a local format can still be read back unchanged.
+    """
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    cleaned = _PHONE_SEPARATORS.sub("", raw)
+    if _LK_LOCAL.match(cleaned):
+        cleaned = "+94" + cleaned[1:]
+    if not _E164.match(cleaned):
+        raise ValueError("Contact No must be a valid international number, e.g. +94771234567")
+    return cleaned

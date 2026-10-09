@@ -58,7 +58,13 @@ export interface Branch {
   id: number;
   branch_name: string;
   branch_code: string;
+  /** Legacy single-line address; derived server-side from the structured fields. */
   address?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
   email?: string;
   contact_number?: string;
   active: boolean;
@@ -71,7 +77,11 @@ export interface Branch {
 export interface BranchCreate {
   branch_name: string;
   branch_code: string;
-  address?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
   email?: string;
   contact_number?: string;
   active?: boolean;
@@ -79,7 +89,11 @@ export interface BranchCreate {
 
 export interface BranchUpdate {
   branch_name?: string;
-  address?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
   email?: string;
   contact_number?: string;
   active?: boolean;

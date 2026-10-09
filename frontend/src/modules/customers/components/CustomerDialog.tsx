@@ -19,6 +19,9 @@ import {
   TITLE_CHOICES,
   GENDER_CHOICES,
   CIVIL_CHOICES,
+    TPhoneField,
+    normalizePhone,
+    isValidPhone,
 } from "@/components/tijaero";
 
 interface CustomerDialogProps {
@@ -63,8 +66,8 @@ export default function CustomerDialog({
         customer_name: customer.customer_name,
         title: customer.title,
         email: customer.email || "",
-        mobile_contact_number: customer.mobile_contact_number,
-        home_contact_number: customer.home_contact_number || "",
+        mobile_contact_number: normalizePhone(customer.mobile_contact_number),
+        home_contact_number: normalizePhone(customer.home_contact_number),
         company_name: customer.company_name || "",
         occupation: customer.occupation || "",
         gender: customer.gender,
@@ -205,14 +208,16 @@ export default function CustomerDialog({
               <Controller
                 name="mobile_contact_number"
                 control={control}
-                rules={{ required: "Mobile number is required" }}
+                rules={{
+                  required: "Contact No is required",
+                  validate: (v) => isValidPhone(v) || "Enter a valid contact number",
+                }}
                 render={({ field, fieldState }) => (
-                  <TextField
-                    {...field}
-                    label="Mobile Number"
-                    fullWidth
+                  <TPhoneField
+                    label="Contact No 1"
+                    value={field.value}
+                    onChange={field.onChange}
                     required
-                    error={!!fieldState.error}
                     helperText={fieldState.error?.message}
                   />
                 )}
@@ -222,8 +227,14 @@ export default function CustomerDialog({
               <Controller
                 name="home_contact_number"
                 control={control}
-                render={({ field }) => (
-                  <TextField {...field} label="Home Number" fullWidth />
+                rules={{ validate: (v) => isValidPhone(v) || "Enter a valid contact number" }}
+                render={({ field, fieldState }) => (
+                  <TPhoneField
+                    label="Contact No 2"
+                    value={field.value}
+                    onChange={field.onChange}
+                    helperText={fieldState.error?.message}
+                  />
                 )}
               />
             </Grid>

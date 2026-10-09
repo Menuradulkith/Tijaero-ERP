@@ -1,0 +1,27 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - heading "TijaeroERP" [level=3] [ref=e8]
+    - heading "Streamline your business operations with our comprehensive enterprise resource planning solution." [level=6] [ref=e9]
+  - generic [ref=e11]:
+    - heading "Welcome Back" [level=1] [ref=e12]
+    - paragraph [ref=e13]: Sign in to access your ERP dashboard
+    - tablist [ref=e16]:
+      - tab "Password" [selected] [ref=e17] [cursor=pointer]
+      - tab "Passcode" [ref=e20] [cursor=pointer]
+    - tabpanel "Password" [ref=e24]:
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - generic [ref=e27]: Username
+          - generic [ref=e28]:
+            - textbox "Username" [active] [ref=e32]
+            - group [aria-hidden]:
+              - generic: Username
+        - generic [ref=e33]:
+          - generic [ref=e34]: Password
+          - generic [ref=e35]:
+            - textbox "Password" [ref=e39]
+            - button [ref=e41] [cursor=pointer]
+            - group [aria-hidden]:
+              - generic: Password
+        - button "Sign In" [ref=e44] [cursor=pointer]
+    - paragraph [ref=e46]: If you don't have an account, please contact your administrator to get access.

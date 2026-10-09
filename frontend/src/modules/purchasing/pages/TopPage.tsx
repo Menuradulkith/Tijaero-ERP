@@ -498,7 +498,7 @@ export default function TopPage() {
                                 }
                                 onClick={() => handleCreateGroup(sg.supplierId, group)}
                               >
-                                {creatingKey === key ? "Creating..." : "Review & Create PO"}
+                                {creatingKey === key ? "Creating..." : "Create PO"}
                               </Button>
                             </Box>
                           </Box>

@@ -4,7 +4,10 @@
 
 import { useMemo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { formatDateTimeReadable, formatCurrency } from "@/utils/formatters";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { GridPaginationModel } from "@mui/x-data-grid";
+import { useDebounce } from "@/hooks";
+import { fetchAllPages } from "@/utils/fetchAllPages";
 import axios from "axios";
 import {
   Box,
@@ -82,6 +85,9 @@ import {
   TFormSection,
   TButton,
   TAutocomplete,
+  TPhoneField,
+  normalizePhone,
+  isValidPhone,
 } from "@/components/tijaero";
 
 import { suppliersApi } from "@/modules/purchasing/api";
@@ -229,10 +235,10 @@ const INITIAL_PAYMENT_METHOD_FORM: SupplierPaymentAccountCreate = {
 };
 
 const INITIAL_CONTACT_PERSON_FORM: SupplierContactPersonCreate = {
-  title: "mr",
+  title: "",
   full_name: "",
   occupation: "",
-  gender: "m",
+  gender: "",
   birthdate: "",
   id_card_number: "",
   passport_no: "",
@@ -251,14 +257,12 @@ const SUPPLIER_DETAIL_TABS: TTabConfig[] = [
 // the unit dropdown next to the input is purely a display/entry convenience
 // — whatever unit is picked, the typed number is converted to days before
 // being saved, and converted back for display when the unit changes.
-type LeadTimeUnit = "hours" | "days" | "weeks";
+type LeadTimeUnit = "days" | "weeks";
 const LEAD_TIME_UNIT_OPTIONS: { value: LeadTimeUnit; label: string }[] = [
-  { value: "hours", label: "Hours" },
   { value: "days", label: "Days" },
   { value: "weeks", label: "Weeks" },
 ];
 const LEAD_TIME_UNIT_TO_DAYS: Record<LeadTimeUnit, number> = {
-  hours: 1 / 24,
   days: 1,
   weeks: 7,
 };
@@ -278,11 +282,13 @@ const INITIAL_FORM_DATA: SupplierCreate = {
   billing_city: "",
   billing_state: "",
   billing_postal_code: "",
+  billing_country_id: undefined,
   shipping_address_line1: "",
   shipping_address_line2: "",
   shipping_city: "",
   shipping_state: "",
   shipping_postal_code: "",
+  shipping_country_id: undefined,
   email: "",
   home_contact_number: "",
   mobile_contact_number: "",
@@ -307,14 +313,16 @@ const resetFormFromSupplier = (supplier: Supplier): SupplierCreate => ({
   billing_city: supplier.billing_city || "",
   billing_state: supplier.billing_state || "",
   billing_postal_code: supplier.billing_postal_code || "",
+  billing_country_id: supplier.billing_country_id,
   shipping_address_line1: supplier.shipping_address_line1 || "",
   shipping_address_line2: supplier.shipping_address_line2 || "",
   shipping_city: supplier.shipping_city || "",
   shipping_state: supplier.shipping_state || "",
   shipping_postal_code: supplier.shipping_postal_code || "",
+  shipping_country_id: supplier.shipping_country_id,
   email: supplier.email || "",
-  home_contact_number: supplier.home_contact_number || "",
-  mobile_contact_number: supplier.mobile_contact_number || "",
+  home_contact_number: normalizePhone(supplier.home_contact_number),
+  mobile_contact_number: normalizePhone(supplier.mobile_contact_number),
   credit_days: supplier.credit_days,
   max_credit_limit: supplier.max_credit_limit,
   active: supplier.active,
@@ -436,6 +444,8 @@ export default function SuppliersPage() {
   selectedSupplierIdRef.current = selectedSupplier?.id ?? null;
 
   const selectedCountry = countries.find((c) => c.id === formData.country_id) || null;
+  const selectedBillingCountry = countries.find((c) => c.id === formData.billing_country_id) || null;
+  const selectedShippingCountry = countries.find((c) => c.id === formData.shipping_country_id) || null;
 
   // Reset the detail panel's active tab back to "General" whenever a
   // different supplier is selected or a new one is started — but not when
@@ -782,11 +792,13 @@ export default function SuppliersPage() {
     selectedSupplier.billing_city,
     selectedSupplier.billing_state,
     selectedSupplier.billing_postal_code,
+    selectedSupplier.billing_country_id,
     selectedSupplier.shipping_address_line1,
     selectedSupplier.shipping_address_line2,
     selectedSupplier.shipping_city,
     selectedSupplier.shipping_state,
     selectedSupplier.shipping_postal_code,
+    selectedSupplier.shipping_country_id,
   ].every((field) => !field) && !selectedSupplier.country_id);
   const isContactPersonUnfilled = displayedContactPersons.length === 0;
 
@@ -825,15 +837,15 @@ export default function SuppliersPage() {
   }, []);
 
   const contactPersonFormFromRecord = (contact: SupplierContactPerson): SupplierContactPersonCreate => ({
-    title: contact.title || "mr",
+    title: contact.title || "",
     full_name: contact.full_name,
     occupation: contact.occupation || "",
-    gender: contact.gender || "m",
+    gender: contact.gender || "",
     birthdate: contact.birthdate?.split("T")[0] || "",
     id_card_number: contact.id_card_number || "",
     passport_no: contact.passport_no || "",
     email: contact.email || "",
-    phone: contact.phone || "",
+    phone: normalizePhone(contact.phone),
   });
 
   const handleViewContactPerson = useCallback((contact: SupplierContactPerson) => {
@@ -937,7 +949,7 @@ export default function SuppliersPage() {
       },
       { field: "occupation", header: "Occupation", flex: 1, minWidth: 130 },
       { field: "email", header: "Email", flex: 1, minWidth: 160 },
-      { field: "phone", header: "Phone", width: 130 },
+      { field: "phone", header: "Contact No", width: 130 },
       {
         field: "actions",
         header: "Actions",
@@ -974,46 +986,47 @@ export default function SuppliersPage() {
     [canUpdateSupplier, isContactPersonEditable] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const { data: suppliers, isLoading, refetch } = useQuery({
-    queryKey: ["suppliers"],
-    queryFn: () => suppliersApi.getAll(),
+  // Server-side paging: the grid fetches just the visible page; search, the
+  // status/country filters and column sorting run in the database and the API
+  // returns the total for the footer ("1-25 of N").
+  const [paging, setPaging] = useState<GridPaginationModel>({ page: 0, pageSize: 25 });
+  const [sort, setSort] = useState<{ field: string; sort: "asc" | "desc" } | null>(null);
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
+  // Any change to the search, a filter or the sort starts again from page 1.
+  useEffect(() => {
+    setPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
+  }, [debouncedSearch, filterStatus, filterCountryId, sort]);
+
+  const { data: suppliersPage, isFetching: isLoading, refetch } = useQuery({
+    queryKey: [
+      "suppliers", "paged", paging.page, paging.pageSize, debouncedSearch.trim(), filterStatus, filterCountryId,
+      sort?.field, sort?.sort,
+    ],
+    queryFn: () =>
+      suppliersApi.getPage({
+        page: paging.page,
+        size: paging.pageSize,
+        q: debouncedSearch.trim(),
+        active: filterStatus ? filterStatus === "active" : undefined,
+        country_id: filterCountryId ?? undefined,
+        sort_by: sort?.field,
+        order: sort?.sort,
+      }),
+    placeholderData: keepPreviousData,
+    staleTime: 30 * 1000,
   });
 
-  const filteredSuppliers = useMemo(() => {
-    if (!suppliers) return [];
-
-    let filtered = suppliers.filter((supplier) =>
-      supplier.company_name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-
-    // Apply status filter
-    if (filterStatus) {
-      const isActive = filterStatus === "active";
-      filtered = filtered.filter((supplier) => supplier.active === isActive);
-    }
-
-    // Apply country filter
-    if (filterCountryId !== null) {
-      filtered = filtered.filter((supplier) => supplier.country_id === filterCountryId);
-    }
-
-    // Default order before the user sorts a column in the table itself
-    // (the table's own column-header sort takes over from there).
-    filtered.sort((a, b) => a.company_name.localeCompare(b.company_name));
-
-    return filtered;
-  }, [suppliers, searchQuery, filterStatus, filterCountryId]);
-
-  // The table sorts by whichever column the user clicks; the Country column
-  // displays a looked-up name rather than the raw country_id, so it needs
-  // that name as its own field for the grid to sort on correctly.
+  // The Country column displays a looked-up name rather than the raw
+  // country_id; the grid shows that name and the API sorts by it
+  // (sort_by=country_name).
   const supplierRows = useMemo(
     () =>
-      filteredSuppliers.map((supplier) => ({
+      (suppliersPage?.items ?? []).map((supplier) => ({
         ...supplier,
         country_name: countries.find((c) => c.id === supplier.country_id)?.name || "-",
       })),
-    [filteredSuppliers, countries]
+    [suppliersPage, countries]
   );
 
   // Internal selection handler - wraps hook's handler to reset validation state
@@ -1046,7 +1059,7 @@ export default function SuppliersPage() {
         width: 150,
       },
       { field: "email", header: "Email", flex: 1, minWidth: 170 },
-      { field: "mobile_contact_number", header: "Mobile Contact", width: 150 },
+      { field: "mobile_contact_number", header: "Contact No", width: 150 },
       {
         field: "credit_days",
         header: "Payment Terms",
@@ -1191,9 +1204,7 @@ export default function SuppliersPage() {
       // succeeded) — refetch the real record before selecting it, otherwise
       // the newly-uploaded logo appears not to have saved.
       const freshSupplier = await suppliersApi.getById(newSupplier.id).catch(() => newSupplier);
-      queryClient.setQueryData<Supplier[]>(["suppliers"], (prev) =>
-        prev ? prev.map((s) => (s.id === freshSupplier.id ? freshSupplier : s)) : prev
-      );
+      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
       setTimeout(() => {
         handleSelectSupplier(freshSupplier);
         setPaymentTermsChosen(true);
@@ -1222,9 +1233,7 @@ export default function SuppliersPage() {
 
       // 404 = someone deleted this supplier while it was open here.
       if (status === 404) {
-        queryClient.setQueryData<Supplier[]>(["suppliers"], (prev) =>
-          prev ? prev.filter((s) => s.id !== variables.id) : prev
-        );
+        queryClient.invalidateQueries({ queryKey: ["suppliers"] });
         if (selectedSupplierIdRef.current === variables.id) {
           setIsEditing(false);
           setSelectedSupplier(null);
@@ -1241,9 +1250,7 @@ export default function SuppliersPage() {
         // Not actually stale (version unchanged) → some other conflict;
         // leave the user's edits alone.
         if (!variables.data.expected_version || fresh.version === variables.data.expected_version) return;
-        queryClient.setQueryData<Supplier[]>(["suppliers"], (prev) =>
-          prev ? prev.map((s) => (s.id === fresh.id ? fresh : s)) : prev
-        );
+        queryClient.invalidateQueries({ queryKey: ["suppliers"] });
         if (selectedSupplierIdRef.current !== fresh.id) return;
 
         // Let the user choose instead of silently discarding their edits.
@@ -1271,26 +1278,42 @@ export default function SuppliersPage() {
   });
 
 
-  const handleSave = useCallback(() => {
+  // One save at a time: a double-click used to send two POSTs (one 201, then a
+  // 400 "already exists" toast after the first had finished).
+  const saveInFlightRef = useRef(false);
+  const handleSave = useCallback(async () => {
+    if (saveInFlightRef.current) return;
     if (isCreating) {
       if (!canCreateSupplier) {
         showErrorToast("You don't have permission to create suppliers");
         return;
       }
-      createMutation.mutate(formData);
+      saveInFlightRef.current = true;
+      try {
+        await createMutation.mutateAsync(formData).catch(() => undefined);
+      } finally {
+        saveInFlightRef.current = false;
+      }
     } else if (selectedSupplier) {
       if (!canUpdateSupplier && !isAddressEditable && !isPaymentMethodsEditable) {
         showErrorToast("You don't have permission to update suppliers");
         return;
       }
-      updateMutation.mutate({
-        id: selectedSupplier.id,
-        data: {
-          ...formData,
-          expected_updated_at: selectedSupplier.updated_at,
-          expected_version: selectedSupplier.version,
-        },
-      });
+      saveInFlightRef.current = true;
+      try {
+        await updateMutation
+          .mutateAsync({
+            id: selectedSupplier.id,
+            data: {
+              ...formData,
+              expected_updated_at: selectedSupplier.updated_at,
+              expected_version: selectedSupplier.version,
+            },
+          })
+          .catch(() => undefined);
+      } finally {
+        saveInFlightRef.current = false;
+      }
     }
   }, [
     isCreating,
@@ -1312,7 +1335,7 @@ export default function SuppliersPage() {
   const handleLogoUpdated = useCallback(
     (updated: Supplier) => {
       const merge = (s: Supplier) => (s.id === updated.id ? { ...s, logo_path: updated.logo_path } : s);
-      queryClient.setQueryData<Supplier[]>(["suppliers"], (prev) => (prev ? prev.map(merge) : prev));
+      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
       setSelectedSupplier((current) => (current ? merge(current) : current));
     },
     [queryClient, setSelectedSupplier]
@@ -1352,9 +1375,9 @@ export default function SuppliersPage() {
       setIsEditing(false);
       setSelectedSupplier(null);
     } else {
-      handleCancel(filteredSuppliers);
+      handleCancel(supplierRows);
     }
-  }, [isCreating, filteredSuppliers, handleCancel, setIsCreating, setIsEditing, setSelectedSupplier]);
+  }, [isCreating, supplierRows, handleCancel, setIsCreating, setIsEditing, setSelectedSupplier]);
 
   // Returns to the browse table from the detail view (the "Back to
   // Suppliers" link in the mini left panel).
@@ -1368,8 +1391,6 @@ export default function SuppliersPage() {
 
   // Email validation regex
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  // Phone validation regex (allows digits, spaces, dashes, parentheses, plus)
-  const phoneRegex = /^[\d\s\-\(\)\+]+$/;
 
   // Validation error messages
   const getFieldError = (fieldName: string): string | undefined => {
@@ -1379,13 +1400,6 @@ export default function SuppliersPage() {
       case 'email':
         if (!formData.email) return undefined;
         if (!emailRegex.test(formData.email)) return 'Invalid email format';
-        break;
-      case 'mobile_contact_number':
-        if (!formData.mobile_contact_number) return undefined;
-        if (!phoneRegex.test(formData.mobile_contact_number)) return 'Invalid phone format';
-        break;
-      case 'home_contact_number':
-        if (formData.home_contact_number && !phoneRegex.test(formData.home_contact_number)) return 'Invalid phone format';
         break;
       case 'company_name':
         return undefined;
@@ -1410,10 +1424,39 @@ export default function SuppliersPage() {
   // can be filled in later via their own sections after the supplier is
   // created (mirrors ProductsPage, where only Main + cost_price gate Save and
   // selling_price/suppliers are filled in afterward).
-  const isFormValid = formData.company_name &&
+  // Contact No 1 and 2 must be different numbers.
+  const phonesMatch =
+    !!formData.mobile_contact_number &&
+    formData.mobile_contact_number === formData.home_contact_number;
+  // Each tab saves on its own, so only the fields of the tab being saved gate
+  // Save: a supplier is created from General alone, and the Address tab's
+  // mandatory fields are enforced when that tab is saved.
+  const isGeneralValid = !!(
+    formData.company_name &&
     formData.mobile_contact_number &&
+    isValidPhone(formData.mobile_contact_number) &&
+    isValidPhone(formData.home_contact_number) &&
+    !phonesMatch &&
+    formData.country_id &&
     formData.email &&
-    emailRegex.test(formData.email);
+    emailRegex.test(formData.email)
+  );
+  const isAddressValid = !!(
+    formData.billing_address_line1?.trim() &&
+    formData.billing_city?.trim() &&
+    formData.billing_country_id &&
+    (shippingSameAsBilling ||
+      (formData.shipping_address_line1?.trim() &&
+        formData.shipping_city?.trim() &&
+        formData.shipping_country_id))
+  );
+  const isFormValid = isCreating
+    ? isGeneralValid
+    : activeSection === "address"
+      ? isAddressValid
+      : activeSection === "payment"
+        ? true
+        : isGeneralValid;
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   // Style for required field labels (red asterisk)
@@ -1435,6 +1478,23 @@ export default function SuppliersPage() {
       <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
         <TDataGrid<SupplierRow>
           rows={supplierRows}
+          serverPagination={{ rowCount: suppliersPage?.total ?? 0, paginationModel: paging, onPaginationModelChange: setPaging }}
+          exportAllRows={() =>
+            fetchAllPages((page) =>
+              suppliersApi.getPage({
+                page,
+                size: 200,
+                q: debouncedSearch.trim(),
+                active: filterStatus ? filterStatus === "active" : undefined,
+                country_id: filterCountryId ?? undefined,
+                sort_by: sort?.field,
+                order: sort?.sort,
+              })
+            ).then((rows) =>
+              rows.map((r) => ({ ...r, country_name: countries.find((c) => c.id === r.country_id)?.name || "-" }))
+            )
+          }
+          onServerSortChange={setSort}
           columns={supplierColumns}
           loading={isLoading}
           onRowClick={(row) => handleSelectSupplierWithCheck(row)}
@@ -1499,6 +1559,7 @@ export default function SuppliersPage() {
             <FormSection title="Company Information" columns={3}>
               <TextField
                 label="Company Name"
+                inputProps={{ maxLength: 255 }}
                 size="small"
                 value={formData.company_name}
                 onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
@@ -1511,6 +1572,7 @@ export default function SuppliersPage() {
               />
               <TextField
                 label="Company Registration No."
+                inputProps={{ maxLength: 255 }}
                 size="small"
                 value={formData.company_registration_number}
                 onChange={(e) => setFormData({ ...formData, company_registration_number: e.target.value })}
@@ -1518,6 +1580,7 @@ export default function SuppliersPage() {
               />
               <TextField
                 label="Tax/VAT Number"
+                inputProps={{ maxLength: 255 }}
                 size="small"
                 value={formData.tax_registration_number}
                 onChange={(e) => setFormData({ ...formData, tax_registration_number: e.target.value })}
@@ -1561,8 +1624,20 @@ export default function SuppliersPage() {
                   </MenuItem>
                 ))}
               </TextField>
+              <TAutocomplete<CountryRef>
+                label="Country"
+                options={countries}
+                value={selectedCountry}
+                onChange={(value) =>
+                  setFormData({ ...formData, country_id: (value as CountryRef | null)?.id })
+                }
+                getOptionLabel={(c) => c.name}
+                disabled={!isEditing && !isCreating}
+                required
+              />
               <TextField
                 label="Company Website"
+                inputProps={{ maxLength: 200 }}
                 size="small"
                 value={formData.company_website}
                 onChange={(e) => setFormData({ ...formData, company_website: e.target.value })}
@@ -1638,6 +1713,7 @@ export default function SuppliersPage() {
             <FormSection title="Contact Information" columns={3}>
               <TextField
                 label="Email"
+                inputProps={{ maxLength: 75 }}
                 size="small"
                 type="email"
                 value={formData.email}
@@ -1649,26 +1725,19 @@ export default function SuppliersPage() {
                 error={hasError('email')}
                 helperText={getFieldError('email')}
               />
-              <TextField
-                label="Mobile Contact 1"
-                size="small"
+              <TPhoneField
+                label="Contact No 1"
                 value={formData.mobile_contact_number}
-                onChange={(e) => setFormData({ ...formData, mobile_contact_number: e.target.value })}
-                onBlur={() => handleBlur('mobile_contact_number')}
+                onChange={(v) => setFormData({ ...formData, mobile_contact_number: v })}
                 disabled={!isEditing && !isCreating}
                 required
-                error={hasError('mobile_contact_number')}
-                helperText={getFieldError('mobile_contact_number')}
               />
-              <TextField
-                label="Mobile Contact 2"
-                size="small"
+              <TPhoneField
+                label="Contact No 2"
                 value={formData.home_contact_number}
-                onChange={(e) => setFormData({ ...formData, home_contact_number: e.target.value })}
-                onBlur={() => handleBlur('home_contact_number')}
+                onChange={(v) => setFormData({ ...formData, home_contact_number: v })}
                 disabled={!isEditing && !isCreating}
-                error={hasError('home_contact_number')}
-                helperText={getFieldError('home_contact_number')}
+                helperText={phonesMatch ? "Contact No 2 must be different from Contact No 1" : undefined}
               />
             </FormSection>
 
@@ -1716,29 +1785,19 @@ export default function SuppliersPage() {
 
             <>
               <TTabPanel value={activeSection} index="address" padding={0} sx={{ pt: 2 }}>
-                <FormSection title="Country" columns={2}>
-                <TAutocomplete<CountryRef>
-                  label="Country"
-                  options={countries}
-                  value={selectedCountry}
-                  onChange={(value) =>
-                    setFormData({ ...formData, country_id: (value as CountryRef | null)?.id })
-                  }
-                  getOptionLabel={(c) => c.name}
-                  disabled={!isAddressEditable}
-                />
-              </FormSection>
-
               <FormSection title="Billing Address" columns={2}>
                 <TextField
                   label="Address Line 1"
+                  inputProps={{ maxLength: 255 }}
                   size="small"
+                  required
                   value={formData.billing_address_line1}
                   onChange={(e) => setFormData({ ...formData, billing_address_line1: e.target.value })}
                   disabled={!isAddressEditable}
                 />
                 <TextField
                   label="Address Line 2"
+                  inputProps={{ maxLength: 255 }}
                   size="small"
                   value={formData.billing_address_line2}
                   onChange={(e) => setFormData({ ...formData, billing_address_line2: e.target.value })}
@@ -1746,13 +1805,16 @@ export default function SuppliersPage() {
                 />
                 <TextField
                   label="City"
+                  inputProps={{ maxLength: 120 }}
                   size="small"
+                  required
                   value={formData.billing_city}
                   onChange={(e) => setFormData({ ...formData, billing_city: e.target.value })}
                   disabled={!isAddressEditable}
                 />
                 <TextField
                   label="State / Province"
+                  inputProps={{ maxLength: 120 }}
                   size="small"
                   value={formData.billing_state}
                   onChange={(e) => setFormData({ ...formData, billing_state: e.target.value })}
@@ -1760,10 +1822,22 @@ export default function SuppliersPage() {
                 />
                 <TextField
                   label="Postal Code"
+                  inputProps={{ maxLength: 20 }}
                   size="small"
                   value={formData.billing_postal_code}
                   onChange={(e) => setFormData({ ...formData, billing_postal_code: e.target.value })}
                   disabled={!isAddressEditable}
+                />
+                <TAutocomplete<CountryRef>
+                  label="Country"
+                  options={countries}
+                  value={selectedBillingCountry}
+                  onChange={(value) =>
+                    setFormData({ ...formData, billing_country_id: (value as CountryRef | null)?.id })
+                  }
+                  getOptionLabel={(c) => c.name}
+                  disabled={!isAddressEditable}
+                  required
                 />
               </FormSection>
 
@@ -1785,6 +1859,7 @@ export default function SuppliersPage() {
                             shipping_city: "",
                             shipping_state: "",
                             shipping_postal_code: "",
+                            shipping_country_id: undefined,
                           });
                         }
                       }}
@@ -1796,13 +1871,16 @@ export default function SuppliersPage() {
                   <>
                     <TextField
                       label="Address Line 1"
+                      inputProps={{ maxLength: 255 }}
                       size="small"
+                      required
                       value={formData.shipping_address_line1}
                       onChange={(e) => setFormData({ ...formData, shipping_address_line1: e.target.value })}
                       disabled={!isAddressEditable}
                     />
                     <TextField
                       label="Address Line 2"
+                      inputProps={{ maxLength: 255 }}
                       size="small"
                       value={formData.shipping_address_line2}
                       onChange={(e) => setFormData({ ...formData, shipping_address_line2: e.target.value })}
@@ -1810,13 +1888,16 @@ export default function SuppliersPage() {
                     />
                     <TextField
                       label="City"
+                      inputProps={{ maxLength: 120 }}
                       size="small"
+                      required
                       value={formData.shipping_city}
                       onChange={(e) => setFormData({ ...formData, shipping_city: e.target.value })}
                       disabled={!isAddressEditable}
                     />
                     <TextField
                       label="State / Province"
+                      inputProps={{ maxLength: 120 }}
                       size="small"
                       value={formData.shipping_state}
                       onChange={(e) => setFormData({ ...formData, shipping_state: e.target.value })}
@@ -1824,10 +1905,22 @@ export default function SuppliersPage() {
                     />
                     <TextField
                       label="Postal Code"
+                      inputProps={{ maxLength: 20 }}
                       size="small"
                       value={formData.shipping_postal_code}
                       onChange={(e) => setFormData({ ...formData, shipping_postal_code: e.target.value })}
                       disabled={!isAddressEditable}
+                    />
+                    <TAutocomplete<CountryRef>
+                      label="Country"
+                      options={countries}
+                      value={selectedShippingCountry}
+                      onChange={(value) =>
+                        setFormData({ ...formData, shipping_country_id: (value as CountryRef | null)?.id })
+                      }
+                      getOptionLabel={(c) => c.name}
+                      disabled={!isAddressEditable}
+                      required
                     />
                   </>
                 )}
@@ -1930,14 +2023,14 @@ export default function SuppliersPage() {
                 size="small"
                 type="number"
                 value={formData.max_credit_limit}
-                onChange={(e) => setFormData({ ...formData, max_credit_limit: parseInt(e.target.value) || 0 })}
+                onChange={(e) => setFormData({ ...formData, max_credit_limit: Math.round((parseFloat(e.target.value) || 0) * 100) / 100 })}
                 onBlur={() => handleBlur('max_credit_limit')}
                 disabled={!isPaymentMethodsEditable}
                 required
                 sx={requiredFieldSx}
                 error={hasError('max_credit_limit')}
                 helperText={getFieldError('max_credit_limit')}
-                inputProps={{ min: 0 }}
+                inputProps={{ min: 0, step: 0.01, max: 9999999999999.99 }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">{currencySymbol}</InputAdornment>
@@ -2153,6 +2246,7 @@ export default function SuppliersPage() {
           <TFormSection title="Account Details" variant="plain" columns={2}>
             <TextField
               label="Account Name"
+              inputProps={{ maxLength: 255 }}
               size="small"
               value={paymentMethodForm.account_holder_name}
               disabled={paymentMethodPanelMode === "view"}
@@ -2160,6 +2254,7 @@ export default function SuppliersPage() {
             />
             <TextField
               label="Bank Name"
+              inputProps={{ maxLength: 255 }}
               size="small"
               value={paymentMethodForm.bank_name}
               disabled={paymentMethodPanelMode === "view"}
@@ -2167,6 +2262,7 @@ export default function SuppliersPage() {
             />
             <TextField
               label="Account Number"
+              inputProps={{ maxLength: 34 }}
               size="small"
               value={paymentMethodForm.account_number}
               disabled={paymentMethodPanelMode === "view"}
@@ -2178,6 +2274,7 @@ export default function SuppliersPage() {
           <TFormSection title="Wire Details" variant="plain" columns={2}>
             <TextField
               label="Branch"
+              inputProps={{ maxLength: 255 }}
               size="small"
               value={paymentMethodForm.branch}
               disabled={paymentMethodPanelMode === "view"}
@@ -2185,6 +2282,7 @@ export default function SuppliersPage() {
             />
             <TextField
               label="Branch Code"
+              inputProps={{ maxLength: 50 }}
               size="small"
               value={paymentMethodForm.bank_branch_code}
               disabled={paymentMethodPanelMode === "view"}
@@ -2192,6 +2290,7 @@ export default function SuppliersPage() {
             />
             <TextField
               label="Swift Code"
+              inputProps={{ maxLength: 20 }}
               size="small"
               value={paymentMethodForm.swift_code}
               disabled={paymentMethodPanelMode === "view"}
@@ -2203,6 +2302,7 @@ export default function SuppliersPage() {
           <TFormSection title="Correspondent Bank" variant="plain" columns={2}>
             <TextField
               label="Bank Name"
+              inputProps={{ maxLength: 255 }}
               size="small"
               placeholder="e.g. Citibank"
               value={paymentMethodForm.correspondent_bank_name}
@@ -2211,6 +2311,7 @@ export default function SuppliersPage() {
             />
             <TextField
               label="Swift Code"
+              inputProps={{ maxLength: 20 }}
               size="small"
               value={paymentMethodForm.correspondent_bank_swift_code}
               disabled={paymentMethodPanelMode === "view"}
@@ -2222,6 +2323,7 @@ export default function SuppliersPage() {
           <TFormSection title="Mandate Details" variant="plain" columns={2}>
             <TextField
               label="Mandate Reference"
+              inputProps={{ maxLength: 100 }}
               size="small"
               value={paymentMethodForm.mandate_reference}
               disabled={paymentMethodPanelMode === "view"}
@@ -2243,6 +2345,7 @@ export default function SuppliersPage() {
             <TFormSection title="Letter of Credit" variant="plain" columns={2}>
               <TextField
                 label="LC Number"
+                inputProps={{ maxLength: 100 }}
                 size="small"
                 value={paymentMethodForm.lc_number}
                 disabled={paymentMethodPanelMode === "view"}
@@ -2269,6 +2372,7 @@ export default function SuppliersPage() {
               </TextField>
               <TextField
                 label="Issuing Bank"
+                inputProps={{ maxLength: 255 }}
                 size="small"
                 value={paymentMethodForm.issuing_bank_name}
                 disabled={paymentMethodPanelMode === "view"}
@@ -2276,6 +2380,7 @@ export default function SuppliersPage() {
               />
               <TextField
                 label="Advising Bank"
+                inputProps={{ maxLength: 255 }}
                 size="small"
                 value={paymentMethodForm.advising_bank_name}
                 disabled={paymentMethodPanelMode === "view"}
@@ -2359,6 +2464,7 @@ export default function SuppliersPage() {
             </TextField>
             <TextField
               label="Cardholder Name"
+              inputProps={{ maxLength: 255 }}
               size="small"
               value={paymentMethodForm.cardholder_name}
               disabled={paymentMethodPanelMode === "view"}
@@ -2395,6 +2501,7 @@ export default function SuppliersPage() {
             <TextField
               select
               label="Provider"
+              inputProps={{ maxLength: 50 }}
               size="small"
               value={paymentMethodForm.wallet_provider || ""}
               disabled={paymentMethodPanelMode === "view"}
@@ -2413,6 +2520,7 @@ export default function SuppliersPage() {
             </TextField>
             <TextField
               label="Wallet ID / Email"
+              inputProps={{ maxLength: 255 }}
               size="small"
               value={paymentMethodForm.wallet_id}
               disabled={paymentMethodPanelMode === "view"}
@@ -2436,6 +2544,9 @@ export default function SuppliersPage() {
         isSubmitting={savingContactPerson}
         submitDisabled={
           !contactPersonForm.full_name ||
+          !contactPersonForm.title ||
+          !contactPersonForm.phone ||
+          !isValidPhone(contactPersonForm.phone) ||
           (!!contactPersonForm.birthdate && contactPersonForm.birthdate > TODAY_DATE_STRING)
         }
         extraActions={
@@ -2453,8 +2564,10 @@ export default function SuppliersPage() {
           <TextField
             select
             label="Title"
+            inputProps={{ maxLength: 30 }}
             size="small"
-            value={contactPersonForm.title}
+            required
+            value={contactPersonForm.title ?? ""}
             disabled={contactPersonPanelMode === "view"}
             onChange={(e) => setContactPersonForm({ ...contactPersonForm, title: e.target.value })}
           >
@@ -2464,6 +2577,7 @@ export default function SuppliersPage() {
           </TextField>
           <TextField
             label="Full Name"
+            inputProps={{ maxLength: 255 }}
             size="small"
             value={contactPersonForm.full_name}
             disabled={contactPersonPanelMode === "view"}
@@ -2472,6 +2586,7 @@ export default function SuppliersPage() {
           />
           <TextField
             label="Occupation"
+            inputProps={{ maxLength: 255 }}
             size="small"
             value={contactPersonForm.occupation}
             disabled={contactPersonPanelMode === "view"}
@@ -2481,7 +2596,7 @@ export default function SuppliersPage() {
             select
             label="Gender"
             size="small"
-            value={contactPersonForm.gender}
+            value={contactPersonForm.gender ?? ""}
             disabled={contactPersonPanelMode === "view"}
             onChange={(e) => setContactPersonForm({ ...contactPersonForm, gender: e.target.value })}
           >
@@ -2507,6 +2622,7 @@ export default function SuppliersPage() {
           />
           <TextField
             label="ID Card Number"
+            inputProps={{ maxLength: 12 }}
             size="small"
             value={contactPersonForm.id_card_number}
             disabled={contactPersonPanelMode === "view"}
@@ -2514,6 +2630,7 @@ export default function SuppliersPage() {
           />
           <TextField
             label="Passport No."
+            inputProps={{ maxLength: 50 }}
             size="small"
             value={contactPersonForm.passport_no}
             disabled={contactPersonPanelMode === "view"}
@@ -2523,18 +2640,19 @@ export default function SuppliersPage() {
         <TFormSection title="Communication Methods" variant="plain" columns={2}>
           <TextField
             label="Email"
+            inputProps={{ maxLength: 75 }}
             type="email"
             size="small"
             value={contactPersonForm.email}
             disabled={contactPersonPanelMode === "view"}
             onChange={(e) => setContactPersonForm({ ...contactPersonForm, email: e.target.value })}
           />
-          <TextField
-            label="Phone"
-            size="small"
+          <TPhoneField
+            label="Contact No"
+            required
             value={contactPersonForm.phone}
             disabled={contactPersonPanelMode === "view"}
-            onChange={(e) => setContactPersonForm({ ...contactPersonForm, phone: e.target.value })}
+            onChange={(v) => setContactPersonForm({ ...contactPersonForm, phone: v })}
           />
         </TFormSection>
       </TSidePanel>

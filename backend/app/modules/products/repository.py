@@ -15,11 +15,11 @@ class ProductRepository:
     
     def get_by_item_code(self, db: Session, item_code: str) -> Optional[Product]:
         from sqlalchemy import func
-        return db.query(Product).filter(func.lower(Product.item_code) == func.lower(item_code)).first()
+        return db.query(Product).filter(func.lower(func.btrim(Product.item_code)) == (item_code or "").strip().lower()).first()
     
     def get_by_name(self, db: Session, name: str) -> Optional[Product]:
         from sqlalchemy import func
-        return db.query(Product).filter(func.lower(Product.name) == func.lower(name)).first()
+        return db.query(Product).filter(func.lower(func.btrim(Product.name)) == (name or "").strip().lower()).first()
     
     def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = True) -> List[Product]:
         query = db.query(Product)
@@ -28,10 +28,14 @@ class ProductRepository:
         return query.offset(skip).limit(limit).all()
     
     def search(self, db: Session, query: str, skip: int = 0, limit: int = 100) -> List[Product]:
+        # % and _ are LIKE wildcards: escape them so the search is literal
+        # (searching "%" used to match every product).
+        term = (query or "").strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{term}%"
         search_filter = or_(
-            Product.name.ilike(f"%{query}%"),
-            Product.item_code.ilike(f"%{query}%"),
-            Product.model.ilike(f"%{query}%")
+            Product.name.ilike(pattern, escape="\\"),
+            Product.item_code.ilike(pattern, escape="\\"),
+            Product.model.ilike(pattern, escape="\\")
         )
         return db.query(Product).filter(search_filter).offset(skip).limit(limit).all()
     
@@ -96,11 +100,11 @@ class CategoryRepository:
     
     def get_by_code(self, db: Session, category_code: str) -> Optional[Category]:
         from sqlalchemy import func
-        return db.query(Category).filter(func.lower(Category.category_code) == func.lower(category_code)).first()
+        return db.query(Category).filter(func.lower(func.btrim(Category.category_code)) == (category_code or "").strip().lower()).first()
     
     def get_by_name(self, db: Session, name: str) -> Optional[Category]:
         from sqlalchemy import func
-        return db.query(Category).filter(func.lower(Category.name) == func.lower(name)).first()
+        return db.query(Category).filter(func.lower(func.btrim(Category.name)) == (name or "").strip().lower()).first()
     
     def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[Category]:
         query = db.query(Category)
@@ -143,11 +147,11 @@ class BrandRepository:
     
     def get_by_code(self, db: Session, brand_code: str) -> Optional[ItemsBrand]:
         from sqlalchemy import func
-        return db.query(ItemsBrand).filter(func.lower(ItemsBrand.brand_code) == func.lower(brand_code)).first()
+        return db.query(ItemsBrand).filter(func.lower(func.btrim(ItemsBrand.brand_code)) == (brand_code or "").strip().lower()).first()
     
     def get_by_name(self, db: Session, brand_name: str) -> Optional[ItemsBrand]:
         from sqlalchemy import func
-        return db.query(ItemsBrand).filter(func.lower(ItemsBrand.brand_name) == func.lower(brand_name)).first()
+        return db.query(ItemsBrand).filter(func.lower(func.btrim(ItemsBrand.brand_name)) == (brand_name or "").strip().lower()).first()
     
     def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False) -> List[ItemsBrand]:
         query = db.query(ItemsBrand)
@@ -232,3 +236,107 @@ product_repository = ProductRepository()
 category_repository = CategoryRepository()
 brand_repository = BrandRepository()
 minimum_price_repository = MinimumPriceRepository()
+
+
+# ---- server-side paging -----------------------------------------------------
+
+def _like_pattern(q: Optional[str]) -> Optional[str]:
+    """Literal contains-pattern: % _ and \ in the search text are escaped."""
+    term = (q or "").strip()
+    if not term:
+        return None
+    return "%" + term.replace("\\", "\\\\").replace("%", "\%").replace("_", "\_") + "%"
+
+
+def _page_query(query, order_cols, tiebreaker, page: int, size: int):
+    """Total (before paging) + the requested page, with a stable ORDER BY."""
+    from sqlalchemy import func
+
+    total = query.order_by(None).with_entities(func.count(tiebreaker)).scalar() or 0
+    rows = query.order_by(*order_cols, tiebreaker).offset(page * size).limit(size).all()
+    return rows, total
+
+
+def _order(col, order: str, text: bool = False):
+    from sqlalchemy import func
+
+    expr = func.lower(col) if text else col
+    return expr.desc() if order == "desc" else expr.asc()
+
+
+PRODUCT_SORTS = {
+    "item_code": (Product.item_code, True),
+    "name": (Product.name, True),
+    "model": (Product.model, True),
+    "category_name": (Category.name, True),
+    "brand_name": (ItemsBrand.brand_name, True),
+    "cost_price": (Product.cost_price, False),
+    "selling_price": (Product.selling_price, False),
+    "active": (Product.active, False),
+}
+CATEGORY_SORTS = {
+    "name": (Category.name, True),
+    "category_code": (Category.category_code, True),
+    "active": (Category.active, False),
+}
+BRAND_SORTS = {
+    "brand_name": (ItemsBrand.brand_name, True),
+    "brand_code": (ItemsBrand.brand_code, True),
+    "active": (ItemsBrand.active, False),
+}
+
+
+def _sort_cols(sorts: dict, default: str, sort_by: Optional[str], order: str):
+    col, text = sorts.get(sort_by or default) or sorts[default]
+    return [_order(col, order, text)]
+
+
+def products_page(db: Session, *, page: int, size: int, q=None, active=None, category_id=None,
+                  brand_id=None, supplier_id=None, sort_by=None, order="asc"):
+    from sqlalchemy.orm import joinedload
+    from app.modules.purchasing.models import SupplierProduct
+
+    query = (
+        db.query(Product)
+        .join(Category, Product.category_id == Category.id)
+        .join(ItemsBrand, Product.items_brand_id == ItemsBrand.id)
+        .options(joinedload(Product.category), joinedload(Product.brand))
+    )
+    pat = _like_pattern(q)
+    if pat:
+        query = query.filter(or_(
+            Product.name.ilike(pat, escape="\\"),
+            Product.item_code.ilike(pat, escape="\\"),
+            Product.model.ilike(pat, escape="\\"),
+        ))
+    if active is not None:
+        query = query.filter(Product.active == active)
+    if category_id:
+        query = query.filter(Product.category_id == category_id)
+    if brand_id:
+        query = query.filter(Product.items_brand_id == brand_id)
+    if supplier_id:
+        query = query.filter(Product.id.in_(
+            db.query(SupplierProduct.product_id).filter(SupplierProduct.supplier_id == supplier_id)
+        ))
+    return _page_query(query, _sort_cols(PRODUCT_SORTS, "item_code", sort_by, order), Product.id, page, size)
+
+
+def categories_page(db: Session, *, page: int, size: int, q=None, active=None, sort_by=None, order="asc"):
+    query = db.query(Category)
+    pat = _like_pattern(q)
+    if pat:
+        query = query.filter(or_(Category.name.ilike(pat, escape="\\"), Category.category_code.ilike(pat, escape="\\")))
+    if active is not None:
+        query = query.filter(Category.active == active)
+    return _page_query(query, _sort_cols(CATEGORY_SORTS, "name", sort_by, order), Category.id, page, size)
+
+
+def brands_page(db: Session, *, page: int, size: int, q=None, active=None, sort_by=None, order="asc"):
+    query = db.query(ItemsBrand)
+    pat = _like_pattern(q)
+    if pat:
+        query = query.filter(or_(ItemsBrand.brand_name.ilike(pat, escape="\\"), ItemsBrand.brand_code.ilike(pat, escape="\\")))
+    if active is not None:
+        query = query.filter(ItemsBrand.active == active)
+    return _page_query(query, _sort_cols(BRAND_SORTS, "brand_name", sort_by, order), ItemsBrand.id, page, size)

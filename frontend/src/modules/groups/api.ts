@@ -27,7 +27,7 @@ export interface GroupUpdate {
 export const groupsApi = {
   // Get all groups
   getGroups: async (): Promise<Group[]> => {
-    const response = await apiClient.get("/groups");
+    const response = await apiClient.get("/groups/");
     return response.data;
   },
 
@@ -39,7 +39,7 @@ export const groupsApi = {
 
   // Create group
   createGroup: async (group: GroupCreate): Promise<Group> => {
-    const response = await apiClient.post("/groups", group);
+    const response = await apiClient.post("/groups/", group);
     return response.data;
   },
 
@@ -48,17 +48,12 @@ export const groupsApi = {
     const response = await apiClient.put(`/groups/${id}`, group);
     return response.data;
   },
-
-  // Delete group
-  deleteGroup: async (id: number): Promise<void> => {
-    await apiClient.delete(`/groups/${id}`);
-  },
 };
 
 export const permissionsApi = {
   // Get all permissions
   getPermissions: async (): Promise<Permission[]> => {
-    const response = await apiClient.get("/permissions");
+    const response = await apiClient.get("/permissions/");
     return response.data;
   },
 };

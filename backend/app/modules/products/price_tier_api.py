@@ -1,6 +1,6 @@
-from typing import List
+from typing import Annotated, List
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Path, status
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
@@ -8,6 +8,10 @@ from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
 from app.modules.products.price_tier_schemas import PriceTierCreate, PriceTierOut, PriceTierUpdate
 from app.modules.products.price_tier_service import price_tier_service
+
+# Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
+ProductId = Annotated[int, Path(ge=1, le=2_147_483_647)]
+TierId = ProductId
 
 router = APIRouter()
 
@@ -19,7 +23,7 @@ router = APIRouter()
     dependencies=[Depends(require_permission(*Permissions.PRODUCT_VIEW))],
 )
 def list_price_tiers(
-    product_id: int,
+    product_id: ProductId,
     active_only: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
@@ -38,8 +42,8 @@ def list_price_tiers(
     dependencies=[Depends(require_permission(*Permissions.PRODUCT_VIEW))],
 )
 def get_price_tier(
-    product_id: int,
-    tier_id: int,
+    product_id: ProductId,
+    tier_id: TierId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
 ):
@@ -54,7 +58,7 @@ def get_price_tier(
     dependencies=[Depends(require_permission(*Permissions.PRODUCT_UPDATE))],
 )
 def create_price_tier(
-    product_id: int,
+    product_id: ProductId,
     data: PriceTierCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
@@ -69,8 +73,8 @@ def create_price_tier(
     dependencies=[Depends(require_permission(*Permissions.PRODUCT_UPDATE))],
 )
 def update_price_tier(
-    product_id: int,
-    tier_id: int,
+    product_id: ProductId,
+    tier_id: TierId,
     data: PriceTierUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
@@ -85,8 +89,8 @@ def update_price_tier(
     dependencies=[Depends(require_permission(*Permissions.PRODUCT_UPDATE))],
 )
 def toggle_price_tier(
-    product_id: int,
-    tier_id: int,
+    product_id: ProductId,
+    tier_id: TierId,
     is_active: bool,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
@@ -100,8 +104,8 @@ def toggle_price_tier(
     dependencies=[Depends(require_permission(*Permissions.PRODUCT_UPDATE))],
 )
 def delete_price_tier(
-    product_id: int,
-    tier_id: int,
+    product_id: ProductId,
+    tier_id: TierId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
 ):

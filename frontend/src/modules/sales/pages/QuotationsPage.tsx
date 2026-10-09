@@ -89,7 +89,10 @@ import {
   Typography,
 } from "@mui/material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { GridPaginationModel } from "@mui/x-data-grid";
+import { useDebounce } from "@/hooks";
+import { fetchAllPages } from "@/utils/fetchAllPages";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -305,11 +308,44 @@ export default function QuotationsPage() {
     setFilterDateTo("");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Data fetching — filtered by page type
-  const { data: quotesData, isLoading } = useQuery({
-    queryKey: ["sales-quotes", pageQuoteType],
-    queryFn: () => quotationApi.getAll({ quote_type: pageQuoteType, per_page: 200 }),
+  // Server-side paging: only the visible page is fetched; search, filters and sorting run in the
+  // database and the API returns the total for the footer ("1-25 of N").
+  const [paging, setPaging] = useState<GridPaginationModel>({ page: 0, pageSize: 25 });
+  const [sort, setSort] = useState<{ field: string; sort: "asc" | "desc" } | null>(null);
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
+  useEffect(() => {
+    setPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
+  }, [debouncedSearch, filterBranch, filterStatus, filterCustomerId, filterDateFrom, filterDateTo, sort]);
+
+  // Grid column -> sortable server column
+  const SERVER_SORT: Record<string, string> = {
+    quote_no: "quote_no", customer_display_name: "customer_name", branch_display_name: "branch_code",
+    created_date: "created_date", valid_until: "valid_until", status: "status", total_amount: "total_amount",
+  };
+  const pageParams = (page: number, size: number) => ({
+    quote_type: pageQuoteType,
+    search: debouncedSearch.trim(),
+    branch_code: filterBranch ?? undefined,
+    status: (filterStatus ?? undefined) as never,
+    customer_id: filterCustomerId ?? undefined,
+    date_from: filterDateFrom || undefined,
+    date_to: filterDateTo || undefined,
+    sort_by: sort ? SERVER_SORT[sort.field] : undefined,
+    order: sort?.sort,
+    page: page + 1,
+    per_page: size,
+  });
+
+  const { data: quotesData, isFetching: isLoading } = useQuery({
+    queryKey: [
+      "sales-quotes", pageQuoteType, "paged", paging.page, paging.pageSize, debouncedSearch.trim(), filterBranch, filterStatus,
+      filterCustomerId, filterDateFrom, filterDateTo, sort?.field, sort?.sort,
+    ],
+    queryFn: () => quotationApi.getAll(pageParams(paging.page, paging.pageSize)),
     enabled: branchResolved,
+    placeholderData: keepPreviousData,
+    staleTime: 30 * 1000,
   });
 
   // Fetch selected quote with items
@@ -382,75 +418,22 @@ export default function QuotationsPage() {
   }, [selectedQuoteDetails, isCreating, isEditing]);
 
   // Filter and sort
-  const filteredQuotes = useMemo(() => {
-    const quotes = (quotesData?.items || []).filter(Boolean);
-    let filtered = quotes.filter(
-      (quote) =>
-        (
-          quote.quote_no?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          quote.branch_code?.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-    );
-
-    // Apply branch filter
-    if (filterBranch) {
-      filtered = filtered.filter(quote => quote.branch_code === filterBranch);
-    }
-
-    // Apply status filter
-    if (filterStatus) {
-      filtered = filtered.filter(quote => quote.status === filterStatus);
-    }
-
-    // Apply customer filter
-    if (filterCustomerId) {
-      filtered = filtered.filter(quote => quote.customer_id === filterCustomerId);
-    }
-
-    // Apply created date range filter (date-only comparison, same as the
-    // From/To pattern used on POApprovalsPage).
-    if (filterDateFrom) {
-      filtered = filtered.filter(quote => {
-        const created = (quote.created_date_time || quote.created_date || "").slice(0, 10);
-        return created >= filterDateFrom;
-      });
-    }
-    if (filterDateTo) {
-      filtered = filtered.filter(quote => {
-        const created = (quote.created_date_time || quote.created_date || "").slice(0, 10);
-        return created <= filterDateTo;
-      });
-    }
-
-    // Default order before the user sorts a column in the table itself
-    // (the table's own column-header sort takes over from there) — newest
-    // created first, matching the old default "Date (Newest)" sort option.
-    filtered.sort((a, b) => {
-      const timeA = a.created_date_time ? new Date(a.created_date_time).getTime() : new Date(a.created_date).getTime();
-      const timeB = b.created_date_time ? new Date(b.created_date_time).getTime() : new Date(b.created_date).getTime();
-      if (timeB !== timeA) {
-        return timeB - timeA;
-      }
-      return b.id - a.id;
-    });
-
-    return filtered;
-  }, [quotesData?.items, searchQuery, filterBranch, filterStatus, filterCustomerId, filterDateFrom, filterDateTo]);
+  const filteredQuotes: SalesQuote[] = useMemo(() => (quotesData?.items || []).filter(Boolean), [quotesData?.items]);
 
   // Handle navigation state: auto-select a specific quote (e.g. from another page)
   const navStateHandled = useRef(false);
   useEffect(() => {
     const navState = location.state as { selectedQuoteId?: number } | null;
-    if (navState?.selectedQuoteId && filteredQuotes.length > 0 && !navStateHandled.current) {
-      const targetQuote = filteredQuotes.find(q => q.id === navState.selectedQuoteId);
-      if (targetQuote) {
-        navStateHandled.current = true;
-        handleSelectQuote(targetQuote);
-        // Clear navigation state to prevent re-triggering
-        window.history.replaceState({}, document.title);
-      }
+    if (navState?.selectedQuoteId && !navStateHandled.current) {
+      navStateHandled.current = true;
+      quotationApi
+        .getById(navState.selectedQuoteId)
+        .then((targetQuote) => handleSelectQuote(targetQuote))
+        .catch(() => showErrorToast("Could not open that quotation"));
+      // Clear navigation state to prevent re-triggering
+      window.history.replaceState({}, document.title);
     }
-  }, [filteredQuotes, location.state, handleSelectQuote]);
+  }, [location.state, handleSelectQuote]);
 
   // No tab changes, form reset handled elsewhere
 
@@ -601,16 +584,17 @@ export default function QuotationsPage() {
 
   const handleCancel = useCallback(async () => {
     if (!selectedQuote) return;
-    const confirmed = await confirmDialog.confirm({
-      title: "Cancel Quotation",
-      message: `Are you sure you want to cancel ${selectedQuote.quote_no}? This action cannot be undone.`,
-      confirmText: "Cancel Quote",
-      confirmColor: "error",
-    });
-    if (confirmed) {
-      cancelMutation.mutate({ id: selectedQuote.id });
-    }
-  }, [selectedQuote, confirmDialog, cancelMutation]);
+    setCancelReason("");
+    setCancelDialogOpen(true);
+  }, [selectedQuote]);
+
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const submitCancel = useCallback(() => {
+    if (!selectedQuote || !cancelReason.trim()) return;
+    cancelMutation.mutate({ id: selectedQuote.id, reason: cancelReason.trim() });
+    setCancelDialogOpen(false);
+  }, [selectedQuote, cancelReason, cancelMutation]);
 
   const [releasingReservation, setReleasingReservation] = useState(false);
 
@@ -1056,7 +1040,7 @@ export default function QuotationsPage() {
     } else if (isEditing && selectedQuote) {
       updateMutation.mutate({
         id: selectedQuote.id,
-        data: { ...formData, items, tax_mode: taxMode, tax_rate: effectiveTaxRate },
+        data: { ...formData, items, tax_mode: taxMode, tax_rate: effectiveTaxRate, expected_version: selectedQuote.version } as never,
       });
     }
   }, [formData, lineItems, isCreating, isEditing, selectedQuote, createMutation, updateMutation]);
@@ -1258,6 +1242,18 @@ export default function QuotationsPage() {
           rows={quoteRows}
           columns={quoteColumns}
           loading={isLoading}
+          serverPagination={{ rowCount: quotesData?.total ?? 0, paginationModel: paging, onPaginationModelChange: setPaging }}
+          onServerSortChange={setSort}
+          exportAllRows={() =>
+            fetchAllPages((page) => quotationApi.getAll(pageParams(page, 200)).then((r) => ({ items: r.items, pages: r.pages }))).then((rows) =>
+              rows.map((quote) => ({
+                ...quote,
+                customer_display_name: getCustomerName(quote.customer_id),
+                agent_display_name: quote.customer_agent_id ? getCustomerName(quote.customer_agent_id) : "",
+                branch_display_name: getBranchName(quote.branch_code),
+              }))
+            )
+          }
           onRowClick={(row) => handleSelectQuote(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
@@ -2524,6 +2520,28 @@ export default function QuotationsPage() {
           <Button variant="contained" color="error" onClick={handleRejectSubmit}
             disabled={rejectMutation.isPending}>
             {rejectMutation.isPending ? "Rejecting..." : "Reject"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ==================== Cancel Quotation Dialog ==================== */}
+      <Dialog open={cancelDialogOpen} onClose={() => setCancelDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Cancel Quotation</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Cancel {selectedQuote?.quote_no}? This cannot be undone. A reason is required.
+          </Typography>
+          <TextField
+            label="Reason" size="small" multiline rows={3} fullWidth required autoFocus
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            inputProps={{ maxLength: 500 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCancelDialogOpen(false)}>Keep Quote</Button>
+          <Button variant="contained" color="error" onClick={submitCancel} disabled={!cancelReason.trim() || cancelMutation.isPending}>
+            Cancel Quote
           </Button>
         </DialogActions>
       </Dialog>

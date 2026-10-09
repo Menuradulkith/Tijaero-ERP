@@ -3,7 +3,9 @@ from typing import List, Optional
 import logging
 
 from app.auth import models, schemas
+from app.auth import user_access
 from app.common.audit import log_audit, diff_changes
+from app.core.password_policy import validate_password_strength
 from app.core import timezone as tz
 from app.core.exceptions import AuthenticationError
 from app.core.security import (
@@ -19,8 +21,14 @@ from app.modules.settings.service import NotificationService
 logger = logging.getLogger(__name__)
 from fastapi import HTTPException, status
 from sqlalchemy import func
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+
+def _ci_eq(column, value: str):
+    """Case- and surrounding-whitespace-insensitive equality."""
+    return func.lower(func.trim(column)) == (value or "").strip().lower()
 
 
 class AuthService:
@@ -46,31 +54,28 @@ class AuthService:
 
     def create_user(self, db: Session, user_in: schemas.UserCreate, created_by: Optional[int] = None) -> models.User:
 
-        if (
-            db.query(models.User)
-            .filter(models.User.username == user_in.username)
-            .first()
-        ):
+        if self.check_username_exists(db, user_in.username):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Username already exists",
             )
 
-        if user_in.email and db.query(models.User).filter(models.User.email == user_in.email).first():
+        if user_in.email and self.check_email_exists(db, user_in.email):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists"
             )
 
-        existing_employee = (
-            db.query(Employee)
-            .filter(Employee.employee_id == user_in.employee_id)
-            .first()
-        )
-        if existing_employee:
+        if self.check_employee_id_exists(db, user_in.employee_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Employee ID already exists",
             )
+
+        # Resolve roles/branches before creating anything: unknown ids and
+        # inactive branches are rejected with a precise message instead of
+        # silently producing a user with no role or a misleading "duplicate" error.
+        branches = user_access.load_branches(db, user_in.branch_ids)
+        groups = user_access.load_groups(db, user_in.group_ids)
 
         primary_branch_id = user_in.primary_branch_id or user_in.branch_ids[0]
 
@@ -112,20 +117,8 @@ class AuthService:
                 db.add(employee)
                 db.flush()
 
-            if user_in.branch_ids:
-                branches = (
-                    db.query(models.Branch)
-                    .filter(models.Branch.id.in_(user_in.branch_ids))
-                    .all()
-                )
-                user.branches = branches
-            if user_in.group_ids:
-                groups = (
-                    db.query(models.Group)
-                    .filter(models.Group.id.in_(user_in.group_ids))
-                    .all()
-                )
-                user.groups = groups
+            user.branches = branches
+            user.groups = groups
 
             log_audit(
                 db, user_id=created_by or 0, action="create",
@@ -161,12 +154,68 @@ class AuthService:
     def get_users(
         self, db: Session, skip: int = 0, limit: int = 100
     ) -> List[models.User]:
-        return db.query(models.User).offset(skip).limit(limit).all()
+        # Stable order: without one, a skip/limit window can repeat or miss rows.
+        return (
+            db.query(models.User)
+            .order_by(func.lower(models.User.username), models.User.id)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    _USER_SORTS = {
+        "username": lambda: func.lower(models.User.username),
+        "full_name": lambda: func.lower(models.User.first_name + " " + models.User.last_name),
+        "email": lambda: func.lower(models.User.email),
+        "employee_id": lambda: func.lower(models.User.employee_id),
+        "is_active": lambda: models.User.is_active,
+        "last_login": lambda: models.User.last_login,
+    }
+
+    def get_users_page(
+        self, db: Session, *, page: int, size: int, q: Optional[str] = None,
+        active: Optional[bool] = None, branch_id: Optional[int] = None,
+        group_id: Optional[int] = None, sort_by: Optional[str] = None, order: str = "asc",
+    ) -> dict:
+        """Server-side paged list for the Users page. Superuser accounts are
+        not listed here (by design), same as the page always did client-side."""
+        from sqlalchemy import or_
+        from sqlalchemy.orm import joinedload, selectinload
+
+        query = db.query(models.User).filter(models.User.is_superuser.is_(False))
+        term = (q or "").strip()
+        if term:
+            pat = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            query = query.filter(or_(
+                models.User.username.ilike(pat, escape="\\"),
+                models.User.first_name.ilike(pat, escape="\\"),
+                models.User.last_name.ilike(pat, escape="\\"),
+                models.User.email.ilike(pat, escape="\\"),
+                models.User.employee_id.ilike(pat, escape="\\"),
+            ))
+        if active is not None:
+            query = query.filter(models.User.is_active.is_(active))
+        if branch_id:
+            query = query.filter(models.User.branches.any(models.Branch.id == branch_id))
+        if group_id:
+            query = query.filter(models.User.groups.any(models.Group.id == group_id))
+
+        total = query.with_entities(func.count(models.User.id)).scalar() or 0
+        expr = (self._USER_SORTS.get(sort_by or "username") or self._USER_SORTS["username"])()
+        expr = expr.desc() if order == "desc" else expr.asc()
+        rows = (
+            query.options(selectinload(models.User.branches), selectinload(models.User.groups), joinedload(models.User.primary_branch))
+            .order_by(expr, models.User.id)
+            .offset(page * size)
+            .limit(size)
+            .all()
+        )
+        return {"items": rows, "total": total, "page": page, "size": size, "pages": -(-total // size)}
 
     def check_username_exists(
         self, db: Session, username: str, exclude_user_id: Optional[int] = None
     ) -> bool:
-        query = db.query(models.User).filter(models.User.username == username)
+        query = db.query(models.User).filter(_ci_eq(models.User.username, username))
         if exclude_user_id is not None:
             query = query.filter(models.User.id != exclude_user_id)
         return query.first() is not None
@@ -174,7 +223,7 @@ class AuthService:
     def check_email_exists(
         self, db: Session, email: str, exclude_user_id: Optional[int] = None
     ) -> bool:
-        query = db.query(models.User).filter(models.User.email == email)
+        query = db.query(models.User).filter(_ci_eq(models.User.email, email))
         if exclude_user_id is not None:
             query = query.filter(models.User.id != exclude_user_id)
         return query.first() is not None
@@ -185,7 +234,7 @@ class AuthService:
         try:
             from app.modules.employees.models import Employee
 
-            query = db.query(Employee).filter(Employee.employee_id == employee_id)
+            query = db.query(Employee).filter(_ci_eq(Employee.employee_id, employee_id))
             if exclude_user_id is not None:
                 query = query.filter(Employee.user_id != exclude_user_id)
             if query.first() is not None:
@@ -193,13 +242,20 @@ class AuthService:
         except (ImportError, Exception):
             pass
 
-        query = db.query(models.User).filter(models.User.employee_id == employee_id)
+        query = db.query(models.User).filter(_ci_eq(models.User.employee_id, employee_id))
         if exclude_user_id is not None:
             query = query.filter(models.User.id != exclude_user_id)
         return query.first() is not None
 
-    def get_user(self, db: Session, user_id: int) -> Optional[models.User]:
-        user = db.query(models.User).filter(models.User.id == user_id).first()
+    def get_user(self, db: Session, user_id: int, for_update: bool = False) -> Optional[models.User]:
+        query = db.query(models.User).filter(models.User.id == user_id)
+        if for_update:
+            # Serialize concurrent updates of the same user: replacing the roles /
+            # branches collections deletes and re-inserts association rows, and two
+            # requests doing that at once used to collide (500). populate_existing
+            # re-reads the row (and collections) once the lock is held.
+            query = query.with_for_update(of=models.User).populate_existing()
+        user = query.first()
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
@@ -209,7 +265,21 @@ class AuthService:
     def update_user(
         self, db: Session, user_id: int, user_in: schemas.UserUpdate, updated_by: Optional[int] = None
     ) -> models.User:
-        user = self.get_user(db, user_id)
+        # Two concurrent requests can both pass the duplicate pre-checks; the DB's
+        # unique indexes decide, and the loser must get a clean 400, not a 500.
+        try:
+            return self._update_user(db, user_id, user_in, updated_by)
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username, email, or employee ID already exists. Please use different values.",
+            )
+
+    def _update_user(
+        self, db: Session, user_id: int, user_in: schemas.UserUpdate, updated_by: Optional[int] = None
+    ) -> models.User:
+        user = self.get_user(db, user_id, for_update=True)
 
         update_data = user_in.model_dump(exclude_unset=True)
 
@@ -239,17 +309,31 @@ class AuthService:
         before_group_names = sorted(g.name for g in user.groups) if "group_ids" in update_data else None
 
         if "password" in update_data and update_data["password"]:
+            # The schema already enforced the policy; re-check against the stored
+            # username when the request did not change it.
+            validate_password_strength(update_data["password"], update_data.get("username") or user.username)
             update_data["hashed_password"] = get_password_hash(
                 update_data.pop("password")
             )
+        else:
+            update_data.pop("password", None)
+
+        # These two columns are NOT NULL (create stores ""), so "clear" means "".
+        for field in ("middle_name", "occupation"):
+            if field in update_data and update_data[field] is None:
+                update_data[field] = ""
+
+        # Dates must stay consistent with what is already stored.
+        birthdate = update_data.get("birthdate", user.birthdate) if "birthdate" in update_data else user.birthdate
+        joined = update_data.get("date_joined", user.date_joined) if "date_joined" in update_data else user.date_joined
+        if birthdate and joined and joined < birthdate:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Date joined cannot be before birthdate")
 
         branch_ids_provided = "branch_ids" in update_data
         new_branch_ids = update_data.pop("branch_ids", None)
         if branch_ids_provided and new_branch_ids is not None:
-            branches = (
-                db.query(models.Branch)
-                .filter(models.Branch.id.in_(new_branch_ids))
-                .all()
+            branches = user_access.load_branches(
+                db, new_branch_ids, already_assigned=[b.id for b in user.branches]
             )
             user.branches = branches
 
@@ -272,10 +356,7 @@ class AuthService:
         if "group_ids" in update_data:
             group_ids = update_data.pop("group_ids")
             if group_ids is not None:
-                groups = (
-                    db.query(models.Group).filter(models.Group.id.in_(group_ids)).all()
-                )
-                user.groups = groups
+                user.groups = user_access.load_groups(db, group_ids)
 
         for field, value in update_data.items():
             setattr(user, field, value)
@@ -376,38 +457,43 @@ class GroupService:
     ) -> List[models.Group]:
         return db.query(models.Group).offset(skip).limit(limit).all()
 
-    def get_group(self, db: Session, group_id: int) -> Optional[models.Group]:
-        group = db.query(models.Group).filter(models.Group.id == group_id).first()
+    def get_group(self, db: Session, group_id: int, for_update: bool = False) -> Optional[models.Group]:
+        query = db.query(models.Group).filter(models.Group.id == group_id)
+        if for_update:
+            # Same reason as get_user(for_update=True): permission replacement is a
+            # delete + insert of association rows and must not interleave.
+            query = query.with_for_update(of=models.Group).populate_existing()
+        group = query.first()
         if not group:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
             )
         return group
 
+    def _name_taken(self, db: Session, name: str, exclude_id: Optional[int] = None) -> bool:
+        query = db.query(models.Group).filter(_ci_eq(models.Group.name, name))
+        if exclude_id is not None:
+            query = query.filter(models.Group.id != exclude_id)
+        return query.first() is not None
+
     def create_group(
         self, db: Session, group_in: schemas.GroupCreate, created_by: Optional[int] = None
     ) -> models.Group:
 
-        if db.query(models.Group).filter(models.Group.name == group_in.name).first():
+        if self._name_taken(db, group_in.name):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Group name already exists",
             )
 
         group = models.Group(name=group_in.name)
-
-        if group_in.permission_ids:
-            permissions = (
-                db.query(models.Permission)
-                .filter(models.Permission.id.in_(group_in.permission_ids))
-                .all()
-            )
-            group.permissions = permissions
+        group.permissions = user_access.load_permissions(db, group_in.permission_ids)
 
         # Guard the flush/commit too, not just the pre-check above — two
         # concurrent creates for the same role name can both pass that check
-        # before either has committed, so the DB's unique constraint is the
-        # real backstop and needs to surface as a clean 400, not a 500.
+        # before either has committed, so the DB's unique indexes (exact and
+        # case-insensitive) are the real backstop and must surface as a clean
+        # 400, not a 500.
         try:
             db.add(group)
             db.flush()
@@ -429,19 +515,25 @@ class GroupService:
     def update_group(
         self, db: Session, group_id: int, group_in: schemas.GroupUpdate, updated_by: Optional[int] = None
     ) -> models.Group:
-        group = self.get_group(db, group_id)
+        try:
+            return self._update_group(db, group_id, group_in, updated_by)
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Group name already exists",
+            )
+
+    def _update_group(
+        self, db: Session, group_id: int, group_in: schemas.GroupUpdate, updated_by: Optional[int] = None
+    ) -> models.Group:
+        group = self.get_group(db, group_id, for_update=True)
 
         changed_fields = []
         field_values: dict = {}
 
-        if group_in.name and group_in.name != group.name:
-
-            existing = (
-                db.query(models.Group)
-                .filter(models.Group.name == group_in.name, models.Group.id != group_id)
-                .first()
-            )
-            if existing:
+        if group_in.name is not None and group_in.name != group.name:
+            if self._name_taken(db, group_in.name, exclude_id=group_id):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Group name already exists",
@@ -455,11 +547,7 @@ class GroupService:
             current_permission_ids = {p.id for p in group.permissions}
             if new_permission_ids != current_permission_ids:
                 old_permission_names = sorted(p.name for p in group.permissions)
-                permissions = (
-                    db.query(models.Permission)
-                    .filter(models.Permission.id.in_(group_in.permission_ids))
-                    .all()
-                )
+                permissions = user_access.load_permissions(db, group_in.permission_ids)
                 group.permissions = permissions
                 field_values["permissions"] = {
                     "old": old_permission_names,
@@ -485,33 +573,6 @@ class GroupService:
         db.refresh(group)
         return group
 
-    def delete_group(self, db: Session, group_id: int, deleted_by: Optional[int] = None):
-        # Lock the group row so a concurrent "assign this role to a user"
-        # request can't slip in between the usage check below and the delete
-        # — mirrors the same guard on delete_branch.
-        group = db.query(models.Group).filter(models.Group.id == group_id).with_for_update().first()
-        if not group:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
-            )
-
-        user_count = db.query(models.User).filter(models.User.groups.any(id=group_id)).count()
-        if user_count > 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete role '{group.name}'. It is assigned to {user_count} user(s). "
-                       f"Reassign them to another role first.",
-            )
-
-        log_audit(
-            db, user_id=deleted_by or 0, action="delete",
-            entity_type="group", entity_id=group.id,
-            changes={"name": group.name},
-        )
-        db.delete(group)
-        db.commit()
-        return {"message": "Group deleted successfully"}
-
 
 class PermissionService:
     def get_permissions(self, db: Session) -> List[models.Permission]:
@@ -523,8 +584,8 @@ class PermissionService:
         existing = (
             db.query(models.Permission)
             .filter(
-                models.Permission.resource == permission_in.resource,
-                models.Permission.action == permission_in.action,
+                _ci_eq(models.Permission.resource, permission_in.resource),
+                _ci_eq(models.Permission.action, permission_in.action),
             )
             .first()
         )
@@ -535,8 +596,15 @@ class PermissionService:
             )
 
         permission = models.Permission(**permission_in.model_dump())
-        db.add(permission)
-        db.commit()
+        try:
+            db.add(permission)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Permission already exists (same name or resource/action)",
+            )
         db.refresh(permission)
         return permission
 

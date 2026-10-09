@@ -25,9 +25,9 @@ engine = create_engine(
     _get_database_url(),
     poolclass=QueuePool,
     pool_pre_ping=True,       # Verify connections before use
-    pool_size=10,             # Base pool size
+    pool_size=20,             # Base pool size (matches the ~40 request threads together with overflow)
     max_overflow=20,          # Additional connections when needed
-    pool_timeout=30,          # Wait time for connection
+    pool_timeout=10,          # Fail fast (503) instead of holding a request for 30 s
     pool_recycle=1800,        # Recycle connections every 30 min
     echo=False,               # Disable SQL logging in production
 )
@@ -82,7 +82,15 @@ def before_flush(session, flush_context, instances):
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-def get_db():
+async def get_db():
+    """Request-scoped session.
+
+    Declared ``async`` on purpose: a sync generator dependency has its teardown
+    scheduled on the (busy) worker thread pool, so a finished request kept its
+    DB connection until a thread was free. Under load that exhausted the
+    connection pool. The session opens its connection lazily and ``close()`` is
+    a quick rollback + return to the pool, so running it on the event loop is cheap.
+    """
     db = SessionLocal()
     try:
         yield db

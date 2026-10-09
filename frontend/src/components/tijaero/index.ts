@@ -39,7 +39,7 @@
 // BASE COMPONENTS - Core UI building blocks
 // =============================================================================
 export {
-  STATUS_MAPS, TAutocomplete, TButton, TCheckbox, TChip, TDatePicker, TExportButton, TIconButton, TPrintButton, TSearchableSelect, TSelect, TStatusChip, TSwitch, TTextField, canPrintDocument,
+  STATUS_MAPS, TAutocomplete, TButton, TCheckbox, TChip, TDatePicker, TExportButton, TIconButton, TPrintButton, TSearchableSelect, TSelect, TStatusChip, TSwitch, TTextField, TPhoneField, normalizePhone, isValidPhone, phoneError, DEFAULT_PHONE_COUNTRY, canPrintDocument,
   getPrintDisabledReason, getReportUrl, getStatusProps, type TAutocompleteProps, type TButtonProps, type TCheckboxProps, type TChipProps, type TDatePickerProps, type TExportButtonProps, type TIconButtonProps, type TPrintButtonProps,
   type TPrintDocumentType, type TSearchableSelectOption, type TSearchableSelectProps, type TSelectProps, type TStatusChipProps, type TSwitchProps, type TTextFieldProps
 } from './base';
@@ -130,7 +130,7 @@ export { SearchableList, SelectableListItem } from "./lists";
 export { DetailPanelHeader, TSidePanel, type TSidePanelProps, TActivityHistoryPanel, type TActivityHistoryPanelProps } from "./panels";
 
 // Toolbars
-export { ActionToolbar } from "./toolbars";
+export { ActionToolbar, revealRequiredFields, clearRequiredHighlight, continueOrReveal } from "./toolbars";
 
 // Forms (legacy - use TFormSection for new code)
 export { FormSection } from "./forms";

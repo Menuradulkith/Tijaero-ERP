@@ -558,8 +558,8 @@ class TestCommonApprovalsAPI:
         db.flush()
         db.commit()
         
-        # Create user with po_approvals:approve permission
-        _user, token = make_user(permissions=[("po_approvals", "approve")])
+        # Create user with po_approvals:approve permission, assigned to the PO's branch
+        _user, token = make_user(permissions=[("po_approvals", "approve")], branches=[branch])
         authed_client = api(token)
         
         # Approve request

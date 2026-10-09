@@ -40,12 +40,12 @@ import {
     handleApiError,
     showErrorToast,
     showSuccessToast,
-    TConfirmDialog,
-    useConfirmDialog,
     TDataGrid,
     SelectableListItem,
     type TDataGridColumn,
 } from "@/components/tijaero";
+import { hasPermission } from "@/auth/permissions";
+import { useAuthStore } from "@/state/authStore";
 
 import {
     Group,
@@ -73,6 +73,8 @@ export default function GroupsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const currentUser = useAuthStore((state) => state.user);
 
   // Use reusable state hook
   const {
@@ -177,10 +179,16 @@ export default function GroupsPage() {
 
   // Handlers
   const handleSave = useCallback(async () => {
+    // Ignore a second click/Enter while the first request is still running
+    // (a double-click used to create the role and then show a duplicate-name error).
+    if (saving) return;
+    const payload = { ...formData, name: formData.name.trim() };
+    if (!payload.name) return;
     try {
+      setSaving(true);
       setError(null);
       if (isCreating) {
-        const newGroup = await groupsApi.createGroup(formData);
+        const newGroup = await groupsApi.createGroup(payload);
         showSuccessToast("Role created successfully");
         // Reset state first
         setIsCreating(false);
@@ -189,7 +197,7 @@ export default function GroupsPage() {
         // Select new group after state reset and data reload
         setTimeout(() => setSelectedGroup(newGroup), 0);
       } else if (selectedGroup) {
-        await groupsApi.updateGroup(selectedGroup.id, formData as GroupUpdate);
+        await groupsApi.updateGroup(selectedGroup.id, payload as GroupUpdate);
         showSuccessToast("Role updated successfully");
         setIsEditing(false);
         await loadData();
@@ -198,8 +206,10 @@ export default function GroupsPage() {
       const errorMsg = handleApiError(err, "Failed to save role");
       setError(errorMsg);
       showErrorToast(errorMsg);
+    } finally {
+      setSaving(false);
     }
-  }, [isCreating, selectedGroup, formData, setIsCreating, setIsEditing, setSelectedGroup]);
+  }, [saving, isCreating, selectedGroup, formData, setIsCreating, setIsEditing, setSelectedGroup]);
 
   // Cancelling out of "New Role" should return to the browse table, not
   // auto-open the first role the way useMasterDetailState's generic
@@ -227,31 +237,6 @@ export default function GroupsPage() {
     }
   }, [isCreating, setSelectedGroup, setIsCreating, setIsEditing]);
 
-  const confirmDialog = useConfirmDialog();
-
-  const handleDelete = useCallback(async () => {
-    if (selectedGroup) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Role",
-        message: `Are you sure you want to delete role "${selectedGroup.name}"?`,
-        confirmText: "Delete",
-        confirmColor: "error",
-      });
-      if (confirmed) {
-        try {
-          await groupsApi.deleteGroup(selectedGroup.id);
-          showSuccessToast("Role deleted successfully");
-          setSelectedGroup(null);
-          await loadData();
-        } catch (err: unknown) {
-          const errorMsg = handleApiError(err, "Failed to delete role");
-          setError(errorMsg);
-          showErrorToast(errorMsg);
-        }
-      }
-    }
-  }, [selectedGroup, setSelectedGroup, confirmDialog]);
-
   const handleDuplicate = useCallback(() => {
     if (selectedGroup) {
       setFormData({
@@ -277,7 +262,7 @@ export default function GroupsPage() {
   }, [setFormData]);
 
   const handleResourceToggle = useCallback((resourcePerms: Permission[], checked: boolean) => {
-    const resourceIds = resourcePerms.map((p) => p.id);
+    const resourceIds = resourcePerms.filter(canGrant).map((p) => p.id);
     setFormData((prev) => ({
       ...prev,
       permission_ids: checked
@@ -286,7 +271,18 @@ export default function GroupsPage() {
     }));
   }, [setFormData]);
 
-  const isFormValid = !!formData.name;
+  // A non-superuser can only grant permissions they hold themselves, and can
+  // only change a role whose permissions they hold in full (the API enforces
+  // the same rules; this just keeps the form honest).
+  const isSuperuser = !!currentUser?.is_superuser;
+  const canGrant = useCallback(
+    (perm: Permission) => isSuperuser || hasPermission(currentUser, perm.resource, perm.action),
+    [isSuperuser, currentUser],
+  );
+  const canEditSelectedRole =
+    isCreating || isSuperuser || !selectedGroup || selectedGroup.permissions.every(canGrant);
+
+  const isFormValid = !!formData.name.trim() && !saving;
 
   // Whether we're showing a single role's detail view (selected or being
   // created) instead of the browse table.
@@ -389,9 +385,10 @@ export default function GroupsPage() {
         isCreating={isCreating}
         isEditing={isEditing}
         isFormValid={isFormValid}
+        isSaving={saving}
+        canUpdate={canEditSelectedRole}
         onNew={handleNewGroup}
         onDuplicate={handleDuplicate}
-        onDelete={handleDelete}
         onSave={handleSave}
         onCancel={handleCancel}
         onEdit={handleStartEdit}
@@ -415,6 +412,14 @@ export default function GroupsPage() {
               </Alert>
             )}
 
+            {!isSuperuser && (
+              <Alert severity={canEditSelectedRole ? "info" : "warning"} sx={{ mb: 2 }}>
+                {canEditSelectedRole
+                  ? "You can only grant permissions you hold yourself; the others are disabled."
+                  : "This role grants permissions you do not have, so you cannot modify it."}
+              </Alert>
+            )}
+
             <FormSection title="Role Information" columns={1}>
               <TextField
                 label="Role Name"
@@ -424,6 +429,7 @@ export default function GroupsPage() {
                 disabled={!isEditing && !isCreating}
                 required
                 fullWidth
+                inputProps={{ maxLength: 150 }}
               />
             </FormSection>
 
@@ -448,9 +454,10 @@ export default function GroupsPage() {
                   </Typography>
                 ) : (
                 Object.entries(filteredGroupedPermissions).map(([resource, perms]) => {
-                  const resourceIds = perms.map((p) => p.id);
+                  const grantable = perms.filter(canGrant);
+                  const resourceIds = grantable.map((p) => p.id);
                   const selectedCount = resourceIds.filter((id) => formData.permission_ids.includes(id)).length;
-                  const allSelected = selectedCount === resourceIds.length;
+                  const allSelected = resourceIds.length > 0 && selectedCount === resourceIds.length;
                   const someSelected = selectedCount > 0 && !allSelected;
                   return (
                   <Card key={resource} sx={{ mb: 2 }} variant="outlined">
@@ -460,7 +467,7 @@ export default function GroupsPage() {
                           size="small"
                           checked={allSelected}
                           indeterminate={someSelected}
-                          disabled={!isEditing && !isCreating}
+                          disabled={(!isEditing && !isCreating) || resourceIds.length === 0}
                           onChange={(e) => handleResourceToggle(perms, e.target.checked)}
                         />
                         <Typography variant="subtitle2" fontWeight="bold" color="primary">
@@ -479,7 +486,7 @@ export default function GroupsPage() {
                             <Checkbox
                               size="small"
                               checked={formData.permission_ids.includes(perm.id)}
-                              disabled={!isEditing && !isCreating}
+                              disabled={(!isEditing && !isCreating) || !canGrant(perm)}
                               onChange={(e) => handlePermissionToggle(perm.id, e.target.checked)}
                             />
                             <Box>
@@ -561,7 +568,6 @@ export default function GroupsPage() {
         }
         {...(isGroupDetailMode ? { children: detailPanel } : { children: groupsTablePanel })}
       />
-      <TConfirmDialog {...confirmDialog.dialogProps} />
       <TActivityHistoryPanel
         open={activityHistoryOpen}
         onClose={() => setActivityHistoryOpen(false)}

@@ -1,4 +1,4 @@
-from app.auth import schemas, service
+from app.auth import schemas, service, token_revocation
 from app.auth.dependencies import get_current_active_user
 from app.auth.rbac import Permissions, require_permission
 from app.core.config import settings
@@ -6,11 +6,12 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_refresh_token,
+    decode_token,
     get_password_marker,
 )
 from app.core.simple_rate_limit import rate_limit
 from app.db.session import get_db
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -213,6 +214,13 @@ def refresh_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if token_revocation.is_revoked(db, payload.get("jti")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has been logged out. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(
@@ -268,9 +276,26 @@ def refresh_token(
 @router.post(
     "/logout",
     summary="User Logout",
-    description="Clears the HttpOnly refresh token cookie.",
+    description=(
+        "Clears the HttpOnly refresh token cookie and revokes the presented "
+        "access token and refresh token so they cannot be reused."
+    ),
 )
-def logout(response: Response):
+def logout(
+    request: Request,
+    response: Response,
+    refresh_token: str | None = Cookie(None),
+    db: Session = Depends(get_db),
+):
+    # Best effort: logout must always succeed, even with an expired/missing token.
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token_revocation.revoke(db, decode_token(auth_header[7:]))
+    if refresh_token:
+        token_revocation.revoke(db, decode_refresh_token(refresh_token))
+    token_revocation.purge_expired(db)
+    db.commit()
+
     secure_cookie = _use_secure_cookie()
     response.delete_cookie(
         "refresh_token",

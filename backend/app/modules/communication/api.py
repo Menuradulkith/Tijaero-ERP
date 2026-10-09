@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Header
+from typing import Annotated
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Header, Path, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from app.api.deps import get_db, get_current_active_user
 from app.auth.models import User
+from app.auth.rbac import Permissions, require_permission, user_has_permission
 from app.modules.communication.schemas import EmailDraftResponse, EmailSendRequest
 from app.modules.communication.models import EmailTemplate, EmailLog
 from app.core.email import send_document_email_task
@@ -12,16 +14,37 @@ from app.modules.sales.models import Invoice, SaleReturn
 from app.modules.sales.quotation_models import SalesQuote
 from app.modules.communication.schemas import (
     EmailDraftResponse, EmailSendRequest, EmailTemplateUpdate, 
-    EmailTemplateResponse, EmailLogResponse
+    EmailTemplateResponse, EmailLogResponse, DocumentType
 )
 from app.modules.communication.models import EmailTemplate, EmailLog
 
 router = APIRouter()
 
+RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
+
+# Which document view permission lets a user draft/send an email for it.
+DOC_PERMISSION = {
+    "quotation": Permissions.QUOTATION_VIEW,
+    "sales-order": Permissions.SALES_ORDER_VIEW,
+    "invoice": Permissions.SALES_ORDER_VIEW,
+    "sales-return": Permissions.SALES_RETURN_VIEW,
+    "purchase-order": Permissions.PURCHASE_ORDER_VIEW,
+    "purchase-return": Permissions.PURCHASE_RETURN_VIEW,
+}
+
+
+def _require_document_access(user: User, document_type: str) -> None:
+    resource, action = DOC_PERMISSION[document_type]
+    if not user_has_permission(user, resource, action):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied. Required: {resource}:{action}",
+        )
+
 @router.get("/email/logs", response_model=list[EmailLogResponse])
 def get_email_logs(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permission(*Permissions.SETTINGS_VIEW))
 ):
     from app.auth.models import User as AuthUser
     logs_with_users = db.query(EmailLog, AuthUser).outerjoin(AuthUser, EmailLog.created_by == AuthUser.id).order_by(EmailLog.id.desc()).limit(100).all()
@@ -47,7 +70,7 @@ def get_email_logs(
 @router.get("/email/templates", response_model=list[EmailTemplateResponse])
 def get_email_templates(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permission(*Permissions.SETTINGS_VIEW))
 ):
     templates = db.query(EmailTemplate).all()
     # Initialize default templates if they don't exist
@@ -77,10 +100,10 @@ def get_email_templates(
 
 @router.put("/email/templates/{template_id}", response_model=EmailTemplateResponse)
 def update_email_template(
-    template_id: int,
+    template_id: RowId,
     request: EmailTemplateUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permission(*Permissions.SETTINGS_UPDATE))
 ):
     template = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not template:
@@ -97,11 +120,12 @@ def update_email_template(
 
 @router.get("/email-draft/{document_type}/{document_id}", response_model=EmailDraftResponse)
 def get_email_draft(
-    document_type: str,
-    document_id: int,
+    document_type: DocumentType,
+    document_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    _require_document_access(current_user, document_type)
     to_email = ""
     cc_email = ""
     customer_name = ""
@@ -112,6 +136,8 @@ def get_email_draft(
     # Look up email based on document type
     if document_type == "quotation":
         doc = db.query(SalesQuote).filter(SalesQuote.id == document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
         if doc:
             doc_display_id = doc.quote_no
             if doc.customer:
@@ -120,6 +146,8 @@ def get_email_draft(
                 person_title = doc.customer.title or ""
     elif document_type in ["invoice", "sales-order"]:
         doc = db.query(Invoice).filter(Invoice.id == document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
         if doc:
             doc_display_id = doc.invoice_no
             if doc.customer:
@@ -128,6 +156,8 @@ def get_email_draft(
                 person_title = doc.customer.title or ""
     elif document_type == "sales-return":
         doc = db.query(SaleReturn).filter(SaleReturn.id == document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
         if doc:
             doc_display_id = doc.sale_return_no
             if doc.customer:
@@ -136,6 +166,8 @@ def get_email_draft(
                 person_title = doc.customer.title or ""
     elif document_type == "purchase-order":
         doc = db.query(PurchasingOrder).filter(PurchasingOrder.id == document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
         if doc:
             doc_display_id = doc.purchasing_order_no
             if doc.supplier:
@@ -143,6 +175,8 @@ def get_email_draft(
                 supplier_name = doc.supplier.company_name
     elif document_type == "purchase-return":
         doc = db.query(PurchasingReturn).filter(PurchasingReturn.id == document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
         if doc:
             doc_display_id = doc.purchasing_return_no
             if doc.supplier:
@@ -205,6 +239,7 @@ def send_email(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    _require_document_access(current_user, request.document_type)
     # Extract token
     token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
     
