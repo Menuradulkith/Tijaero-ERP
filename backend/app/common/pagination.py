@@ -20,7 +20,9 @@ def fast_count(query) -> int:
     which re-evaluates all joins/filters. This version uses a lightweight subquery
     that lets PostgreSQL optimise the count plan.
     """
-    count_q = query.statement.with_only_columns(func.count()).order_by(None)
+    # count over the query as a subquery: with_only_columns(count()) alone loses the FROM clause
+    # when nothing filters the table, which made unfiltered totals come back as 1.
+    count_q = select(func.count()).select_from(query.order_by(None).subquery())
     return query.session.execute(count_q).scalar() or 0
 
 

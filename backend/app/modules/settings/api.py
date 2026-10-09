@@ -1,23 +1,26 @@
-from typing import List
+from typing import Annotated, List
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.orm import Session
 
 from . import schemas, service
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
+# Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
+RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
+
 
 # Notification Endpoints
 @router.get("/notifications", response_model=List[schemas.Notification])
 def get_notifications(
     unread_only: bool = Query(False),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100000),
+    skip: int = Query(0, ge=0, le=1_000_000),
+    limit: int = Query(50, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -41,7 +44,7 @@ def get_notification_stats(
     "/notifications/{notification_id}/read", response_model=schemas.Notification
 )
 def mark_notification_as_read(
-    notification_id: int,
+    notification_id: RowId,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -62,7 +65,7 @@ def mark_all_notifications_as_read(
 
 @router.delete("/notifications/{notification_id}")
 def delete_notification(
-    notification_id: int,
+    notification_id: RowId,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -94,7 +97,7 @@ def update_preferences(
 
 
 # Profile Endpoints
-@router.put("/profile")
+@router.put("/profile", response_model=schemas.ProfileOut)
 def update_profile(
     profile: schemas.ProfileUpdate,
     current_user: User = Depends(get_current_user),
@@ -164,7 +167,7 @@ def create_currency(
 
 @router.put("/currencies/{currency_id}", response_model=schemas.Currency, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
 def update_currency(
-    currency_id: int,
+    currency_id: RowId,
     currency: schemas.CurrencyUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -176,7 +179,7 @@ def update_currency(
 
 @router.delete("/currencies/{currency_id}", dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
 def delete_currency(
-    currency_id: int,
+    currency_id: RowId,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -188,7 +191,7 @@ def delete_currency(
 
 @router.put("/currencies/active/{code}", response_model=schemas.CompanySettings, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
 def set_active_currency(
-    code: str,
+    code: Annotated[str, Path(pattern=r"^[A-Za-z]{3}$")],
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

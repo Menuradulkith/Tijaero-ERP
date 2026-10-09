@@ -321,6 +321,105 @@ class ApprovalService:
             user, Permissions.COMMON_UPDATE[0], Permissions.COMMON_UPDATE[1]
         )
 
+    def _check_scope(self, db: Session, approval: Approvals, user, approve: bool) -> None:
+        """Branch scope and maker-checker for purchase orders (the other approval
+        types keep their own module rules).
+
+        - the approver must have access to the PO's branch;
+        - the person who created a PO cannot approve it (superusers are exempt)."""
+        approval_type, reference_id, _ = self._parse_approval_for(approval.approval_for)
+        if reference_id is None:
+            return
+        from app.auth.dependencies import validate_branch_access
+
+        if approval_type == ApprovalType.SALES_QUOTE.value:
+            from app.modules.sales.quotation_models import SalesQuote
+
+            quote = db.query(SalesQuote).filter(SalesQuote.id == reference_id).first()
+            if not quote:
+                return
+            if not validate_branch_access(user, quote.branch_code):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {quote.branch_code}")
+            if approve and not getattr(user, "is_superuser", False) and quote.created_by and quote.created_by == user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You cannot approve a quotation you created. Ask another approver.",
+                )
+            return
+        if approval_type != ApprovalType.PURCHASE_ORDER.value:
+            return
+        from app.modules.purchasing.models import PurchasingOrder
+
+        po = db.query(PurchasingOrder).filter(PurchasingOrder.id == reference_id).first()
+        if not po:
+            return
+        if not validate_branch_access(user, po.branch_code):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to branch: {po.branch_code}",
+            )
+        if approve and not getattr(user, "is_superuser", False) and po.created_by and po.created_by == user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot approve a purchase order you created. Ask another approver.",
+            )
+
+    def user_can_see_approval(self, db: Session, approval: Approvals, user) -> bool:
+        """List/detail visibility: purchase-order approvals only for users who can access the PO's branch."""
+        approval_type, reference_id, _ = self._parse_approval_for(approval.approval_for)
+        if reference_id is None:
+            return True
+        from app.auth.dependencies import validate_branch_access
+
+        if approval_type == ApprovalType.SALES_QUOTE.value:
+            from app.modules.sales.quotation_models import SalesQuote
+
+            quote = db.query(SalesQuote.branch_code).filter(SalesQuote.id == reference_id).first()
+            return True if not quote else validate_branch_access(user, quote.branch_code)
+        if approval_type != ApprovalType.PURCHASE_ORDER.value:
+            return True
+        from app.modules.purchasing.models import PurchasingOrder
+
+        po = db.query(PurchasingOrder.branch_code).filter(PurchasingOrder.id == reference_id).first()
+        return True if not po else validate_branch_access(user, po.branch_code)
+
+    def filter_visible_approvals(self, db: Session, approvals: list, user) -> list:
+        """Batch version of ``user_can_see_approval``: two queries for the whole list
+        instead of one per row."""
+        from app.auth.dependencies import validate_branch_access
+        from app.modules.purchasing.models import PurchasingOrder
+        from app.modules.sales.quotation_models import SalesQuote
+
+        parsed = []
+        po_ids, quote_ids = set(), set()
+        for a in approvals:
+            kind, ref, _ = self._parse_approval_for(a.approval_for)
+            parsed.append((a, kind, ref))
+            if ref is None:
+                continue
+            if kind == ApprovalType.SALES_QUOTE.value:
+                quote_ids.add(ref)
+            elif kind == ApprovalType.PURCHASE_ORDER.value:
+                po_ids.add(ref)
+        po_branch = dict(db.query(PurchasingOrder.id, PurchasingOrder.branch_code).filter(PurchasingOrder.id.in_(po_ids)).all()) if po_ids else {}
+        quote_branch = dict(db.query(SalesQuote.id, SalesQuote.branch_code).filter(SalesQuote.id.in_(quote_ids)).all()) if quote_ids else {}
+
+        visible = []
+        for a, kind, ref in parsed:
+            if ref is None:
+                visible.append(a)
+                continue
+            if kind == ApprovalType.SALES_QUOTE.value:
+                code = quote_branch.get(ref)
+            elif kind == ApprovalType.PURCHASE_ORDER.value:
+                code = po_branch.get(ref)
+            else:
+                visible.append(a)
+                continue
+            if code is None or validate_branch_access(user, code):
+                visible.append(a)
+        return visible
+
     def resolve_decision(
         self,
         db: Session,
@@ -367,6 +466,8 @@ class ApprovalService:
                     f"{required_perm[0]}:{required_perm[1]} or common:update"
                 ),
             )
+
+        self._check_scope(db, approval, user, approve)
 
         if approval.status != ApprovalStatus.PENDING.value:
             action_word = "approve" if approve else "reject"
@@ -532,27 +633,16 @@ class ApprovalService:
 
     def get_approval_statistics(self, db: Session) -> Dict[str, Any]:
         """Get approval statistics for dashboard."""
-        total_pending = (
-            db.query(func.count(Approvals.id))
+        kind = func.split_part(Approvals.approval_for, ":", 1)
+        rows = (
+            db.query(kind, func.count(Approvals.id))
             .filter(Approvals.status == ApprovalStatus.PENDING.value)
-            .scalar()
-            or 0
+            .group_by(kind)
+            .all()
         )
-
-        # Count by type
-        pending_by_type = {}
-        for approval_type in ApprovalType:
-            count = (
-                db.query(func.count(Approvals.id))
-                .filter(
-                    Approvals.status == ApprovalStatus.PENDING.value,
-                    Approvals.approval_for.like(f"{approval_type.value}:%"),
-                )
-                .scalar()
-                or 0
-            )
-            if count > 0:
-                pending_by_type[approval_type.value] = count
+        known = {t.value for t in ApprovalType}
+        pending_by_type = {k: n for k, n in rows if k in known and n > 0}
+        total_pending = sum(n for _, n in rows)
 
         return {"total_pending": total_pending, "pending_by_type": pending_by_type}
 

@@ -37,7 +37,10 @@ import { useState } from "react";
 
 import {
   FormSection,
+  isValidPhone,
+  normalizePhone,
   showErrorToast,
+  TPhoneField,
   showSuccessToast,
   TChip,
   TITLE_CHOICES,
@@ -138,7 +141,7 @@ export default function CustomerContactPersons({
       full_name: row.full_name,
       designation: row.designation || "",
       email: row.email || "",
-      phone: row.phone || "",
+      phone: normalizePhone(row.phone),
       is_primary: !!row.is_primary,
     });
     setDialogOpen(true);
@@ -174,7 +177,13 @@ export default function CustomerContactPersons({
   };
 
   const emailInvalid = !!form.email && !EMAIL_PATTERN.test(form.email);
-  const canSave = form.full_name.trim().length > 0 && !emailInvalid && !saveMutation.isPending;
+  const canSave =
+    form.full_name.trim().length > 0 &&
+    !!form.title &&
+    !!form.phone?.trim() &&
+    !emailInvalid &&
+    isValidPhone(form.phone) &&
+    !saveMutation.isPending;
 
   return (
     <FormSection title="Contact Persons" columns={1}>
@@ -248,6 +257,7 @@ export default function CustomerContactPersons({
               label="Title"
               size="small"
               select
+              required
               value={form.title ?? ""}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
             >
@@ -281,12 +291,11 @@ export default function CustomerContactPersons({
               error={emailInvalid}
               helperText={emailInvalid ? "Invalid email address" : undefined}
             />
-            <TextField
-              label="Phone"
-              size="small"
-              value={form.phone ?? ""}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              inputProps={{ maxLength: 20 }}
+            <TPhoneField
+              label="Contact No"
+              required
+              value={form.phone}
+              onChange={(v) => setForm({ ...form, phone: v })}
             />
             <FormControlLabel
               sx={{ gridColumn: "1 / -1" }}

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Annotated, List, Literal, Optional
 
 from app.auth.dependencies import get_current_active_user
 from app.auth.models import User
@@ -6,11 +6,15 @@ from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
 from app.modules.customers import schemas, service
 from app.modules.customers.enums import CustomerType
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.orm import Session
+from app.utils.csv_export import csv_safe
 
 # All customer endpoints require authentication
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
+
+# Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
+RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
 
 
 @router.get(
@@ -21,7 +25,7 @@ router = APIRouter(dependencies=[Depends(get_current_active_user)])
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def list_customers(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    skip: int = Query(0, ge=0, le=10_000_000, description="Number of records to skip"),
     limit: int = Query(
         100, ge=1, le=100000, description="Maximum number of records to return"
     ),
@@ -36,6 +40,30 @@ def list_customers(
 
 
 @router.get(
+    "/paged",
+    response_model=schemas.Page[schemas.Customer],
+    summary="Paged customer list (server-side search, filter, sort)",
+    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
+)
+def list_customers_paged(
+    page: int = Query(0, ge=0, le=1_000_000),
+    size: int = Query(25, ge=1, le=200),
+    q: Optional[str] = Query(None, max_length=255),
+    active: Optional[bool] = None,
+    customer_type: Optional[CustomerType] = None,
+    agent: Optional[bool] = None,
+    sort_by: Optional[str] = Query(None, max_length=40),
+    order: Literal["asc", "desc"] = Query("asc"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+):
+    return service.customer_service.get_customers_page(
+        db, page, size, q=q, active=active, customer_type=customer_type.value if customer_type else None,
+        agent=agent, sort_by=sort_by, order=order,
+    )
+
+
+@router.get(
     "/search",
     response_model=List[schemas.Customer],
     summary="Search Customers",
@@ -43,7 +71,7 @@ def list_customers(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def search_customers(
-    q: str = Query(..., min_length=1, description="Search query"),
+    q: str = Query(..., min_length=1, max_length=255, description="Search query"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     customer_type: Optional[CustomerType] = Query(None, description="Filter by customer type (individual / business)"),
@@ -67,7 +95,7 @@ from fastapi.responses import StreamingResponse
     description="Export all customers or filtered customers to CSV format",
 )
 def export_customers_csv(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    skip: int = Query(0, ge=0, le=10_000_000, description="Number of records to skip"),
     limit: int = Query(
         100000, ge=1, le=100000, description="Maximum number of records to export"
     ),
@@ -109,9 +137,10 @@ def export_customers_csv(
         ]
     )
 
+    gender_label = {"m": "Male", "male": "Male", "f": "Female", "female": "Female"}
     for customer in customers:
         writer.writerow(
-            [
+            [csv_safe(v) for v in [
                 customer.title or "",
                 customer.customer_name or "",
                 customer.email or "",
@@ -119,7 +148,7 @@ def export_customers_csv(
                 customer.home_contact_number or "",
                 customer.company_name or "",
                 customer.occupation or "",
-                "Male" if customer.gender == "m" else "Female",
+                gender_label.get((customer.gender or "").lower(), "Other" if customer.gender else ""),
                 customer.civil_status or "",
                 customer.no_of_kids or "0",
                 customer.birthdate or "",
@@ -134,17 +163,9 @@ def export_customers_csv(
                 "Yes" if customer.active else "No",
                 "Yes" if customer.is_customer_agent else "No",
                 customer.commission_rate or 0,
-                (
-                    customer.created_at.isoformat()
-                    if getattr(customer, "created_at", None)
-                    else ""
-                ),
-                (
-                    customer.updated_at.isoformat()
-                    if getattr(customer, "updated_at", None)
-                    else ""
-                ),
-            ]
+                customer.created_at.isoformat() if getattr(customer, "created_at", None) else "",
+                customer.updated_at.isoformat() if getattr(customer, "updated_at", None) else "",
+            ]]
         )
 
     output.seek(0)
@@ -177,7 +198,7 @@ def create_customer(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def list_customer_contact_persons(
-    customer_id: int,
+    customer_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
@@ -192,7 +213,7 @@ def list_customer_contact_persons(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
 )
 def create_customer_contact_person(
-    customer_id: int,
+    customer_id: RowId,
     payload: schemas.CustomerContactPersonCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
@@ -207,8 +228,8 @@ def create_customer_contact_person(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
 )
 def update_customer_contact_person(
-    customer_id: int,
-    contact_id: int,
+    customer_id: RowId,
+    contact_id: RowId,
     payload: schemas.CustomerContactPersonUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
@@ -223,8 +244,8 @@ def update_customer_contact_person(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
 )
 def delete_customer_contact_person(
-    customer_id: int,
-    contact_id: int,
+    customer_id: RowId,
+    contact_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
 ):
@@ -244,7 +265,7 @@ from app.modules.customers.credit_service import customer_credit_service
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def get_customer_credit_summary(
-    customer_id: int,
+    customer_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
@@ -259,7 +280,7 @@ def get_customer_credit_summary(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def check_customer_credit(
-    customer_id: int,
+    customer_id: RowId,
     sale_amount: float = Query(..., description="Amount of the proposed credit sale"),
     allow_over_limit: bool = Query(
         False, description="Allow sale if over limit (warning only)"
@@ -282,7 +303,7 @@ def check_customer_credit(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def validate_credit_sale_comprehensive(
-    customer_id: int,
+    customer_id: RowId,
     sale_amount: float = Query(..., description="Amount of the proposed credit sale"),
     skip_time_check: bool = Query(False, description="Skip time restriction check"),
     allow_over_limit: bool = Query(
@@ -317,7 +338,7 @@ def validate_credit_sale_comprehensive(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def get_customer_aging_report(
-    customer_id: int,
+    customer_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
@@ -346,7 +367,7 @@ def get_all_customers_aging_report(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def get_customer_statement(
-    customer_id: int,
+    customer_id: RowId,
     from_date: Optional[date] = Query(None, description="Start date for statement"),
     to_date: Optional[date] = Query(None, description="End date for statement"),
     db: Session = Depends(get_db),
@@ -367,7 +388,7 @@ def get_customer_statement(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
 )
 def create_customer_credit_settlement(
-    customer_id: int,
+    customer_id: RowId,
     settlement: schemas.CustomerCreditsSettleCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
@@ -391,7 +412,7 @@ def create_customer_credit_settlement(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def list_customer_credit_settlements(
-    customer_id: int,
+    customer_id: RowId,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -411,8 +432,8 @@ def list_customer_credit_settlements(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def get_customer_credit_settlement(
-    customer_id: int,
-    settlement_id: int,
+    customer_id: RowId,
+    settlement_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
@@ -479,7 +500,7 @@ def get_outstanding_documents(
     dependencies=[Depends(require_permission(*Permissions.COUPON_VIEW))],
 )
 def list_coupons(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    skip: int = Query(0, ge=0, le=10_000_000, description="Number of records to skip"),
     limit: int = Query(
         100, ge=1, le=100000, description="Maximum number of records to return"
     ),
@@ -499,7 +520,7 @@ def list_coupons(
     dependencies=[Depends(require_permission(*Permissions.COUPON_VIEW))],
 )
 def get_coupon(
-    coupon_id: int,
+    coupon_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.COUPON_VIEW)),
 ):
@@ -553,7 +574,7 @@ def create_coupon(
     dependencies=[Depends(require_permission(*Permissions.COUPON_UPDATE))],
 )
 def update_coupon(
-    coupon_id: int,
+    coupon_id: RowId,
     coupon: schemas.CustomerCuponCodesUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.COUPON_UPDATE)),
@@ -570,7 +591,7 @@ def update_coupon(
     dependencies=[Depends(require_permission(*Permissions.COUPON_DELETE))],
 )
 def delete_coupon(
-    coupon_id: int,
+    coupon_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.COUPON_DELETE)),
 ):
@@ -602,7 +623,7 @@ def validate_coupon(
     dependencies=[Depends(require_permission(*Permissions.COUPON_VIEW))],
 )
 def get_coupon_usage_history(
-    coupon_id: int,
+    coupon_id: RowId,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -623,7 +644,7 @@ def get_coupon_usage_history(
     dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW))],
 )
 def list_vouchers(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    skip: int = Query(0, ge=0, le=10_000_000, description="Number of records to skip"),
     limit: int = Query(
         100, ge=1, le=100000, description="Maximum number of records to return"
     ),
@@ -643,7 +664,7 @@ def list_vouchers(
     dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW))],
 )
 def get_voucher(
-    voucher_id: int,
+    voucher_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW)),
 ):
@@ -697,7 +718,7 @@ def create_voucher(
     dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_UPDATE))],
 )
 def update_voucher(
-    voucher_id: int,
+    voucher_id: RowId,
     voucher: schemas.GiftVoucherUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_UPDATE)),
@@ -714,7 +735,7 @@ def update_voucher(
     dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_DELETE))],
 )
 def delete_voucher(
-    voucher_id: int,
+    voucher_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_DELETE)),
 ):
@@ -762,7 +783,7 @@ def redeem_voucher(
     dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_VIEW))],
 )
 def get_voucher_usage_history(
-    voucher_id: int,
+    voucher_id: RowId,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -782,7 +803,7 @@ def get_voucher_usage_history(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def get_customer(
-    customer_id: int,
+    customer_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
@@ -797,7 +818,7 @@ def get_customer(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
 )
 def update_customer(
-    customer_id: int,
+    customer_id: RowId,
     customer: schemas.CustomerUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),

@@ -508,3 +508,13 @@ def superclient(client, superuser) -> TestClient:
     _user, token = superuser
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
+
+
+@pytest.fixture(autouse=True)
+def _clear_user_cache():
+    """The authenticated-user cache is process-local; never let it leak between tests."""
+    from app.auth import user_cache
+
+    user_cache.clear()
+    yield
+    user_cache.clear()

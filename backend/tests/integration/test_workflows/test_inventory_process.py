@@ -77,11 +77,12 @@ class TestSalesStock:
         assert svc.barcode_exists("SS-EXIST-1") is True
         assert svc.barcode_exists("SS-NOPE") is False
 
-    def test_update_status(self, db, make_sales_stock):
+    def test_update_status(self, db, make_sales_stock, make_user):
         stock = make_sales_stock()
+        user, _ = make_user()
         svc = SalesStockService(db)
-        updated = svc.update_status(stock.id, "sold")
-        assert updated.status == "sold"
+        updated = svc.update_status(stock.id, "damaged", user_id=user.id)
+        assert updated.status == "damaged"
 
     def test_available_by_branch_excludes_sold(self, db, make_branch, make_sales_stock):
         branch = make_branch()
@@ -153,12 +154,13 @@ class TestCompanyAssets:
         with pytest.raises(ValueError):
             svc.create(self._payload(product=product, branch=branch, inventory_no="INV-DUP"))
 
-    def test_update_status(self, db, make_product, make_branch):
+    def test_update_status(self, db, make_product, make_branch, make_user):
         svc = CompanyAssetService(db)
         product, branch = make_product(), make_branch()
         asset = svc.create(self._payload(product=product, branch=branch, barcode="CA-ST"))
-        updated = svc.update_status(asset.id, "assigned")
-        assert updated.status == "assigned"
+        user, _ = make_user()
+        updated = svc.update_status(asset.id, "in_use", user_id=user.id)
+        assert updated.status == "in_use"
 
     def test_get_by_branch_scoped(self, db, make_product, make_branch):
         svc = CompanyAssetService(db)

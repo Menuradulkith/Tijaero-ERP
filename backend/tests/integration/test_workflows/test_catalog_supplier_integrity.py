@@ -123,9 +123,13 @@ class TestProductConcurrency:
         r = superclient.put(f"{INV}/products/{p['id']}", json={"description": "no check"})
         assert r.status_code == 200
 
-    def test_save_of_deleted_product_404(self, superclient):
+    def test_save_of_deleted_product_404(self, superclient, db):
+        from app.modules.products.models import Product
+
         p = _product(superclient)
-        assert superclient.delete(f"{INV}/products/{p['id']}").status_code == 200
+        # there is no delete endpoint (by design): remove the row directly
+        db.query(Product).filter(Product.id == p["id"]).delete()
+        db.flush()
         r = superclient.put(f"{INV}/products/{p['id']}", json={"description": "x", "expected_version": p["version"]})
         assert r.status_code == 404
 
@@ -261,7 +265,7 @@ class TestCatalogDuplicates:
             items_brand_id=p.items_brand_id, added_date=datetime.utcnow(),
         )
         db.add(dup)
-        with pytest.raises(IntegrityError, match="uq_products_name_lower"):
+        with pytest.raises(IntegrityError, match="uq_products_name_(ci|lower)"):
             db.flush()
         db.rollback()
 
@@ -271,13 +275,6 @@ class TestCatalogDuplicates:
         r = superclient.put(f"{INV}/products/{p['id']}", json={"category_id": 99999999})
         assert r.status_code == 400, r.text
         assert "already exists" not in r.json()["detail"]
-
-    def test_delete_product_also_removes_minimum_price_history(self, superclient, db):
-        from app.modules.products.models import MinimumPrice
-
-        p = _product(superclient, minimum_selling_price=150)
-        assert superclient.delete(f"{INV}/products/{p['id']}").status_code == 200
-        assert db.query(MinimumPrice).filter(MinimumPrice.product_id == p["id"]).count() == 0
 
 
 class TestPreferredSupplier:
@@ -355,9 +352,13 @@ class TestSupplierConcurrency:
         assert rm.json()["logo_path"] is None
         assert rm.json()["version"] == s["version"]
 
-    def test_save_of_deleted_supplier_404(self, superclient):
+    def test_save_of_deleted_supplier_404(self, superclient, db):
+        from app.modules.purchasing.models import Supplier
+
         s = _supplier(superclient)
-        assert superclient.delete(f"{PUR}/suppliers/{s['id']}").status_code == 204
+        # there is no delete endpoint (by design): remove the row directly
+        db.query(Supplier).filter(Supplier.id == s["id"]).delete()
+        db.flush()
         r = superclient.patch(f"{PUR}/suppliers/{s['id']}", json={"billing_city": "x", "expected_version": s["version"]})
         assert r.status_code == 404
 
@@ -408,7 +409,7 @@ class TestSupplierDuplicatesAndDefaults:
     def test_duplicate_company_name_ignores_case_and_spaces(self, superclient):
         s = _supplier(superclient)
         r = superclient.post(f"{PUR}/suppliers", json={
-            "company_name": f"  {s['company_name'].upper()} ", "mobile_contact_number": "0771",
+            "company_name": f"  {s['company_name'].upper()} ", "mobile_contact_number": "0771234567",
         })
         assert r.status_code == 400
 
@@ -418,7 +419,7 @@ class TestSupplierDuplicatesAndDefaults:
         s = _supplier(superclient)
         monkeypatch.setattr(SupplierService, "_check_duplicate_fields", lambda self, data, exclude_id=None: None)
         r = superclient.post(f"{PUR}/suppliers", json={
-            "company_name": s["company_name"].lower(), "mobile_contact_number": "0771",
+            "company_name": s["company_name"].lower(), "mobile_contact_number": "0771234567",
         })
         assert r.status_code == 400, r.text
         assert "Company name" in r.json()["detail"]
@@ -445,30 +446,7 @@ class TestSupplierDuplicatesAndDefaults:
     def test_duplicate_contact_id_card_rejected_with_400(self, superclient):
         s1, s2 = _supplier(superclient), _supplier(superclient)
         card = _uid("NIC")
-        r1 = superclient.post(f"{PUR}/suppliers/{s1['id']}/contact-persons", json={"full_name": "A", "id_card_number": card})
+        r1 = superclient.post(f"{PUR}/suppliers/{s1['id']}/contact-persons", json={"full_name": "A", "title": "Mr", "phone": "+94771234567", "id_card_number": card})
         assert r1.status_code == 201, r1.text
-        r2 = superclient.post(f"{PUR}/suppliers/{s2['id']}/contact-persons", json={"full_name": "B", "id_card_number": f" {card.lower()} "})
+        r2 = superclient.post(f"{PUR}/suppliers/{s2['id']}/contact-persons", json={"full_name": "B", "title": "Mr", "phone": "+94771234568", "id_card_number": f" {card.lower()} "})
         assert r2.status_code == 400
-
-
-class TestSupplierDelete:
-    def test_delete_supplier_with_purchase_order_refused_clearly(self, superclient, db, make_branch):
-        from app.modules.purchasing.models import PurchasingOrder
-
-        s = _supplier(superclient)
-        db.add(PurchasingOrder(
-            purchasing_order_no=_uid("PO"), branch_code=make_branch().branch_code, payment_method="cash",
-            purchasing_order_date=date.today(), good_received_note_date=date.today(), created_date=date.today(),
-            first_suppliers_id=s["id"], added_date=datetime.utcnow(), status="approved",
-        ))
-        db.flush()
-        r = superclient.delete(f"{PUR}/suppliers/{s['id']}")
-        assert r.status_code == 400
-        assert "purchase orders" in r.json()["detail"]
-        assert _get_supplier(superclient, s["id"])["id"] == s["id"]
-
-    def test_delete_unused_supplier_succeeds(self, superclient):
-        s = _supplier(superclient)
-        superclient.post(f"{PUR}/suppliers/{s['id']}/payment-methods", json={"method_type": "cash", "is_default": True})
-        assert superclient.delete(f"{PUR}/suppliers/{s['id']}").status_code == 204
-        assert superclient.get(f"{PUR}/suppliers/{s['id']}").status_code == 404

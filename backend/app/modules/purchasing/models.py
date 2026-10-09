@@ -70,6 +70,7 @@ class Supplier(Base, AuditMixin):
     billing_city = Column(String(120))
     billing_state = Column(String(120))
     billing_postal_code = Column(String(20))
+    billing_country_id = Column(Integer, ForeignKey("country.id"))
     # Shipping address — where goods are actually received from this
     # supplier. Optional: many suppliers ship from the same place they bill
     # from, so the frontend offers a "same as billing" shortcut rather than
@@ -79,10 +80,11 @@ class Supplier(Base, AuditMixin):
     shipping_city = Column(String(120))
     shipping_state = Column(String(120))
     shipping_postal_code = Column(String(20))
+    shipping_country_id = Column(Integer, ForeignKey("country.id"))
     date_joined = Column(TIMESTAMP, nullable=False)
     email = Column(String(75))
-    home_contact_number = Column(String(12))
-    mobile_contact_number = Column(String(12), nullable=False)
+    home_contact_number = Column(String(20))
+    mobile_contact_number = Column(String(20), nullable=False)
     credit_days = Column(Integer, nullable=False)
     # Money columns use Numeric so cents are preserved (ERP_STANDARDS F1);
     # they were historically Integer, which truncated fractional currency.
@@ -105,7 +107,7 @@ class Supplier(Base, AuditMixin):
     # currencies table's `code` at the API layer, not via a DB constraint.
     default_currency = Column(String(3))
 
-    country = relationship("Country", back_populates="suppliers")
+    country = relationship("Country", back_populates="suppliers", foreign_keys=[country_id])
     purchasing_orders_first = relationship("PurchasingOrder", foreign_keys="PurchasingOrder.first_suppliers_id", back_populates="first_supplier")
     purchasing_orders_second = relationship("PurchasingOrder", foreign_keys="PurchasingOrder.second_suppliers_id", back_populates="second_supplier")
     credit_settlements = relationship("SupplierCreditsSettle", back_populates="supplier")
@@ -133,7 +135,7 @@ class SupplierContactPerson(Base, AuditMixin):
     id_card_number = Column(String(12))
     passport_no = Column(String(50))
     email = Column(String(75))
-    phone = Column(String(12))
+    phone = Column(String(20))
 
     supplier = relationship("Supplier", back_populates="contact_persons")
 

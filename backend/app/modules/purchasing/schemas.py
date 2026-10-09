@@ -1,10 +1,79 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator, field_serializer
+from pydantic import BaseModel, BeforeValidator, EmailStr, Field, StringConstraints, field_validator, field_serializer, model_validator
+from app.common.validators import normalize_phone_number
 from datetime import date, datetime
-from typing import Optional, List
+from typing import Annotated, Generic, Optional, List, TypeVar
 from decimal import Decimal
+import re
 
 from app.common.base_schemas import TijaeroBaseSchema, AuditSchema, VersionedSchema, format_datetime
 from app.common.enums import PurchaseOrderStatus, DocumentStatus, SupplierTaxArea, SupplierPaymentMethodType
+
+
+T = TypeVar("T")
+
+
+class Page(BaseModel, Generic[T]):
+    """One page of a server-side paged list; total is the filtered row count across all pages."""
+    items: List[T]
+    total: int
+    page: int
+    size: int
+    pages: int
+
+
+# ---- input hygiene shared by the supplier schemas -------------------------
+# Every text column has a length limit, so an over-long value is a 422 with a
+# field message instead of a database error (500). Text is trimmed; optional
+# text that is blank becomes None.
+INT4_MAX = 2_147_483_647
+MAX_MONEY = Decimal("9999999999999.99")
+
+
+def _blank_to_none(v):
+    if isinstance(v, str):
+        v = v.strip()
+        return v or None
+    return v
+
+
+def ReqStr(n: int):
+    return Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=n)]
+
+
+def OptStr(n: int):
+    return Annotated[Optional[Annotated[str, StringConstraints(max_length=n)]], BeforeValidator(_blank_to_none)]
+
+
+Text255 = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
+
+
+def _check_website(v):
+    if v and not re.match(r"^https?://[^\s]+$", v, re.I):
+        raise ValueError("Website must start with http:// or https://")
+    return v
+
+
+def _check_email_len(v):
+    if v and len(str(v)) > 75:
+        raise ValueError("Email cannot exceed 75 characters")
+    return v
+
+
+def _upper_currency(v):
+    if v is None:
+        return None
+    v = str(v).strip().upper()
+    if not v:
+        return None
+    if not re.fullmatch(r"[A-Z]{3}", v):
+        raise ValueError("Currency must be a 3-letter code, e.g. LKR")
+    return v
+
+
+def _check_distinct_phones(first, second):
+    if first and second and first.strip() == second.strip():
+        raise ValueError("Contact No 1 and Contact No 2 must be different")
+
 
 class SupplierBase(BaseModel):
     company_name: str = Field(..., min_length=1)
@@ -21,11 +90,13 @@ class SupplierBase(BaseModel):
     billing_city: Optional[str] = None
     billing_state: Optional[str] = None
     billing_postal_code: Optional[str] = None
+    billing_country_id: Optional[int] = None
     shipping_address_line1: Optional[str] = None
     shipping_address_line2: Optional[str] = None
     shipping_city: Optional[str] = None
     shipping_state: Optional[str] = None
     shipping_postal_code: Optional[str] = None
+    shipping_country_id: Optional[int] = None
     email: Optional[EmailStr] = None
     home_contact_number: Optional[str] = None
     mobile_contact_number: str = Field(..., min_length=1)
@@ -38,34 +109,91 @@ class SupplierBase(BaseModel):
     # 3-letter ISO 4217 code (e.g. "LKR", "USD") — see models.Supplier.default_currency.
     default_currency: Optional[str] = Field(default=None, max_length=3)
 
-class SupplierCreate(SupplierBase):
+class SupplierInputBase(BaseModel):
+    company_name: ReqStr(255)
+    company_registration_number: OptStr(255) = None
+    tax_registration_number: OptStr(255) = None
+    tax_area: Optional[SupplierTaxArea] = None
+    company_website: OptStr(200) = None
+    # Address and payment terms live in their own sections of the create
+    # form and are filled in after the supplier's main details are saved, so
+    # they default rather than being required at creation time (mirrors
+    # ProductBase.selling_price, which lives in the Pricing section).
+    billing_address_line1: Text255 = ""
+    billing_address_line2: OptStr(255) = None
+    billing_city: OptStr(120) = None
+    billing_state: OptStr(120) = None
+    billing_postal_code: OptStr(20) = None
+    billing_country_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
+    shipping_address_line1: OptStr(255) = None
+    shipping_address_line2: OptStr(255) = None
+    shipping_city: OptStr(120) = None
+    shipping_state: OptStr(120) = None
+    shipping_postal_code: OptStr(20) = None
+    shipping_country_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
+    email: Optional[EmailStr] = None
+    home_contact_number: Optional[str] = None
+    mobile_contact_number: str = Field(..., min_length=1)
+    credit_days: int = Field(default=0, ge=0, le=3650)
+    max_credit_limit: Decimal = Field(default=Decimal("0"), ge=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
+    active: bool = True
+    country_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
+    # Manually-set planning default (days) — see models.Supplier.lead_time_days.
+    lead_time_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    # 3-letter ISO 4217 code (e.g. "LKR", "USD"); upper-cased here and checked
+    # against the currencies table by SupplierService.
+    default_currency: Optional[str] = None
+
+    _v_website = field_validator("company_website")(_check_website)
+    _v_email_len = field_validator("email")(_check_email_len)
+    _v_currency = field_validator("default_currency", mode="before")(_upper_currency)
+
+class SupplierCreate(SupplierInputBase):
+    _v_phone = field_validator("mobile_contact_number", "home_contact_number", mode="before")(normalize_phone_number)
+
+    @model_validator(mode="after")
+    def check_distinct_phones(self):
+        _check_distinct_phones(self.mobile_contact_number, self.home_contact_number)
+        return self
     pass
 
 class SupplierUpdate(BaseModel):
-    company_name: Optional[str] = Field(default=None, min_length=1)
-    company_registration_number: Optional[str] = None
-    tax_registration_number: Optional[str] = None
+    _v_phone = field_validator("mobile_contact_number", "home_contact_number", mode="before")(normalize_phone_number)
+
+    @model_validator(mode="after")
+    def check_distinct_phones(self):
+        _check_distinct_phones(self.mobile_contact_number, self.home_contact_number)
+        return self
+    company_name: Optional[ReqStr(255)] = None
+    company_registration_number: OptStr(255) = None
+    tax_registration_number: OptStr(255) = None
     tax_area: Optional[SupplierTaxArea] = None
-    company_website: Optional[str] = None
-    billing_address_line1: Optional[str] = None
-    billing_address_line2: Optional[str] = None
-    billing_city: Optional[str] = None
-    billing_state: Optional[str] = None
-    billing_postal_code: Optional[str] = None
-    shipping_address_line1: Optional[str] = None
-    shipping_address_line2: Optional[str] = None
-    shipping_city: Optional[str] = None
-    shipping_state: Optional[str] = None
-    shipping_postal_code: Optional[str] = None
+    company_website: OptStr(200) = None
+    billing_address_line1: Optional[Text255] = None
+    billing_address_line2: OptStr(255) = None
+    billing_city: OptStr(120) = None
+    billing_state: OptStr(120) = None
+    billing_postal_code: OptStr(20) = None
+    billing_country_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
+    shipping_address_line1: OptStr(255) = None
+    shipping_address_line2: OptStr(255) = None
+    shipping_city: OptStr(120) = None
+    shipping_state: OptStr(120) = None
+    shipping_postal_code: OptStr(20) = None
+    shipping_country_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
     email: Optional[EmailStr] = None
     home_contact_number: Optional[str] = None
     mobile_contact_number: Optional[str] = None
-    credit_days: Optional[int] = None
-    max_credit_limit: Optional[Decimal] = None
+    credit_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    max_credit_limit: Optional[Decimal] = Field(default=None, ge=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
     active: Optional[bool] = None
-    country_id: Optional[int] = None
-    lead_time_days: Optional[int] = Field(default=None, ge=0)
-    default_currency: Optional[str] = Field(default=None, max_length=3)
+    country_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
+    lead_time_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    default_currency: Optional[str] = None
+
+    _v_website = field_validator("company_website")(_check_website)
+    _v_email_len = field_validator("email")(_check_email_len)
+    _v_currency = field_validator("default_currency", mode="before")(_upper_currency)
     # Optimistic concurrency check: the `updated_at` the client last saw for
     # this supplier. If omitted, no check is performed (backward compatible).
     # If it no longer matches the current row, the update is rejected with a
@@ -125,25 +253,62 @@ class SupplierContactPersonBase(BaseModel):
         return _validate_birthdate_not_future(v)
 
 
-class SupplierContactPersonCreate(SupplierContactPersonBase):
-    pass
+def _birthdate_plausible(v: Optional[date]) -> Optional[date]:
+    v = _validate_birthdate_not_future(v)
+    if v is not None and v.year < 1900:
+        raise ValueError("Birthdate is not valid")
+    return v
 
 
-class SupplierContactPersonUpdate(BaseModel):
-    title: Optional[str] = None
-    full_name: Optional[str] = None
-    occupation: Optional[str] = None
-    gender: Optional[str] = None
+class SupplierContactPersonInputBase(BaseModel):
+    title: OptStr(30) = None
+    full_name: ReqStr(255)
+    occupation: OptStr(255) = None
+    gender: OptStr(30) = None
     birthdate: Optional[date] = None
-    id_card_number: Optional[str] = None
-    passport_no: Optional[str] = None
+    id_card_number: OptStr(12) = None
+    passport_no: OptStr(50) = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
 
     @field_validator("birthdate")
     @classmethod
     def _birthdate_not_future(cls, v):
-        return _validate_birthdate_not_future(v)
+        return _birthdate_plausible(v)
+
+    _v_email_len = field_validator("email")(_check_email_len)
+
+
+class SupplierContactPersonCreate(SupplierContactPersonInputBase):
+    _v_phone = field_validator("phone", mode="before")(normalize_phone_number)
+
+    @model_validator(mode="after")
+    def check_title_and_phone(self):
+        if not (self.title or "").strip():
+            raise ValueError("Title is required")
+        if not (self.phone or "").strip():
+            raise ValueError("Contact No is required")
+        return self
+
+
+class SupplierContactPersonUpdate(BaseModel):
+    _v_phone = field_validator("phone", mode="before")(normalize_phone_number)
+    title: OptStr(30) = None
+    full_name: Optional[ReqStr(255)] = None
+    occupation: OptStr(255) = None
+    gender: OptStr(30) = None
+    birthdate: Optional[date] = None
+    id_card_number: OptStr(12) = None
+    passport_no: OptStr(50) = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+
+    @field_validator("birthdate")
+    @classmethod
+    def _birthdate_not_future(cls, v):
+        return _birthdate_plausible(v)
+
+    _v_email_len = field_validator("email")(_check_email_len)
 
 
 class SupplierContactPerson(SupplierContactPersonBase, AuditSchema):
@@ -196,39 +361,143 @@ class SupplierPaymentMethodBase(BaseModel):
         return v
 
 
-class SupplierPaymentMethodCreate(SupplierPaymentMethodBase):
+
+
+def check_payment_method_rules(d: dict) -> None:
+    """Cross-field rules for a supplier payment method, on a plain dict so the
+    create schema and the update service (merged with the stored row) share it."""
+    t = d.get("method_type")
+    t = getattr(t, "value", t)
+
+    def need(*names):
+        for n in names:
+            if not d.get(n):
+                raise ValueError(f"{n.replace('_', ' ').capitalize()} is required for {str(t).replace('_', ' ')}")
+
+    acct = d.get("account_number")
+    if acct and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 \-]{2,33}", acct):
+        raise ValueError("Account number must be 3-34 letters, digits, spaces or dashes")
+    for name in ("swift_code", "correspondent_bank_swift_code"):
+        v = d.get(name)
+        if v and not re.fullmatch(r"[A-Za-z0-9]{8}([A-Za-z0-9]{3})?", v):
+            raise ValueError("SWIFT/BIC code must be 8 or 11 letters/digits")
+    if t == "bank_transfer":
+        need("bank_name", "account_number")
+    elif t == "direct_debit":
+        need("bank_name", "account_number")
+    elif t == "letter_of_credit":
+        need("lc_number")
+    elif t == "digital_wallet":
+        need("wallet_provider", "wallet_id")
+    elif t == "credit_card":
+        need("card_last4")
+    lc_cur = d.get("lc_currency")
+    if lc_cur and not re.fullmatch(r"[A-Z]{3}", lc_cur):
+        raise ValueError("LC currency must be a 3-letter code, e.g. USD")
+    issue, expiry, ship = d.get("lc_issue_date"), d.get("lc_expiry_date"), d.get("latest_shipment_date")
+    if issue and expiry and expiry < issue:
+        raise ValueError("LC expiry date cannot be before the issue date")
+    if ship and expiry and ship > expiry:
+        raise ValueError("Latest shipment date cannot be after the LC expiry date")
+    ce = d.get("card_expiry")
+    if ce:
+        m = re.fullmatch(r"(0[1-9]|1[0-2])/(\d{4})", ce)
+        if not m:
+            raise ValueError("Card expiry must be MM/YYYY")
+        today = date.today()
+        if (int(m.group(2)), int(m.group(1))) < (today.year, today.month):
+            raise ValueError("Card has expired")
+    if d.get("mandate_date") and d["mandate_date"].year < 1900:
+        raise ValueError("Mandate date is not valid")
+
+class SupplierPaymentMethodInputBase(BaseModel):
+    method_type: SupplierPaymentMethodType
+    bank_name: OptStr(255) = None
+    account_number: OptStr(100) = None
+    account_holder_name: OptStr(255) = None
+    # Bank-transfer-only wire details.
+    branch: OptStr(255) = None
+    bank_branch_code: OptStr(50) = None
+    swift_code: OptStr(20) = None
+    correspondent_bank_name: OptStr(255) = None
+    correspondent_bank_swift_code: OptStr(20) = None
+    # Direct Debit / ACH only (reuses bank_name/bank_branch_code/
+    # account_number/account_holder_name above for the mandate's bank).
+    mandate_reference: OptStr(100) = None
+    mandate_date: Optional[date] = None
+    # Letter of Credit only.
+    lc_number: OptStr(100) = None
+    issuing_bank_name: OptStr(255) = None
+    advising_bank_name: OptStr(255) = None
+    lc_amount: Optional[Decimal] = Field(default=None, ge=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
+    lc_currency: Optional[str] = None
+    lc_type: OptStr(30) = None
+    lc_issue_date: Optional[date] = None
+    lc_expiry_date: Optional[date] = None
+    latest_shipment_date: Optional[date] = None
+    # Credit Card only — PCI-DSS: never accept/store the full PAN, only the
+    # last 4 digits for display/identification.
+    card_type: OptStr(20) = None
+    card_last4: OptStr(4) = None
+    card_expiry: OptStr(7) = None  # "MM/YYYY"
+    cardholder_name: OptStr(255) = None
+    # Digital Wallet only.
+    wallet_provider: OptStr(50) = None
+    wallet_id: OptStr(255) = None
+    is_default: bool = False
+    active: bool = True
+
+    @field_validator("card_last4")
+    @classmethod
+    def _validate_card_last4(cls, v: Optional[str]) -> Optional[str]:
+        if v and not v.isdigit():
+            raise ValueError("card_last4 must contain only digits")
+        return v
+
+
+    _v_lc_cur = field_validator("lc_currency", mode="before")(_upper_currency)
+
+    @model_validator(mode="after")
+    def _method_rules(self):
+        check_payment_method_rules(self.model_dump())
+        return self
+
+
+class SupplierPaymentMethodCreate(SupplierPaymentMethodInputBase):
     pass
 
 
 class SupplierPaymentMethodUpdate(BaseModel):
     method_type: Optional[SupplierPaymentMethodType] = None
-    bank_name: Optional[str] = None
-    account_number: Optional[str] = None
-    account_holder_name: Optional[str] = None
-    branch: Optional[str] = None
-    bank_branch_code: Optional[str] = None
-    swift_code: Optional[str] = None
-    correspondent_bank_name: Optional[str] = None
-    correspondent_bank_swift_code: Optional[str] = None
-    mandate_reference: Optional[str] = None
+    bank_name: OptStr(255) = None
+    account_number: OptStr(100) = None
+    account_holder_name: OptStr(255) = None
+    branch: OptStr(255) = None
+    bank_branch_code: OptStr(50) = None
+    swift_code: OptStr(20) = None
+    correspondent_bank_name: OptStr(255) = None
+    correspondent_bank_swift_code: OptStr(20) = None
+    mandate_reference: OptStr(100) = None
     mandate_date: Optional[date] = None
-    lc_number: Optional[str] = None
-    issuing_bank_name: Optional[str] = None
-    advising_bank_name: Optional[str] = None
-    lc_amount: Optional[Decimal] = Field(default=None, ge=0)
-    lc_currency: Optional[str] = Field(default=None, max_length=3)
-    lc_type: Optional[str] = None
+    lc_number: OptStr(100) = None
+    issuing_bank_name: OptStr(255) = None
+    advising_bank_name: OptStr(255) = None
+    lc_amount: Optional[Decimal] = Field(default=None, ge=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
+    lc_currency: Optional[str] = None
+    lc_type: OptStr(30) = None
     lc_issue_date: Optional[date] = None
     lc_expiry_date: Optional[date] = None
     latest_shipment_date: Optional[date] = None
-    card_type: Optional[str] = None
-    card_last4: Optional[str] = Field(default=None, max_length=4)
-    card_expiry: Optional[str] = Field(default=None, max_length=7)
-    cardholder_name: Optional[str] = None
-    wallet_provider: Optional[str] = None
-    wallet_id: Optional[str] = None
+    card_type: OptStr(20) = None
+    card_last4: OptStr(4) = None
+    card_expiry: OptStr(7) = None
+    cardholder_name: OptStr(255) = None
+    wallet_provider: OptStr(50) = None
+    wallet_id: OptStr(255) = None
     is_default: Optional[bool] = None
     active: Optional[bool] = None
+
+    _v_lc_cur = field_validator("lc_currency", mode="before")(_upper_currency)
 
 
 class SupplierPaymentMethod(SupplierPaymentMethodBase, AuditSchema):
@@ -237,10 +506,10 @@ class SupplierPaymentMethod(SupplierPaymentMethodBase, AuditSchema):
 
 
 class SupplierProductBase(BaseModel):
-    product_id: int
-    supplier_sku: Optional[str] = None
-    cost_price: Decimal = Field(..., ge=0)
-    minimum_order_qty: Optional[int] = Field(default=None, ge=1)
+    product_id: int = Field(..., ge=1, le=INT4_MAX)
+    supplier_sku: OptStr(255) = None
+    cost_price: Decimal = Field(..., ge=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
+    minimum_order_qty: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
     is_preferred: bool = False
     active: bool = True
 
@@ -250,9 +519,9 @@ class SupplierProductCreate(SupplierProductBase):
 
 
 class SupplierProductUpdate(BaseModel):
-    supplier_sku: Optional[str] = None
-    cost_price: Optional[Decimal] = Field(default=None, ge=0)
-    minimum_order_qty: Optional[int] = Field(default=None, ge=1)
+    supplier_sku: OptStr(255) = None
+    cost_price: Optional[Decimal] = Field(default=None, ge=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
+    minimum_order_qty: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
     is_preferred: Optional[bool] = None
     active: Optional[bool] = None
 
@@ -278,8 +547,43 @@ class PurchasingOrderItemBase(BaseModel):
     # the exact SalesQuoteItem it fulfills.
     quote_item_id: Optional[int] = None
 
-class PurchasingOrderItemCreate(PurchasingOrderItemBase):
-    pass
+PO_PAYMENT_METHODS = {"credit", "non-credit", "noncredit", "cash", "bank-transfer", "cheque", "card", "online"}
+
+
+def _check_po_payment_method(v):
+    # "Non-credit", "non_credit" and "non credit" are the same method
+    if v is not None and v.strip().lower().replace("_", "-").replace(" ", "-") not in PO_PAYMENT_METHODS:
+        raise ValueError("Payment method must be one of: Credit, Non-credit, Cash, Bank transfer, Cheque, Card, Online")
+    return v
+
+
+def _po_date_window(v):
+    if v is not None:
+        today = date.today()
+        if v < date(today.year - 1, today.month, 1) or v > date(today.year + 1, today.month, 1):
+            raise ValueError("Date must be within a year of today")
+    return v
+
+
+def _zero_to_none(v):
+    return None if v in (0, "0", "") else v
+
+
+class PurchasingOrderItemCreate(BaseModel):
+    """A purchase-order line as submitted (strict). The response model above stays lenient."""
+    product_id: int = Field(..., ge=1, le=INT4_MAX)
+    quantity: int = Field(..., ge=1, le=1_000_000)
+    unit_price: Decimal = Field(..., gt=0, le=MAX_MONEY, allow_inf_nan=False)
+    warrenty_month: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^\d{1,3}$")]
+    remark: OptStr(500) = None
+    # Set when this line was sourced from a Sales Quotation (links to the exact SalesQuoteItem).
+    quote_item_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
+
+    @field_validator("unit_price")
+    @classmethod
+    def _two_decimals(cls, v):
+        return v.quantize(Decimal("0.01"))
+
 
 class PurchasingOrderItem(PurchasingOrderItemBase, TijaeroBaseSchema):
     id: int
@@ -305,22 +609,70 @@ class PurchasingOrderBase(BaseModel):
     second_suppliers_id: Optional[int] = None
     sales_quote_id: Optional[int] = None  # Link to source quotation
 
-class PurchasingOrderCreate(PurchasingOrderBase):
-    items: List[PurchasingOrderItemCreate]
+class PurchasingOrderCreate(BaseModel):
+    purchasing_order_no: Optional[str] = Field(default=None, max_length=200)  # ignored: generated on the server
+    purchasing_invoice_no: OptStr(200) = None
+    branch_code: ReqStr(200)
+    payment_method: ReqStr(30)
+    purchasing_order_date: date
+    good_received_note_date: date
+    required_date: Optional[date] = None
+    remarks: OptStr(2000) = None
+    credit_date: Optional[int] = Field(default=None, ge=0, le=3650)
+    first_suppliers_id: int = Field(..., ge=1, le=INT4_MAX)
+    second_suppliers_id: Optional[int] = Field(default=None, ge=0, le=INT4_MAX)
+    sales_quote_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)  # link to source quotation
+    items: List[PurchasingOrderItemCreate] = Field(..., min_length=1, max_length=200)
+
+    _v_pay = field_validator("payment_method")(_check_po_payment_method)
+    _v_order_date = field_validator("purchasing_order_date")(_po_date_window)
+    _v_second = field_validator("second_suppliers_id")(_zero_to_none)
+
+    @model_validator(mode="after")
+    def _cross_rules(self):
+        if self.good_received_note_date < self.purchasing_order_date:
+            raise ValueError("Expected delivery date cannot be before the order date")
+        if self.required_date and self.required_date < self.purchasing_order_date:
+            raise ValueError("Required date cannot be before the order date")
+        if self.second_suppliers_id and self.second_suppliers_id == self.first_suppliers_id:
+            raise ValueError("Second supplier must differ from the first supplier")
+        return self
 
 class PurchasingOrderUpdate(BaseModel):
-    purchasing_invoice_no: Optional[str] = None
-    branch_code: Optional[str] = None
-    payment_method: Optional[str] = None
+    """Editable fields. `status` is deliberately not one of them: it only changes through the
+    approval, cancel and short-close actions (an edit to an approved PO sends it back for re-approval)."""
+    purchasing_invoice_no: OptStr(200) = None
+    branch_code: Optional[ReqStr(200)] = None
+    payment_method: Optional[ReqStr(30)] = None
     purchasing_order_date: Optional[date] = None
     good_received_note_date: Optional[date] = None
     required_date: Optional[date] = None
-    remarks: Optional[str] = None
-    credit_date: Optional[int] = None
-    first_suppliers_id: Optional[int] = None
-    second_suppliers_id: Optional[int] = None
-    status: Optional[str] = None
-    items: Optional[List[PurchasingOrderItemCreate]] = None
+    remarks: OptStr(2000) = None
+    credit_date: Optional[int] = Field(default=None, ge=0, le=3650)
+    first_suppliers_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
+    second_suppliers_id: Optional[int] = Field(default=None, ge=0, le=INT4_MAX)
+    items: Optional[List[PurchasingOrderItemCreate]] = Field(default=None, min_length=1, max_length=200)
+
+    _v_pay = field_validator("payment_method")(_check_po_payment_method)
+    _v_order_date = field_validator("purchasing_order_date")(_po_date_window)
+    _v_second = field_validator("second_suppliers_id")(_zero_to_none)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_null_required(cls, values):
+        if isinstance(values, dict):
+            for n in ("branch_code", "payment_method", "purchasing_order_date", "good_received_note_date", "first_suppliers_id"):
+                if n in values and values[n] is None:
+                    raise ValueError(f"{n} cannot be null")
+        return values
+
+    @model_validator(mode="after")
+    def _cross_rules(self):
+        if self.good_received_note_date and self.purchasing_order_date and self.good_received_note_date < self.purchasing_order_date:
+            raise ValueError("Expected delivery date cannot be before the order date")
+        if self.second_suppliers_id and self.first_suppliers_id and self.second_suppliers_id == self.first_suppliers_id:
+            raise ValueError("Second supplier must differ from the first supplier")
+        return self
 
 class PurchasingOrder(PurchasingOrderBase, TijaeroBaseSchema):
     id: int
@@ -345,6 +697,9 @@ class PurchasingOrder(PurchasingOrderBase, TijaeroBaseSchema):
     # Set when this PO was created as part of a multi-supplier product-first
     # checkout — every sibling PO from that same checkout shares this value.
     purchase_batch_id: Optional[str] = None
+    # Why the approver rejected the PO (from the approval record); only set
+    # when the PO is rejected.
+    rejection_reason: Optional[str] = None
     cancellation_reason: Optional[str] = None
     cancelled_date: Optional[datetime] = None
     cancelled_by: Optional[int] = None
@@ -362,11 +717,11 @@ class PurchasingOrderWithItems(PurchasingOrder):
 
 
 class PurchasingOrderCancelRequest(BaseModel):
-    reason: str = Field(..., min_length=1, max_length=500)
+    reason: ReqStr(500)
 
 
 class PurchasingOrderShortCloseRequest(BaseModel):
-    reason: str = Field(..., min_length=1, max_length=500)
+    reason: ReqStr(500)
 
 
 class PurchasingOrderBatchCreate(BaseModel):
@@ -389,14 +744,26 @@ class PurchasingOrderBatchResponse(BaseModel):
 
 
 class ProcurementQueueItemCreate(BaseModel):
-    quote_item_id: int
-    supplier_id: int
-    quantity: int = Field(..., gt=0)
-    unit_price: Decimal = Field(..., ge=0)
+    quote_item_id: int = Field(..., ge=1, le=INT4_MAX)
+    supplier_id: int = Field(..., ge=1, le=INT4_MAX)
+    quantity: int = Field(..., ge=1, le=1_000_000)
+    unit_price: Decimal = Field(..., gt=0, le=MAX_MONEY, allow_inf_nan=False)
+
+    @field_validator("unit_price")
+    @classmethod
+    def _two_decimals(cls, v):
+        return v.quantize(Decimal("0.01"))
 
 
 class ProcurementQueueItemBatchCreate(BaseModel):
-    items: List[ProcurementQueueItemCreate] = Field(..., min_length=1)
+    items: List[ProcurementQueueItemCreate] = Field(..., min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def _unique_items(self):
+        ids = [i.quote_item_id for i in self.items]
+        if len(ids) != len(set(ids)):
+            raise ValueError("The same quotation item appears more than once")
+        return self
 
 
 class ProcurementQueueItem(BaseModel):
@@ -510,6 +877,10 @@ class PurchaseOrderListFilter(BaseModel):
     # search box, so a filtered CSV export matches what's on screen.
     search: Optional[str] = None
     for_grn: bool = False  # When True, only return POs eligible for GRN creation (approved/partially_completed)
+    batch_id: Optional[str] = None  # POs created together in one multi-supplier purchase
+    requested_by: Optional[str] = None  # name / username of the person who created the PO
+    added_from: Optional[date] = None  # created-on range (added_date), inclusive
+    added_to: Optional[date] = None
     skip: int = 0
     limit: int = 100
 

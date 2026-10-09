@@ -1,16 +1,20 @@
-from typing import Any, Dict, List, Optional
+import time
+from typing import Annotated, Any, Dict, List, Optional
 
 from app.auth.dependencies import get_current_active_user
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission, user_has_permission
 from app.db.session import get_db
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from pydantic import BaseModel, BeforeValidator, Field, StringConstraints
 from sqlalchemy.orm import Session
 
 from . import schemas, service
 from .approval_service import ApprovalStatus, ApprovalType
 from .approval_service import approval_service as centralized_approval_service
+
+# Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
+RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
 
 router = APIRouter(
     prefix="/common", tags=["common"], dependencies=[Depends(get_current_active_user)]
@@ -346,49 +350,36 @@ def delete_location(location_id: int, db: Session = Depends(get_db)):
     location_service.delete(location_id)
 
 
-@router.get(
-    "/approvals/{approval_id}",
-    response_model=schemas.Approval,
-    dependencies=[Depends(require_permission(*Permissions.COMMON_VIEW))],
-)
-def get_approval(approval_id: int, db: Session = Depends(get_db)):
-
-    approval_service = service.ApprovalService(db)
-    return approval_service.get_by_id(approval_id)
-
-
-@router.post(
-    "/approvals",
-    response_model=schemas.Approval,
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.COMMON_CREATE))],
-)
-def create_approval(approval: schemas.ApprovalCreate, db: Session = Depends(get_db)):
-    approval_service = service.ApprovalService(db)
-    return approval_service.create(approval)
-
-
-@router.patch(
-    "/approvals/{approval_id}",
-    response_model=schemas.Approval,
-    dependencies=[Depends(require_permission(*Permissions.COMMON_UPDATE))],
-)
-def update_approval(
-    approval_id: int, approval: schemas.ApprovalUpdate, db: Session = Depends(get_db)
-):
-    approval_service = service.ApprovalService(db)
-    return approval_service.update(approval_id, approval)
-
-
-# ============================================================================
-# Centralized Approval System Endpoints
-# ============================================================================
+def _blank_to_none(v):
+    if isinstance(v, str):
+        v = v.strip()
+        return v or None
+    return v
 
 
 class ApprovalActionRequest(BaseModel):
-    remarks: Optional[str] = None
-    approver_username: Optional[str] = None
-    approver_password: Optional[str] = None
+    # A blank reason counts as no reason ("   " must not satisfy "reason required").
+    remarks: Annotated[Optional[Annotated[str, StringConstraints(max_length=500)]], BeforeValidator(_blank_to_none)] = None
+    approver_username: Annotated[Optional[Annotated[str, StringConstraints(max_length=50)]], BeforeValidator(_blank_to_none)] = None
+    approver_password: Optional[str] = Field(default=None, max_length=128)
+
+
+# Step-up credentials ("approve with another approver's login") are a password
+# oracle, so failed attempts per approver name are throttled: 5 in 5 minutes -> 429.
+_STEPUP_FAILS: Dict[str, list] = {}
+_STEPUP_MAX, _STEPUP_WINDOW = 5, 300
+
+
+def _stepup_check(username: str) -> None:
+    now = time.time()
+    fails = [t for t in _STEPUP_FAILS.get(username.lower(), []) if now - t < _STEPUP_WINDOW]
+    _STEPUP_FAILS[username.lower()] = fails
+    if len(fails) >= _STEPUP_MAX:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many failed approver sign-ins. Try again in a few minutes.")
+
+
+def _stepup_failed(username: str) -> None:
+    _STEPUP_FAILS.setdefault(username.lower(), []).append(time.time())
 
 
 class ApprovalStatisticsResponse(BaseModel):
@@ -420,11 +411,10 @@ def get_pending_approvals(
         try:
             type_filter = ApprovalType(approval_type)
         except ValueError:
-            pass
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unknown approval type")
 
-    return centralized_approval_service.get_pending_approvals(
-        db, type_filter, None, skip, limit
-    )
+    rows = centralized_approval_service.get_pending_approvals(db, type_filter, None, skip, limit)
+    return centralized_approval_service.filter_visible_approvals(db, rows, current_user)
 
 
 @router.get(
@@ -452,13 +442,52 @@ def get_approval_types(
     return [t.value for t in ApprovalType]
 
 
+@router.get(
+    "/approvals/{approval_id}",
+    response_model=schemas.Approval,
+    dependencies=[Depends(require_permission(*Permissions.COMMON_VIEW))],
+)
+def get_approval(approval_id: RowId, db: Session = Depends(get_db)):
+
+    approval_service = service.ApprovalService(db)
+    return approval_service.get_by_id(approval_id)
+
+
+@router.post(
+    "/approvals",
+    response_model=schemas.Approval,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.COMMON_CREATE))],
+)
+def create_approval(approval: schemas.ApprovalCreate, db: Session = Depends(get_db)):
+    approval_service = service.ApprovalService(db)
+    return approval_service.create(approval)
+
+
+@router.patch(
+    "/approvals/{approval_id}",
+    response_model=schemas.Approval,
+    dependencies=[Depends(require_permission(*Permissions.COMMON_UPDATE))],
+)
+def update_approval(
+    approval_id: RowId, approval: schemas.ApprovalUpdate, db: Session = Depends(get_db)
+):
+    approval_service = service.ApprovalService(db)
+    return approval_service.update(approval_id, approval)
+
+
+# ============================================================================
+# Centralized Approval System Endpoints
+# ============================================================================
+
+
 @router.post(
     "/approvals/{approval_id}/approve",
     response_model=schemas.Approval,
     summary="Approve Request",
 )
 def approve_request(
-    approval_id: int,
+    approval_id: RowId,
     request: ApprovalActionRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -470,11 +499,14 @@ def approve_request(
     from .models import Approvals
 
     # Custom step-up authentication for approver override
+    if bool(request.approver_username) != bool(request.approver_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Approver username and password must be given together")
     if request.approver_username and request.approver_password:
         from app.auth.service import AuthService
         from app.core.exceptions import AuthenticationError
         from app.auth import passcode_service
 
+        _stepup_check(request.approver_username)
         try:
             current_user = passcode_service.verify_passcode_login(
                 db, request.approver_username, request.approver_password, expiry_days=30
@@ -483,6 +515,7 @@ def approve_request(
             try:
                 current_user = AuthService().authenticate_user(db, request.approver_username, request.approver_password)
             except AuthenticationError:
+                _stepup_failed(request.approver_username)
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid approver credentials"
@@ -563,7 +596,7 @@ def approve_request(
     summary="Reject Request",
 )
 def reject_request(
-    approval_id: int,
+    approval_id: RowId,
     request: ApprovalActionRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -575,11 +608,14 @@ def reject_request(
     from .models import Approvals
 
     # Custom step-up authentication for approver override
+    if bool(request.approver_username) != bool(request.approver_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Approver username and password must be given together")
     if request.approver_username and request.approver_password:
         from app.auth.service import AuthService
         from app.core.exceptions import AuthenticationError
         from app.auth import passcode_service
 
+        _stepup_check(request.approver_username)
         try:
             current_user = passcode_service.verify_passcode_login(
                 db, request.approver_username, request.approver_password, expiry_days=30
@@ -588,6 +624,7 @@ def reject_request(
             try:
                 current_user = AuthService().authenticate_user(db, request.approver_username, request.approver_password)
             except AuthenticationError:
+                _stepup_failed(request.approver_username)
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid approver credentials"

@@ -54,7 +54,6 @@ import {
   showErrorToast,
   modernTableStyles,
   useCrudMutation,
-  useRowSelection,
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
@@ -76,7 +75,6 @@ export default function PurchaseReturnApprovalsPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedReturn, setSelectedReturn] = useState<PurchasingReturnWithItems | null>(null);
-  const rowSelection = useRowSelection();
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -364,9 +362,6 @@ export default function PurchaseReturnApprovalsPage() {
           emptyMessage="No returns found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>

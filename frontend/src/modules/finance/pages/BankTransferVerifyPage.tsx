@@ -546,7 +546,7 @@ export default function BankTransferVerifyPage() {
             <FormSection title="Customer Information" columns={2}>
               <TextField label="Customer Name" size="small" value={customer?.customer_name || selectedTransfer.customer_name || ""} disabled />
               <TextField label="Company" size="small" value={customer?.company_name || "N/A"} disabled />
-              <TextField label="Contact" size="small" value={customer?.mobile_contact_number || ""} disabled />
+              <TextField label="Contact No" size="small" value={customer?.mobile_contact_number || ""} disabled />
               <TextField label="Email" size="small" value={customer?.email || "N/A"} disabled />
               {customer?.payment_address && (
                 <TextField label="Payment Address" size="small" value={customer.payment_address} disabled />

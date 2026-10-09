@@ -8,6 +8,9 @@ import {
   TFormDialog,
   TEmptyState,
   useCrudMutation,
+  TPhoneField,
+  normalizePhone,
+  isValidPhone,
 } from "@/components/tijaero";
 import BusinessIcon from "@mui/icons-material/Business";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
@@ -513,7 +516,7 @@ export default function CompanySettingsPage() {
       reset({
         company_name: data.company_name || "",
         company_address: data.company_address || "",
-        company_telephone_number: data.company_telephone_number || "",
+        company_telephone_number: normalizePhone(data.company_telephone_number),
         company_email: data.company_email || "",
         tax_registration_number: data.tax_registration_number || "",
         depreciation_rate: data.depreciation_rate || 0,
@@ -621,6 +624,7 @@ export default function CompanySettingsPage() {
                       {...field}
                       required
                       label="Company Name"
+                      inputProps={{ maxLength: 255 }}
                       fullWidth
                       error={!!error}
                       helperText={error?.message}
@@ -634,7 +638,7 @@ export default function CompanySettingsPage() {
                   name="tax_registration_number"
                   control={control}
                   render={({ field }) => (
-                    <TextField {...field} label="Tax Registration Number" fullWidth />
+                    <TextField {...field} label="Tax Registration Number" fullWidth inputProps={{ maxLength: 50 }} />
                   )}
                 />
               </Grid>
@@ -643,8 +647,19 @@ export default function CompanySettingsPage() {
                 <Controller
                   name="company_address"
                   control={control}
-                  render={({ field }) => (
-                    <TextField {...field} label="Company Address" fullWidth multiline rows={2} />
+                  rules={{ required: "Company Address is required" }}
+                  render={({ field, fieldState: { error } }) => (
+                    <TextField
+                      {...field}
+                      required
+                      label="Company Address"
+                      fullWidth
+                      multiline
+                      rows={2}
+                      inputProps={{ maxLength: 1000 }}
+                      error={!!error}
+                      helperText={error?.message}
+                    />
                   )}
                 />
               </Grid>
@@ -660,8 +675,14 @@ export default function CompanySettingsPage() {
                 <Controller
                   name="company_telephone_number"
                   control={control}
-                  render={({ field }) => (
-                    <TextField {...field} label="Telephone" fullWidth />
+                  rules={{ validate: (v) => isValidPhone(v) || "Enter a valid contact number" }}
+                  render={({ field, fieldState: { error } }) => (
+                    <TPhoneField
+                      label="Contact No"
+                      value={field.value}
+                      onChange={field.onChange}
+                      helperText={error?.message}
+                    />
                   )}
                 />
               </Grid>
@@ -671,16 +692,20 @@ export default function CompanySettingsPage() {
                   name="company_email"
                   control={control}
                   rules={{
+                    required: "Company Email is required",
                     pattern: {
                       value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
                       message: "Invalid email address",
                     },
+                    maxLength: { value: 254, message: "Email is too long" },
                   }}
                   render={({ field, fieldState: { error } }) => (
                     <TextField
                       {...field}
+                      required
                       type="email"
                       label="Company Email"
+                      inputProps={{ maxLength: 254 }}
                       fullWidth
                       error={!!error}
                       helperText={error?.message}
@@ -996,6 +1021,7 @@ export default function CompanySettingsPage() {
                 onChange={(e) => setCurrencyFormData({ ...currencyFormData, name: e.target.value })}
                 required
                 fullWidth
+                inputProps={{ maxLength: 100 }}
                 placeholder="e.g., Sri Lankan Rupee"
               />
 
@@ -1005,6 +1031,7 @@ export default function CompanySettingsPage() {
                 onChange={(e) => setCurrencyFormData({ ...currencyFormData, symbol: e.target.value })}
                 required
                 fullWidth
+                inputProps={{ maxLength: 10 }}
                 placeholder="e.g., Rs., $, €"
               />
 

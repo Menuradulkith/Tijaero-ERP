@@ -130,7 +130,14 @@ def log_audit(
     changes: dict | None = None,
 ) -> None:
     """Record an audit log entry.  Uses flush (not commit) so the log
-    entry participates in the caller's transaction."""
+    entry participates in the caller's transaction.
+
+    The caller's own pending changes are flushed first, *outside* the try: a
+    problem there (e.g. a unique-constraint violation from a concurrent
+    request) belongs to the caller. Swallowing it here as an "audit failure"
+    used to leave the session in a failed state and turn a clean 400 into a 500.
+    """
+    db.flush()
     try:
         log = AuditLog(
             user_id=user_id,

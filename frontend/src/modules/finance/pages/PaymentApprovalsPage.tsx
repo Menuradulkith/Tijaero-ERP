@@ -605,7 +605,7 @@ export default function PaymentApprovalsPage() {
             {/* Supplier Information */}
             <FormSection title="Supplier Information" columns={2}>
               <TextField label="Company" size="small" value={supplier?.company_name || "N/A"} disabled />
-              <TextField label="Contact" size="small" value={supplier?.mobile_contact_number || ""} disabled />
+              <TextField label="Contact No" size="small" value={supplier?.mobile_contact_number || ""} disabled />
               <TextField label="Email" size="small" value={supplier?.email || "N/A"} disabled />
             </FormSection>
 

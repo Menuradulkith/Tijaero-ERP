@@ -1027,6 +1027,7 @@ class TestSaleReturnGLComposition:
             payment_method=refund_method,
             added_date=OPEN_DATE,
             branch_code=invoice.branch_code,
+            items=[],
         )
 
     def _lines_by_code(self, db, je):

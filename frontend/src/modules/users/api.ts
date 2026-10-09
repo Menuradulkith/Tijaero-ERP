@@ -119,11 +119,37 @@ export interface UserUpdate {
   group_ids?: number[];
 }
 
+export interface PagedUsers {
+  items: UserList[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+}
+
 export const usersApi = {
+  // One page of users (superusers are not listed); search, filters and sort run on the server
+  getPage: async (params: {
+    page: number;
+    size: number;
+    q?: string;
+    active?: boolean;
+    branch_id?: number;
+    group_id?: number;
+    sort_by?: string;
+    order?: "asc" | "desc";
+  }): Promise<PagedUsers> => {
+    const clean = Object.fromEntries(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")
+    );
+    const response = await apiClient.get<PagedUsers>("/users/paged", { params: clean });
+    return response.data;
+  },
+
   // Get all users
   getUsers: async (page = 1, size = 100000): Promise<UserList[]> => {
     const response = await apiClient.get(
-      `/users?skip=${(page - 1) * size}&limit=${size}`
+      `/users/?skip=${(page - 1) * size}&limit=${size}`
     );
     return response.data;
   },
@@ -172,7 +198,7 @@ export const usersApi = {
 
   // Create user
   createUser: async (user: UserCreate): Promise<User> => {
-    const response = await apiClient.post("/users", user);
+    const response = await apiClient.post("/users/", user);
     return response.data;
   },
 

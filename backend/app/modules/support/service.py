@@ -44,7 +44,7 @@ class CustomerSupportService:
         # Generate job number
         job_number = self._get_next_ticket_number(branch_code)
         # Create ticket with auto-generated job number
-        db_ticket = CustomerSupport(**ticket.model_dump(), job_number=job_number)
+        db_ticket = CustomerSupport(**ticket.model_dump(exclude={"job_number"}), job_number=job_number)
         self.db.add(db_ticket)
         self.db.commit()
         self.db.refresh(db_ticket)
@@ -88,7 +88,7 @@ class CustomerSupportService:
     
     def update_support_ticket(self, ticket_id: int, ticket: schemas.CustomerSupportCreate) -> CustomerSupport:
         db_ticket = self.get_support_ticket(ticket_id)
-        for key, value in ticket.model_dump().items():
+        for key, value in ticket.model_dump(exclude={"job_number"}).items():
             setattr(db_ticket, key, value)
         self.db.commit()
         self.db.refresh(db_ticket)

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Box, Typography, Tabs, Tab, Paper } from "@mui/material";
+import { usePermission } from "@/auth/permissions";
 import ProfileSettings from "../components/ProfileSettings";
 import PreferencesSettings from "../components/PreferencesSettings";
 import NotificationsSettings from "../components/NotificationsSettings";
@@ -30,6 +31,9 @@ function TabPanel(props: TabPanelProps) {
 
 export default function SettingsPage() {
   const [tabValue, setTabValue] = useState(0);
+  // Email templates and logs are company-wide: the API only serves them to
+  // users holding the settings permission, so the tabs are hidden otherwise.
+  const canSeeEmail = usePermission("settings", "view");
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
@@ -54,8 +58,8 @@ export default function SettingsPage() {
           <Tab label="Profile" />
           <Tab label="Preferences" />
           <Tab label="Notifications" />
-          <Tab label="Email Templates" />
-          <Tab label="Email Logs" />
+          {canSeeEmail && <Tab label="Email Templates" />}
+          {canSeeEmail && <Tab label="Email Logs" />}
         </Tabs>
 
         <TabPanel value={tabValue} index={0}>
@@ -67,12 +71,16 @@ export default function SettingsPage() {
         <TabPanel value={tabValue} index={2}>
           <NotificationsSettings />
         </TabPanel>
-        <TabPanel value={tabValue} index={3}>
-          <EmailTemplatesSettings />
-        </TabPanel>
-        <TabPanel value={tabValue} index={4}>
-          <EmailLogsSettings />
-        </TabPanel>
+        {canSeeEmail && (
+          <TabPanel value={tabValue} index={3}>
+            <EmailTemplatesSettings />
+          </TabPanel>
+        )}
+        {canSeeEmail && (
+          <TabPanel value={tabValue} index={4}>
+            <EmailLogsSettings />
+          </TabPanel>
+        )}
       </Paper>
     </Box>
   );

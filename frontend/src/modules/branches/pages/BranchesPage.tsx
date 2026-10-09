@@ -9,15 +9,12 @@
  * - FormSection for form sections
  * - EmptyState for empty states
  * - useMasterDetailState hook for state management
- * - Locations management section
+ * - Single location field per branch
  */
 
 import AddIcon from "@mui/icons-material/Add";
 import BusinessIcon from "@mui/icons-material/Business";
-import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
 import HistoryIcon from "@mui/icons-material/History";
-import LocationOnIcon from "@mui/icons-material/LocationOn";
 import SearchIcon from "@mui/icons-material/Search";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -26,26 +23,16 @@ import {
   Avatar,
   Box,
   Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
   FormControlLabel,
   IconButton,
   InputAdornment,
-  List,
-  ListItem,
-  ListItemSecondaryAction,
-  ListItemText,
-  Paper,
   Switch,
   TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState, useEffect } from "react";
+import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 
 // Tijaero Components - Import everything from one place
 import {
@@ -68,13 +55,16 @@ import {
     TDataGrid,
     SelectableListItem,
     type TDataGridColumn,
+    TPhoneField,
+    normalizePhone,
+    isValidPhone,
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { usePermission } from "@/auth/components/PermissionGuard";
 import { PERMISSIONS } from "@/auth/permissions";
 
 import type { Branch, BranchCreate } from "@/api/types";
-import { Location, LocationCreate, locationsApi } from "@/modules/common/api";
+import { locationsApi } from "@/modules/common/api";
 import { branchApi } from "../api";
 
 // Configuration - Define once, use everywhere
@@ -87,18 +77,29 @@ const BRANCH_STATUS_OPTIONS: TFilterStatusOption[] = [
 const INITIAL_FORM_DATA: BranchCreate = {
   branch_name: "",
   branch_code: "",
-  address: "",
+  address_line1: "",
+  address_line2: "",
+  city: "",
+  state: "",
+  postal_code: "",
   email: "",
   contact_number: "",
   active: true,
 };
 
+// Server-side column limits (backend Branch model / BranchCreate schema).
+const MAX_LEN = { code: 255, name: 255, email: 75, line: 255, city: 120, state: 120, postal: 20 } as const;
+
 const resetFormFromBranch = (branch: Branch): BranchCreate => ({
   branch_name: branch.branch_name,
   branch_code: branch.branch_code,
-  address: branch.address || "",
+  address_line1: branch.address_line1 || "",
+  address_line2: branch.address_line2 || "",
+  city: branch.city || "",
+  state: branch.state || "",
+  postal_code: branch.postal_code || "",
   email: branch.email || "",
-  contact_number: branch.contact_number || "",
+  contact_number: normalizePhone(branch.contact_number),
   active: branch.active,
 });
 
@@ -109,17 +110,8 @@ export default function BranchesPage() {
   // Permissions
   const canCreate = usePermission(PERMISSIONS.BRANCH_CREATE.resource, PERMISSIONS.BRANCH_CREATE.action);
   const canUpdate = usePermission(PERMISSIONS.BRANCH_UPDATE.resource, PERMISSIONS.BRANCH_UPDATE.action);
-  // Branches themselves can no longer be deleted, but locations within a
-  // branch still can be — reuses the same permission as before.
-  const canDeleteLocation = usePermission(PERMISSIONS.BRANCH_DELETE.resource, PERMISSIONS.BRANCH_DELETE.action);
-
-  // Location dialog state
-  const [locationDialogOpen, setLocationDialogOpen] = useState(false);
-  const [editingLocation, setEditingLocation] = useState<Location | null>(null);
+  // Each branch has exactly one location, edited as a plain form field.
   const [locationName, setLocationName] = useState("");
-
-  // Track locations for the current branch being created/edited
-  const [branchLocations, setBranchLocations] = useState<Location[]>([]);
 
   // Form validation errors
   const [branchCodeError, setBranchCodeError] = useState<string | null>(null);
@@ -176,7 +168,7 @@ export default function BranchesPage() {
   });
 
   // Locations data fetching - fetch locations for the selected branch
-  const { data: locations, isLoading: locationsLoading } = useQuery({
+  const { data: locations } = useQuery({
     queryKey: ["locations", selectedBranch?.branch_code],
     queryFn: () => selectedBranch ? locationsApi.getAll(selectedBranch.branch_code) : Promise.resolve([]),
     enabled: !!selectedBranch && !isCreating, // Only fetch for existing branches
@@ -204,34 +196,24 @@ export default function BranchesPage() {
     return filtered;
   }, [data?.items, searchQuery, filterStatus]);
 
-  // Clear branch locations when starting to create a new branch
+  // The branch's single location, shown in the form. Reset whenever the
+  // selection changes or an edit is cancelled.
+  const savedLocation = locations?.[0];
   useEffect(() => {
-    if (isCreating) {
-      setBranchLocations([]);
-    } else if (selectedBranch && locations) {
-      // When selecting an existing branch, load its specific locations
-      setBranchLocations(locations);
-    }
-  }, [isCreating, selectedBranch, locations]);
+    setLocationName(isCreating ? "" : savedLocation?.name ?? "");
+  }, [isCreating, isEditing, selectedBranch?.id, savedLocation?.name]);
 
   // Mutations
   const createMutation = useMutation({
     mutationFn: branchApi.create,
     onSuccess: async (newBranch) => {
       
-      // Create locations after branch is created
-      if (branchLocations.length > 0) {
-        const locationPromises = branchLocations.map(loc => 
-          locationsApi.create({ name: loc.name, branch_code: newBranch.branch_code })
-        );
-        
-        try {
-          await Promise.all(locationPromises);
-        } catch (error) {
-          showErrorToast("Branch created but some locations failed to save");
-        }
+      try {
+        await locationsApi.create({ name: locationName.trim(), branch_code: newBranch.branch_code });
+      } catch (error) {
+        showErrorToast("Branch created but its location failed to save");
       }
-      
+
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       queryClient.invalidateQueries({ queryKey: ["locations", newBranch.branch_code] });
       showSuccessToast("Branch created successfully");
@@ -239,7 +221,6 @@ export default function BranchesPage() {
       // Reset state first to avoid "unsaved changes" prompt
       setIsCreating(false);
       setIsEditing(false);
-      setBranchLocations([]);
       // Then select the new branch (with slight delay to allow state update)
       setTimeout(() => handleSelectBranch(newBranch), 0);
     },
@@ -251,7 +232,18 @@ export default function BranchesPage() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: BranchCreate }) =>
       branchApi.update(id, data),
-    onSuccess: (updatedBranch) => {
+    onSuccess: async (updatedBranch) => {
+      const name = locationName.trim();
+      try {
+        if (savedLocation && savedLocation.name !== name) {
+          await locationsApi.update(savedLocation.id, { name, branch_code: savedLocation.branch_code });
+        } else if (!savedLocation) {
+          await locationsApi.create({ name, branch_code: updatedBranch.branch_code });
+        }
+        queryClient.invalidateQueries({ queryKey: ["locations", updatedBranch.branch_code] });
+      } catch (error) {
+        showErrorToast("Branch updated but its location failed to save");
+      }
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       showSuccessToast("Branch updated successfully");
       markAsSaved();
@@ -263,84 +255,26 @@ export default function BranchesPage() {
     },
   });
 
-  // Location mutations
-  const createLocationMutation = useMutation({
-    mutationFn: locationsApi.create,
-    onSuccess: (newLocation) => {
-      // Invalidate queries for the specific branch
-      const branch_code = isCreating ? formData.branch_code : selectedBranch?.branch_code;
-      if (branch_code) {
-        queryClient.invalidateQueries({ queryKey: ["locations", branch_code] });
-      }
-      // If creating a new branch, add location to local state
-      if (isCreating) {
-        setBranchLocations(prev => [...prev, newLocation]);
-      }
-      showSuccessToast("Location created successfully");
-      handleCloseLocationDialog();
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to create location"));
-    },
-  });
-
-  const updateLocationMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: LocationCreate }) =>
-      locationsApi.update(id, data),
-    onSuccess: (updatedLocation) => {
-      // Invalidate queries for the specific branch
-      const branch_code = isCreating ? formData.branch_code : selectedBranch?.branch_code;
-      if (branch_code) {
-        queryClient.invalidateQueries({ queryKey: ["locations", branch_code] });
-      }
-      // If creating a new branch, update location in local state
-      if (isCreating) {
-        setBranchLocations(prev => 
-          prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc)
-        );
-      }
-      showSuccessToast("Location updated successfully");
-      handleCloseLocationDialog();
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to update location"));
-    },
-  });
-
-  const deleteLocationMutation = useMutation({
-    mutationFn: locationsApi.delete,
-    onSuccess: (_, deletedId) => {
-      // Invalidate queries for the specific branch
-      const branch_code = isCreating ? formData.branch_code : selectedBranch?.branch_code;
-      if (branch_code) {
-        queryClient.invalidateQueries({ queryKey: ["locations", branch_code] });
-      }
-      // If creating a new branch, remove location from local state
-      if (isCreating) {
-        setBranchLocations(prev => prev.filter(loc => loc.id !== deletedId));
-      }
-      showSuccessToast("Location deleted successfully");
-    },
-    onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to delete location"));
-    },
-  });
-
   // Handlers
-  const handleSave = useCallback(async () => {
+  const saveBranch = useCallback(async () => {
     setBranchCodeError(null);
     setBranchNameError(null);
     setBranchEmailError(null);
 
-    if (branchLocations.length === 0) {
-      showErrorToast("At least one location is required");
+    if (!formData.address_line1?.trim() || !formData.city?.trim()) {
+      showErrorToast("Address Line 1 and City are required");
+      return;
+    }
+
+    if (!locationName.trim()) {
+      showErrorToast("Location is required");
       return;
     }
 
     const excludeId = isCreating ? undefined : selectedBranch?.id;
 
-    if (formData.branch_code) {
-      const codeExists = await branchApi.checkCodeExists(formData.branch_code, excludeId);
+    if (formData.branch_code.trim()) {
+      const codeExists = await branchApi.checkCodeExists(formData.branch_code.trim(), excludeId);
       if (codeExists) {
         setBranchCodeError("Branch code already exists");
         showErrorToast("Branch code already exists");
@@ -348,8 +282,8 @@ export default function BranchesPage() {
       }
     }
 
-    if (formData.branch_name) {
-      const nameExists = await branchApi.checkNameExists(formData.branch_name, excludeId);
+    if (formData.branch_name.trim()) {
+      const nameExists = await branchApi.checkNameExists(formData.branch_name.trim(), excludeId);
       if (nameExists) {
         setBranchNameError("Branch name already exists");
         showErrorToast("Branch name already exists");
@@ -357,8 +291,8 @@ export default function BranchesPage() {
       }
     }
 
-    if (formData.email) {
-      const emailExists = await branchApi.checkEmailExists(formData.email, excludeId);
+    if (formData.email?.trim()) {
+      const emailExists = await branchApi.checkEmailExists(formData.email.trim(), excludeId);
       if (emailExists) {
         setBranchEmailError("Email already exists");
         showErrorToast("Email already exists");
@@ -366,12 +300,32 @@ export default function BranchesPage() {
       }
     }
 
+    // Awaited (errors are already toasted by the mutations' onError) so the
+    // in-flight guard in handleSave covers the whole save, not just the checks.
     if (isCreating) {
-      createMutation.mutate(formData);
+      await createMutation.mutateAsync(formData).catch(() => undefined);
     } else if (selectedBranch) {
-      updateMutation.mutate({ id: selectedBranch.id, data: formData });
+      await updateMutation.mutateAsync({ id: selectedBranch.id, data: formData }).catch(() => undefined);
     }
-  }, [isCreating, isEditing, selectedBranch, formData, branchLocations, createMutation, updateMutation]);
+  }, [isCreating, isEditing, selectedBranch, formData, locationName, createMutation, updateMutation]);
+
+  // A double-click (or Enter + click) used to start two saves: both passed the
+  // duplicate checks before either had created the branch, so the first
+  // succeeded and the second showed "Branch code already exists". Ignore a save
+  // while one is running.
+  const saveInFlight = useRef(false);
+  const [checking, setChecking] = useState(false);
+  const handleSave = useCallback(async () => {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
+    setChecking(true);
+    try {
+      await saveBranch();
+    } finally {
+      saveInFlight.current = false;
+      setChecking(false);
+    }
+  }, [saveBranch]);
 
   const handleDuplicate = useCallback(() => {
     if (selectedBranch) {
@@ -385,92 +339,8 @@ export default function BranchesPage() {
     }
   }, [selectedBranch, formData, setFormData, handleNewBranch]);
 
-  // Location handlers
-  const handleOpenLocationDialog = useCallback((location?: Location) => {
-    if (location) {
-      setEditingLocation(location);
-      setLocationName(location.name);
-    } else {
-      setEditingLocation(null);
-      setLocationName("");
-    }
-    setLocationDialogOpen(true);
-  }, []);
-
-  const handleCloseLocationDialog = useCallback(() => {
-    setLocationDialogOpen(false);
-    setEditingLocation(null);
-    setLocationName("");
-  }, []);
-
-  const handleSaveLocation = useCallback(() => {
-    if (!locationName.trim()) {
-      showErrorToast("Location name is required");
-      return;
-    }
-    
-    // Get branch_code from formData (for new branch) or selectedBranch (for existing)
-    const branch_code = isCreating ? formData.branch_code : selectedBranch?.branch_code;
-    
-    if (!branch_code) {
-      showErrorToast("Please enter branch code first");
-      return;
-    }
-    
-    // When creating a new branch, store locations locally (don't create via API yet)
-    if (isCreating) {
-      if (editingLocation) {
-        // Update local location
-        setBranchLocations(prev => 
-          prev.map(loc => loc.id === editingLocation.id ? { ...loc, name: locationName } : loc)
-        );
-        showSuccessToast("Location updated");
-      } else {
-        // Add new local location with temporary ID
-        const tempLocation: Location = {
-          id: Date.now(), // Temporary ID
-          name: locationName,
-          branch_code,
-          created_date: new Date().toISOString(),
-        };
-        setBranchLocations(prev => [...prev, tempLocation]);
-        showSuccessToast("Location added (will be saved with branch)");
-      }
-      handleCloseLocationDialog();
-    } else {
-      // For existing branches, create/update via API immediately
-      if (editingLocation) {
-        updateLocationMutation.mutate({ 
-          id: editingLocation.id, 
-          data: { name: locationName, branch_code } 
-        });
-      } else {
-        createLocationMutation.mutate({ name: locationName, branch_code });
-      }
-    }
-  }, [locationName, editingLocation, createLocationMutation, updateLocationMutation, isCreating, formData.branch_code, selectedBranch, handleCloseLocationDialog]);
-
-  const handleDeleteLocation = useCallback(async (location: Location) => {
-    const confirmed = await confirmDialog.confirm({
-      title: "Delete Location",
-      message: `Are you sure you want to delete location "${location.name}"?`,
-      confirmText: "Delete",
-      confirmColor: "error",
-    });
-    if (confirmed) {
-      if (isCreating) {
-        // For new branches, remove from local state
-        setBranchLocations(prev => prev.filter(loc => loc.id !== location.id));
-        showSuccessToast("Location removed");
-      } else {
-        // For existing branches, delete via API
-        deleteLocationMutation.mutate(location.id);
-      }
-    }
-  }, [confirmDialog, deleteLocationMutation, isCreating]);
-
-  const isFormValid = formData.branch_code && formData.branch_name && branchLocations.length > 0;
-  const isSaving = createMutation.isPending || updateMutation.isPending;
+  const isFormValid = formData.branch_code.trim() && formData.branch_name.trim() && formData.address_line1?.trim() && formData.city?.trim() && locationName.trim() && isValidPhone(formData.contact_number);
+  const isSaving = checking || createMutation.isPending || updateMutation.isPending;
 
   // Cancelling out of "New Branch" should return to the browse table, not
   // auto-open the first branch the way useMasterDetailState's generic
@@ -510,7 +380,7 @@ export default function BranchesPage() {
       { field: "branch_code", header: "Branch Code", width: 140 },
       { field: "branch_name", header: "Name", flex: 1, minWidth: 200 },
       { field: "address", header: "Address", flex: 1, minWidth: 200 },
-      { field: "contact_number", header: "Phone", width: 150 },
+      { field: "contact_number", header: "Contact No", width: 150 },
       {
         field: "active",
         header: "Status",
@@ -629,7 +499,7 @@ export default function BranchesPage() {
               }}
               disabled={!isCreating}
               required
-              inputProps={{ style: { textTransform: "uppercase" } }}
+              inputProps={{ style: { textTransform: "uppercase" }, maxLength: MAX_LEN.code }}
               error={!!branchCodeError}
               helperText={branchCodeError}
             />
@@ -643,6 +513,7 @@ export default function BranchesPage() {
               }}
               disabled={!isCreating}
               required
+              inputProps={{ maxLength: MAX_LEN.name }}
               error={!!branchNameError}
               helperText={branchNameError}
             />
@@ -656,14 +527,14 @@ export default function BranchesPage() {
                 setBranchEmailError(null);
               }}
               disabled={!isEditing && !isCreating}
+              inputProps={{ maxLength: MAX_LEN.email }}
               error={!!branchEmailError}
               helperText={branchEmailError}
             />
-            <TextField
-              label="Contact Number"
-              size="small"
+            <TPhoneField
+              label="Contact No"
               value={formData.contact_number}
-              onChange={(e) => setFormData({ ...formData, contact_number: e.target.value })}
+              onChange={(v) => setFormData({ ...formData, contact_number: v })}
               disabled={!isEditing && !isCreating}
             />
             <Box sx={{ display: "flex", alignItems: "center" }}>
@@ -683,96 +554,65 @@ export default function BranchesPage() {
                 }
               />
             </Box>
-            <TextField
-              label="Address"
-              size="small"
-              value={formData.address}
-              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-              disabled={!isEditing && !isCreating}
-              multiline
-              rows={2}
-              sx={{ gridColumn: { sm: "1 / -1" } }}
-            />
           </FormSection>
         )}
 
-        {/* Locations Section - Show for both creating and editing, hide when nothing selected */}
-        {(selectedBranch || isCreating) && (
-          <>
-            <Divider sx={{ my: 3 }} />
-            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <LocationOnIcon color="primary" />
-                <Typography variant="h6">
-                  Warehouse Locations <Typography component="span" color="error.main">*</Typography>
-                </Typography>
-              </Box>
-              {(isEditing || isCreating) && (isCreating ? canCreate : canUpdate) && (
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={() => handleOpenLocationDialog()}
-                  disabled={isCreating && !formData.branch_code}
-                  title={isCreating && !formData.branch_code ? "Enter branch code first" : ""}
-                >
-                  Add Location
-                </Button>
-              )}
-            </Box>
-            <Paper variant="outlined">
-              {locationsLoading ? (
-                <Box sx={{ p: 2, textAlign: "center" }}>
-                  <Typography color="text.secondary">Loading locations...</Typography>
-                </Box>
-              ) : !branchLocations || branchLocations.length === 0 ? (
-                <Box sx={{ p: 2, textAlign: "center" }}>
-                  <Typography color={isEditing || isCreating ? "error.main" : "text.secondary"}>
-                    {isCreating || isEditing
-                      ? "At least one location is required. Click 'Add Location' to create one."
-                      : "No locations defined yet"}
-                  </Typography>
-                </Box>
-              ) : (
-                <List dense disablePadding>
-                  {branchLocations.map((location, index) => (
-                    <ListItem
-                      key={location.id}
-                      divider={index < branchLocations.length - 1}
-                      sx={{ py: 1 }}
-                    >
-                      <ListItemText
-                        primary={location.name}
-                        secondary={`Created: ${new Date(location.created_date).toLocaleDateString()}`}
-                      />
-                      {(isEditing || isCreating) && (canUpdate || canDeleteLocation) && (
-                        <ListItemSecondaryAction>
-                          {(isCreating ? canCreate : canUpdate) && (
-                            <IconButton
-                              size="small"
-                              onClick={() => handleOpenLocationDialog(location)}
-                              sx={{ mr: 0.5 }}
-                            >
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          )}
-                          {(isCreating ? canCreate : canDeleteLocation) && (
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleDeleteLocation(location)}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          )}
-                        </ListItemSecondaryAction>
-                      )}
-                    </ListItem>
-                  ))}
-                </List>
-              )}
-            </Paper>
-          </>
+        {/* Address — same structured layout as the Supplier page (line 1/2, city, state, postal code) */}
+        {(selectedBranch || isCreating) && !(isLoading && !isCreating) && (
+          <FormSection title="Address" columns={2}>
+            <TextField
+              label="Address Line 1"
+              size="small"
+              required
+              value={formData.address_line1}
+              onChange={(e) => setFormData({ ...formData, address_line1: e.target.value })}
+              disabled={!isEditing && !isCreating}
+              inputProps={{ maxLength: MAX_LEN.line }}
+            />
+            <TextField
+              label="Address Line 2"
+              size="small"
+              value={formData.address_line2}
+              onChange={(e) => setFormData({ ...formData, address_line2: e.target.value })}
+              disabled={!isEditing && !isCreating}
+              inputProps={{ maxLength: MAX_LEN.line }}
+            />
+            <TextField
+              label="City"
+              size="small"
+              required
+              value={formData.city}
+              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+              disabled={!isEditing && !isCreating}
+              inputProps={{ maxLength: MAX_LEN.city }}
+            />
+            <TextField
+              label="State / Province"
+              size="small"
+              value={formData.state}
+              onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+              disabled={!isEditing && !isCreating}
+              inputProps={{ maxLength: MAX_LEN.state }}
+            />
+            <TextField
+              label="Postal Code"
+              size="small"
+              value={formData.postal_code}
+              onChange={(e) => setFormData({ ...formData, postal_code: e.target.value })}
+              disabled={!isEditing && !isCreating}
+              inputProps={{ maxLength: MAX_LEN.postal }}
+            />
+            <TextField
+              label="Location"
+              size="small"
+              required
+              value={locationName}
+              onChange={(e) => setLocationName(e.target.value)}
+              disabled={!isEditing && !isCreating}
+              placeholder="e.g., Main Warehouse"
+              inputProps={{ maxLength: 255 }}
+            />
+          </FormSection>
         )}
 
         {/* Activity History (view mode only) */}
@@ -879,38 +719,6 @@ export default function BranchesPage() {
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
       
-      {/* Location Dialog */}
-      <Dialog 
-        open={locationDialogOpen} 
-        onClose={handleCloseLocationDialog}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>
-          {editingLocation ? "Edit Location" : "Add New Location"}
-        </DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Location Name"
-            fullWidth
-            value={locationName}
-            onChange={(e) => setLocationName(e.target.value)}
-            placeholder="e.g., Main Warehouse, Store Room A"
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseLocationDialog}>Cancel</Button>
-          <Button 
-            onClick={handleSaveLocation} 
-            variant="contained"
-            disabled={!locationName.trim() || createLocationMutation.isPending || updateLocationMutation.isPending}
-          >
-            {editingLocation ? "Update" : "Create"}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       <TActivityHistoryPanel
         open={activityHistoryOpen}

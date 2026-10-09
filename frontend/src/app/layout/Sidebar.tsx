@@ -186,31 +186,7 @@ const menuItems: MenuItem[] = [
             path: "/purchasing/approvals/po-approvals",
             permission: PERMISSIONS.PO_APPROVALS_VIEW,
           },
-          {
-            text: "Return Approvals",
-            icon: <FactCheckIcon />,
-            path: "/purchasing/approvals/return-approvals",
-            permission: PERMISSIONS.PURCHASE_RETURN_APPROVALS_VIEW,
-          },
         ],
-      },
-      {
-        text: "Good Received Notes",
-        icon: <LocalShippingOutlinedIcon />,
-        path: "/purchasing/grn",
-        permission: PERMISSIONS.GRN_VIEW,
-      },
-      {
-        text: "Supplier Voucher Payment",
-        icon: <ReceiptLongIcon />,
-        path: "/purchasing/invoices",
-        permission: PERMISSIONS.PURCHASE_ORDERS_VIEW,
-      },
-      {
-        text: "Purchase Returns",
-        icon: <AssignmentReturnIcon />,
-        path: "/purchasing/returns",
-        permission: PERMISSIONS.PURCHASE_RETURNS_VIEW,
       },
     ],
   },
@@ -504,7 +480,7 @@ const menuItems: MenuItem[] = [
     ],
   },
   {
-    text: "Sales Stock",
+    text: "Warehouse",
     icon: <WarehouseIcon />,
     path: "/warehouse",
     permission: PERMISSIONS.SALES_STOCK_VIEW,
@@ -523,16 +499,47 @@ const menuItems: MenuItem[] = [
         permission: PERMISSIONS.ITN_VIEW,
       },
       {
-        text: "ITN Approvals",
+        text: "Approvals",
         icon: <FactCheckIcon />,
-        path: "/warehouse/itn-approvals",
-        permission: PERMISSIONS.ITN_APPROVALS_VIEW,
+        path: "/warehouse/approvals",
+        subItems: [
+          {
+            text: "ITN Approvals",
+            icon: <FactCheckIcon />,
+            path: "/warehouse/itn-approvals",
+            permission: PERMISSIONS.ITN_APPROVALS_VIEW,
+          },
+          {
+            text: "Purchase Return Approvals",
+            icon: <FactCheckIcon />,
+            path: "/purchasing/approvals/return-approvals",
+            permission: PERMISSIONS.PURCHASE_RETURN_APPROVALS_VIEW,
+          },
+        ],
       },
       {
         text: "Receive Notes",
         icon: <InventoryIcon />,
         path: "/warehouse/receive-notes",
         permission: PERMISSIONS.RECEIVE_NOTES_VIEW,
+      },
+      {
+        text: "Good Received Notes",
+        icon: <LocalShippingOutlinedIcon />,
+        path: "/purchasing/grn",
+        permission: PERMISSIONS.GRN_VIEW,
+      },
+      {
+        text: "Supplier Voucher Payment",
+        icon: <ReceiptLongIcon />,
+        path: "/purchasing/invoices",
+        permission: PERMISSIONS.PURCHASE_ORDERS_VIEW,
+      },
+      {
+        text: "Purchase Returns",
+        icon: <AssignmentReturnIcon />,
+        path: "/purchasing/returns",
+        permission: PERMISSIONS.PURCHASE_RETURNS_VIEW,
       },
     ],
   },
@@ -687,6 +694,17 @@ export default function Sidebar({
     }
   };
 
+  // Leaf menu entries render as real links so the browser's own "Open in new
+  // tab" (middle-click, Ctrl/Cmd-click, right-click) works. A plain left click
+  // is still handled in-app (unsaved-changes guard, no page reload).
+  const linkProps = (path: string, hasChildren?: boolean) =>
+    hasChildren ? {} : ({ component: "a", href: path } as const);
+  const onLinkClick = (e: React.MouseEvent, action: () => void) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    action();
+  };
+
   // Helper: check if user has a given permission (undefined = always accessible)
   const canView = (perm?: { resource: string; action: string }) =>
     !perm || hasPermission(user, perm.resource, perm.action);
@@ -765,7 +783,8 @@ export default function Sidebar({
               <Box key={item.text}>
                 <ListItem disablePadding>
                   <ListItemButton
-                    onClick={() => handleMenuClick(item)}
+                    {...linkProps(item.path, !!item.subItems?.length)}
+                    onClick={(e) => onLinkClick(e, () => handleMenuClick(item))}
                     selected={isActive || (isParentActive && !isExpanded)}
                     sx={{
                       py: 0.75,
@@ -828,7 +847,8 @@ export default function Sidebar({
                           <Box key={subItem.path}>
                             <ListItem disablePadding>
                               <ListItemButton
-                                onClick={() => handleSubMenuClick(subItem)}
+                                {...linkProps(subItem.path, !!subItem.subItems?.length)}
+                                onClick={(e) => onLinkClick(e, () => handleSubMenuClick(subItem))}
                                 selected={
                                   isSubActive ||
                                   (isNestedParentActive && !isNestedExpanded)
@@ -899,8 +919,9 @@ export default function Sidebar({
                                         disablePadding
                                       >
                                         <ListItemButton
-                                          onClick={() =>
-                                            handleNavigation(nestedItem.path)
+                                          {...linkProps(nestedItem.path)}
+                                          onClick={(e) =>
+                                            onLinkClick(e, () => handleNavigation(nestedItem.path))
                                           }
                                           selected={isNestedActive}
                                           sx={{
@@ -965,7 +986,8 @@ export default function Sidebar({
           return (
             <ListItem key={item.text} disablePadding>
               <ListItemButton
-                onClick={() => handleNavigation(item.path)}
+                {...linkProps(item.path)}
+                onClick={(e) => onLinkClick(e, () => handleNavigation(item.path))}
                 selected={isActive}
               >
                 <ListItemIcon>{item.icon}</ListItemIcon>

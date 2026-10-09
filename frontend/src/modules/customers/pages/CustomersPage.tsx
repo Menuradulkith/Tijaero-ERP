@@ -45,6 +45,9 @@ import {
     TDataGrid,
     SelectableListItem,
     type TDataGridColumn,
+  TPhoneField,
+  normalizePhone,
+  isValidPhone,
 } from "@/components/tijaero";
 import { formatDateTimeReadable, formatCurrency } from "@/utils/formatters";
 
@@ -81,7 +84,7 @@ const resetFormFromCustomer = (customer: Customer): CustomerCreate => ({
   title: customer.title,
   email: customer.email || "",
   mobile_contact_number: customer.mobile_contact_number,
-  home_contact_number: customer.home_contact_number || "",
+  home_contact_number: normalizePhone(customer.home_contact_number),
   company_name: customer.company_name || "",
   occupation: customer.occupation || "",
   gender: customer.gender,
@@ -208,7 +211,11 @@ export default function CustomersPage() {
     }
   }, [selectedCustomer, formData, setFormData, handleNewCustomer]);
 
-  const isFormValid = formData.customer_name && formData.mobile_contact_number;
+  const isFormValid =
+    formData.customer_name &&
+    formData.mobile_contact_number &&
+    isValidPhone(formData.mobile_contact_number) &&
+    isValidPhone(formData.home_contact_number);
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
 
@@ -270,7 +277,7 @@ export default function CustomersPage() {
             <TChip label="Customer" size="small" variant="outlined" />
           ),
       },
-      { field: "mobile_contact_number", header: "Contact", width: 150 },
+      { field: "mobile_contact_number", header: "Contact No", width: 150 },
       { field: "company_name", header: "Company", flex: 1, minWidth: 150 },
       {
         field: "active",
@@ -403,19 +410,17 @@ export default function CustomersPage() {
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 disabled={isDisabled}
               />
-              <TextField
-                label="Mobile Contact"
-                size="small"
+              <TPhoneField
+                label="Contact No 1"
                 value={formData.mobile_contact_number}
-                onChange={(e) => setFormData({ ...formData, mobile_contact_number: e.target.value })}
+                onChange={(v) => setFormData({ ...formData, mobile_contact_number: v })}
                 disabled={isDisabled}
                 required
               />
-              <TextField
-                label="Home Contact"
-                size="small"
+              <TPhoneField
+                label="Contact No 2"
                 value={formData.home_contact_number}
-                onChange={(e) => setFormData({ ...formData, home_contact_number: e.target.value })}
+                onChange={(v) => setFormData({ ...formData, home_contact_number: v })}
                 disabled={isDisabled}
               />
               <TextField

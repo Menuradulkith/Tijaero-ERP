@@ -160,7 +160,7 @@ const allPages = [
     module: "/hr",
   },
   {
-    text: "Sales Stock",
+    text: "Warehouse",
     path: "/warehouse",
     keywords: ["warehouse", "storage", "logistics", "sales stock"],
     module: "/warehouse",

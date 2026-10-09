@@ -65,6 +65,7 @@ import {
   TDataGrid,
   type TDataGridColumn,
   TRemarkField,
+  continueOrReveal,
 } from "@/components/tijaero";
 
 
@@ -657,8 +658,7 @@ export default function ItemTransferNotesPage() {
             <Button
               size="small"
               variant="contained"
-              onClick={handleNextStep}
-              disabled={!isStep1Valid}
+              onClick={() => continueOrReveal(!!isStep1Valid, handleNextStep)}
               endIcon={<ArrowForwardIcon />}
             >
               Next: Select Items

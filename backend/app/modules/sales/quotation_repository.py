@@ -83,6 +83,8 @@ class SalesQuoteRepository:
 
         if filters.branch_code:
             query = query.filter(SalesQuote.branch_code == filters.branch_code)
+        elif filters.branch_codes is not None:
+            query = query.filter(SalesQuote.branch_code.in_(filters.branch_codes))
 
         if filters.date_from:
             query = query.filter(SalesQuote.created_date >= filters.date_from)
@@ -97,12 +99,17 @@ class SalesQuoteRepository:
             else:
                 query = query.filter(SalesQuote.valid_until >= today)
 
-        if filters.search:
-            search_term = f"%{filters.search}%"
+        term = (filters.search or "").strip()
+        if term:
+            from app.modules.customers.models import Customer
+            pat = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             query = query.filter(
                 or_(
-                    SalesQuote.quote_no.ilike(search_term),
-                    SalesQuote.remarks.ilike(search_term),
+                    SalesQuote.quote_no.ilike(pat, escape="\\"),
+                    SalesQuote.remarks.ilike(pat, escape="\\"),
+                    SalesQuote.customer_id.in_(
+                        db.query(Customer.id).filter(Customer.customer_name.ilike(pat, escape="\\"))
+                    ),
                 )
             )
 
@@ -110,9 +117,21 @@ class SalesQuoteRepository:
         from app.common.pagination import fast_count
         total = fast_count(query)
 
-        # Apply pagination
+        # Sort: whitelisted columns, id as the tie-breaker so pages never repeat or skip rows
+        from sqlalchemy import func
+        sorts = {
+            "quote_no": SalesQuote.quote_no, "created_date": SalesQuote.created_date_time, "valid_until": SalesQuote.valid_until,
+            "status": SalesQuote.status, "total_amount": SalesQuote.total_amount, "branch_code": SalesQuote.branch_code,
+        }
+        if filters.sort_by == "customer_name":
+            from app.modules.customers.models import Customer as _C
+            query = query.outerjoin(_C, SalesQuote.customer_id == _C.id)
+            col = func.lower(_C.customer_name)
+        else:
+            col = sorts.get(filters.sort_by or "created_date", SalesQuote.created_date_time)
+        col = col.asc() if filters.order == "asc" else col.desc()
         quotes = (
-            query.order_by(SalesQuote.created_date_time.desc())
+            query.order_by(col, SalesQuote.id.desc())
             .offset(skip)
             .limit(limit)
             .all()

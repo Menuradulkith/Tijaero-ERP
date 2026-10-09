@@ -13,6 +13,7 @@ Usage:
 """
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 
@@ -28,22 +29,48 @@ ALLOWED_IMAGE_CONTENT_TYPES = {
 }
 
 
+# The declared Content-Type is client-controlled, so also check the file's own
+# magic bytes: a script/HTML/PHP payload cannot be stored under an image type.
+_SVG_FORBIDDEN = re.compile(
+    rb"<\s*script|<\s*foreignObject|<\s*iframe|<\s*embed|<\s*object|<!ENTITY|"
+    rb"\son[a-z]+\s*=|javascript\s*:|data\s*:\s*text/html|(?:xlink:)?href\s*=\s*[\"']\s*https?:",
+    re.IGNORECASE,
+)
+
+
+def _matches_signature(content_type: str, data: bytes) -> bool:
+    if content_type == "image/png":
+        return data.startswith(b"\x89PNG\r\n\x1a\n")
+    if content_type == "image/jpeg":
+        return data.startswith(b"\xff\xd8\xff")
+    if content_type == "image/webp":
+        return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    if content_type == "image/svg+xml":
+        head = data[:2048].lstrip(b"\xef\xbb\xbf \t\r\n").lower()
+        return (head.startswith(b"<svg") or head.startswith(b"<?xml") or head.startswith(b"<!--") or head.startswith(b"<!doctype svg")) \
+            and b"<svg" in data[:4096].lower() and not _SVG_FORBIDDEN.search(data)
+    return False
+
+
 def _upload_root() -> Path:
     root = Path(settings.UPLOAD_DIR)
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
-def save_image(file: UploadFile, subdir: str) -> str:
+def save_image(file: UploadFile, subdir: str, allow_svg: bool = True) -> str:
     """Validate and save an uploaded image; returns its path relative to
     the upload root (e.g. "suppliers/3f9c2a1e.png"), suitable for storing
     on a model column and for building a public URL as f"/uploads/{path}".
     """
     extension = ALLOWED_IMAGE_CONTENT_TYPES.get(file.content_type)
+    if file.content_type == "image/svg+xml" and not allow_svg:
+        extension = None
     if not extension:
+        allowed = "PNG, JPEG, WEBP, SVG" if allow_svg else "PNG, JPEG, WEBP"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported image type '{file.content_type}'. Allowed: PNG, JPEG, WEBP, SVG.",
+            detail=f"Unsupported image type '{file.content_type}'. Allowed: {allowed}.",
         )
 
     contents = file.file.read()
@@ -54,6 +81,11 @@ def save_image(file: UploadFile, subdir: str) -> str:
         )
     if not contents:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty.")
+    if not _matches_signature(file.content_type, contents):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The file content does not match its declared image type (or contains active content).",
+        )
 
     dest_dir = _upload_root() / subdir
     dest_dir.mkdir(parents=True, exist_ok=True)

@@ -216,7 +216,9 @@ class SalesQuoteService:
             discount_percentage=quote_data.discount_value or 0,
             tax_mode=quote_data.tax_mode or 'none',
             tax_rate=quote_data.tax_rate or 0,
-            total_amount=0
+            total_amount=0,
+            created_by=created_by,
+            updated_by=created_by,
         )
         
         # Add items
@@ -226,6 +228,7 @@ class SalesQuoteService:
         
         # Calculate totals
         self._calculate_quote_totals(quote)
+        self._check_discount(quote)
         
         # Save to database
         created = self.repository.create(db, quote)
@@ -278,17 +281,27 @@ class SalesQuoteService:
                 detail=f"Quote with ID {quote_id} not found"
             )
         
-        # Check if quote can be edited (not converted or cancelled)
-        if quote.status in [QuoteStatus.COMPLETED.value, QuoteStatus.CANCELLED.value]:
+        # Check if quote can be edited (not converted, cancelled or superseded)
+        if quote.status in [QuoteStatus.COMPLETED.value, QuoteStatus.CANCELLED.value, QuoteStatus.REVISED.value, QuoteStatus.SO_CREATED.value]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot edit quote in '{quote.status}' status"
             )
+        from app.common.concurrency import ensure_not_stale
+        ensure_not_stale(quote.updated_at, None, f"Quotation {quote.quote_no}", quote_data.expected_version)
 
         was_approved = quote.status == QuoteStatus.APPROVED.value
 
         # ── Validate customer is active (if customer is being changed) ──
-        update_dict = quote_data.model_dump(exclude_unset=True, exclude={'items'})
+        update_dict = quote_data.model_dump(exclude_unset=True, exclude={'items', 'expected_version'})
+        today_ = tz.today()
+        if 'valid_until' in update_dict and update_dict['valid_until'] != quote.valid_until and update_dict['valid_until'] < today_:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Valid-until date cannot be moved into the past")
+        if update_dict.get('expected_delivery_date') and update_dict['expected_delivery_date'] != quote.expected_delivery_date and update_dict['expected_delivery_date'] < today_:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Expected delivery date cannot be moved into the past")
+        if 'branch_code' in update_dict and update_dict['branch_code'] != quote.branch_code:
+            from app.common.branch_validation import validate_branch_is_active
+            validate_branch_is_active(db, update_dict['branch_code'])
         if 'customer_id' in update_dict:
             from app.modules.customers.models import Customer
             customer = db.query(Customer).filter(Customer.id == update_dict['customer_id']).first()
@@ -309,7 +322,7 @@ class SalesQuoteService:
                 )
 
         # Update fields
-        update_data = quote_data.model_dump(exclude_unset=True, exclude={'items'})
+        update_data = quote_data.model_dump(exclude_unset=True, exclude={'items', 'expected_version'})
         before_values = {key: getattr(quote, key, None) for key in update_data}
         changed_fields = set(update_data.keys())
         for key, value in update_data.items():
@@ -349,6 +362,8 @@ class SalesQuoteService:
 
         # Recalculate totals
         self._calculate_quote_totals(quote)
+        self._check_discount(quote)
+        quote.updated_by = user_id
 
         updated = self.repository.update(db, quote)
 
@@ -430,6 +445,15 @@ class SalesQuoteService:
                 detail=f"Cannot delete quote in '{quote.status}' status."
             )
 
+        # A quotation that has already led to a PO, a sales order or a stock reservation is part of
+        # the trail: cancel it instead of deleting it.
+        converted = [i for i in (quote.items or []) if i.item_status not in ("pending", "cancelled", None)]
+        if quote.linked_po_id or quote.converted_to_invoice_id or converted:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete: this quotation already has a purchase order, sales order or processed items. Cancel it instead.",
+            )
+        self._cancel_pending_approval(db, quote, user_id, "Quotation deleted")
         quote_no_for_log = quote.quote_no
         deleted = self.repository.delete(db, quote_id)
         if deleted:
@@ -465,6 +489,21 @@ class SalesQuoteService:
             )
 
         new_status = status_update.status.value
+
+        # Only a few statuses can be set by hand. approved / rejected / pending_approval are decided by the
+        # approval workflow, and completed / revised / so_created / partially_processed by the document
+        # actions (convert, revise, create-SO) — letting a user set them here bypassed the approval.
+        manual = {QuoteStatus.ACCEPTED.value, QuoteStatus.CANCELLED.value, QuoteStatus.EXPIRED.value}
+        if new_status not in manual:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Status '{new_status}' cannot be set manually. Use the approval workflow or the document action.",
+            )
+        if new_status == QuoteStatus.ACCEPTED.value and (not quote.approval or quote.status not in (QuoteStatus.APPROVED.value, QuoteStatus.SENT.value)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A quotation can only be accepted after it has been approved.",
+            )
 
         # Validate status transition
         if not self._is_valid_status_transition(quote.status, new_status):
@@ -618,12 +657,12 @@ class SalesQuoteService:
                 detail=f"Quote with ID {quote_id} not found"
             )
         
-        # Can submit from draft, pending_approval, or approved
-        valid_from = [QuoteStatus.DRAFT.value, QuoteStatus.PENDING_APPROVAL.value, QuoteStatus.APPROVED.value]
-        if quote.status not in valid_from:
+        # Only an internally approved quotation can go to the customer
+        valid_from = [QuoteStatus.APPROVED.value]
+        if quote.status not in valid_from or not quote.approval:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot submit quote in '{quote.status}' status. Must be draft, pending_approval, or approved."
+                detail=f"Cannot submit quote in '{quote.status}' status. It must be approved first."
             )
         
         now = tz.now()
@@ -662,14 +701,13 @@ class SalesQuoteService:
             )
         
         valid_from = [
-            QuoteStatus.DRAFT.value,
             QuoteStatus.SUBMITTED.value, QuoteStatus.UNDER_REVIEW.value,
             QuoteStatus.SENT.value,
         ]
-        if quote.status not in valid_from:
+        if quote.status not in valid_from or not quote.approval:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot approve from '{quote.status}'. Must be draft, submitted, under_review, or sent."
+                detail=f"Cannot approve from '{quote.status}'. It must be internally approved and submitted, under review or sent."
             )
         
         now = tz.now()
@@ -693,6 +731,11 @@ class SalesQuoteService:
                 detail=f"Quote with ID {quote_id} not found"
             )
         
+        if quote.status == QuoteStatus.PENDING_APPROVAL.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This quotation is waiting for approval; approve or reject it from Quotation Approvals.",
+            )
         # Allow rejection from most non-final statuses
         non_rejectable = [QuoteStatus.COMPLETED.value, QuoteStatus.CANCELLED.value, QuoteStatus.REVISED.value, QuoteStatus.REJECTED.value]
         if quote.status in non_rejectable:
@@ -783,6 +826,7 @@ class SalesQuoteService:
         if quote.status == QuoteStatus.COMPLETED.value:
             raise HTTPException(status_code=400, detail="Cannot cancel a completed quotation")
         db.refresh(quote, attribute_names=["items"])
+        self._cancel_pending_approval(db, quote, None, f"Quotation cancelled: {reason or ''}".strip())
         quote.status = QuoteStatus.CANCELLED.value
         if reason:
             quote.remarks = reason
@@ -887,6 +931,9 @@ class SalesQuoteService:
         elif progressed > 0:
             # At least one item has moved beyond pending → work in progress
             quote.status = QuoteStatus.PARTIALLY_PROCESSED.value
+        elif quote.status == QuoteStatus.PARTIALLY_PROCESSED.value and progressed == 0:
+            # everything that had been ordered was cancelled / rejected: back to the approved state
+            quote.status = QuoteStatus.APPROVED.value if quote.approval else quote.status
         # else: no work started yet — leave header as DRAFT / SENT
 
     def create_partial_so(
@@ -1406,7 +1453,13 @@ class SalesQuoteService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Quote with ID {quote_id} not found"
             )
+        if original_quote.status in (QuoteStatus.REVISED.value, QuoteStatus.CANCELLED.value, QuoteStatus.COMPLETED.value, QuoteStatus.SO_CREATED.value):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot revise a quotation in '{original_quote.status}' status",
+            )
         db.refresh(original_quote, attribute_names=["items"])
+        self._cancel_pending_approval(db, original_quote, None, "Superseded by a revision")
 
         # Get next revision number
         parent_id = original_quote.parent_quote_id or original_quote.id
@@ -1468,6 +1521,28 @@ class SalesQuoteService:
     
     # ==================== Helper Methods ====================
     
+    def _cancel_pending_approval(self, db: Session, quote: SalesQuote, user_id: Optional[int], remark: str) -> None:
+        """If the quote still has a pending approval request, close it so it stops showing in approval lists."""
+        if not quote.approval_id:
+            return
+        from app.modules.common.models import Approvals
+        row = db.query(Approvals).filter(Approvals.id == quote.approval_id).with_for_update().first()
+        if row and row.status == ApprovalStatus.PENDING:
+            row.status = ApprovalStatus.CANCELLED
+            row.status_changed_by = user_id
+            row.remark = (remark or "Quotation withdrawn")[:255]
+
+    def _check_discount(self, quote: SalesQuote) -> None:
+        """A fixed quote-level discount cannot exceed the value of the lines."""
+        if (getattr(quote, "discount_type", "none") or "none") != "fixed":
+            return
+        subtotal = sum(float(i.selling_price) * i.quantity for i in quote.items)
+        if (quote.discount_percentage or 0) > subtotal:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A fixed discount cannot be larger than the quotation total",
+            )
+
     def _create_quote_item(self, item_data: SalesQuoteItemCreate, created_date: datetime) -> SalesQuoteItem:
         """Create a quote item from schema"""
         item = SalesQuoteItem(
@@ -1767,123 +1842,6 @@ class SalesQuoteService:
         }
     
     # ==================== Create PO from Quotation ====================
-    
-    def create_po_from_quote(
-        self,
-        db: Session,
-        quote_id: int,
-        po_data: dict,
-        created_by: Optional[int] = None
-    ):
-        """Create a Purchasing Order from an accepted/approved quotation"""
-        from app.modules.purchasing.models import PurchasingOrder, PurchasingOrderItems
-
-        # Lock the quote row to prevent concurrent PO creation
-        quote = db.query(SalesQuote).filter(
-            SalesQuote.id == quote_id
-        ).with_for_update().first()
-        if not quote:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Quote with ID {quote_id} not found"
-            )
-        db.refresh(quote, attribute_names=["items"])
-        
-        # Must be in an active, non-terminal status
-        terminal = {
-            QuoteStatus.COMPLETED.value,
-            QuoteStatus.CANCELLED.value,
-            QuoteStatus.REVISED.value,
-        }
-        if quote.status in terminal:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot create PO from a quote in terminal status: '{quote.status}'"
-            )
-        
-        # Generate PO number
-        now = tz.now()
-        year = now.year
-        
-        # Acquire advisory lock to prevent duplicate PO numbers
-        prefix = f"PO-{year}"
-        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
-        
-        last_po = db.query(PurchasingOrder).filter(
-            PurchasingOrder.purchasing_order_no.like(f"PO-{year}-%")
-        ).order_by(PurchasingOrder.id.desc()).first()
-        
-        if last_po:
-            try:
-                last_seq = int(last_po.purchasing_order_no.split('-')[-1])
-                next_seq = last_seq + 1
-            except (ValueError, IndexError):
-                next_seq = 1
-        else:
-            next_seq = 1
-        
-        po_no = f"PO-{year}-{next_seq:05d}"
-        
-        # Create PO
-        po = PurchasingOrder(
-            purchasing_order_no=po_no,
-            purchasing_invoice_no=po_data.get("purchasing_invoice_no", po_no),
-            branch_code=quote.branch_code,
-            payment_method=po_data.get("payment_method", "credit"),
-            purchasing_order_date=now.date(),
-            good_received_note_date=po_data.get("good_received_note_date", now.date()),
-            remarks=po_data.get("remarks", f"Created from quotation {quote.quote_no}"),
-            credit_date=po_data.get("credit_date"),
-            created_date=now.date(),
-            first_suppliers_id=po_data["first_suppliers_id"],
-            second_suppliers_id=po_data["second_suppliers_id"],
-            added_date=now,
-            status="pending",
-            sales_quote_id=quote.id
-        )
-        
-        db.add(po)
-        db.flush()  # Get PO ID
-        
-        # Create PO items from remaining quote quantities
-        # Skip items that have already been procured / fulfilled
-        skipped_statuses = ("po_created", "itn_created", "so_created", "completed", "cancelled")
-        po_items_created = 0
-        for quote_item in quote.items:
-            if quote_item.item_status in skipped_statuses:
-                continue
-            remaining_qty = quote_item.quantity - (quote_item.converted_qty or 0)
-            if remaining_qty <= 0:
-                continue
-            po_item = PurchasingOrderItems(
-                quantity=remaining_qty,
-                unit_price=quote_item.selling_price,
-                warrenty_month=quote_item.warrenty_month,
-                remark=quote_item.remark or "",
-                created_date=now.date(),
-                product_id=quote_item.product_id,
-                purchasingorders_id=po.id,
-                added_date=now
-            )
-            db.add(po_item)
-            quote_item.item_status = "procurement"
-            po_items_created += 1
-
-        if po_items_created == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="No items require procurement — all items are already fulfilled or cancelled."
-            )
-        
-        # Update quote status based on item statuses
-        quote.po_created_date = now
-        quote.linked_po_id = po.id
-        self.recompute_quote_status(db, quote)
-        
-        db.commit()
-        db.refresh(po)
-        
-        return po
     
     # ==================== Expiry Management ====================
     

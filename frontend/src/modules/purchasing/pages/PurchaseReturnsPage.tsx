@@ -71,6 +71,7 @@ import {
   useMasterDetailState,
   useTConfirmDialog,
   TActivityHistoryPanel,
+  continueOrReveal,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -854,8 +855,7 @@ export default function PurchaseReturnsPage() {
             <Button
               size="small"
               variant="contained"
-              onClick={handleNextStep}
-              disabled={!isStep1Valid}
+              onClick={() => continueOrReveal(!!isStep1Valid, handleNextStep)}
               endIcon={<ArrowForwardIcon />}
             >
               Next

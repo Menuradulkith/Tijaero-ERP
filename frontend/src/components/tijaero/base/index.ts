@@ -8,6 +8,7 @@
 export { TButton, type TButtonProps } from "./TButton";
 export { TIconButton, type TIconButtonProps } from "./TIconButton";
 export { TTextField, type TTextFieldProps } from "./TTextField";
+export { TPhoneField, normalizePhone, isValidPhone, phoneError, DEFAULT_PHONE_COUNTRY, type TPhoneFieldProps } from "./TPhoneField";
 export { TSelect, type TSelectProps, type TSelectOption } from "./TSelect";
 export { TAutocomplete, type TAutocompleteProps } from "./TAutocomplete";
 export { TSearchableSelect, type TSearchableSelectProps, type TSearchableSelectOption } from "./TSearchableSelect";

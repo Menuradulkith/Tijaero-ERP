@@ -1,5 +1,7 @@
-from typing import List, Optional
+from datetime import date
+from typing import Annotated, List, Literal, Optional
 
+from app.auth.dependencies import get_current_active_user, get_user_branch_filter, validate_branch_access
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
@@ -8,8 +10,6 @@ from app.modules.sales.quotation_schemas import (
     ConvertToInvoiceRequest,
     ConvertToInvoiceResponse,
     CreatePartialSORequest,
-    CreatePOFromQuoteRequest,
-    CreatePOFromQuoteResponse,
     CreateRevisionRequest,
     CreateRevisionResponse,
     CustomerApprovalRequest,
@@ -32,10 +32,42 @@ from app.modules.sales.quotation_schemas import (
 )
 from app.modules.sales.quotation_service import sales_quote_service
 from app.modules.sales.schemas import InvoiceWithItems
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from sqlalchemy.orm import Session
 
-router = APIRouter()
+# Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
+RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
+
+
+def _quote_scope(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> None:
+    """Every route that names a quotation (`/{quote_id}...`) is limited to the user's branches.
+    A missing quotation falls through to the route's own 404."""
+    raw = request.path_params.get("quote_id")
+    if raw is None:
+        return
+    try:
+        quote_id = int(raw)
+    except (TypeError, ValueError):
+        return
+    if not 1 <= quote_id <= 2_147_483_647:
+        return
+    from app.modules.sales.quotation_models import SalesQuote as _Quote
+
+    row = db.query(_Quote.branch_code).filter(_Quote.id == quote_id).first()
+    if row and not validate_branch_access(current_user, row.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {row.branch_code}")
+
+
+def _require_branch(user: User, branch_code: Optional[str]) -> None:
+    if branch_code and not validate_branch_access(user, branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
+
+
+router = APIRouter(dependencies=[Depends(_quote_scope)])
 
 
 def _attach_approved_by(db: Session, quote) -> None:
@@ -73,30 +105,42 @@ def _attach_approved_by(db: Session, quote) -> None:
 )
 def list_quotes(
     quote_type: Optional[QuoteTypeEnum] = Query(None, description="Filter by quote type"),
-    status: Optional[QuoteStatusEnum] = Query(None, description="Filter by status"),
-    customer_id: Optional[int] = Query(None, description="Filter by customer"),
-    sale_rep_id: Optional[int] = Query(None, description="Filter by sales rep"),
-    branch_code: Optional[str] = Query(None, description="Filter by branch"),
-    search: Optional[str] = Query(None, description="Search in quote number"),
-    page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(20, ge=1, le=100000, description="Items per page"),
+    status_filter: Optional[QuoteStatusEnum] = Query(None, alias="status", description="Filter by status"),
+    customer_id: Optional[int] = Query(None, ge=1, le=2_147_483_647, description="Filter by customer"),
+    sale_rep_id: Optional[int] = Query(None, ge=1, le=2_147_483_647, description="Filter by sales rep"),
+    branch_code: Optional[str] = Query(None, max_length=200, description="Filter by branch"),
+    search: Optional[str] = Query(None, max_length=255, description="Search in quote number, customer name, remarks"),
+    date_from: Optional[date] = Query(None, description="Created on or after"),
+    date_to: Optional[date] = Query(None, description="Created on or before"),
+    sort_by: Optional[str] = Query(None, max_length=40),
+    order: Literal["asc", "desc"] = Query("desc"),
+    page: int = Query(1, ge=1, le=1_000_000, description="Page number"),
+    per_page: int = Query(20, ge=1, le=200, description="Items per page"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """
-    Get list of all sales quotes with filtering and pagination.
+    Get list of sales quotes with filtering, sorting and pagination. Non-superusers only see their branches.
     """
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
     filters = SalesQuoteFilter(
         quote_type=quote_type,
-        status=status,
+        status=status_filter,
         customer_id=customer_id,
         sale_rep_id=sale_rep_id,
         branch_code=branch_code,
-        search=search
+        branch_codes=user_branches,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        sort_by=sort_by,
+        order=order,
     )
-    
+
     quotes, total, pages = sales_quote_service.get_filtered_quotes(db, filters, page, per_page)
-    
+
     return SalesQuoteList(
         items=quotes,
         total=total,
@@ -113,16 +157,17 @@ def list_quotes(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def list_quotations(
-    status: Optional[QuoteStatusEnum] = Query(None),
-    page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100000),
+    status_filter: Optional[QuoteStatusEnum] = Query(None, alias="status"),
+    page: int = Query(1, ge=1, le=1_000_000),
+    per_page: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Get list of quotations (estimates) only."""
-    filters = SalesQuoteFilter(quote_type=QuoteTypeEnum.QUOTATION, status=status)
+    filters = SalesQuoteFilter(quote_type=QuoteTypeEnum.QUOTATION, status=status_filter, branch_codes=user_branches)
     quotes, total, pages = sales_quote_service.get_filtered_quotes(db, filters, page, per_page)
-    
+
     return SalesQuoteList(items=quotes, total=total, page=page, per_page=per_page, pages=pages)
 
 
@@ -133,12 +178,14 @@ def list_quotations(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def get_expiring_quotes(
-    days: int = Query(7, ge=1, le=100000, description="Days until expiry"),
+    days: int = Query(7, ge=1, le=365, description="Days until expiry"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Get quotes expiring within specified days."""
-    return sales_quote_service.get_expiring_soon(db, days)
+    quotes = sales_quote_service.get_expiring_soon(db, days)
+    return [q for q in quotes if user_branches is None or q.branch_code in user_branches]
 
 
 # ==================== CRUD Operations ====================
@@ -150,7 +197,7 @@ def get_expiring_quotes(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def get_quote(
-    quote_id: int,
+    quote_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
@@ -190,6 +237,7 @@ def create_quote(
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
 ):
     """Create a new sales quote."""
+    _require_branch(current_user, quote_data.branch_code)
     return sales_quote_service.create_quote(db, quote_data, current_user.id)
 
 
@@ -206,6 +254,7 @@ def create_quotation(
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
 ):
     """Create a new quotation (estimate) - shorthand endpoint."""
+    _require_branch(current_user, quote_data.branch_code)
     quote_data.quote_type = QuoteTypeEnum.QUOTATION
     quote_data.is_estimate = True
     return sales_quote_service.create_quote(db, quote_data, current_user.id)
@@ -218,12 +267,13 @@ def create_quotation(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def update_quote(
-    quote_id: int,
+    quote_id: RowId,
     quote_data: SalesQuoteUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """Update an existing quote. Only draft quotes can be edited."""
+    _require_branch(current_user, quote_data.branch_code)
     return sales_quote_service.update_quote(db, quote_id, quote_data, user_id=current_user.id)
 
 
@@ -234,7 +284,7 @@ def update_quote(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_DELETE))]
 )
 def delete_quote(
-    quote_id: int,
+    quote_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_DELETE))
 ):
@@ -252,7 +302,7 @@ def delete_quote(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def update_quote_status(
-    quote_id: int,
+    quote_id: RowId,
     status_update: SalesQuoteStatusUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
@@ -268,7 +318,7 @@ def update_quote_status(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def submit_for_approval(
-    quote_id: int,
+    quote_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
@@ -288,7 +338,7 @@ def submit_for_approval(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def mark_as_sent(
-    quote_id: int,
+    quote_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
@@ -303,7 +353,7 @@ def mark_as_sent(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def mark_as_accepted(
-    quote_id: int,
+    quote_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
@@ -318,7 +368,7 @@ def mark_as_accepted(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def submit_to_customer(
-    quote_id: int,
+    quote_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
@@ -333,7 +383,7 @@ def submit_to_customer(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def mark_under_review(
-    quote_id: int,
+    quote_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
@@ -348,7 +398,7 @@ def mark_under_review(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def customer_approve(
-    quote_id: int,
+    quote_id: RowId,
     data: Optional[CustomerApprovalRequest] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
@@ -369,7 +419,7 @@ def customer_approve(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def reject_quote_with_options(
-    quote_id: int,
+    quote_id: RowId,
     data: Optional[RejectQuoteRequest] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
@@ -390,12 +440,15 @@ def reject_quote_with_options(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_DELETE))]
 )
 def cancel_quote(
-    quote_id: int,
-    reason: Optional[str] = Query(None, description="Cancellation reason"),
+    quote_id: RowId,
+    reason: str = Query(..., min_length=1, max_length=500, description="Cancellation reason"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_DELETE))
 ):
     """Cancel a quote."""
+    reason = reason.strip()
+    if not reason:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A cancellation reason is required")
     return sales_quote_service.cancel_quote(db, quote_id, reason)
 
 
@@ -408,7 +461,7 @@ def cancel_quote(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_CREATE))]
 )
 def convert_to_invoice(
-    quote_id: int,
+    quote_id: RowId,
     conversion_data: ConvertToInvoiceRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
@@ -448,7 +501,7 @@ def convert_to_invoice(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def check_stock_availability(
-    quote_id: int,
+    quote_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
@@ -466,7 +519,7 @@ def check_stock_availability(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_VIEW))]
 )
 def get_procurement_summary(
-    quote_id: int,
+    quote_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_VIEW))
 ):
@@ -485,7 +538,7 @@ def get_procurement_summary(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def release_reservation(
-    quote_id: int,
+    quote_id: RowId,
     body: Optional[ReleaseReservationRequest] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
@@ -507,48 +560,6 @@ def release_reservation(
     )
 
 
-# ==================== Create PO from Quotation ====================
-
-@router.post(
-    "/{quote_id}/create-po",
-    response_model=CreatePOFromQuoteResponse,
-    summary="Create PO from Quotation",
-    dependencies=[Depends(require_permission(*Permissions.QUOTATION_CREATE))]
-)
-def create_po_from_quotation(
-    quote_id: int,
-    po_data: CreatePOFromQuoteRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
-):
-    """
-    Create a Purchasing Order from an accepted/approved quotation.
-    
-    This is used when the quoted items need to be procured from a supplier
-    before the quotation can be fulfilled and converted to an invoice.
-    Items on the quote are marked 'procurement' and the header status is
-    recomputed (partially_processed / completed) accordingly.
-    """
-    quote = sales_quote_service.get_quote_by_id(db, quote_id)
-    if not quote:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Quote with ID {quote_id} not found"
-        )
-    
-    po = sales_quote_service.create_po_from_quote(
-        db, quote_id, po_data.model_dump(), current_user.id
-    )
-    
-    return CreatePOFromQuoteResponse(
-        quote_id=quote_id,
-        quote_no=quote.quote_no,
-        purchasing_order_id=po.id,
-        purchasing_order_no=po.purchasing_order_no,
-        message=f"Successfully created PO {po.purchasing_order_no} from quotation {quote.quote_no}"
-    )
-
-
 # ==================== Revision ====================
 
 @router.post(
@@ -558,7 +569,7 @@ def create_po_from_quotation(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_CREATE))]
 )
 def create_revision(
-    quote_id: int,
+    quote_id: RowId,
     revision_data: Optional[CreateRevisionRequest] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_CREATE))
@@ -613,7 +624,7 @@ def mark_expired_quotes(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def create_partial_so(
-    quote_id: int,
+    quote_id: RowId,
     request: CreatePartialSORequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
@@ -636,7 +647,7 @@ def create_partial_so(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def mark_items_so_created(
-    quote_id: int,
+    quote_id: RowId,
     product_ids: List[int],
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
@@ -655,8 +666,8 @@ def mark_items_so_created(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def cancel_quote_item(
-    quote_id: int,
-    item_id: int,
+    quote_id: RowId,
+    item_id: RowId,
     body: CancelQuoteItemRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
@@ -678,7 +689,7 @@ def cancel_quote_item(
     dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
 )
 def mark_quote_items_procurement(
-    quote_id: int,
+    quote_id: RowId,
     body: MarkQuoteItemsRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))

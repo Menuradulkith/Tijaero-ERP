@@ -8,7 +8,10 @@ import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import type { GridRenderCellParams } from "@mui/x-data-grid";
+import type { GridPaginationModel, GridRenderCellParams } from "@mui/x-data-grid";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useDebounce } from "@/hooks";
+import { fetchAllPages } from "@/utils/fetchAllPages";
 import {
   Alert,
   Autocomplete,
@@ -52,6 +55,9 @@ import {
     TDataGrid,
     SelectableListItem,
     type TDataGridColumn,
+    TPhoneField,
+    normalizePhone,
+    isValidPhone,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/components/PermissionGuard";
@@ -101,7 +107,7 @@ const resetFormFromUser = (user: UserList): Partial<UserCreate> => ({
   birthdate: user.birthdate || "",
   date_joined: user.date_joined || TODAY,
   employee_id: user.employee_id || "",
-  phone_number: user.phone_number || "",
+  phone_number: normalizePhone(user.phone_number),
   is_active: user.is_active,
   is_staff: user.is_staff,
   branch_ids: user.branches.map((b) => b.id),
@@ -144,9 +150,9 @@ const validatePassword = (password: string): string | null => {
 };
 
 export default function UsersPage() {
+  const queryClient = useQueryClient();
   const currentUser = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
-  const [users, setUsers] = useState<UserList[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -157,6 +163,8 @@ export default function UsersPage() {
   const [dateJoinedError, setDateJoinedError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Profile picture picked while creating a user; uploaded right after the user is saved.
+  const [draftPictureFile, setDraftPictureFile] = useState<File | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   // Filter state - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
@@ -226,23 +234,23 @@ export default function UsersPage() {
       setLoading(true);
       setError(null);
 
-      const promises: Promise<any>[] = [usersApi.getUsers()];
-      promises.push(groupsApi.getGroups().catch(() => []));
-      promises.push(branchApi.getAll(1, 100).catch(() => ({ items: [] })));
-
-      const [usersData, groupsData, branchesData] = await Promise.all(promises);
+      const [groupsData, branchesData] = await Promise.all([
+        groupsApi.getGroups().catch(() => []),
+        branchApi.getAll(1, 1000, true).catch(() => ({ items: [] })),
+      ]);
 
       // A newer loadData() call has since started — this response is stale.
       if (seq !== loadDataSeqRef.current) return;
 
-      setUsers(usersData);
       setGroups(groupsData);
       setBranches(branchesData.items || []);
 
-      // Refresh selected user with updated data
+      // The grid refetches itself (its query key starts with "users");
+      // refresh the open user's form from the server.
+      queryClient.invalidateQueries({ queryKey: ["users"] });
       if (refreshSelectedUserId) {
-        const updatedUser = usersData.find((u: UserList) => u.id === refreshSelectedUserId);
-        if (updatedUser) {
+        const updatedUser = (await usersApi.getUser(refreshSelectedUserId).catch(() => null)) as UserList | null;
+        if (updatedUser && seq === loadDataSeqRef.current) {
           setSelectedUser(updatedUser);
           setFormData(resetFormFromUser(updatedUser));
         }
@@ -258,52 +266,64 @@ export default function UsersPage() {
   };
 
   // Filter users (hide superusers)
-  const filteredUsers = useMemo(() => {
-    let filtered = users.filter((user) => !user.is_superuser);
-
-    // Filter by branch
-    if (filterBranch) {
-      filtered = filtered.filter((user) =>
-        user.branches.some((b) => b.id === filterBranch.id)
-      );
+  // Pickers offer active branches only, plus any branch the selected user already
+  // holds (so an assignment to a since-deactivated branch stays visible and removable).
+  const branchOptions = useMemo(() => {
+    const byId = new Map<number, Branch>(branches.map((b) => [b.id, b]));
+    for (const b of selectedUser?.branches ?? []) {
+      if (!byId.has(b.id)) byId.set(b.id, b as unknown as Branch);
     }
+    return [...byId.values()];
+  }, [branches, selectedUser]);
 
-    // Filter by role
-    if (filterRole) {
-      filtered = filtered.filter((user) =>
-        user.groups.some((g) => g.id === filterRole.id)
-      );
-    }
+  // Server-side paging: the grid fetches only the visible page; search, the
+  // status / branch / role filters and column sorting run in the database and
+  // the API returns the total for the footer ("1-25 of N").
+  const [paging, setPaging] = useState<GridPaginationModel>({ page: 0, pageSize: 25 });
+  const [sort, setSort] = useState<{ field: string; sort: "asc" | "desc" } | null>(null);
+  const debouncedSearch = useDebounce(searchQuery, 300);
 
-    // Filter by status
-    if (filterStatus) {
-      const isActive = filterStatus === "active";
-      filtered = filtered.filter((user) => user.is_active === isActive);
-    }
+  // Any change to the search, a filter or the sort starts again from page 1.
+  useEffect(() => {
+    setPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
+  }, [debouncedSearch, filterStatus, filterBranch, filterRole, sort]);
 
-    if (searchQuery) {
-      filtered = filtered.filter(
-        (user) =>
-          user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          user.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          user.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (user.email || "").toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
+  const pageParams = (page: number, size: number) => ({
+    page,
+    size,
+    q: debouncedSearch.trim(),
+    active: filterStatus ? filterStatus === "active" : undefined,
+    branch_id: filterBranch?.id,
+    group_id: filterRole?.id,
+    sort_by: sort?.field,
+    order: sort?.sort,
+  });
 
-    // Default order before the user sorts a column in the browse table
-    // itself (the table's own column-header sort takes over from there).
-    filtered.sort((a, b) => a.username.localeCompare(b.username));
-
-    return filtered;
-  }, [users, searchQuery, filterBranch, filterRole, filterStatus]);
+  const { data: usersPage, isFetching: usersFetching } = useQuery({
+    queryKey: [
+      "users", "paged", paging.page, paging.pageSize, debouncedSearch.trim(), filterStatus,
+      filterBranch?.id, filterRole?.id, sort?.field, sort?.sort,
+    ],
+    queryFn: () => usersApi.getPage(pageParams(paging.page, paging.pageSize)),
+    placeholderData: keepPreviousData,
+    staleTime: 30 * 1000,
+  });
+  const filteredUsers: UserList[] = useMemo(() => usersPage?.items ?? [], [usersPage]);
 
   const createUserMutation = useCrudMutation({
     mutationFn: (user: UserCreate) => usersApi.createUser(user),
     invalidateQueryKeys: [["users"]],
     successMessage: "User created successfully",
     errorMessage: "Failed to save user",
-    onSuccess: async () => {
+    onSuccess: async (created) => {
+      if (draftPictureFile) {
+        try {
+          await usersApi.uploadProfilePicture(created.id, draftPictureFile);
+        } catch {
+          showErrorToast("User created, but the profile picture failed to upload");
+        }
+      }
+      setDraftPictureFile(null);
       markAsSaved();
       setIsCreating(false);
       setIsEditing(false);
@@ -435,7 +455,11 @@ export default function UsersPage() {
     }
   }, [setFormData, isCreating]);
 
+  // One save at a time: Enter + click (or two quick clicks) used to send two creates.
+  const saveInFlightRef = useRef(false);
   const handleSave = useCallback(async () => {
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
     try {
       setError(null);
       setUsernameError(null);
@@ -531,7 +555,18 @@ export default function UsersPage() {
       // Clean up empty strings to null for optional fields
       const cleanedData = {
         ...formData,
+        username: formData.username?.trim(),
+        first_name: formData.first_name?.trim(),
+        last_name: formData.last_name?.trim(),
+        employee_id: formData.employee_id?.trim(),
+        email: formData.email?.trim() || null,
         middle_name: formData.middle_name?.trim() || null,
+        gender: formData.gender?.trim() || null,
+        birthdate: formData.birthdate || null,
+        occupation: formData.occupation?.trim() || null,
+        phone_number: formData.phone_number?.trim() || null,
+        // An untouched password box means "keep the current password".
+        password: formData.password?.trim() ? formData.password : undefined,
       };
       
       if (isCreating) {
@@ -548,6 +583,7 @@ export default function UsersPage() {
       const errorMsg = handleApiError(err, "Failed to save user");
       setError(errorMsg);
     } finally {
+      saveInFlightRef.current = false;
       setSaving(false);
     }
   }, [
@@ -595,9 +631,14 @@ export default function UsersPage() {
 
   const isFormValid = formData.username && formData.first_name && formData.last_name &&
     formData.employee_id &&
+    isValidPhone(formData.phone_number) &&
     !!formData.branch_ids?.length && !!formData.primary_branch_id && !!formData.group_ids?.length &&
     (isCreating ? !passwordError && formData.password : true);
   const isDisabled = !isEditing && !isCreating;
+  // A picked-but-unsaved picture belongs to one "New User" session only.
+  useEffect(() => {
+    if (!isCreating) setDraftPictureFile(null);
+  }, [isCreating]);
 
   // Whether we're showing a single user's detail view (selected or being
   // created) instead of the browse table.
@@ -624,8 +665,8 @@ export default function UsersPage() {
       { field: "username", header: "Username", flex: 1, minWidth: 150 },
       { field: "full_name", header: "Full Name", flex: 1, minWidth: 170 },
       { field: "email", header: "Email", flex: 1, minWidth: 190 },
-      { field: "role_names", header: "Role", flex: 1, minWidth: 150 },
-      { field: "branch_names", header: "Branch", flex: 1, minWidth: 150 },
+      { field: "role_names", header: "Role", flex: 1, minWidth: 150, sortable: false },
+      { field: "branch_names", header: "Branch", flex: 1, minWidth: 150, sortable: false },
       {
         field: "is_active",
         header: "Status",
@@ -671,11 +712,23 @@ export default function UsersPage() {
         <TDataGrid<UserRow>
           rows={userRows}
           columns={userColumns}
-          loading={loading}
+          loading={loading || usersFetching}
+          serverPagination={{ rowCount: usersPage?.total ?? 0, paginationModel: paging, onPaginationModelChange: setPaging }}
+          onServerSortChange={setSort}
+          exportAllRows={() =>
+            fetchAllPages((page) => usersApi.getPage(pageParams(page, 200))).then((rows) =>
+              rows.map((user) => ({
+                ...user,
+                full_name: `${user.first_name} ${user.last_name}`.trim(),
+                role_names: (user.groups || []).map((g) => g.name).join(", "),
+                branch_names: user.primary_branch?.branch_name || (user.branches || []).map((b) => b.branch_name).join(", "),
+              }))
+            )
+          }
           onRowClick={(row) => handleSelectUser(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
-          emptyMessage="No users found"
+          emptyMessage={searchQuery || filterStatus || filterBranch || filterRole ? "No users match the current filters" : "No users yet. Superuser accounts are not listed here; click Add User to create one."}
           autoHeight={false}
           height="100%"
         />
@@ -732,23 +785,11 @@ export default function UsersPage() {
               </Alert>
             )}
 
-            {/* Profile Picture */}
-            {selectedUser && !isCreating && (
-              <Box sx={{ mb: 3 }}>
-                <UserAvatarUploader
-                  user={selectedUser}
-                  disabled={!canUpdate}
-                  onUpdated={(path) => {
-                    setSelectedUser({ ...selectedUser, profile_picture_path: path || undefined });
-                  }}
-                />
-              </Box>
-            )}
-
             {/* Account Information */}
             <FormSection title="Account Information" columns={2}>
               <TextField
                 label="Username"
+                inputProps={{ maxLength: 50 }}
                 value={formData.username}
                 onChange={(e) => {
                   setFormData({ ...formData, username: e.target.value });
@@ -765,6 +806,7 @@ export default function UsersPage() {
               {isCreating && (
                 <TextField
                   label="Password"
+                  inputProps={{ maxLength: 128 }}
                   type="password"
                   value={formData.password}
                   onChange={(e) => handlePasswordChange(e.target.value)}
@@ -779,6 +821,7 @@ export default function UsersPage() {
               {isEditing && !isCreating && (
                 <TextField
                   label="Reset Password (Optional)"
+                  inputProps={{ maxLength: 128 }}
                   type="password"
                   value={formData.password || ""}
                   onChange={(e) => handlePasswordChange(e.target.value)}
@@ -791,6 +834,7 @@ export default function UsersPage() {
               )}
               <TextField
                 label="Email"
+                inputProps={{ maxLength: 254 }}
                 type="email"
                 value={formData.email}
                 onChange={(e) => handleEmailChange(e.target.value)}
@@ -802,6 +846,7 @@ export default function UsersPage() {
               />
               <TextField
                 label="Employee ID"
+                inputProps={{ maxLength: 255 }}
                 value={formData.employee_id}
                 onChange={(e) => handleEmployeeIdChange(e.target.value)}
                 disabled={isDisabled}
@@ -817,6 +862,7 @@ export default function UsersPage() {
             <FormSection title="Personal Information" columns={3}>
               <TextField
                 label="First Name"
+                inputProps={{ maxLength: 30 }}
                 value={formData.first_name}
                 onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
                 disabled={isDisabled}
@@ -826,6 +872,7 @@ export default function UsersPage() {
               />
               <TextField
                 label="Middle Name"
+                inputProps={{ maxLength: 30 }}
                 value={formData.middle_name}
                 onChange={(e) => setFormData({ ...formData, middle_name: e.target.value })}
                 disabled={isDisabled}
@@ -834,6 +881,7 @@ export default function UsersPage() {
               />
               <TextField
                 label="Last Name"
+                inputProps={{ maxLength: 30 }}
                 value={formData.last_name}
                 onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
                 disabled={isDisabled}
@@ -876,13 +924,11 @@ export default function UsersPage() {
                 error={!!dateJoinedError}
                 helperText={dateJoinedError}
               />
-              <TextField
-                label="Phone Number"
+              <TPhoneField
+                label="Contact No"
                 value={formData.phone_number}
-                onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
+                onChange={(v) => setFormData({ ...formData, phone_number: v })}
                 disabled={isDisabled}
-                size="small"
-                fullWidth
               />
             </FormSection>
 
@@ -890,9 +936,9 @@ export default function UsersPage() {
             <FormSection title="Access & Permissions" columns={2}>
               <Autocomplete
                 multiple
-                options={branches}
+                options={branchOptions}
                 getOptionLabel={(option) => option.branch_name}
-                value={branches.filter((b) => formData.branch_ids?.includes(b.id))}
+                value={branchOptions.filter((b) => formData.branch_ids?.includes(b.id))}
                 onChange={(_, newValue) => {
                   const newBranchIds = newValue.map((b) => b.id);
                   const primaryStillAssigned = !!formData.primary_branch_id && newBranchIds.includes(formData.primary_branch_id);
@@ -916,9 +962,9 @@ export default function UsersPage() {
                 fullWidth
               />
               <Autocomplete
-                options={branches.filter((b) => formData.branch_ids?.includes(b.id))}
+                options={branchOptions.filter((b) => formData.branch_ids?.includes(b.id))}
                 getOptionLabel={(option) => option.branch_name}
-                value={branches.find((b) => b.id === formData.primary_branch_id) || null}
+                value={branchOptions.find((b) => b.id === formData.primary_branch_id) || null}
                 onChange={(_, newValue) => setFormData({ ...formData, primary_branch_id: newValue?.id })}
                 disabled={isDisabled || !formData.branch_ids?.length}
                 renderInput={(params) => (
@@ -969,6 +1015,23 @@ export default function UsersPage() {
               </Box>
             </FormSection>
 
+            {/* Profile Picture */}
+            {(selectedUser || isCreating) && (
+              <FormSection title="Profile Picture" columns={1}>
+                <UserAvatarUploader
+                  user={selectedUser && !isCreating ? selectedUser : undefined}
+                  draftFile={draftPictureFile}
+                  onDraftFileChange={setDraftPictureFile}
+                  disabled={isDisabled || (!isCreating && !canUpdate)}
+                  onUpdated={(path) => {
+                    if (selectedUser) {
+                      setSelectedUser({ ...selectedUser, profile_picture_path: path || undefined });
+                    }
+                  }}
+                />
+              </FormSection>
+            )}
+
             {/* Assigned Branches (View Mode) */}
             {selectedUser && !isEditing && !isCreating && selectedUser.branches.length > 0 && (
               <FormSection title="Assigned Branches" columns={1}>
@@ -1002,34 +1065,6 @@ export default function UsersPage() {
                       color="secondary"
                     />
                   ))}
-                </Box>
-              </FormSection>
-            )}
-
-            {/* Activity History (view mode only) */}
-            {selectedUser && !isEditing && !isCreating && (
-              <FormSection
-                title="Activity History"
-                columns={2}
-                titleAction={
-                  <Tooltip title="View activity history">
-                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
-                      <HistoryIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                }
-              >
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Created</Typography>
-                  <Typography variant="body2">{formatDateTimeReadable(selectedUser.created_at) || "-"}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Last Modified</Typography>
-                  <Typography variant="body2">{formatDateTimeReadable(selectedUser.updated_at) || "-"}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Last Login</Typography>
-                  <Typography variant="body2">{selectedUser.last_login ? formatDateTimeReadable(selectedUser.last_login) : "Never"}</Typography>
                 </Box>
               </FormSection>
             )}
@@ -1078,6 +1113,34 @@ export default function UsersPage() {
                       </Button>
                     )}
                   </Box>
+                </Box>
+              </FormSection>
+            )}
+
+            {/* Activity History (view mode only) */}
+            {selectedUser && !isEditing && !isCreating && (
+              <FormSection
+                title="Activity History"
+                columns={2}
+                titleAction={
+                  <Tooltip title="View activity history">
+                    <IconButton size="small" onClick={() => setActivityHistoryOpen(true)}>
+                      <HistoryIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Created</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedUser.created_at) || "-"}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Last Modified</Typography>
+                  <Typography variant="body2">{formatDateTimeReadable(selectedUser.updated_at) || "-"}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Last Login</Typography>
+                  <Typography variant="body2">{selectedUser.last_login ? formatDateTimeReadable(selectedUser.last_login) : "Never"}</Typography>
                 </Box>
               </FormSection>
             )}

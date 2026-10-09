@@ -153,6 +153,12 @@ const cleanCustomerData = (data: CustomerCreate | CustomerUpdate) => {
     payment_address: data.payment_address?.trim() || null,
     delivery_address: data.delivery_address?.trim() || null,
     bank_details: data.bank_details?.trim() || null,
+    bank_account_name: data.bank_account_name?.trim() || null,
+    bank_name: data.bank_name?.trim() || null,
+    bank_account_no: data.bank_account_no?.trim() || null,
+    bank_branch: data.bank_branch?.trim() || null,
+    bank_branch_code: data.bank_branch_code?.trim() || null,
+    bank_swift_code: data.bank_swift_code?.trim() || null,
     name_in_cheque_card: data.name_in_cheque_card?.trim() || null,
   };
 };
@@ -164,7 +170,33 @@ const cleanContactPerson = <T extends object>(data: T) =>
     Object.entries(data).map(([k, v]) => [k, v === "" ? null : v])
   );
 
+export interface PagedCustomers {
+  items: Customer[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+}
+
 export const customersApi = {
+  // One page of customers; search, filters and sort run on the server
+  getPage: async (params: {
+    page: number;
+    size: number;
+    q?: string;
+    active?: boolean;
+    customer_type?: string;
+    agent?: boolean;
+    sort_by?: string;
+    order?: "asc" | "desc";
+  }) => {
+    const clean = Object.fromEntries(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")
+    );
+    const response = await apiClient.get<PagedCustomers>("/customers/paged", { params: clean });
+    return response.data;
+  },
+
   getAll: async (skip = 0, limit = 100000, activeOnly = true) => {
     const response = await apiClient.get<Customer[]>("/customers/", {
       params: { skip, limit, active_only: activeOnly },

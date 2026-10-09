@@ -142,7 +142,7 @@ export default function AttendancePage() {
 
   const { data: branches } = useQuery({
     queryKey: ["branches-light"],
-    queryFn: async () => (await branchApi.getAll(1, 200)).items,
+    queryFn: async () => (await branchApi.getAll(1, 200, true)).items,
   });
 
   const branchOptions = useMemo(

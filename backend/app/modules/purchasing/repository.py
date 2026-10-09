@@ -1,3 +1,4 @@
+from app.modules.common.models import Country
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func, text, Integer
 from sqlalchemy.exc import IntegrityError
@@ -66,25 +67,68 @@ class SupplierRepository:
                 .all()
             )
     
-    def get_all(self, filters: schemas.SupplierListFilter) -> List[models.Supplier]:
+    @staticmethod
+    def _like(term: Optional[str]) -> Optional[str]:
+        """Literal contains-pattern: % _ and \\ in the text are escaped."""
+        t = (term or "").strip()
+        if not t:
+            return None
+        return "%" + t.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+    def _filtered(self, *, active=None, country_id=None, search=None, min_credit_limit=None):
         query = self.db.query(models.Supplier)
-        
-        if filters.active is not None:
-            query = query.filter(models.Supplier.active == filters.active)
-        if filters.country_id:
-            query = query.filter(models.Supplier.country_id == filters.country_id)
-        if filters.search:
-            search_term = f"%{filters.search}%"
+        if active is not None:
+            query = query.filter(models.Supplier.active == active)
+        if country_id:
+            query = query.filter(models.Supplier.country_id == country_id)
+        pat = self._like(search)
+        if pat:
             query = query.filter(
                 or_(
-                    models.Supplier.company_name.ilike(search_term),
-                    models.Supplier.email.ilike(search_term)
+                    models.Supplier.company_name.ilike(pat, escape="\\"),
+                    models.Supplier.email.ilike(pat, escape="\\"),
+                    models.Supplier.supplier_no.ilike(pat, escape="\\"),
                 )
             )
-        if filters.min_credit_limit:
-            query = query.filter(models.Supplier.max_credit_limit >= filters.min_credit_limit)
+        if min_credit_limit:
+            query = query.filter(models.Supplier.max_credit_limit >= min_credit_limit)
+        return query
 
-        return query.offset(filters.skip).limit(filters.limit).all()
+    def get_all(self, filters: schemas.SupplierListFilter) -> List[models.Supplier]:
+        query = self._filtered(
+            active=filters.active, country_id=filters.country_id,
+            search=filters.search, min_credit_limit=filters.min_credit_limit,
+        )
+        # Stable order: without one, rows come back in arbitrary order and a
+        # skip/limit window can repeat or miss rows.
+        return query.order_by(func.lower(models.Supplier.company_name), models.Supplier.id).offset(filters.skip).limit(filters.limit).all()
+
+    SORTS = {
+        "supplier_no": (models.Supplier.supplier_no, False),
+        "company_name": (models.Supplier.company_name, True),
+        "email": (models.Supplier.email, True),
+        "mobile_contact_number": (models.Supplier.mobile_contact_number, False),
+        "credit_days": (models.Supplier.credit_days, False),
+        "lead_time_days": (models.Supplier.lead_time_days, False),
+        "default_currency": (models.Supplier.default_currency, False),
+        "max_credit_limit": (models.Supplier.max_credit_limit, False),
+        "left_credit_amount": (models.Supplier.left_credit_amount, False),
+        "active": (models.Supplier.active, False),
+    }
+
+    def get_page(self, *, page: int, size: int, q=None, active=None, country_id=None,
+                 sort_by=None, order="asc"):
+        query = self._filtered(active=active, country_id=country_id, search=q)
+        total = query.with_entities(func.count(models.Supplier.id)).scalar() or 0
+        if sort_by == "country_name":
+            query = query.outerjoin(Country, models.Supplier.country_id == Country.id)
+            col, text_sort = Country.name, True
+        else:
+            col, text_sort = self.SORTS.get(sort_by or "company_name") or self.SORTS["company_name"]
+        expr = func.lower(col) if text_sort else col
+        expr = expr.desc() if order == "desc" else expr.asc()
+        rows = query.order_by(expr, models.Supplier.id).offset(page * size).limit(size).all()
+        return rows, total
 
     def find_by_field_value(
         self, field_name: str, value: str, exclude_id: Optional[int] = None
@@ -564,13 +608,14 @@ class PurchasingOrderRepository:
             models.PurchasingOrder.id == order_id
         ).first()
     
-    def get_all(self, filters: schemas.PurchaseOrderListFilter) -> List[models.PurchasingOrder]:
-        query = self.db.query(models.PurchasingOrder).options(
-            joinedload(models.PurchasingOrder.first_supplier),
-            joinedload(models.PurchasingOrder.second_supplier),
-            joinedload(models.PurchasingOrder.items),
-        )
-        
+    @staticmethod
+    def _like(term: Optional[str]) -> Optional[str]:
+        t = (term or "").strip()
+        if not t:
+            return None
+        return "%" + t.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+    def _apply_filters(self, query, filters: schemas.PurchaseOrderListFilter):
         if filters.supplier_id:
             query = query.filter(
                 or_(
@@ -587,8 +632,31 @@ class PurchasingOrderRepository:
             query = query.filter(models.PurchasingOrder.purchasing_order_date >= filters.date_from)
         if filters.date_to:
             query = query.filter(models.PurchasingOrder.purchasing_order_date <= filters.date_to)
-        if filters.search:
-            query = query.filter(models.PurchasingOrder.purchasing_order_no.ilike(f"%{filters.search}%"))
+        if filters.batch_id:
+            query = query.filter(models.PurchasingOrder.purchase_batch_id == filters.batch_id)
+        if filters.added_from:
+            query = query.filter(models.PurchasingOrder.added_date >= filters.added_from)
+        if filters.added_to:
+            from datetime import timedelta
+            query = query.filter(models.PurchasingOrder.added_date < filters.added_to + timedelta(days=1))
+        rpat = self._like(filters.requested_by)
+        if rpat:
+            from app.auth.models import User
+            query = query.filter(models.PurchasingOrder.created_by.in_(
+                self.db.query(User.id).filter(or_(
+                    User.username.ilike(rpat, escape="\\"),
+                    User.first_name.ilike(rpat, escape="\\"),
+                    User.last_name.ilike(rpat, escape="\\"),
+                ))
+            ))
+        pat = self._like(filters.search)
+        if pat:
+            query = query.filter(or_(
+                models.PurchasingOrder.purchasing_order_no.ilike(pat, escape="\\"),
+                models.PurchasingOrder.first_suppliers_id.in_(
+                    self.db.query(models.Supplier.id).filter(models.Supplier.company_name.ilike(pat, escape="\\"))
+                ),
+            ))
         if filters.for_grn:
             # Only return POs that are eligible for GRN creation (not yet fully received)
             query = query.filter(
@@ -596,9 +664,48 @@ class PurchasingOrderRepository:
             )
         elif filters.status:
             query = query.filter(models.PurchasingOrder.status == filters.status)
-        
-        return query.order_by(models.PurchasingOrder.purchasing_order_date.desc()).offset(filters.skip).limit(filters.limit).all()
-    
+        return query
+
+    def get_all(self, filters: schemas.PurchaseOrderListFilter) -> List[models.PurchasingOrder]:
+        query = self.db.query(models.PurchasingOrder).options(
+            joinedload(models.PurchasingOrder.first_supplier),
+            joinedload(models.PurchasingOrder.second_supplier),
+            joinedload(models.PurchasingOrder.items),
+        )
+        query = self._apply_filters(query, filters)
+        # id as tiebreaker: orders of the same date otherwise come back in arbitrary order
+        return query.order_by(models.PurchasingOrder.purchasing_order_date.desc(), models.PurchasingOrder.id.desc()).offset(filters.skip).limit(filters.limit).all()
+
+    _PO_SORTS = {
+        "purchasing_order_no": models.PurchasingOrder.purchasing_order_no,
+        "purchasing_order_date": models.PurchasingOrder.purchasing_order_date,
+        "good_received_note_date": models.PurchasingOrder.good_received_note_date,
+        "branch_code": models.PurchasingOrder.branch_code,
+        "status": models.PurchasingOrder.status,
+        "payment_method": models.PurchasingOrder.payment_method,
+        "added_date": models.PurchasingOrder.added_date,
+    }
+
+    def get_page(self, filters: schemas.PurchaseOrderListFilter, page: int, size: int, sort_by: Optional[str] = None, order: str = "desc"):
+        from sqlalchemy import func
+        from sqlalchemy.orm import selectinload
+
+        base = self._apply_filters(self.db.query(models.PurchasingOrder), filters)
+        total = base.with_entities(func.count(models.PurchasingOrder.id)).scalar() or 0
+        query = base.options(
+            joinedload(models.PurchasingOrder.first_supplier),
+            joinedload(models.PurchasingOrder.second_supplier),
+            selectinload(models.PurchasingOrder.items),
+        )
+        if sort_by in ("supplier_display_name", "supplier_name"):
+            query = query.outerjoin(models.Supplier, models.PurchasingOrder.first_suppliers_id == models.Supplier.id)
+            col = func.lower(models.Supplier.company_name)
+        else:
+            col = self._PO_SORTS.get(sort_by or "purchasing_order_date") or models.PurchasingOrder.purchasing_order_date
+        col = col.desc() if order == "desc" else col.asc()
+        rows = query.order_by(col, models.PurchasingOrder.id.desc()).offset(page * size).limit(size).all()
+        return rows, total
+
     def update(self, order_id: int, order_update: schemas.PurchasingOrderUpdate) -> Optional[models.PurchasingOrder]:
         db_order = self.get_by_id(order_id)
         if db_order:

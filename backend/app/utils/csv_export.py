@@ -22,6 +22,18 @@ from typing import Any, List, Sequence
 from fastapi.responses import StreamingResponse
 
 
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe(value: Any) -> Any:
+    """Neutralise spreadsheet formula injection in a *text* cell: a value such as
+    `=HYPERLINK(...)` or `@SUM(...)` would be executed by Excel/Sheets when the
+    exported file is opened. Numbers and dates are left untouched."""
+    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+        return "'" + value
+    return "" if value is None else value
+
+
 def _format_cell(value: Any) -> str:
     """Format a cell value for CSV output."""
     if value is None:

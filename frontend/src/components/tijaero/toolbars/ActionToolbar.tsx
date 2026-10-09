@@ -10,7 +10,7 @@
  * - Custom actions
  */
 
-import React from "react";
+import React, { useEffect } from "react";
 import {
   Box,
   Button,
@@ -23,6 +23,7 @@ import SaveIcon from "@mui/icons-material/Save";
 import CancelIcon from "@mui/icons-material/Cancel";
 import EditIcon from "@mui/icons-material/Edit";
 import { ActionToolbarProps } from "../types";
+import { clearRequiredHighlight, revealRequiredFields } from "./revealRequiredFields";
 
 export const ActionToolbar: React.FC<ActionToolbarProps> = ({
   canCreate = true,
@@ -55,6 +56,20 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
   const handleAdd = onNew ?? onAdd;
   // Support both isFormValid and saveDisabled (inverted)
   const canSave = saveDisabled !== undefined ? !saveDisabled : isFormValid;
+  // Save is always clickable; an incomplete form highlights what is missing
+  // instead of saving (so the button is never disabled just for being invalid).
+  const handleSaveClick = () => {
+    if (!canSave) {
+      revealRequiredFields();
+      return;
+    }
+    onSave?.();
+  };
+  // Drop any leftover highlight when the form opens/closes.
+  useEffect(() => {
+    clearRequiredHighlight();
+    return clearRequiredHighlight;
+  }, [isCreating, isEditing]);
   // Support both endActions and customActions
   const customEnd = endActions ?? customActions;
   // While a save is in flight, every action that would change or discard the
@@ -128,8 +143,8 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
               variant="contained"
               color="success"
               startIcon={<SaveIcon />}
-              onClick={onSave}
-              disabled={!canSave || isSaving}
+              onClick={handleSaveClick}
+              disabled={isSaving}
             >
               {isSaving ? "Saving..." : "Save"}
             </Button>

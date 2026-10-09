@@ -23,7 +23,40 @@ import {
   PriceTierUpdate,
 } from "./types";
 
+export interface Paged<T> {
+  items: T[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+}
+
+export interface PageQuery {
+  page: number;
+  size: number;
+  q?: string;
+  active?: boolean;
+  sort_by?: string;
+  order?: "asc" | "desc";
+}
+
+// Drop empty filters so they aren't sent as "q=" / "category_id=undefined".
+const cleanParams = (p: object) =>
+  Object.fromEntries(
+    Object.entries(p).filter(([, v]) => v !== undefined && v !== null && v !== "")
+  );
+
 export const productsApi = {
+  getPage: async (
+    query: PageQuery & { category_id?: number; brand_id?: number; supplier_id?: number }
+  ) => {
+    const response = await apiClient.get<Paged<Product & { category_name?: string; brand_name?: string }>>(
+      "/inventory/products/paged",
+      { params: cleanParams(query) }
+    );
+    return response.data;
+  },
+
   getAll: async (skip = 0, limit = 100000, activeOnly = true) => {
     const response = await apiClient.get<Product[]>("/inventory/products/", {
       params: { skip, limit, active_only: activeOnly },
@@ -109,6 +142,13 @@ export function productImageUrl(imageUrl?: string | null): string | null {
 }
 
 export const categoriesApi = {
+  getPage: async (query: PageQuery) => {
+    const response = await apiClient.get<Paged<Category>>("/inventory/categories/paged", {
+      params: cleanParams(query),
+    });
+    return response.data;
+  },
+
   getAll: async (skip = 0, limit = 100000, activeOnly = false) => {
     const response = await apiClient.get<Category[]>("/inventory/categories/", {
       params: { skip, limit, active_only: activeOnly },
@@ -142,6 +182,13 @@ export const categoriesApi = {
 };
 
 export const brandsApi = {
+  getPage: async (query: PageQuery) => {
+    const response = await apiClient.get<Paged<Brand>>("/inventory/brands/paged", {
+      params: cleanParams(query),
+    });
+    return response.data;
+  },
+
   getAll: async (skip = 0, limit = 100000, activeOnly = false) => {
     const response = await apiClient.get<Brand[]>("/inventory/brands/", {
       params: { skip, limit, active_only: activeOnly },
@@ -179,6 +226,24 @@ export const minimumPriceApi = {
       `/inventory/products/${productId}/minimum-prices/current`
     );
     return response.data;
+  },
+
+  /**
+   * Same as getCurrent, but "no minimum price yet" (404) is an expected state,
+   * not an error: returns null and does not raise the global red error toast.
+   * (getCurrent still throws — the quotation page relies on that.)
+   */
+  getCurrentOrNull: async (productId: number): Promise<MinimumPrice | null> => {
+    try {
+      const response = await apiClient.get<MinimumPrice>(
+        `/inventory/products/${productId}/minimum-prices/current`,
+        { headers: { "X-Hide-Error-Toast": "true" } }
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if ((error as { response?: { status?: number } })?.response?.status === 404) return null;
+      throw error;
+    }
   },
 
   set: async (productId: number, data: MinimumPriceCreate) => {

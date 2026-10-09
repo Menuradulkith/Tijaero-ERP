@@ -26,7 +26,7 @@ import {
 } from "@mui/material";
 import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { authApi, passcodeApi, type PasscodeErrorDetail } from "../api";
 
 // ─── PIN input — 6 individual cells ──────────────────────────────────────────
@@ -149,6 +149,8 @@ export default function LoginPage() {
   const location = useLocation();
   const login = useAuthStore((state) => state.login);
   const clearAuth = useAuthStore((state) => state.clearAuth);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const currentUser = useAuthStore((state) => state.user);
 
   const searchParams = new URLSearchParams(location.search);
   const redirectParam = searchParams.get("redirect");
@@ -287,6 +289,18 @@ export default function LoginPage() {
   const redirectedErrorBanner = passcodeError &&
     (passcodeError.code === "PASSCODE_EXPIRED" || passcodeError.code === "PASSCODE_LOCKED") &&
     activeTab === 0;
+
+  // Already signed in: don't show the form again. Wait for the user object
+  // (set by the second login() call) and for any in-flight login to finish so
+  // we don't pre-empt the login handlers' own navigation/toasts.
+  if (
+    isAuthenticated &&
+    currentUser &&
+    !loginMutation.isPending &&
+    !passcodeMutation.isPending
+  ) {
+    return <Navigate to={from} replace />;
+  }
 
   return (
     <Box sx={{ display: "flex", minHeight: "100dvh", bgcolor: "background.default" }}>
@@ -433,7 +447,13 @@ export default function LoginPage() {
                     ),
                     endAdornment: (
                       <InputAdornment position="end">
-                        <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                        <IconButton
+                          onClick={() => setShowPassword(!showPassword)}
+                          edge="end"
+                          aria-label={showPassword ? "Hide password" : "Show password"}
+                          aria-pressed={showPassword}
+                          sx={{ p: 1.5 }}
+                        >
                           {showPassword ? <VisibilityOff /> : <Visibility />}
                         </IconButton>
                       </InputAdornment>
@@ -448,6 +468,9 @@ export default function LoginPage() {
                   sx={{
                     mt: 3,
                     py: 1.5,
+                    // The theme shrinks button padding below 600px, which
+                    // would drop this under the 44px minimum tap target.
+                    minHeight: 48,
                     borderRadius: 2,
                     // Sign In should stay a solid, high-contrast call to
                     // action — override the app-wide soft-tint contained
@@ -528,7 +551,7 @@ export default function LoginPage() {
                   type="submit"
                   variant="contained"
                   size="large"
-                  sx={{ mt: 1, py: 1.5, borderRadius: 2 }}
+                  sx={{ mt: 1, py: 1.5, minHeight: 48, borderRadius: 2 }}
                   disabled={passcodeMutation.isPending || pin.length < 6 || !pcUsername.trim()}
                 >
                   {passcodeMutation.isPending ? "Verifying…" : "Sign In with Passcode"}

@@ -1,0 +1,147 @@
+- generic [ref=f2e2]:
+  - generic [ref=f2e4]:
+    - generic:
+      - generic [ref=f2e5]:
+        - button "Home" [ref=f2e6] [cursor=pointer]
+        - button "Hide Sidebar" [ref=f2e9] [cursor=pointer]
+        - button "Find Page" [ref=f2e12] [cursor=pointer]
+      - banner [ref=f2e15]:
+        - generic [ref=f2e17]:
+          - generic [ref=f2e18]:
+            - paragraph [ref=f2e19]: Admin User
+            - generic [ref=f2e20]: Superuser
+          - button "0" [ref=f2e386] [cursor=pointer]
+          - button "Tijaero.AI assistant" [ref=f2e25] [cursor=pointer]: Tijaero.AI
+          - button "A" [ref=f2e29] [cursor=pointer]
+      - navigation [ref=f2e31]:
+        - generic [ref=f2e33]:
+          - heading "TijaeroERP" [level=6] [ref=f2e38]
+          - separator [ref=f2e39]
+          - list [ref=f2e41]:
+            - listitem [ref=f2e43]:
+              - button "Dashboard" [ref=f2e44] [cursor=pointer]
+            - listitem [ref=f2e51]:
+              - button "Sales" [ref=f2e52] [cursor=pointer]
+            - listitem [ref=f2e61]:
+              - button "Purchasing" [ref=f2e62] [cursor=pointer]
+            - generic [ref=f2e70]:
+              - listitem [ref=f2e71]:
+                - button "Product Catalogs" [ref=f2e72] [cursor=pointer]
+              - list [ref=f2e82]:
+                - listitem [ref=f2e84]:
+                  - button "Products" [ref=f2e85] [cursor=pointer]
+                - listitem [ref=f2e92]:
+                  - button "Categories" [ref=f2e93] [cursor=pointer]
+                - listitem [ref=f2e102]:
+                  - button "Brands" [ref=f2e103] [cursor=pointer]
+            - listitem [ref=f2e110]:
+              - button "Finance" [ref=f2e111] [cursor=pointer]
+            - listitem [ref=f2e120]:
+              - button "HR" [ref=f2e121] [cursor=pointer]
+            - listitem [ref=f2e130]:
+              - button "Warehouse" [ref=f2e131] [cursor=pointer]
+            - listitem [ref=f2e140]:
+              - button "Company Assets" [ref=f2e141] [cursor=pointer]
+            - listitem [ref=f2e148]:
+              - button "Support" [ref=f2e149] [cursor=pointer]
+            - listitem [ref=f2e159]:
+              - button "Reporting" [ref=f2e160] [cursor=pointer]
+            - listitem [ref=f2e167]:
+              - button "Branches" [ref=f2e168] [cursor=pointer]
+            - listitem [ref=f2e175]:
+              - button "Users" [ref=f2e176] [cursor=pointer]
+            - listitem [ref=f2e183]:
+              - button "Roles" [ref=f2e184] [cursor=pointer]
+            - listitem [ref=f2e191]:
+              - button "Settings" [ref=f2e192] [cursor=pointer]
+          - separator [ref=f2e198]
+          - list [ref=f2e199]
+    - main [ref=f2e200]:
+      - generic [ref=f2e388]:
+        - generic [ref=f2e389]:
+          - generic [ref=f2e391]:
+            - generic [ref=f2e393]:
+              - textbox "Search product..." [ref=f2e397]
+              - group [aria-hidden]
+            - generic [ref=f2e401]:
+              - combobox "All Status" [ref=f2e402]
+              - button "Open" [ref=f2e404] [cursor=pointer]
+              - group [aria-hidden]
+            - generic [ref=f2e410]:
+              - combobox "All Suppliers" [ref=f2e411]
+              - button "Open" [ref=f2e413] [cursor=pointer]
+              - group [aria-hidden]
+            - generic [ref=f2e419]:
+              - combobox "All Categories" [ref=f2e420]
+              - button "Open" [ref=f2e422] [cursor=pointer]
+              - group [aria-hidden]
+            - generic [ref=f2e428]:
+              - combobox "All Brands" [ref=f2e429]
+              - button "Open" [ref=f2e431] [cursor=pointer]
+              - group [aria-hidden]
+          - generic [ref=f2e434]:
+            - button [ref=f2e435] [cursor=pointer]
+            - button [ref=f2e439] [cursor=pointer]
+        - generic [ref=f2e446]:
+          - grid [ref=f2e447]:
+            - row [ref=f2e448]:
+              - columnheader "Item Code" [ref=f2e449] [cursor=pointer]
+              - columnheader "Item Type" [ref=f2e453] [cursor=pointer]
+              - columnheader "Name" [ref=f2e457] [cursor=pointer]
+              - columnheader "Category" [ref=f2e461] [cursor=pointer]
+              - columnheader "Brand" [ref=f2e465] [cursor=pointer]
+              - columnheader "UOM" [ref=f2e469] [cursor=pointer]
+              - columnheader "Preferred Supplier" [ref=f2e473] [cursor=pointer]
+              - columnheader "Cost Price" [ref=f2e477] [cursor=pointer]
+              - columnheader "Sell Price" [ref=f2e481] [cursor=pointer]
+              - columnheader "Min. Sell Price" [ref=f2e485] [cursor=pointer]
+              - columnheader "Status" [ref=f2e489] [cursor=pointer]
+            - rowgroup [ref=f2e493]:
+              - row [ref=f2e494] [cursor=pointer]:
+                - gridcell "0002" [ref=f2e495]
+                - gridcell "Inventory" [ref=f2e496]
+                - gridcell "AP Apple mackbook" [ref=f2e497]:
+                  - generic [ref=f2e498]:
+                    - generic [ref=f2e499]: AP
+                    - paragraph [ref=f2e500]: Apple mackbook
+                - gridcell "Laptop" [ref=f2e501]
+                - gridcell "Apple" [ref=f2e502]
+                - gridcell "Piece(s)" [ref=f2e503]
+                - gridcell "dwdw" [ref=f2e504]
+                - gridcell "Rs. 100.00" [ref=f2e505]
+                - gridcell "Rs. 200.00" [ref=f2e506]
+                - gridcell "Rs. 150.00" [ref=f2e507]
+                - gridcell "Active" [ref=f2e508]
+              - row [ref=f2e511] [cursor=pointer]:
+                - gridcell "001" [ref=f2e512]
+                - gridcell "Inventory" [ref=f2e513]
+                - gridcell "FF fffef" [ref=f2e514]:
+                  - generic [ref=f2e515]:
+                    - generic [ref=f2e516]: FF
+                    - paragraph [ref=f2e517]: fffef
+                - gridcell "Laptop" [ref=f2e518]
+                - gridcell "Apple" [ref=f2e519]
+                - gridcell "Piece(s)" [ref=f2e520]
+                - gridcell "Apple" [ref=f2e521]
+                - gridcell "Rs. 100,000.00" [ref=f2e522]
+                - gridcell "Rs. 120,000.00" [ref=f2e523]
+                - gridcell "Rs. 105,000.00" [ref=f2e524]
+                - gridcell "Active" [ref=f2e525]
+          - generic [ref=f2e531]:
+            - generic [ref=f2e532]:
+              - button "Row density" [ref=f2e533] [cursor=pointer]:
+                - generic [ref=f2e537]: Standard
+              - button "Show or hide columns" [ref=f2e538] [cursor=pointer]:
+                - generic [ref=f2e542]: Columns
+              - button "Export the filtered rows to CSV" [ref=f2e543] [cursor=pointer]:
+                - generic [ref=f2e547]: Export
+            - generic [ref=f2e549]:
+              - paragraph [ref=f2e550]: "Rows per page:"
+              - generic [ref=f2e551]:
+                - 'combobox "Rows per page: 25" [ref=f2e552] [cursor=pointer]': "25"
+                - textbox [aria-hidden]: "25"
+              - paragraph [ref=f2e553]: 1–2 of 2
+              - generic [ref=f2e554]:
+                - button "Go to previous page" [disabled]
+                - button "Go to next page" [disabled]
+  - button "Open Tanstack query devtools" [ref=f2e337] [cursor=pointer]

@@ -14,11 +14,13 @@ export interface Supplier {
   billing_city?: string;
   billing_state?: string;
   billing_postal_code?: string;
+  billing_country_id?: number;
   shipping_address_line1?: string;
   shipping_address_line2?: string;
   shipping_city?: string;
   shipping_state?: string;
   shipping_postal_code?: string;
+  shipping_country_id?: number;
   email?: string;
   home_contact_number?: string;
   mobile_contact_number: string;
@@ -243,11 +245,13 @@ export interface SupplierCreate {
   billing_city?: string;
   billing_state?: string;
   billing_postal_code?: string;
+  billing_country_id?: number;
   shipping_address_line1?: string;
   shipping_address_line2?: string;
   shipping_city?: string;
   shipping_state?: string;
   shipping_postal_code?: string;
+  shipping_country_id?: number;
   email?: string;
   home_contact_number?: string;
   mobile_contact_number: string;
@@ -270,11 +274,13 @@ export interface SupplierUpdate {
   billing_city?: string;
   billing_state?: string;
   billing_postal_code?: string;
+  billing_country_id?: number;
   shipping_address_line1?: string;
   shipping_address_line2?: string;
   shipping_city?: string;
   shipping_state?: string;
   shipping_postal_code?: string;
+  shipping_country_id?: number;
   email?: string;
   home_contact_number?: string;
   mobile_contact_number?: string;
@@ -355,6 +361,8 @@ export interface PurchasingOrder {
   /** Set when this PO was created from a Sales Quotation. */
   sales_quote_id?: number | null;
   sales_quote_no?: string | null;
+  /** Why the approver rejected the PO; only set when it is rejected. */
+  rejection_reason?: string | null;
   cancellation_reason?: string | null;
   cancelled_date?: string | null;
   cancelled_by?: number | null;

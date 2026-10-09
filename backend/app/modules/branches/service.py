@@ -109,8 +109,8 @@ class BranchService:
         self._attach_user_names(db, [updated_branch])
         return updated_branch
 
-    def get_total_count(self, db: Session) -> int:
-        return self.repository.count(db)
+    def get_total_count(self, db: Session, active_only: bool = False) -> int:
+        return self.repository.count(db, active_only)
 
     def get_branch_performance(self, db: Session, branch_id: int) -> schemas.BranchPerformance:
         """Quick sales/stock KPIs for a branch, for the detail-panel widget."""

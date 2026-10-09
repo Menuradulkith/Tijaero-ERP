@@ -10,12 +10,33 @@ from app.auth.models import User
 from app.auth.rbac import Permissions, require_any_permission, require_permission
 from app.common.audit import AuditLog
 from app.db.session import get_db
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from typing import Annotated, Literal
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, UploadFile, status
 from sqlalchemy import desc
+from app.modules.common.models import Country
 from sqlalchemy.orm import Session
 
 from . import schemas, service
 from .models import PurchasingOrder, PurchasingOrderItems, GoodReceivedNote, Supplier, SupplierAdvancePayment
+
+# Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
+RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
+
+# Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
+RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
+
+# Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
+RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
+
+
+def _ensure_order_branch(db: Session, user: User, order_id: int) -> None:
+    """404 if the PO does not exist, 403 if it belongs to a branch the user cannot access."""
+    row = db.query(PurchasingOrder.branch_code).filter(PurchasingOrder.id == order_id).first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Purchase order with id {order_id} not found")
+    if not validate_branch_access(user, row.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {row.branch_code}")
+
 
 router = APIRouter(prefix="/purchasing", tags=["purchasing"])
 
@@ -33,6 +54,7 @@ def _serialize_order_with_user_fields(
     updated_by: Optional[int] = None,
     supplier_name_map: Optional[Dict[int, str]] = None,
     sales_quote_no_map: Optional[Dict[int, str]] = None,
+    rejection_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     payload = schemas.PurchasingOrder.model_validate(order).model_dump()
     payload["created_by"] = created_by
@@ -40,6 +62,7 @@ def _serialize_order_with_user_fields(
     payload["approved_by"] = approved_by
     payload["approved_by_name"] = user_name_map.get(approved_by) if approved_by else None
     payload["updated_by"] = updated_by
+    payload["rejection_reason"] = rejection_reason
     payload["updated_by_name"] = user_name_map.get(updated_by) if updated_by else None
     if supplier_name_map and order.first_suppliers_id:
         payload["supplier_name"] = supplier_name_map.get(order.first_suppliers_id)
@@ -92,13 +115,16 @@ def _enrich_purchase_orders_with_user_fields(
             updated_by_map[entity_id] = user_id
 
     approval_user_map: Dict[int, int] = {}
+    rejection_reason_map: Dict[int, str] = {}
     if approval_ids:
         approval_records = (
-            db.query(Approvals.id, Approvals.status, Approvals.status_changed_by)
+            db.query(Approvals.id, Approvals.status, Approvals.status_changed_by, Approvals.remark)
             .filter(Approvals.id.in_(approval_ids))
             .all()
         )
-        for approval_id, status_value, status_changed_by in approval_records:
+        for approval_id, status_value, status_changed_by, remark in approval_records:
+            if remark and status_value and str(status_value).lower() == "rejected":
+                rejection_reason_map[approval_id] = remark
             if (
                 status_changed_by
                 and status_value
@@ -123,6 +149,7 @@ def _enrich_purchase_orders_with_user_fields(
             updated_by=updated_by_map.get(order.id),
             supplier_name_map=_get_supplier_name_map(db, orders),
             sales_quote_no_map=_get_sales_quote_no_map(db, orders),
+            rejection_reason=rejection_reason_map.get(order.approval_id) if order.approval_id else None,
         )
         for order in orders
     ]
@@ -275,11 +302,32 @@ def create_supplier(
 
 
 @router.get(
+    "/suppliers/paged",
+    response_model=schemas.Page[schemas.Supplier],
+    summary="Paged supplier list (server-side search, filter, sort)",
+)
+def list_suppliers_paged(
+    page: int = Query(0, ge=0, le=1_000_000),
+    size: int = Query(25, ge=1, le=200),
+    q: Optional[str] = Query(None, max_length=255),
+    active: Optional[bool] = None,
+    country_id: Optional[int] = Query(None, ge=1, le=2_147_483_647),
+    sort_by: Optional[str] = Query(None, max_length=40),
+    order: Literal["asc", "desc"] = Query("asc"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
+):
+    return service.SupplierService(db).list_suppliers_page(
+        page, size, q=q, active=active, country_id=country_id, sort_by=sort_by, order=order
+    )
+
+
+@router.get(
     "/suppliers/{supplier_id}",
     response_model=schemas.Supplier,
 )
 def get_supplier(
-    supplier_id: int,
+    supplier_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
 ):
@@ -293,7 +341,7 @@ def get_supplier(
     response_model=List[schemas.SupplierActivityLogEntry],
 )
 def get_supplier_activity_log(
-    supplier_id: int,
+    supplier_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
 ):
@@ -307,9 +355,9 @@ def get_supplier_activity_log(
 )
 def list_suppliers(
     active: Optional[bool] = None,
-    country_id: Optional[int] = None,
-    search: Optional[str] = None,
-    min_credit_limit: Optional[int] = None,
+    country_id: Optional[int] = Query(None, ge=1, le=2_147_483_647),
+    search: Optional[str] = Query(None, max_length=255),
+    min_credit_limit: Optional[int] = Query(None, ge=0, le=2_147_483_647),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -327,12 +375,13 @@ def list_suppliers(
     return supplier_service.list_suppliers(filters)
 
 
+
 @router.patch(
     "/suppliers/{supplier_id}",
     response_model=schemas.Supplier,
 )
 def update_supplier(
-    supplier_id: int,
+    supplier_id: RowId,
     supplier_update: schemas.SupplierUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(
@@ -348,7 +397,7 @@ def update_supplier(
     response_model=schemas.Supplier,
 )
 def upload_supplier_logo(
-    supplier_id: int,
+    supplier_id: RowId,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(
@@ -367,7 +416,7 @@ def upload_supplier_logo(
     response_model=schemas.Supplier,
 )
 def remove_supplier_logo(
-    supplier_id: int,
+    supplier_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_UPDATE)),
 ):
@@ -380,7 +429,7 @@ def remove_supplier_logo(
     response_model=List[schemas.SupplierPaymentMethod],
 )
 def list_supplier_payment_methods(
-    supplier_id: int,
+    supplier_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
 ):
@@ -393,7 +442,7 @@ def list_supplier_payment_methods(
     status_code=status.HTTP_201_CREATED,
 )
 def create_supplier_payment_method(
-    supplier_id: int,
+    supplier_id: RowId,
     payload: schemas.SupplierPaymentMethodCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(
@@ -408,8 +457,8 @@ def create_supplier_payment_method(
     response_model=schemas.SupplierPaymentMethod,
 )
 def update_supplier_payment_method(
-    supplier_id: int,
-    method_id: int,
+    supplier_id: RowId,
+    method_id: RowId,
     payload: schemas.SupplierPaymentMethodUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(
@@ -424,8 +473,8 @@ def update_supplier_payment_method(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_supplier_payment_method(
-    supplier_id: int,
-    method_id: int,
+    supplier_id: RowId,
+    method_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(
         require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
@@ -440,7 +489,7 @@ def delete_supplier_payment_method(
     response_model=List[schemas.SupplierContactPerson],
 )
 def list_supplier_contact_persons(
-    supplier_id: int,
+    supplier_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
 ):
@@ -453,7 +502,7 @@ def list_supplier_contact_persons(
     status_code=status.HTTP_201_CREATED,
 )
 def create_supplier_contact_person(
-    supplier_id: int,
+    supplier_id: RowId,
     payload: schemas.SupplierContactPersonCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(
@@ -468,8 +517,8 @@ def create_supplier_contact_person(
     response_model=schemas.SupplierContactPerson,
 )
 def update_supplier_contact_person(
-    supplier_id: int,
-    contact_id: int,
+    supplier_id: RowId,
+    contact_id: RowId,
     payload: schemas.SupplierContactPersonUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(
@@ -484,8 +533,8 @@ def update_supplier_contact_person(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_supplier_contact_person(
-    supplier_id: int,
-    contact_id: int,
+    supplier_id: RowId,
+    contact_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(
         require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
@@ -500,7 +549,7 @@ def delete_supplier_contact_person(
     response_model=List[schemas.SupplierProduct],
 )
 def list_supplier_products(
-    supplier_id: int,
+    supplier_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
 ):
@@ -513,7 +562,7 @@ def list_supplier_products(
     status_code=status.HTTP_201_CREATED,
 )
 def create_supplier_product(
-    supplier_id: int,
+    supplier_id: RowId,
     payload: schemas.SupplierProductCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(
@@ -533,8 +582,8 @@ def create_supplier_product(
     response_model=schemas.SupplierProduct,
 )
 def update_supplier_product(
-    supplier_id: int,
-    mapping_id: int,
+    supplier_id: RowId,
+    mapping_id: RowId,
     payload: schemas.SupplierProductUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(
@@ -554,8 +603,8 @@ def update_supplier_product(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_supplier_product(
-    supplier_id: int,
-    mapping_id: int,
+    supplier_id: RowId,
+    mapping_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(
         require_any_permission(
@@ -576,13 +625,15 @@ def delete_supplier_product(
     dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
 )
 def check_daily_po_limit(
-    branch_code: str, check_date: Optional[str] = None, db: Session = Depends(get_db)
+    branch_code: Annotated[str, Path(min_length=1, max_length=200)],
+    check_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    from datetime import date as date_type
-
+    if not validate_branch_access(current_user, branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
     order_service = service.PurchasingOrderService(db)
-    target_date = date_type.fromisoformat(check_date) if check_date else None
-    return order_service.check_daily_limit(branch_code, target_date)
+    return order_service.check_daily_limit(branch_code, check_date)
 
 
 @router.get(
@@ -590,14 +641,48 @@ def check_daily_po_limit(
     dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
 )
 def get_available_stock_for_products(
-    product_ids: str, branch_code: str, db: Session = Depends(get_db)
+    product_ids: Annotated[str, Query(max_length=2000)],
+    branch_code: Annotated[str, Query(min_length=1, max_length=200)],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Available stock count per product at a branch — lets the PO creation
     wizard show what's already in stock before the user orders more.
     `product_ids` is a comma-separated list of product ids."""
-    ids = [int(p) for p in product_ids.split(",") if p.strip()]
+    if not validate_branch_access(current_user, branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
+    try:
+        ids = [int(p) for p in product_ids.split(",") if p.strip()]
+    except ValueError:
+        raise HTTPException(status_code=422, detail="product_ids must be a comma-separated list of integers")
+    if len(ids) > 200 or any(i < 1 or i > 2_147_483_647 for i in ids):
+        raise HTTPException(status_code=422, detail="product_ids must hold at most 200 ids between 1 and 2147483647")
     order_service = service.PurchasingOrderService(db)
     return order_service.get_available_stock_by_product(ids, branch_code)
+
+
+@router.get(
+    "/orders/in-transit",
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
+)
+def get_in_transit_for_products(
+    product_ids: Annotated[str, Query(max_length=2000)],
+    branch_code: Annotated[str, Query(min_length=1, max_length=200)],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Units per product still on their way at a branch (ordered on approved
+    POs, not yet received) — shown next to Available Qty in the PO creation
+    wizard so the user doesn't re-order what is already coming."""
+    if not validate_branch_access(current_user, branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
+    try:
+        ids = [int(p) for p in product_ids.split(",") if p.strip()]
+    except ValueError:
+        raise HTTPException(status_code=422, detail="product_ids must be a comma-separated list of integers")
+    if len(ids) > 200 or any(i < 1 or i > 2_147_483_647 for i in ids):
+        raise HTTPException(status_code=422, detail="product_ids must hold at most 200 ids between 1 and 2147483647")
+    return service.PurchasingOrderService(db).get_in_transit_by_product(ids, branch_code)
 
 
 @router.post(
@@ -691,12 +776,15 @@ def add_to_procurement_queue(
     payload: schemas.ProcurementQueueItemBatchCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_CREATE)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Queue quotation items (with a supplier already chosen) for the TOP
-    page, ahead of actually creating purchase orders for them."""
+    page, ahead of actually creating purchase orders for them. Only approved
+    quotations of the caller's branches can be queued; the response lists the
+    caller's own branches' queue only."""
     queue_service = service.ProcurementQueueService(db)
-    queue_service.add_to_queue(payload.items, added_by=current_user.id)
-    return queue_service.list_queue()
+    queue_service.add_to_queue(payload.items, added_by=current_user.id, allowed_branches=user_branches)
+    return queue_service.list_queue(branch_codes=user_branches)
 
 
 @router.get(
@@ -716,9 +804,52 @@ def list_procurement_queue(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_CREATE))],
 )
-def remove_from_procurement_queue(queue_item_id: int, db: Session = Depends(get_db)):
-    service.ProcurementQueueService(db).remove_from_queue(queue_item_id)
+def remove_from_procurement_queue(
+    queue_item_id: RowId,
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    service.ProcurementQueueService(db).remove_from_queue(queue_item_id, allowed_branches=user_branches)
     return None
+
+
+@router.get(
+    "/orders/paged",
+    response_model=schemas.Page[schemas.PurchasingOrder],
+    summary="Paged purchase order list (server-side search, filter, sort)",
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
+)
+def list_purchase_orders_paged(
+    page: int = Query(0, ge=0, le=1_000_000),
+    size: int = Query(25, ge=1, le=200),
+    q: Optional[str] = Query(None, max_length=255),
+    status_filter: Optional[str] = Query(None, alias="status", max_length=30),
+    supplier_id: Optional[int] = Query(None, ge=1, le=2_147_483_647),
+    branch_code: Optional[str] = Query(None, max_length=200),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    batch_id: Optional[str] = Query(None, max_length=36),
+    requested_by: Optional[str] = Query(None, max_length=100),
+    added_from: Optional[date] = None,
+    added_to: Optional[date] = None,
+    sort_by: Optional[str] = Query(None, max_length=40),
+    order: Literal["asc", "desc"] = Query("desc"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
+    filters = schemas.PurchaseOrderListFilter(
+        status=status_filter, supplier_id=supplier_id, branch_code=branch_code, branch_codes=user_branches,
+        date_from=date_from, date_to=date_to, search=q, batch_id=batch_id,
+        requested_by=requested_by, added_from=added_from, added_to=added_to,
+    )
+    rows, total = service.PurchasingOrderService(db).list_orders_page(filters, page, size, sort_by, order)
+    return {
+        "items": _enrich_purchase_orders_with_user_fields(db, rows), "total": total,
+        "page": page, "size": size, "pages": -(-total // size),
+    }
 
 
 @router.get(
@@ -726,7 +857,12 @@ def remove_from_procurement_queue(queue_item_id: int, db: Session = Depends(get_
     response_model=schemas.PurchasingOrderWithItems,
     dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
 )
-def get_purchase_order(order_id: int, db: Session = Depends(get_db)):
+def get_purchase_order(
+    order_id: RowId,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_order_branch(db, current_user, order_id)
     order_service = service.PurchasingOrderService(db)
     order = order_service.get_order(order_id)
     return _enrich_single_purchase_order_with_user_fields(db, order)
@@ -738,20 +874,19 @@ def get_purchase_order(order_id: int, db: Session = Depends(get_db)):
     dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
 )
 def list_purchase_orders(
-    status: Optional[str] = None,
-    supplier_id: Optional[int] = None,
-    branch_code: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    status_filter: Optional[str] = Query(None, alias="status", max_length=30),
+    supplier_id: Optional[int] = Query(None, ge=1, le=2_147_483_647),
+    branch_code: Optional[str] = Query(None, max_length=200),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    batch_id: Optional[str] = Query(None, max_length=36),
     for_grn: bool = False,
-    skip: int = Query(0, ge=0),
+    skip: int = Query(0, ge=0, le=10_000_000),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    from datetime import date as date_type
-
     # Apply branch-based access control
     # If user requested a specific branch, validate they have access
     if branch_code:
@@ -768,12 +903,13 @@ def list_purchase_orders(
 
     order_service = service.PurchasingOrderService(db)
     filters = schemas.PurchaseOrderListFilter(
-        status=status,
+        status=status_filter,
         supplier_id=supplier_id,
         branch_code=filter_branch,
         branch_codes=user_branches,  # Pass list of allowed branches for filtering
-        date_from=date_type.fromisoformat(date_from) if date_from else None,
-        date_to=date_type.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
+        batch_id=batch_id,
         for_grn=for_grn,
         skip=skip,
         limit=limit,
@@ -787,11 +923,14 @@ def list_purchase_orders(
     response_model=schemas.PurchasingOrder,
 )
 def update_purchase_order(
-    order_id: int,
+    order_id: RowId,
     order_update: schemas.PurchasingOrderUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_UPDATE)),
 ):
+    _ensure_order_branch(db, current_user, order_id)
+    if order_update.branch_code and not validate_branch_access(current_user, order_update.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {order_update.branch_code}")
     order_service = service.PurchasingOrderService(db)
     return order_service.update_order(order_id, order_update, updated_by=current_user.id)
 
@@ -801,11 +940,12 @@ def update_purchase_order(
     response_model=schemas.PurchasingOrder,
 )
 def cancel_purchase_order(
-    order_id: int,
+    order_id: RowId,
     payload: schemas.PurchasingOrderCancelRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_UPDATE)),
 ):
+    _ensure_order_branch(db, current_user, order_id)
     order_service = service.PurchasingOrderService(db)
     return order_service.cancel_order(order_id, payload.reason, user_id=current_user.id)
 
@@ -815,11 +955,12 @@ def cancel_purchase_order(
     response_model=schemas.PurchasingOrder,
 )
 def short_close_purchase_order(
-    order_id: int,
+    order_id: RowId,
     payload: schemas.PurchasingOrderShortCloseRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_UPDATE)),
 ):
+    _ensure_order_branch(db, current_user, order_id)
     order_service = service.PurchasingOrderService(db)
     return order_service.short_close_order(order_id, payload.reason, user_id=current_user.id)
 
@@ -830,10 +971,10 @@ def short_close_purchase_order(
     dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
 )
 def check_po_credit(
-    supplier_id: int = Query(..., description="Supplier ID"),
-    po_value: float = Query(..., description="Total PO value"),
-    payment_method: str = Query("Credit", description="Payment method (Credit/Cash)"),
-    po_id: Optional[int] = Query(None, description="PO ID to exclude from pending credits (used when re-checking an existing PO)"),
+    supplier_id: int = Query(..., ge=1, le=2_147_483_647, description="Supplier ID"),
+    po_value: float = Query(..., ge=0, le=1e12, allow_inf_nan=False, description="Total PO value"),
+    payment_method: str = Query("Credit", max_length=30, description="Payment method (Credit/Cash)"),
+    po_id: Optional[int] = Query(None, ge=1, le=2_147_483_647, description="PO ID to exclude from pending credits (used when re-checking an existing PO)"),
     db: Session = Depends(get_db)
 ):
     from decimal import Decimal
@@ -870,14 +1011,15 @@ def check_grn_credit(
     dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
 )
 def get_supplier_orders(
-    supplier_id: int,
-    skip: int = Query(0, ge=0),
+    supplier_id: RowId,
+    skip: int = Query(0, ge=0, le=10_000_000),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     order_service = service.PurchasingOrderService(db)
     filters = schemas.PurchaseOrderListFilter(
-        supplier_id=supplier_id, skip=skip, limit=limit
+        supplier_id=supplier_id, branch_codes=user_branches, skip=skip, limit=limit
     )
     orders = order_service.list_orders(filters)
     return _enrich_purchase_orders_with_user_fields(db, orders)
@@ -1267,7 +1409,7 @@ def list_credit_settlements(
     response_model=List[schemas.SupplierCreditsSettle],
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
 )
-def get_supplier_credit_settlements(supplier_id: int, db: Session = Depends(get_db)):
+def get_supplier_credit_settlements(supplier_id: RowId, db: Session = Depends(get_db)):
     settle_service = service.SupplierCreditsSettleService(db)
     return settle_service.get_by_supplier(supplier_id)
 
@@ -1321,7 +1463,7 @@ from app.modules.purchasing.credit_service import supplier_credit_service
     "/suppliers/{supplier_id}/credit-status",
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_VIEW))],
 )
-def get_supplier_credit_status(supplier_id: int, db: Session = Depends(get_db)):
+def get_supplier_credit_status(supplier_id: RowId, db: Session = Depends(get_db)):
     return supplier_credit_service.get_supplier_credit_status(db, supplier_id)
 
 
@@ -1329,7 +1471,7 @@ def get_supplier_credit_status(supplier_id: int, db: Session = Depends(get_db)):
     "/suppliers/{supplier_id}/non-credit-status",
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_VIEW))],
 )
-def get_supplier_non_credit_status(supplier_id: int, db: Session = Depends(get_db)):
+def get_supplier_non_credit_status(supplier_id: RowId, db: Session = Depends(get_db)):
     return supplier_credit_service.get_supplier_non_credit_status(db, supplier_id)
 
 
@@ -1337,7 +1479,7 @@ def get_supplier_non_credit_status(supplier_id: int, db: Session = Depends(get_d
     "/suppliers/{supplier_id}/payment-status",
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_VIEW))],
 )
-def get_supplier_payment_status(supplier_id: int, db: Session = Depends(get_db)):
+def get_supplier_payment_status(supplier_id: RowId, db: Session = Depends(get_db)):
     """
     Get complete payment status for a supplier - ALL outstanding documents.
 
@@ -1414,7 +1556,7 @@ def get_outstanding_documents(
     "/suppliers/{supplier_id}/aging-report",
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
 )
-def get_supplier_aging_report(supplier_id: int, db: Session = Depends(get_db)):
+def get_supplier_aging_report(supplier_id: RowId, db: Session = Depends(get_db)):
     return supplier_credit_service.get_aging_report(db, supplier_id)
 
 

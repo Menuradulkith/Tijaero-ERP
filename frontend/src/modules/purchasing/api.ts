@@ -106,7 +106,33 @@ export const purchasingStatsApi = {
 };
 
 // Supplier API
+export interface PagedSuppliers {
+  items: Supplier[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+}
+
 export const suppliersApi = {
+  getPage: async (params: {
+    page: number;
+    size: number;
+    q?: string;
+    active?: boolean;
+    country_id?: number;
+    sort_by?: string;
+    order?: "asc" | "desc";
+  }) => {
+    const clean = Object.fromEntries(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")
+    );
+    const response = await apiClient.get<PagedSuppliers>("/purchasing/suppliers/paged", {
+      params: clean,
+    });
+    return response.data;
+  },
+
   getAll: async (params?: {
     active?: boolean;
     country_id?: number;
@@ -248,7 +274,41 @@ export const suppliersApi = {
 };
 
 // Purchase Orders API
+export interface PagedPurchaseOrders {
+  items: PurchasingOrder[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+}
+
+export interface PurchaseOrderPageQuery {
+  page: number;
+  size: number;
+  q?: string;
+  status?: string;
+  supplier_id?: number;
+  branch_code?: string;
+  date_from?: string;
+  date_to?: string;
+  batch_id?: string;
+  requested_by?: string;
+  added_from?: string;
+  added_to?: string;
+  sort_by?: string;
+  order?: "asc" | "desc";
+}
+
 export const purchaseOrdersApi = {
+  // One page of purchase orders; search, filters and sort run on the server
+  getPage: async (params: PurchaseOrderPageQuery) => {
+    const clean = Object.fromEntries(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")
+    );
+    const response = await apiClient.get<PagedPurchaseOrders>("/purchasing/orders/paged", { params: clean });
+    return response.data;
+  },
+
   getAll: async (params?: {
     status?: string;
     supplier_id?: number;
@@ -343,6 +403,19 @@ export const purchaseOrdersApi = {
     if (productIds.length === 0) return {};
     const response = await apiClient.get<Record<string, number>>(
       "/purchasing/orders/available-stock",
+      { params: { product_ids: productIds.join(","), branch_code: branchCode } }
+    );
+    return Object.fromEntries(
+      Object.entries(response.data).map(([id, qty]) => [Number(id), qty])
+    );
+  },
+
+  /** Units per product still on their way at a branch (ordered on approved
+   * POs, not yet received), keyed by product id. */
+  getInTransit: async (productIds: number[], branchCode: string): Promise<Record<number, number>> => {
+    if (productIds.length === 0) return {};
+    const response = await apiClient.get<Record<string, number>>(
+      "/purchasing/orders/in-transit",
       { params: { product_ids: productIds.join(","), branch_code: branchCode } }
     );
     return Object.fromEntries(

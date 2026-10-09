@@ -144,6 +144,10 @@ API calls are rate-limited to ensure fair usage.
 
 app.openapi = custom_openapi
 
+# Keep in-flight requests below the DB pool (pool_size + max_overflow = 40).
+from app.core.admission import AdmissionControlMiddleware  # noqa: E402
+app.add_middleware(AdmissionControlMiddleware, max_concurrent=32, queue_timeout=15.0)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -164,7 +168,17 @@ from fastapi.staticfiles import StaticFiles
 
 _upload_dir = _Path(settings.UPLOAD_DIR)
 _upload_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(_upload_dir)), name="uploads")
+class _SafeUploads(StaticFiles):
+    """Uploaded files are user content: never let a browser sniff or execute them."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
+        return response
+
+
+app.mount("/uploads", _SafeUploads(directory=str(_upload_dir)), name="uploads")
 
 
 # ── Audit User Context Middleware ────────────────────────────────────
@@ -222,7 +236,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     # on its own — drop "ctx" from the raw payload we echo back (the human
     # readable "msg"/"message" already carries its text).
     raw_errors = [
-        {k: v for k, v in err.items() if k != "ctx"} for err in exc.errors()
+        {k: v for k, v in err.items() if k not in ("ctx", "input")} for err in exc.errors()
     ]
 
     return JSONResponse(
@@ -251,6 +265,15 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
         return JSONResponse(
             status_code=409,
             content={"detail": "A duplicate record was detected. Please check your data and try again."},
+        )
+    from sqlalchemy.exc import TimeoutError as SAPoolTimeout
+    if isinstance(exc, SAPoolTimeout):
+        # Connection pool exhausted: tell clients to retry rather than report a server fault.
+        logging.error("Database pool exhausted: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            headers={"Retry-After": "2"},
+            content={"detail": "The server is busy. Please try again in a moment."},
         )
     logging.error(f"Database Error: {exc}", exc_info=True)
     return JSONResponse(

@@ -165,7 +165,7 @@ export default function ProfileSettings() {
                       name="first_name"
                       control={control}
                       render={({ field }) => (
-                        <TextField {...field} label="First Name" fullWidth size="small" />
+                        <TextField {...field} label="First Name" fullWidth size="small" inputProps={{ maxLength: 30 }} />
                       )}
                     />
                   </Grid>
@@ -174,7 +174,7 @@ export default function ProfileSettings() {
                       name="middle_name"
                       control={control}
                       render={({ field }) => (
-                        <TextField {...field} label="Middle Name" fullWidth size="small" />
+                        <TextField {...field} label="Middle Name" fullWidth size="small" inputProps={{ maxLength: 30 }} />
                       )}
                     />
                   </Grid>
@@ -183,7 +183,7 @@ export default function ProfileSettings() {
                       name="last_name"
                       control={control}
                       render={({ field }) => (
-                        <TextField {...field} label="Last Name" fullWidth size="small" />
+                        <TextField {...field} label="Last Name" fullWidth size="small" inputProps={{ maxLength: 30 }} />
                       )}
                     />
                   </Grid>
@@ -213,6 +213,7 @@ export default function ProfileSettings() {
                           fullWidth
                           size="small"
                           InputLabelProps={{ shrink: true }}
+                          inputProps={{ min: "1900-01-01", max: new Date().toISOString().slice(0, 10) }}
                         />
                       )}
                     />
@@ -229,6 +230,7 @@ export default function ProfileSettings() {
                           fullWidth
                           size="small"
                           InputLabelProps={{ shrink: true }}
+                          inputProps={{ min: "1900-01-01", max: new Date().toISOString().slice(0, 10) }}
                         />
                       )}
                     />

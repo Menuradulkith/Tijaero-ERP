@@ -1,6 +1,8 @@
 from typing import List, Optional
 
 from app.auth.models import Group, User
+from app.auth.token_revocation import is_revoked
+from app.auth.user_cache import load_user
 from app.core.security import decode_token, get_password_marker
 from app.db.session import get_db
 from fastapi import Depends, HTTPException, Query, Request, status
@@ -36,6 +38,11 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
         )
+    if is_revoked(db, payload.get("jti")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has been logged out. Please log in again.",
+        )
     user_id = payload.get("sub")
     if user_id is None:
         raise HTTPException(
@@ -49,17 +56,8 @@ def get_current_user(
         )
     from app.core.audit_context import current_user_id
     current_user_id.set(user_id)
-    # Eager load relationships for access control and serialization
-    user = (
-        db.query(User)
-        .options(
-            joinedload(User.branches),
-            selectinload(User.groups).selectinload(Group.permissions),
-            selectinload(User.permissions),
-        )
-        .filter(User.id == user_id)
-        .first()
-    )
+    # Eager-loaded graph (branches, groups, permissions) from a short-lived cache
+    user = load_user(db, user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
@@ -97,6 +95,11 @@ def get_current_user_flexible(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
         )
+    if is_revoked(db, payload.get("jti")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has been logged out. Please log in again.",
+        )
     user_id = payload.get("sub")
     if user_id is None:
         raise HTTPException(
@@ -111,16 +114,7 @@ def get_current_user_flexible(
     from app.core.audit_context import current_user_id
     current_user_id.set(user_id)
     # Eager load groups + permissions so RBAC checks work for flexible/iframe auth
-    user = (
-        db.query(User)
-        .options(
-            joinedload(User.branches),
-            selectinload(User.groups).selectinload(Group.permissions),
-            selectinload(User.permissions),
-        )
-        .filter(User.id == user_id)
-        .first()
-    )
+    user = load_user(db, user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"

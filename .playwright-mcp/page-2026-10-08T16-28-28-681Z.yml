@@ -1,0 +1,102 @@
+- generic [ref=f7e2]:
+  - generic [ref=f7e4]:
+    - generic:
+      - generic [ref=f7e5]:
+        - button "Home" [ref=f7e6] [cursor=pointer]
+        - button "Hide Sidebar" [ref=f7e9] [cursor=pointer]
+        - button "Find Page" [ref=f7e12] [cursor=pointer]
+      - banner [ref=f7e15]:
+        - generic [ref=f7e17]:
+          - generic [ref=f7e18]:
+            - paragraph [ref=f7e19]: Admin User
+            - generic [ref=f7e20]: Superuser
+          - button "0" [ref=f7e21] [cursor=pointer]
+          - button "Tijaero.AI assistant" [ref=f7e25] [cursor=pointer]: Tijaero.AI
+          - button "A" [ref=f7e29] [cursor=pointer]
+      - navigation [ref=f7e31]:
+        - generic [ref=f7e33]:
+          - heading "TijaeroERP" [level=6] [ref=f7e38]
+          - separator [ref=f7e39]
+          - list [ref=f7e41]:
+            - listitem [ref=f7e43]:
+              - button "Dashboard" [ref=f7e44] [cursor=pointer]
+            - listitem [ref=f7e51]:
+              - button "Sales" [ref=f7e52] [cursor=pointer]
+            - listitem [ref=f7e61]:
+              - button "Purchasing" [ref=f7e62] [cursor=pointer]
+            - listitem [ref=f7e71]:
+              - button "Product Catalogs" [ref=f7e72] [cursor=pointer]
+            - listitem [ref=f7e81]:
+              - button "Finance" [ref=f7e82] [cursor=pointer]
+            - listitem [ref=f7e91]:
+              - button "HR" [ref=f7e92] [cursor=pointer]
+            - listitem [ref=f7e101]:
+              - button "Sales Stock" [ref=f7e102] [cursor=pointer]
+            - listitem [ref=f7e111]:
+              - button "Company Assets" [ref=f7e112] [cursor=pointer]
+            - listitem [ref=f7e119]:
+              - button "Support" [ref=f7e120] [cursor=pointer]
+            - listitem [ref=f7e130]:
+              - button "Reporting" [ref=f7e131] [cursor=pointer]
+            - listitem [ref=f7e138]:
+              - button "Branches" [ref=f7e139] [cursor=pointer]
+            - listitem [ref=f7e146]:
+              - button "Users" [ref=f7e147] [cursor=pointer]
+            - listitem [ref=f7e154]:
+              - button "Roles" [ref=f7e155] [cursor=pointer]
+            - listitem [ref=f7e162]:
+              - button "Settings" [ref=f7e163] [cursor=pointer]
+          - separator [ref=f7e169]
+          - list [ref=f7e170]
+    - main [ref=f7e171]:
+      - generic [ref=f7e258]:
+        - generic [ref=f7e259]:
+          - generic [ref=f7e261]:
+            - generic [ref=f7e263]:
+              - textbox "Username, name, or email" [ref=f7e267]
+              - group [aria-hidden]
+            - generic [ref=f7e271]:
+              - combobox "All Status" [ref=f7e272]: All Statuses
+              - button "Open" [ref=f7e274] [cursor=pointer]
+              - group [aria-hidden]
+            - generic [ref=f7e280]:
+              - combobox "All Branches" [ref=f7e281]
+              - button "Open" [ref=f7e283] [cursor=pointer]
+              - group [aria-hidden]
+            - generic [ref=f7e289]:
+              - combobox "All Roles" [ref=f7e290]
+              - button "Open" [ref=f7e292] [cursor=pointer]
+              - group [aria-hidden]
+          - generic [ref=f7e295]:
+            - button [ref=f7e296] [cursor=pointer]
+            - button [ref=f7e300] [cursor=pointer]
+        - generic [ref=f7e307]:
+          - grid [ref=f7e308]:
+            - row [ref=f7e309]:
+              - columnheader "Username" [ref=f7e310] [cursor=pointer]
+              - columnheader "Full Name" [ref=f7e314] [cursor=pointer]
+              - columnheader "Email" [ref=f7e318] [cursor=pointer]
+              - columnheader "Role" [ref=f7e322] [cursor=pointer]
+              - columnheader "Branch" [ref=f7e326] [cursor=pointer]
+              - columnheader "Status" [ref=f7e330] [cursor=pointer]
+              - columnheader [ref=f7e334]
+            - paragraph [ref=f7e342]: No users found
+            - rowgroup
+          - generic [ref=f7e346]:
+            - generic [ref=f7e347]:
+              - button "Row density" [ref=f7e348] [cursor=pointer]:
+                - generic [ref=f7e352]: Standard
+              - button "Show or hide columns" [ref=f7e353] [cursor=pointer]:
+                - generic [ref=f7e357]: Columns
+              - button "Export the filtered rows to CSV" [ref=f7e358] [cursor=pointer]:
+                - generic [ref=f7e362]: Export
+            - generic [ref=f7e364]:
+              - paragraph [ref=f7e365]: "Rows per page:"
+              - generic [ref=f7e366]:
+                - 'combobox "Rows per page: 25" [ref=f7e367] [cursor=pointer]': "25"
+                - textbox [aria-hidden]: "25"
+              - paragraph [ref=f7e368]: 0–0 of 0
+              - generic [ref=f7e369]:
+                - button "Go to previous page" [disabled]
+                - button "Go to next page" [disabled]
+  - button "Open Tanstack query devtools" [ref=f7e420] [cursor=pointer]

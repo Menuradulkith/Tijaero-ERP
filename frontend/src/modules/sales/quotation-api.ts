@@ -3,8 +3,6 @@ import {
   ConvertToInvoiceRequest,
   ConvertToInvoiceResponse,
   CreatePartialSORequest,
-  CreatePOFromQuoteRequest,
-  CreatePOFromQuoteResponse,
   CreateRevisionRequest,
   CreateRevisionResponse,
   CustomerApprovalRequest,
@@ -39,9 +37,15 @@ export const quotationApi = {
     sale_rep_id?: number;
     branch_code?: string;
     search?: string;
+    date_from?: string;
+    date_to?: string;
+    sort_by?: string;
+    order?: "asc" | "desc";
     page?: number;
     per_page?: number;
   }): Promise<SalesQuoteList> => {
+    // drop empty filters so they are not sent as "search="
+    params = params && (Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")) as typeof params);
     const response = await apiClient.get<SalesQuoteList>(`${BASE_URL}/`, { params });
     return response.data;
   },
@@ -257,22 +261,6 @@ export const quotationApi = {
     const response = await apiClient.post<ReleaseReservationResponse>(
       `${BASE_URL}/${id}/release-reservation`,
       data ?? {}
-    );
-    return response.data;
-  },
-
-  // ==================== Create PO from Quotation ====================
-
-  /**
-   * Create a Purchasing Order from an accepted/approved quotation
-   */
-  createPOFromQuote: async (
-    id: number,
-    data: CreatePOFromQuoteRequest
-  ): Promise<CreatePOFromQuoteResponse> => {
-    const response = await apiClient.post<CreatePOFromQuoteResponse>(
-      `${BASE_URL}/${id}/create-po`,
-      data
     );
     return response.data;
   },

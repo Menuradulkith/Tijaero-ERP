@@ -1,6 +1,8 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from app.common.concurrency import ensure_not_stale, integrity_error_detail, is_unique_violation
 from fastapi import HTTPException, status
 from datetime import datetime, date
 from decimal import Decimal
@@ -54,51 +56,141 @@ class CustomerService:
         self._attach_user_names(db, customers)
         return customers
 
+    # Identifiers that single out one customer (case / surrounding spaces ignored,
+    # blanks not compared). Names and mobile numbers are intentionally NOT unique.
+    UNIQUE_FIELDS = {
+        "email": ("Email", "uq_customers_email_ci"),
+        "id_card_number": ("ID card number", "uq_customers_id_card_ci"),
+        "passport_no": ("Passport number", "uq_customers_passport_ci"),
+        "company_registration_number": ("Company registration number", "uq_customers_company_reg_ci"),
+        "tax_registration_number": ("Tax registration number", "uq_customers_tax_reg_ci"),
+    }
+
+    def _check_unique(self, db: Session, values: dict, exclude_id: Optional[int] = None) -> None:
+        for field, (label, _idx) in self.UNIQUE_FIELDS.items():
+            value = (values.get(field) or "").strip()
+            if not value:
+                continue
+            q = db.query(Customer.id).filter(func.lower(func.btrim(getattr(Customer, field))) == value.lower())
+            if exclude_id is not None:
+                q = q.filter(Customer.id != exclude_id)
+            if q.first():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{label} '{value}' is already used by another customer.",
+                )
+
+    def _check_references(self, db: Session, values: dict) -> None:
+        """Country ids must exist; currency must be a configured active currency."""
+        from app.modules.common.models import Country
+        from app.modules.settings.models import Currency
+
+        for field in ("country_id", "billing_country_id", "shipping_country_id"):
+            cid = values.get(field)
+            if cid and not db.query(Country.id).filter(Country.id == cid).first():
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown country ({field}={cid})")
+        code = values.get("default_currency")
+        if code and not db.query(Currency.id).filter(Currency.code == code, Currency.is_active.is_(True)).first():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Currency '{code}' is not a configured, active currency.")
+
+    @staticmethod
+    def _rules_for_type(values: dict) -> None:
+        """The same required-field rules as creation, applied to the merged record."""
+        if str(getattr(values.get("customer_type"), "value", values.get("customer_type")) or "individual") == "business":
+            if not (values.get("company_name") or "").strip():
+                raise HTTPException(status_code=422, detail="company_name is required for business customers")
+            if not (values.get("mobile_contact_number") or "").strip():
+                raise HTTPException(status_code=422, detail="mobile_contact_number is required for business customers")
+        else:
+            missing = [f for f in schemas._INDIVIDUAL_REQUIRED if not (values.get(f) or "").strip()]
+            if missing:
+                raise HTTPException(status_code=422, detail=f"Required for individual customers: {', '.join(missing)}")
+
+    def _unique_violation(self, exc: IntegrityError) -> HTTPException:
+        raw = str(getattr(exc, "orig", exc))
+        for _f, (label, idx) in self.UNIQUE_FIELDS.items():
+            if idx in raw:
+                return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{label} is already used by another customer.")
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=integrity_error_detail(exc))
+
     def create_customer(self, db: Session, customer: schemas.CustomerCreate, user_id: int) -> Customer:
-        created = repository.customer_repository.create(db, customer, user_id)
-        log_audit(
-            db,
-            user_id=user_id or 0,
-            action="create",
-            entity_type="customer",
-            entity_id=created.id,
-            changes={"customer_name": created.customer_name},
-        )
-        db.commit()
+        values = customer.model_dump()
+        self._check_references(db, values)
+        self._check_unique(db, values)
+        try:
+            created = repository.customer_repository.create(db, customer, user_id)
+            log_audit(
+                db,
+                user_id=user_id or 0,
+                action="create",
+                entity_type="customer",
+                entity_id=created.id,
+                changes={"customer_name": created.customer_name},
+            )
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise self._unique_violation(exc)
         self._attach_user_names(db, [created])
         return created
 
     def update_customer(self, db: Session, customer_id: int, customer: schemas.CustomerUpdate, user_id: int) -> Customer:
-        submitted_fields = customer.model_dump(exclude_unset=True)
-        before = repository.customer_repository.get_by_id(db, customer_id)
+        submitted_fields = customer.model_dump(exclude_unset=True, exclude={"expected_version"})
+        # Row lock first: the stale check, the rules and the write must not interleave with another save.
+        before = db.query(Customer).filter(Customer.id == customer_id).with_for_update().first()
         if not before:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Customer with id {customer_id} not found"
             )
+        ensure_not_stale(before.updated_at, None, f"Customer '{before.customer_name}'", customer.expected_version)
+
+        merged = {c.name: getattr(before, c.name) for c in Customer.__table__.columns}
+        merged.update(submitted_fields)
+        self._check_references(db, submitted_fields)
+        if set(submitted_fields) & ({"customer_type", "company_name", "mobile_contact_number"} | set(schemas._INDIVIDUAL_REQUIRED)):
+            # (legacy rows missing unrelated person fields can still be edited)
+            self._rules_for_type(merged)
+        self._check_unique(db, submitted_fields, exclude_id=customer_id)
         before_values = {field: getattr(before, field) for field in submitted_fields}
 
-        updated_customer = repository.customer_repository.update(db, customer_id, customer, user_id)
-        if not updated_customer:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Customer with id {customer_id} not found"
-            )
-
-        changes = diff_changes(before_values, submitted_fields)
-        if changes:
-            log_audit(
-                db,
-                user_id=user_id or 0,
-                action="update",
-                entity_type="customer",
-                entity_id=updated_customer.id,
-                changes=changes,
-            )
+        try:
+            updated_customer = repository.customer_repository.update(db, customer_id, customer, user_id)
+            if not updated_customer:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Customer with id {customer_id} not found"
+                )
+            if "max_credit_limit" in submitted_fields:
+                # The balances follow the limit; they are never taken from the client.
+                updated_customer.initial_credit_amount = updated_customer.max_credit_limit
+            changes = diff_changes(before_values, submitted_fields)
+            if changes:
+                log_audit(
+                    db,
+                    user_id=user_id or 0,
+                    action="update",
+                    entity_type="customer",
+                    entity_id=updated_customer.id,
+                    changes=changes,
+                )
             db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise self._unique_violation(exc)
+
+        if "max_credit_limit" in submitted_fields:
+            from app.modules.customers.credit_service import customer_credit_service
+            customer_credit_service.update_customer_credit_balance(db, customer_id)
+            db.refresh(updated_customer)
 
         self._attach_user_names(db, [updated_customer])
         return updated_customer
+
+    def get_customers_page(self, db: Session, page: int, size: int, **filters) -> dict:
+        rows, total = repository.customer_repository.get_page(db, page=page, size=size, **filters)
+        self._attach_user_names(db, rows)
+        return {"items": rows, "total": total, "page": page, "size": size, "pages": -(-total // size)}
 
     def get_customer_count(self, db: Session) -> int:
         return repository.customer_repository.count(db)
@@ -920,6 +1012,8 @@ class CustomerContactPersonService:
         self, db: Session, customer_id: int, data: schemas.CustomerContactPersonCreate, user_id: int
     ) -> CustomerContactPerson:
         self._business_customer(db, customer_id)
+        # Serialize concurrent contact changes for this customer (one primary at a time).
+        db.query(Customer.id).filter(Customer.id == customer_id).with_for_update().first()
         existing = db.query(CustomerContactPerson).filter(
             CustomerContactPerson.customer_id == customer_id
         ).count()
@@ -942,7 +1036,10 @@ class CustomerContactPersonService:
         data: schemas.CustomerContactPersonUpdate, user_id: int,
     ) -> CustomerContactPerson:
         contact = self._owned(db, customer_id, contact_id)
+        db.query(Customer.id).filter(Customer.id == customer_id).with_for_update().first()
         values = data.model_dump(exclude_unset=True)
+        if values.get("is_primary") is False and contact.is_primary:
+            raise HTTPException(status_code=400, detail="A customer needs one primary contact; make another contact primary instead.")
         if values.get("is_primary"):
             self._clear_primary(db, customer_id, except_id=contact_id)
         for field, value in values.items():

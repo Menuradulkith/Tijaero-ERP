@@ -55,7 +55,10 @@ import {
   Typography,
 } from "@mui/material";
   import type { GridRenderCellParams } from "@mui/x-data-grid";
-  import { useQuery, useQueryClient } from "@tanstack/react-query";
+  import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+  import type { GridPaginationModel } from "@mui/x-data-grid";
+  import { useDebounce } from "@/hooks";
+import { fetchAllPages } from "@/utils/fetchAllPages";
 import axios from "axios";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { brandsApi, categoriesApi, minimumPriceApi, productImageUrl, productsApi } from "../api";
@@ -135,6 +138,7 @@ const emptyBrandForm: BrandCreate = {
   description: "",
 };
 
+type GridSort = { field: string; sort: "asc" | "desc" };
 type InventoryView = "products" | "categories" | "brands";
 
 interface ProductsPageProps {
@@ -327,37 +331,116 @@ export default function ProductsPage({
     setBrandActiveFilter(null);
   }, [brandState.setSearchQuery]);
 
-  // Queries - get all items including inactive so they can be viewed and reactivated
+  // Server-side paging: each grid asks the API for just the page on screen
+  // (search / filters / sort run in the database), and the API returns the
+  // total so the footer can say "1-25 of N". Sorting is a toggle (asc/desc)
+  // on one column at a time, as the grid's header sort icons do.
+  const [productPaging, setProductPaging] = useState<GridPaginationModel>({ page: 0, pageSize: 25 });
+  const [categoryPaging, setCategoryPaging] = useState<GridPaginationModel>({ page: 0, pageSize: 25 });
+  const [brandPaging, setBrandPaging] = useState<GridPaginationModel>({ page: 0, pageSize: 25 });
+  const [productSort, setProductSort] = useState<GridSort | null>(null);
+  const [categorySort, setCategorySort] = useState<GridSort | null>(null);
+  const [brandSort, setBrandSort] = useState<GridSort | null>(null);
+  const productSearch = useDebounce(productState.searchQuery, 300);
+  const categorySearch = useDebounce(categoryState.searchQuery, 300);
+  const brandSearch = useDebounce(brandState.searchQuery, 300);
+  const activeParam = (v: string | null) => (v ? v === "active" : undefined);
+
+  // Any change to a filter or search starts again from the first page.
+  useEffect(() => {
+    setProductPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
+  }, [productSearch, productActiveFilter, productSupplierFilter?.id, productCategoryFilter?.id, productBrandFilter?.id, productSort]);
+  useEffect(() => {
+    setCategoryPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
+  }, [categorySearch, categoryActiveFilter, categorySort]);
+  useEffect(() => {
+    setBrandPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
+  }, [brandSearch, brandActiveFilter, brandSort]);
+
   const {
-    data: products,
-    isLoading: productsLoading,
-    refetch: refetchProducts,
+    data: productsPage,
+    isFetching: productsLoading,
   } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => productsApi.getAll(0, 1000, false), // Get all including inactive
+    queryKey: [
+      "products", "paged", productPaging.page, productPaging.pageSize, productSearch.trim(), productActiveFilter,
+      productSupplierFilter?.id, productCategoryFilter?.id, productBrandFilter?.id, productSort?.field, productSort?.sort,
+    ],
+    queryFn: () =>
+      productsApi.getPage({
+        page: productPaging.page,
+        size: productPaging.pageSize,
+        q: productSearch.trim(),
+        active: activeParam(productActiveFilter),
+        category_id: productCategoryFilter?.id,
+        brand_id: productBrandFilter?.id,
+        supplier_id: productSupplierFilter?.id,
+        sort_by: productSort?.field,
+        order: productSort?.sort,
+      }),
     enabled: activeTab === 0,
-    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
   });
 
   const {
-    data: categories,
-    isLoading: categoriesLoading,
-    refetch: refetchCategories,
+    data: categoriesPage,
+    isFetching: categoriesLoading,
   } = useQuery({
-    queryKey: ["categories"],
-    queryFn: () => categoriesApi.getAll(0, 1000, false), // Get all including inactive
-    staleTime: 5 * 60 * 1000,
+    queryKey: [
+      "categories", "paged", categoryPaging.page, categoryPaging.pageSize, categorySearch.trim(), categoryActiveFilter,
+      categorySort?.field, categorySort?.sort,
+    ],
+    queryFn: () =>
+      categoriesApi.getPage({
+        page: categoryPaging.page,
+        size: categoryPaging.pageSize,
+        q: categorySearch.trim(),
+        active: activeParam(categoryActiveFilter),
+        sort_by: categorySort?.field,
+        order: categorySort?.sort,
+      }),
+    enabled: activeTab === 1,
+    placeholderData: keepPreviousData,
+    staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
   });
 
   const {
-    data: brands,
-    isLoading: brandsLoading,
-    refetch: refetchBrands,
+    data: brandsPage,
+    isFetching: brandsLoading,
   } = useQuery({
-    queryKey: ["brands"],
-    queryFn: () => brandsApi.getAll(0, 1000, false), // Get all including inactive
+    queryKey: [
+      "brands", "paged", brandPaging.page, brandPaging.pageSize, brandSearch.trim(), brandActiveFilter,
+      brandSort?.field, brandSort?.sort,
+    ],
+    queryFn: () =>
+      brandsApi.getPage({
+        page: brandPaging.page,
+        size: brandPaging.pageSize,
+        q: brandSearch.trim(),
+        active: activeParam(brandActiveFilter),
+        sort_by: brandSort?.field,
+        order: brandSort?.sort,
+      }),
+    enabled: activeTab === 2,
+    placeholderData: keepPreviousData,
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  // Full category / brand lists for the form pickers and filter drop-downs
+  // (small reference lists, not the browse grids).
+  const { data: categories } = useQuery({
+    queryKey: ["categories", "all"],
+    queryFn: () => categoriesApi.getAll(0, 100000, false),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: brands } = useQuery({
+    queryKey: ["brands", "all"],
+    queryFn: () => brandsApi.getAll(0, 100000, false),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
@@ -375,7 +458,7 @@ export default function ProductsPage({
   // Fetch current minimum selling price for selected product
   const { data: currentMinPrice } = useQuery({
     queryKey: ["minimum-price", productState.selectedItem?.id],
-    queryFn: () => minimumPriceApi.getCurrent(productState.selectedItem!.id),
+    queryFn: () => minimumPriceApi.getCurrentOrNull(productState.selectedItem!.id),
     enabled: !!productState.selectedItem?.id,
     retry: false,
     staleTime: 2 * 60 * 1000,
@@ -448,101 +531,6 @@ export default function ProductsPage({
     refetchOnWindowFocus: false,
   });
 
-  // Which products the currently-filtered-by supplier can supply — fetched
-  // only once a supplier filter is actually applied.
-  const { data: supplierFilterMappings = [] } = useQuery({
-    queryKey: ["supplier-product-filter", productSupplierFilter?.id],
-    queryFn: () => suppliersApi.getProducts(productSupplierFilter!.id),
-    enabled: !!productSupplierFilter,
-    staleTime: 2 * 60 * 1000,
-    refetchOnWindowFocus: false,
-  });
-
-  //consiltered and sorted data
-  const filteredProducts = useMemo(() => {
-    if (!products) return [];
-    let filtered = products.filter(
-      (p) =>
-        p.item_code
-          .toLowerCase()
-          .includes(productState.searchQuery.toLowerCase()) ||
-        p.name.toLowerCase().includes(productState.searchQuery.toLowerCase()) ||
-        p.model?.toLowerCase().includes(productState.searchQuery.toLowerCase()),
-    );
-
-    // Apply active filter
-    if (productActiveFilter) {
-      const isActive = productActiveFilter === "active";
-      filtered = filtered.filter((p) => p.active === isActive);
-    }
-
-    // Apply supplier filter — restrict to products that supplier can supply
-    if (productSupplierFilter) {
-      const supplierProductIds = new Set(supplierFilterMappings.map((m) => m.product_id));
-      filtered = filtered.filter((p) => supplierProductIds.has(p.id));
-    }
-
-    // Apply category / brand filters
-    if (productCategoryFilter) {
-      filtered = filtered.filter((p) => p.category_id === productCategoryFilter.id);
-    }
-    if (productBrandFilter) {
-      filtered = filtered.filter((p) => p.items_brand_id === productBrandFilter.id);
-    }
-
-    // Default order before the user sorts a column in the table itself
-    // (the table's own column-header sort takes over from there).
-    filtered.sort((a, b) => a.item_code.localeCompare(b.item_code));
-    return filtered;
-  }, [
-    products,
-    productState.searchQuery,
-    productActiveFilter,
-    productSupplierFilter,
-    supplierFilterMappings,
-    productCategoryFilter,
-    productBrandFilter,
-  ]);
-
-  const filteredCategories = useMemo(() => {
-    if (!categories) return [];
-    let filtered = categories.filter(
-      (c) =>
-        c.name
-          .toLowerCase()
-          .includes(categoryState.searchQuery.toLowerCase()) ||
-        c.category_code
-          .toLowerCase()
-          .includes(categoryState.searchQuery.toLowerCase()),
-    );
-    if (categoryActiveFilter) {
-      const isActive = categoryActiveFilter === "active";
-      filtered = filtered.filter((c) => c.active === isActive);
-    }
-    // Default order before the user sorts a column in the table itself.
-    filtered.sort((a, b) => a.name.localeCompare(b.name));
-    return filtered;
-  }, [categories, categoryState.searchQuery, categoryActiveFilter]);
-
-  const filteredBrands = useMemo(() => {
-    if (!brands) return [];
-    let filtered = brands.filter(
-      (b) =>
-        b.brand_name
-          .toLowerCase()
-          .includes(brandState.searchQuery.toLowerCase()) ||
-        b.brand_code
-          .toLowerCase()
-          .includes(brandState.searchQuery.toLowerCase()),
-    );
-    if (brandActiveFilter) {
-      const isActive = brandActiveFilter === "active";
-      filtered = filtered.filter((b) => b.active === isActive);
-    }
-    // Default order before the user sorts a column in the table itself.
-    filtered.sort((a, b) => a.brand_name.localeCompare(b.brand_name));
-    return filtered;
-  }, [brands, brandState.searchQuery, brandActiveFilter]);
 
   // Browse-table rows/columns. Rows add display-only lookup fields (category
   // name, brand name) so the grid sorts on the displayed text rather than the
@@ -550,12 +538,12 @@ export default function ProductsPage({
   // sorting is done per-column via the grid's own column header menu.
   const productRows = useMemo(
     () =>
-      filteredProducts.map((product) => ({
+      (productsPage?.items ?? []).map((product) => ({
         ...product,
-        category_name: categories?.find((c) => c.id === product.category_id)?.name || "-",
-        brand_name: brands?.find((b) => b.id === product.items_brand_id)?.brand_name || "-",
+        category_name: product.category_name || "-",
+        brand_name: product.brand_name || "-",
       })),
-    [filteredProducts, categories, brands]
+    [productsPage]
   );
 
   // Handler used by the browse table's row click and its "view" column icon.
@@ -685,7 +673,7 @@ export default function ProductsPage({
     [handleSelectProduct]
   );
 
-  const categoryRows: CategoryRow[] = filteredCategories;
+  const categoryRows: CategoryRow[] = categoriesPage?.items ?? [];
 
   // Handler used by the browse table's row click and its "view" column icon.
   // Declared here (rather than further down with the other category
@@ -753,7 +741,7 @@ export default function ProductsPage({
     [handleSelectCategory]
   );
 
-  const brandRows: BrandRow[] = filteredBrands;
+  const brandRows: BrandRow[] = brandsPage?.items ?? [];
 
   // Handler used by the browse table's row click and its "view" column icon.
   // Declared here (rather than further down with the other brand handlers)
@@ -913,9 +901,7 @@ export default function ProductsPage({
     },
     onError: async (error, variables) => {
       if (isNotFound(error)) {
-        queryClient.setQueryData<Product[]>(["products"], (prev) =>
-          prev ? prev.filter((p) => p.id !== variables.id) : prev,
-        );
+        queryClient.invalidateQueries({ queryKey: ["products"] });
         if (selectedProductIdRef.current === variables.id) {
           productState.setIsEditing(false);
           productState.setSelectedItem(null);
@@ -927,9 +913,7 @@ export default function ProductsPage({
       try {
         const fresh = await productsApi.getById(variables.id);
         if (!isStaleConflict(variables.data.expected_version, fresh.version)) return;
-        queryClient.setQueryData<Product[]>(["products"], (prev) =>
-          prev ? prev.map((p) => (p.id === fresh.id ? fresh : p)) : prev,
-        );
+        queryClient.invalidateQueries({ queryKey: ["products"] });
         queryClient.invalidateQueries({ queryKey: ["minimum-price", fresh.id] });
         if (selectedProductIdRef.current === fresh.id) {
           selectProductInternal(fresh);
@@ -966,9 +950,7 @@ export default function ProductsPage({
     },
     onError: async (error, variables) => {
       if (isNotFound(error)) {
-        queryClient.setQueryData<Category[]>(["categories"], (prev) =>
-          prev ? prev.filter((c) => c.id !== variables.id) : prev,
-        );
+        queryClient.invalidateQueries({ queryKey: ["categories"] });
         if (selectedCategoryIdRef.current === variables.id) {
           categoryState.setIsEditing(false);
           categoryState.setSelectedItem(null);
@@ -980,9 +962,7 @@ export default function ProductsPage({
       try {
         const fresh = await categoriesApi.getById(variables.id);
         if (!isStaleConflict(variables.data.expected_version, fresh.version)) return;
-        queryClient.setQueryData<Category[]>(["categories"], (prev) =>
-          prev ? prev.map((c) => (c.id === fresh.id ? fresh : c)) : prev,
-        );
+        queryClient.invalidateQueries({ queryKey: ["categories"] });
         if (selectedCategoryIdRef.current === fresh.id) {
           selectCategoryInternal(fresh);
           setCategoryTouched({});
@@ -1018,9 +998,7 @@ export default function ProductsPage({
     },
     onError: async (error, variables) => {
       if (isNotFound(error)) {
-        queryClient.setQueryData<Brand[]>(["brands"], (prev) =>
-          prev ? prev.filter((b) => b.id !== variables.id) : prev,
-        );
+        queryClient.invalidateQueries({ queryKey: ["brands"] });
         if (selectedBrandIdRef.current === variables.id) {
           brandState.setIsEditing(false);
           brandState.setSelectedItem(null);
@@ -1032,9 +1010,7 @@ export default function ProductsPage({
       try {
         const fresh = await brandsApi.getById(variables.id);
         if (!isStaleConflict(variables.data.expected_version, fresh.version)) return;
-        queryClient.setQueryData<Brand[]>(["brands"], (prev) =>
-          prev ? prev.map((b) => (b.id === fresh.id ? fresh : b)) : prev,
-        );
+        queryClient.invalidateQueries({ queryKey: ["brands"] });
         if (selectedBrandIdRef.current === fresh.id) {
           selectBrandInternal(fresh);
           setBrandTouched({});
@@ -1057,7 +1033,7 @@ export default function ProductsPage({
       unit_of_measure: product.unit_of_measure || "pcs",
       description: product.description || "",
       website_active: product.website_active,
-      website_price: product.website_price || 0,
+      website_price: product.website_price ?? undefined,
       selling_price: product.selling_price || 0,
       active: product.active,
       cost_price: product.cost_price,
@@ -1096,11 +1072,25 @@ export default function ProductsPage({
     }
   };
 
-  const handleSaveProduct = () => {
-    // Validate required fields
+  // One save at a time. The handlers below await the mutation, so this covers the
+  // whole save: a double-click (or Enter + click) used to start a second save before the
+  // first had finished, producing "created" followed by an "already exists" error.
+  const saveInFlightRef = useRef(false);
+  const withSaveGuard = (fn: () => Promise<void>) => async () => {
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    try {
+      await fn();
+    } finally {
+      saveInFlightRef.current = false;
+    }
+  };
+
+  const saveProductInner = async () => {
+    // Validate required fields (whitespace-only counts as empty)
     if (
-      !productState.formData.item_code ||
-      !productState.formData.name ||
+      !(productState.formData.item_code ?? "").trim() ||
+      !(productState.formData.name ?? "").trim() ||
       productState.formData.cost_price === undefined ||
       productState.formData.cost_price === null ||
       productState.formData.selling_price === undefined ||
@@ -1116,18 +1106,6 @@ export default function ProductsPage({
         selling_price: true,
       });
       return;
-    }
-    // Check for duplicate name
-    if (products) {
-      const isDuplicateName = products.some(
-        (p) =>
-          p.name.trim().toLowerCase() === productState.formData.name?.trim().toLowerCase() &&
-          (!productState.selectedItem || p.id !== productState.selectedItem.id)
-      );
-      if (isDuplicateName) {
-        showErrorToast("Product name already exists");
-        return;
-      }
     }
     
     // Validate prices
@@ -1146,6 +1124,8 @@ export default function ProductsPage({
 
     // Ensure website_active is false if product is inactive
     const dataToSave = { ...productState.formData };
+    dataToSave.name = (dataToSave.name ?? "").trim();
+    dataToSave.item_code = (dataToSave.item_code ?? "").trim();
     if (!dataToSave.active) {
       dataToSave.website_active = false;
     }
@@ -1156,10 +1136,12 @@ export default function ProductsPage({
       typeof minPriceInput === "number" ? minPriceInput : undefined;
 
     if (productState.isCreating) {
-      createProductMutation.mutate({
-        ...dataToSave,
-        minimum_selling_price: minimumSellingPrice,
-      });
+      await createProductMutation
+        .mutateAsync({
+          ...dataToSave,
+          minimum_selling_price: minimumSellingPrice,
+        })
+        .catch(() => undefined);
     } else if (productState.selectedItem) {
       // The backend only writes a new price-history row when the minimum
       // actually changed, so sending the current value is a no-op.
@@ -1168,17 +1150,20 @@ export default function ProductsPage({
       const updateFields: Partial<ProductCreate> = { ...dataToSave };
       delete updateFields.item_code;
       delete updateFields.image_url;
-      updateProductMutation.mutate({
-        id: productState.selectedItem.id,
-        data: {
-          ...updateFields,
-          minimum_selling_price: minimumSellingPrice,
-          expected_updated_at: productState.selectedItem.updated_at,
-          expected_version: productState.selectedItem.version,
-        },
-      });
+      await updateProductMutation
+        .mutateAsync({
+          id: productState.selectedItem.id,
+          data: {
+            ...updateFields,
+            minimum_selling_price: minimumSellingPrice,
+            expected_updated_at: productState.selectedItem.updated_at,
+            expected_version: productState.selectedItem.version,
+          },
+        })
+        .catch(() => undefined);
     }
   };
+  const handleSaveProduct = withSaveGuard(saveProductInner);
 
   // Cancelling out of "New Product" returns to the browse table, not the old
   // always-visible detail panel's auto-selected first item (mirrors
@@ -1235,40 +1220,36 @@ export default function ProductsPage({
     categoryState.setIsEditing(true);
   };
 
-  const handleSaveCategory = () => {
-    // Validate required fields
-    if (!categoryState.formData.name || !categoryState.formData.category_code) {
+  const saveCategoryInner = async () => {
+    // Validate required fields (whitespace-only counts as empty)
+    if (!(categoryState.formData.name ?? "").trim() || !(categoryState.formData.category_code ?? "").trim()) {
       showErrorToast("Please fill in all required fields");
       setCategoryTouched({ name: true, category_code: true });
       return;
     }
 
-    // Check for duplicate name
-    if (categories) {
-      const isDuplicateName = categories.some(
-        (c) =>
-          c.name.trim().toLowerCase() === categoryState.formData.name?.trim().toLowerCase() &&
-          (!categoryState.selectedItem || c.id !== categoryState.selectedItem.id)
-      );
-      if (isDuplicateName) {
-        showErrorToast("Category name already exists");
-        return;
-      }
-    }
 
+    const categoryPayload = {
+      ...categoryState.formData,
+      name: (categoryState.formData.name ?? "").trim(),
+      category_code: (categoryState.formData.category_code ?? "").trim(),
+    };
     if (categoryState.isCreating) {
-      createCategoryMutation.mutate(categoryState.formData);
+      await createCategoryMutation.mutateAsync(categoryPayload).catch(() => undefined);
     } else if (categoryState.selectedItem) {
-      updateCategoryMutation.mutate({
-        id: categoryState.selectedItem.id,
-        data: {
-          ...categoryState.formData,
-          expected_updated_at: categoryState.selectedItem.updated_at,
-          expected_version: categoryState.selectedItem.version,
-        },
-      });
+      await updateCategoryMutation
+        .mutateAsync({
+          id: categoryState.selectedItem.id,
+          data: {
+            ...categoryPayload,
+            expected_updated_at: categoryState.selectedItem.updated_at,
+            expected_version: categoryState.selectedItem.version,
+          },
+        })
+        .catch(() => undefined);
     }
   };
+  const handleSaveCategory = withSaveGuard(saveCategoryInner);
 
   // Cancelling out of "New Category" returns to the browse table rather than
   // auto-selecting the first item (mirrors handleCancelProduct above).
@@ -1323,46 +1304,42 @@ export default function ProductsPage({
     brandState.setIsEditing(true);
   };
 
-  const handleSaveBrand = () => {
-    // Validate required fields
-    if (!brandState.formData.brand_name || !brandState.formData.brand_code) {
+  const saveBrandInner = async () => {
+    // Validate required fields (whitespace-only counts as empty)
+    if (!(brandState.formData.brand_name ?? "").trim() || !(brandState.formData.brand_code ?? "").trim()) {
       showErrorToast("Please fill in all required fields");
       setBrandTouched({ brand_name: true, brand_code: true });
       return;
     }
 
-    if (brandState.formData.brand_code.length > 4) {
+    if (brandState.formData.brand_code.trim().length > 4) {
       showErrorToast("Brand code cannot exceed 4 characters");
       setBrandTouched({ ...brandTouched, brand_code: true });
       return;
     }
 
-    // Check for duplicate name
-    if (brands) {
-      const isDuplicateName = brands.some(
-        (b) =>
-          b.brand_name.trim().toLowerCase() === brandState.formData.brand_name?.trim().toLowerCase() &&
-          (!brandState.selectedItem || b.id !== brandState.selectedItem.id)
-      );
-      if (isDuplicateName) {
-        showErrorToast("Brand name already exists");
-        return;
-      }
-    }
 
+    const brandPayload = {
+      ...brandState.formData,
+      brand_name: (brandState.formData.brand_name ?? "").trim(),
+      brand_code: (brandState.formData.brand_code ?? "").trim(),
+    };
     if (brandState.isCreating) {
-      createBrandMutation.mutate(brandState.formData);
+      await createBrandMutation.mutateAsync(brandPayload).catch(() => undefined);
     } else if (brandState.selectedItem) {
-      updateBrandMutation.mutate({
-        id: brandState.selectedItem.id,
-        data: {
-          ...brandState.formData,
-          expected_updated_at: brandState.selectedItem.updated_at,
-          expected_version: brandState.selectedItem.version,
-        },
-      });
+      await updateBrandMutation
+        .mutateAsync({
+          id: brandState.selectedItem.id,
+          data: {
+            ...brandPayload,
+            expected_updated_at: brandState.selectedItem.updated_at,
+            expected_version: brandState.selectedItem.version,
+          },
+        })
+        .catch(() => undefined);
     }
   };
+  const handleSaveBrand = withSaveGuard(saveBrandInner);
 
   // Cancelling out of "New Brand" returns to the browse table rather than
   // auto-selecting the first item (mirrors handleCancelProduct above).
@@ -1392,7 +1369,11 @@ export default function ProductsPage({
     // MasterDetailLayout awaits this to drive its refresh spinner — without
     // returning the underlying promises, the spinner would stop before the
     // data has actually come back.
-    await Promise.all([refetchProducts(), refetchCategories(), refetchBrands()]);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["products"] }),
+      queryClient.invalidateQueries({ queryKey: ["categories"] }),
+      queryClient.invalidateQueries({ queryKey: ["brands"] }),
+    ]);
   };
 
   // Tab configuration
@@ -1420,6 +1401,23 @@ export default function ProductsPage({
       <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
         <TDataGrid<ProductRow>
           rows={productRows}
+          serverPagination={{ rowCount: productsPage?.total ?? 0, paginationModel: productPaging, onPaginationModelChange: setProductPaging }}
+          exportAllRows={() =>
+            fetchAllPages((page) =>
+              productsApi.getPage({
+                page,
+                size: 200,
+                q: productSearch.trim(),
+                active: activeParam(productActiveFilter),
+                category_id: productCategoryFilter?.id,
+                brand_id: productBrandFilter?.id,
+                supplier_id: productSupplierFilter?.id,
+                sort_by: productSort?.field,
+                order: productSort?.sort,
+              })
+            ).then((rows) => rows.map((p) => ({ ...p, category_name: p.category_name || "-", brand_name: p.brand_name || "-" })))
+          }
+          onServerSortChange={setProductSort}
           columns={productColumns}
           loading={productsLoading}
           onRowClick={(row) => handleSelectProduct(row)}
@@ -1559,10 +1557,11 @@ export default function ProductsPage({
                           ? "Item code is required"
                           : ""
                       }
-                      inputProps={{ style: { textTransform: "uppercase" } }}
+                      inputProps={{ maxLength: 255, style: { textTransform: "uppercase" } }}
                     />
                     <TextField
                       label="Product Name"
+                      inputProps={{ maxLength: 255 }}
                       size="small"
                       value={productState.formData.name}
                       onChange={(e) =>
@@ -1583,6 +1582,7 @@ export default function ProductsPage({
                     />
                     <TextField
                       label="Model"
+                      inputProps={{ maxLength: 255 }}
                       size="small"
                       value={productState.formData.model}
                       onChange={(e) =>
@@ -1633,6 +1633,7 @@ export default function ProductsPage({
                     </TextField>
                     <TextField
                       label="Description"
+                      inputProps={{ maxLength: 5000 }}
                       size="small"
                       value={productState.formData.description}
                       onChange={(e) =>
@@ -1861,6 +1862,7 @@ export default function ProductsPage({
                 <FormSection title="Pricing" isLast>
                   <TextField
                     label="Cost Price"
+                    inputProps={{ min: 0, step: "0.01" }}
                     size="small"
                     type="number"
                     value={productState.formData.cost_price ?? ""}
@@ -1895,6 +1897,7 @@ export default function ProductsPage({
                   />
                   <TextField
                     label="Website Price"
+                    inputProps={{ min: 0, step: "0.01" }}
                     size="small"
                     type="number"
                     value={productState.formData.website_price ?? ""}
@@ -1929,6 +1932,7 @@ export default function ProductsPage({
                   />
                   <TextField
                     label="Selling Price"
+                    inputProps={{ min: 0, step: "0.01" }}
                     size="small"
                     type="number"
                     value={productState.formData.selling_price ?? ""}
@@ -1970,6 +1974,7 @@ export default function ProductsPage({
                   />
                   <TextField
                     label="Minimum Selling Price"
+                    inputProps={{ min: 0, step: "0.01" }}
                     size="small"
                     type="number"
                     value={minPriceInput}
@@ -2029,6 +2034,20 @@ export default function ProductsPage({
       <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
         <TDataGrid<CategoryRow>
           rows={categoryRows}
+          serverPagination={{ rowCount: categoriesPage?.total ?? 0, paginationModel: categoryPaging, onPaginationModelChange: setCategoryPaging }}
+          exportAllRows={() =>
+            fetchAllPages((page) =>
+              categoriesApi.getPage({
+                page,
+                size: 200,
+                q: categorySearch.trim(),
+                active: activeParam(categoryActiveFilter),
+                sort_by: categorySort?.field,
+                order: categorySort?.sort,
+              })
+            )
+          }
+          onServerSortChange={setCategorySort}
           columns={categoryColumns}
           loading={categoriesLoading}
           onRowClick={(row) => handleSelectCategory(row)}
@@ -2117,6 +2136,7 @@ export default function ProductsPage({
               <FormSection title="Category Information">
                 <TextField
                   label="Category Name"
+                  inputProps={{ maxLength: 255 }}
                   size="small"
                   value={categoryState.formData.name}
                   onChange={(e) =>
@@ -2160,10 +2180,11 @@ export default function ProductsPage({
                       ? "Category code is required"
                       : ""
                   }
-                  inputProps={{ style: { textTransform: "uppercase" } }}
+                  inputProps={{ maxLength: 255, style: { textTransform: "uppercase" } }}
                 />
                 <TextField
                   label="Memo"
+                  inputProps={{ maxLength: 255 }}
                   size="small"
                   value={categoryState.formData.memo}
                   onChange={(e) =>
@@ -2204,6 +2225,7 @@ export default function ProductsPage({
                 </Box>
                 <TextField
                   label="Description"
+                  inputProps={{ maxLength: 5000 }}
                   size="small"
                   value={categoryState.formData.description}
                   onChange={(e) =>
@@ -2273,6 +2295,20 @@ export default function ProductsPage({
       <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
         <TDataGrid<BrandRow>
           rows={brandRows}
+          serverPagination={{ rowCount: brandsPage?.total ?? 0, paginationModel: brandPaging, onPaginationModelChange: setBrandPaging }}
+          exportAllRows={() =>
+            fetchAllPages((page) =>
+              brandsApi.getPage({
+                page,
+                size: 200,
+                q: brandSearch.trim(),
+                active: activeParam(brandActiveFilter),
+                sort_by: brandSort?.field,
+                order: brandSort?.sort,
+              })
+            )
+          }
+          onServerSortChange={setBrandSort}
           columns={brandColumns}
           loading={brandsLoading}
           onRowClick={(row) => handleSelectBrand(row)}
@@ -2360,6 +2396,7 @@ export default function ProductsPage({
               <FormSection title="Brand Information">
               <TextField
                 label="Brand Name"
+                inputProps={{ maxLength: 255 }}
                 size="small"
                 value={brandState.formData.brand_name}
                 onChange={(e) =>
@@ -2434,6 +2471,7 @@ export default function ProductsPage({
               </Box>
               <TextField
                 label="Description"
+                inputProps={{ maxLength: 5000 }}
                 size="small"
                 value={brandState.formData.description}
                 onChange={(e) =>

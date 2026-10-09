@@ -30,6 +30,7 @@ import {
     TActivityHistoryPanel,
     SelectableListItem,
     TRemarkField,
+  continueOrReveal,
 } from "@/components/tijaero";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useReferenceData } from "@/hooks";
@@ -5264,8 +5265,7 @@ export default function SalesPage() {
               size="small"
               variant="contained"
               color="primary"
-              onClick={handleNextStep}
-              disabled={!isStep1Valid}
+              onClick={() => continueOrReveal(!!isStep1Valid, handleNextStep)}
               endIcon={<ArrowForwardIcon />}
             >
               Next: Line Items

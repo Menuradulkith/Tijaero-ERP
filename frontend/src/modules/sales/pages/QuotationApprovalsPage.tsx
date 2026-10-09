@@ -7,7 +7,9 @@
 import { useMemo, useCallback, useState, useEffect } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { useCurrencyStore } from "@/state/currencyStore";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { GridPaginationModel } from "@mui/x-data-grid";
+import { fetchAllPages } from "@/utils/fetchAllPages";
 import {
   Box,
   TextField,
@@ -50,11 +52,8 @@ import {
   QUOTATION_STATUS_FILTER_OPTIONS,
   getStatusProps,
   showErrorToast,
-  showSuccessToast,
-  showWarningToast,
   modernTableStyles,
   useCrudMutation,
-  useRowSelection,
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
@@ -64,6 +63,7 @@ import { quotationApi } from "@/modules/sales/quotation-api";
 import { customersApi } from "@/modules/customers/api";
 import { approvalsApi } from "@/modules/common/api";
 import ApproverAuthDialog from "@/modules/purchasing/components/ApproverAuthDialog";
+import { useDebounce } from "@/hooks";
 import { useReferenceData } from "@/hooks";
 import type { SalesQuote, SalesQuoteDetail } from "@/modules/sales/quotation-types";
 import type { Customer } from "@/modules/customers/types";
@@ -80,7 +80,6 @@ export default function QuotationApprovalsPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedQuote, setSelectedQuote] = useState<SalesQuoteDetail | null>(null);
-  const rowSelection = useRowSelection();
 
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
@@ -91,8 +90,6 @@ export default function QuotationApprovalsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
-  const [bulkActionActive, setBulkActionActive] = useState(false);
-  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = (refData?.products || []) as Product[];
@@ -112,10 +109,36 @@ export default function QuotationApprovalsPage() {
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  const { data: quotesList, isLoading, refetch } = useQuery({
-    queryKey: ["sales-quotes-all"],
-    queryFn: () => quotationApi.getAll({ per_page: 100000 }),
+  // Server-side paging: only the visible page is fetched (this used to download every quotation,
+  // up to 100 000, on each visit and filter them in the browser).
+  const [paging, setPaging] = useState<GridPaginationModel>({ page: 0, pageSize: 25 });
+  const [sort, setSort] = useState<{ field: string; sort: "asc" | "desc" } | null>(null);
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
+  useEffect(() => {
+    setPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
+  }, [debouncedSearch, filterStatus, filterBranch, sort]);
+
+  const SERVER_SORT: Record<string, string> = {
+    quote_no: "quote_no", customer_display_name: "customer_name", branch_code: "branch_code",
+    created_date: "created_date", valid_until: "valid_until", status: "status", total_amount: "total_amount",
+  };
+  const pageParams = (page: number, size: number) => ({
+    search: debouncedSearch.trim(),
+    status: (filterStatus ?? undefined) as never,
+    branch_code: filterBranch ?? undefined,
+    sort_by: sort ? SERVER_SORT[sort.field] : undefined,
+    order: sort?.sort,
+    page: page + 1,
+    per_page: size,
+  });
+
+  const { data: quotesList, isFetching: isLoading, refetch } = useQuery({
+    queryKey: ["sales-quotes-all", "paged", paging.page, paging.pageSize, debouncedSearch.trim(), filterStatus, filterBranch, sort?.field, sort?.sort],
+    queryFn: () => quotationApi.getAll(pageParams(paging.page, paging.pageSize)),
     enabled: branchResolved,
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 1000,
   });
   const quotes = quotesList?.items || [];
 
@@ -141,24 +164,7 @@ export default function QuotationApprovalsPage() {
     [customerMap],
   );
 
-  const filteredQuotes = useMemo(() => {
-    let filtered = quotes.filter((quote) => {
-      if (filterStatus && quote.status?.toLowerCase() !== filterStatus.toLowerCase()) return false;
-      if (filterBranch && quote.branch_code !== filterBranch) return false;
-      const customerName = getCustomerName(quote.customer_id);
-      return (
-        quote.quote_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        customerName.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    });
-
-    filtered.sort((a, b) => {
-      const timeDiff = new Date(b.created_date_time).getTime() - new Date(a.created_date_time).getTime();
-      return timeDiff !== 0 ? timeDiff : b.id - a.id;
-    });
-
-    return filtered;
-  }, [quotes, searchQuery, filterStatus, filterBranch, getCustomerName]);
+  const filteredQuotes: SalesQuote[] = quotes;
 
   const handleSelectQuote = useCallback(async (quote: SalesQuote) => {
     try {
@@ -180,9 +186,6 @@ export default function QuotationApprovalsPage() {
     getSuccessMessage: (_data, { silent }) => (silent ? undefined : "Quotation approved successfully"),
     errorMessage: "Failed to approve quotation",
     onSuccess: (_data, { quoteId }) => {
-      queryClient.setQueryData<{ items: SalesQuote[] } | undefined>(["sales-quotes-all"], (prev) =>
-        prev ? { ...prev, items: prev.items.map((q) => (q.id === quoteId ? { ...q, status: "approved", approval: true } : q)) } : prev
-      );
       setSelectedQuote((prev) => (prev && prev.id === quoteId ? { ...prev, status: "approved", approval: true } : prev));
     },
   });
@@ -194,9 +197,6 @@ export default function QuotationApprovalsPage() {
     getSuccessMessage: (_data, { silent }) => (silent ? undefined : "Quotation rejected"),
     errorMessage: "Failed to reject quotation",
     onSuccess: (_data, { quoteId }) => {
-      queryClient.setQueryData<{ items: SalesQuote[] } | undefined>(["sales-quotes-all"], (prev) =>
-        prev ? { ...prev, items: prev.items.map((q) => (q.id === quoteId ? { ...q, status: "rejected" } : q)) } : prev
-      );
       setSelectedQuote((prev) => (prev && prev.id === quoteId ? { ...prev, status: "rejected" } : prev));
       setRejectDialogOpen(false);
       setRejectReason("");
@@ -209,52 +209,11 @@ export default function QuotationApprovalsPage() {
       showErrorToast("This quotation has no approval record. Please contact support.");
       return;
     }
-    setBulkActionActive(false);
-    setAuthDialogOpen(true);
-  };
-
-  const handleBulkApproveClick = () => {
-    if (selectedPendingRows.length === 0) return;
-    if (selectedPendingRows.some((row) => !row.approval_id)) {
-      showErrorToast("One or more selected quotations have no approval record. Please contact support.");
-      return;
-    }
-    setBulkActionActive(true);
     setAuthDialogOpen(true);
   };
 
   const handleAuthSubmit = async (username: string, password: string) => {
     const credentials = { approver_username: username, approver_password: password };
-
-    if (bulkActionActive) {
-      setIsBulkProcessing(true);
-      const failed: string[] = [];
-      for (const row of selectedPendingRows) {
-        if (!row.approval_id) continue;
-        try {
-          await approveMutation.mutateAsync({
-            approvalId: row.approval_id,
-            quoteId: row.id,
-            credentials,
-            silent: true,
-          });
-        } catch {
-          failed.push(row.quote_no || `#${row.id}`);
-        }
-      }
-      const succeededCount = selectedPendingRows.length - failed.length;
-      if (failed.length === 0) {
-        showSuccessToast(`${succeededCount} quotation(s) approved successfully`);
-      } else if (succeededCount > 0) {
-        showWarningToast(`${succeededCount} quotation(s) approved, but failed for: ${failed.join(", ")}`);
-      } else {
-        showErrorToast(`Failed to approve quotation(s): ${failed.join(", ")}`);
-      }
-      rowSelection.clearSelection();
-      setAuthDialogOpen(false);
-      setIsBulkProcessing(false);
-      return;
-    }
 
     if (!selectedQuote || !selectedQuote.approval_id) return;
     approveMutation.mutate(
@@ -265,40 +224,6 @@ export default function QuotationApprovalsPage() {
 
   const handleReject = () => {
     if (!rejectReason.trim()) return;
-
-    if (bulkActionActive) {
-      if (selectedPendingRows.length === 0) return;
-      setIsBulkProcessing(true);
-      (async () => {
-        const failed: string[] = [];
-        for (const row of selectedPendingRows) {
-          if (!row.approval_id) continue;
-          try {
-            await rejectMutation.mutateAsync({
-              approvalId: row.approval_id,
-              quoteId: row.id,
-              remarks: rejectReason,
-              silent: true,
-            });
-          } catch {
-            failed.push(row.quote_no || `#${row.id}`);
-          }
-        }
-        const succeededCount = selectedPendingRows.length - failed.length;
-        if (failed.length === 0) {
-          showSuccessToast(`${succeededCount} quotation(s) rejected`);
-        } else if (succeededCount > 0) {
-          showWarningToast(`${succeededCount} quotation(s) rejected, but failed for: ${failed.join(", ")}`);
-        } else {
-          showErrorToast(`Failed to reject quotation(s): ${failed.join(", ")}`);
-        }
-        rowSelection.clearSelection();
-        setRejectDialogOpen(false);
-        setRejectReason("");
-        setIsBulkProcessing(false);
-      })();
-      return;
-    }
 
     if (selectedQuote) {
       if (!selectedQuote.approval_id) {
@@ -313,16 +238,6 @@ export default function QuotationApprovalsPage() {
     }
   };
 
-  const handleBulkRejectClick = () => {
-    if (selectedPendingRows.length === 0) return;
-    if (selectedPendingRows.some((row) => !row.approval_id)) {
-      showErrorToast("One or more selected quotations have no approval record. Please contact support.");
-      return;
-    }
-    setBulkActionActive(true);
-    setRejectDialogOpen(true);
-  };
-
   const selectedIsPending = (selectedQuote?.status || "").toLowerCase() === "pending_approval";
 
   const quoteRows = useMemo(
@@ -334,15 +249,6 @@ export default function QuotationApprovalsPage() {
       })),
     [filteredQuotes, getCustomerName],
   );
-
-  const selectedPendingRows = useMemo(() => {
-    const { type, ids } = rowSelection.selectedRows;
-    const isSelected = type === "include" ? (id: number) => ids.has(id) : (id: number) => !ids.has(id);
-    if (type === "include" && ids.size === 0) return [];
-    return quoteRows.filter(
-      (row) => isSelected(row.id) && (row.status || "").toLowerCase() === "pending_approval",
-    );
-  }, [rowSelection.selectedRows, quoteRows]);
 
   const quoteColumns: TDataGridColumn<QuoteApprovalRow>[] = useMemo(
     () => [
@@ -448,15 +354,19 @@ export default function QuotationApprovalsPage() {
           rows={quoteRows}
           columns={quoteColumns}
           loading={isLoading}
+          serverPagination={{ rowCount: quotesList?.total ?? 0, paginationModel: paging, onPaginationModelChange: setPaging }}
+          onServerSortChange={setSort}
+          exportAllRows={() =>
+            fetchAllPages((page) => quotationApi.getAll(pageParams(page, 200)).then((r) => ({ items: r.items, pages: r.pages }))).then((rows) =>
+              rows.map((quote) => ({ ...quote, customer_display_name: getCustomerName(quote.customer_id), agent_display_name: quote.customer_agent_id ? getCustomerName(quote.customer_agent_id) : "" }))
+            )
+          }
           onRowClick={(row) => handleSelectQuote(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
           emptyMessage="No quotations found"
           autoHeight={false}
           height="100%"
-          selectionMode="multiple"
-          selectedRows={rowSelection.selectedRows}
-          onSelectionChange={rowSelection.setSelectedRows}
         />
       </Box>
     </Box>
@@ -683,21 +593,16 @@ export default function QuotationApprovalsPage() {
 
       <Dialog
         open={rejectDialogOpen}
-        onClose={() => {
-          setRejectDialogOpen(false);
-          setBulkActionActive(false);
-        }}
+        onClose={() => setRejectDialogOpen(false)}
         maxWidth="sm"
         fullWidth
       >
         <DialogTitle>
-          {bulkActionActive ? `Reject ${selectedPendingRows.length} Quotations` : "Reject Quotation"}
+          Reject Quotation
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {bulkActionActive
-              ? `Please provide a reason for rejecting these ${selectedPendingRows.length} quotations.`
-              : "Please provide a reason for rejecting this quotation."}
+            Please provide a reason for rejecting this quotation.
           </Typography>
           <TextField
             autoFocus
@@ -710,21 +615,14 @@ export default function QuotationApprovalsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button
-            onClick={() => {
-              setRejectDialogOpen(false);
-              setBulkActionActive(false);
-            }}
-          >
-            Cancel
-          </Button>
+          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="error"
             onClick={handleReject}
-            disabled={!rejectReason.trim() || rejectMutation.isPending || isBulkProcessing}
+            disabled={!rejectReason.trim() || rejectMutation.isPending}
           >
-            {rejectMutation.isPending || isBulkProcessing ? "Rejecting..." : "Reject Quotation"}
+            {rejectMutation.isPending ? "Rejecting..." : "Reject Quotation"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -797,32 +695,6 @@ export default function QuotationApprovalsPage() {
             </Box>
           )
         }
-        headerActions={
-          !isQuoteApprovalDetailMode && selectedPendingRows.length > 0 ? (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Button
-                size="small"
-                variant="contained"
-                color="primary"
-                startIcon={<CheckCircleIcon />}
-                onClick={handleBulkApproveClick}
-                disabled={isBulkProcessing}
-              >
-                Approve ({selectedPendingRows.length})
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                color="error"
-                startIcon={<CancelIcon />}
-                onClick={handleBulkRejectClick}
-                disabled={isBulkProcessing}
-              >
-                Reject ({selectedPendingRows.length})
-              </Button>
-            </Box>
-          ) : undefined
-        }
         onRefresh={() => refetch()}
         isLoading={isLoading}
         {...(isQuoteApprovalDetailMode
@@ -832,13 +704,9 @@ export default function QuotationApprovalsPage() {
 
       <ApproverAuthDialog
         open={authDialogOpen}
-        title={bulkActionActive ? `Approver Login required (${selectedPendingRows.length} quotations)` : undefined}
-        onClose={() => {
-          setAuthDialogOpen(false);
-          setBulkActionActive(false);
-        }}
+        onClose={() => setAuthDialogOpen(false)}
         onSubmit={handleAuthSubmit}
-        loading={approveMutation.isPending || isBulkProcessing}
+        loading={approveMutation.isPending}
       />
 
       <TActivityHistoryPanel

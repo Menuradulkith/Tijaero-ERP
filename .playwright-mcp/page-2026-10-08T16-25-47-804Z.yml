@@ -1,0 +1,52 @@
+- generic [ref=f6e2]:
+  - generic [ref=f6e4]:
+    - generic:
+      - generic [ref=f6e5]:
+        - button "Home" [ref=f6e6] [cursor=pointer]
+        - button "Hide Sidebar" [ref=f6e9] [cursor=pointer]
+        - button "Find Page" [ref=f6e12] [cursor=pointer]
+      - banner [ref=f6e15]:
+        - generic [ref=f6e17]:
+          - generic [ref=f6e18]:
+            - paragraph [ref=f6e19]: Admin User
+            - generic [ref=f6e20]: Superuser
+          - button [ref=f6e21] [cursor=pointer]
+          - button "Tijaero.AI assistant" [ref=f6e25] [cursor=pointer]: Tijaero.AI
+          - button "A" [ref=f6e29] [cursor=pointer]
+      - navigation [ref=f6e31]:
+        - generic [ref=f6e33]:
+          - heading "TijaeroERP" [level=6] [ref=f6e38]
+          - separator [ref=f6e39]
+          - list [ref=f6e41]:
+            - listitem [ref=f6e43]:
+              - button "Dashboard" [ref=f6e44] [cursor=pointer]
+            - listitem [ref=f6e51]:
+              - button "Sales" [ref=f6e52] [cursor=pointer]
+            - listitem [ref=f6e61]:
+              - button "Purchasing" [ref=f6e62] [cursor=pointer]
+            - listitem [ref=f6e71]:
+              - button "Product Catalogs" [ref=f6e72] [cursor=pointer]
+            - listitem [ref=f6e81]:
+              - button "Finance" [ref=f6e82] [cursor=pointer]
+            - listitem [ref=f6e91]:
+              - button "HR" [ref=f6e92] [cursor=pointer]
+            - listitem [ref=f6e101]:
+              - button "Sales Stock" [ref=f6e102] [cursor=pointer]
+            - listitem [ref=f6e111]:
+              - button "Company Assets" [ref=f6e112] [cursor=pointer]
+            - listitem [ref=f6e119]:
+              - button "Support" [ref=f6e120] [cursor=pointer]
+            - listitem [ref=f6e130]:
+              - button "Reporting" [ref=f6e131] [cursor=pointer]
+            - listitem [ref=f6e138]:
+              - button "Branches" [ref=f6e139] [cursor=pointer]
+            - listitem [ref=f6e146]:
+              - button "Users" [ref=f6e147] [cursor=pointer]
+            - listitem [ref=f6e154]:
+              - button "Roles" [ref=f6e155] [cursor=pointer]
+            - listitem [ref=f6e162]:
+              - button "Settings" [ref=f6e163] [cursor=pointer]
+          - separator [ref=f6e169]
+          - list [ref=f6e170]
+    - main [ref=f6e171]
+  - button "Open Tanstack query devtools" [ref=f6e308] [cursor=pointer]
