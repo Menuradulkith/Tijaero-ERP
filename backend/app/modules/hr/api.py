@@ -8,23 +8,33 @@ from app.auth.dependencies import (
     validate_branch_access,
 )
 from app.auth.models import User
-from app.auth.rbac import Permissions, require_permission
+from app.auth.rbac import Permissions, require_any_permission, require_permission
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from . import schemas, service
 
-# All HR endpoints require view permission as baseline
 router = APIRouter(
     prefix="/hr",
     tags=["hr"],
-    dependencies=[Depends(require_permission(*Permissions.HR_DASHBOARD_VIEW))],
+    dependencies=[Depends(get_current_active_user)],
 )
 
 
+def require_reimbursement_branch(
+    reimbursement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    reimbursement = service.ReimbursementService(db).get_reimbursement(reimbursement_id)
+    if not validate_branch_access(current_user, reimbursement.branch_code):
+        raise HTTPException(status_code=403, detail="Access denied to reimbursement branch")
+
+
 # HR Dashboard Statistics
-@router.get("/statistics", response_model=schemas.HRStatistics)
+@router.get("/statistics", response_model=schemas.HRStatistics,
+            dependencies=[Depends(require_permission(*Permissions.HR_DASHBOARD_VIEW))])
 def get_hr_statistics(db: Session = Depends(get_db)):
     """Server-side aggregated KPI counts for the HR dashboard."""
     stats_service = service.HRStatisticsService(db)
@@ -46,14 +56,16 @@ def create_salary_deduction(
     return deduction_service.create_deduction(deduction)
 
 
-@router.get("/deductions/{deduction_id}", response_model=schemas.SalaryDeduction)
+@router.get("/deductions/{deduction_id}", response_model=schemas.SalaryDeduction,
+            dependencies=[Depends(require_permission(*Permissions.DEDUCTION_VIEW))])
 def get_salary_deduction(deduction_id: int, db: Session = Depends(get_db)):
     """Get salary deduction by ID"""
     deduction_service = service.SalaryDeductionService(db)
     return deduction_service.get_deduction(deduction_id)
 
 
-@router.get("/deductions", response_model=List[schemas.SalaryDeduction])
+@router.get("/deductions", response_model=List[schemas.SalaryDeduction],
+            dependencies=[Depends(require_permission(*Permissions.DEDUCTION_VIEW))])
 def list_salary_deductions(
     employee_id: Optional[int] = None,
     skip: int = Query(0, ge=0),
@@ -107,13 +119,16 @@ def create_reimbursement(
     current_user: User = Depends(get_current_user),
 ):
     """Create a new reimbursement claim with line items."""
+    if not validate_branch_access(current_user, reimbursement.branch_code):
+        raise HTTPException(status_code=403, detail="Access denied to reimbursement branch")
     reimbursement_service = service.ReimbursementService(db)
     return reimbursement_service.create_reimbursement(
         reimbursement, created_by=current_user.id
     )
 
 
-@router.get("/reimbursements/{reimbursement_id}", response_model=schemas.Reimbursement)
+@router.get("/reimbursements/{reimbursement_id}", response_model=schemas.Reimbursement,
+            dependencies=[Depends(require_any_permission(Permissions.REIMBURSEMENT_VIEW, Permissions.REIMBURSEMENT_APPROVAL_VIEW)), Depends(require_reimbursement_branch)])
 def get_reimbursement(
     reimbursement_id: int,
     db: Session = Depends(get_db),
@@ -124,36 +139,40 @@ def get_reimbursement(
     return reimbursement_service.get_reimbursement(reimbursement_id)
 
 
-@router.get("/reimbursements", response_model=List[schemas.Reimbursement])
+@router.get("/reimbursements", response_model=List[schemas.Reimbursement],
+            dependencies=[Depends(require_any_permission(Permissions.REIMBURSEMENT_VIEW, Permissions.REIMBURSEMENT_APPROVAL_VIEW))])
 def list_reimbursements(
     employee_id: Optional[str] = None,
     branch_code: Optional[str] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    allowed_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """List all reimbursements with optional filters."""
+    if branch_code and not validate_branch_access(current_user, branch_code):
+        raise HTTPException(status_code=403, detail="Access denied to reimbursement branch")
     reimbursement_service = service.ReimbursementService(db)
     filters = schemas.ReimbursementListFilter(
         employee_id=employee_id,
         branch_code=branch_code,
         status=status_filter,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit,
     )
-    return reimbursement_service.list_reimbursements(filters)
+    return reimbursement_service.list_reimbursements(filters, allowed_branches=allowed_branches)
 
 
 @router.patch(
     "/reimbursements/{reimbursement_id}",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_UPDATE)), Depends(require_reimbursement_branch)],
 )
 def update_reimbursement(
     reimbursement_id: int,
@@ -169,7 +188,7 @@ def update_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/approve",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE)), Depends(require_reimbursement_branch)],
 )
 def approve_reimbursement(
     reimbursement_id: int,
@@ -187,7 +206,7 @@ def approve_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/reject",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE)), Depends(require_reimbursement_branch)],
 )
 def reject_reimbursement(
     reimbursement_id: int,
@@ -205,7 +224,7 @@ def reject_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/verify",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE)), Depends(require_reimbursement_branch)],
 )
 def verify_reimbursement(
     reimbursement_id: int,
@@ -223,7 +242,7 @@ def verify_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/pay",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE)), Depends(require_reimbursement_branch)],
 )
 def process_reimbursement_payment(
     reimbursement_id: int,
@@ -241,7 +260,7 @@ def process_reimbursement_payment(
 @router.delete(
     "/reimbursements/{reimbursement_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_DELETE)), Depends(require_reimbursement_branch)],
 )
 def delete_reimbursement(
     reimbursement_id: int,
@@ -270,7 +289,8 @@ def create_payroll(
 
 # NOTE: static /payroll/batches routes MUST be declared before /payroll/{payroll_id};
 # otherwise Starlette matches "batches" as payroll_id and returns 422.
-@router.get("/payroll/batches", response_model=List[schemas.PayrollBatchResponse])
+@router.get("/payroll/batches", response_model=List[schemas.PayrollBatchResponse],
+            dependencies=[Depends(require_any_permission(Permissions.PAYROLL_PROCESSING_VIEW, Permissions.PAYROLL_APPROVAL_VIEW))])
 def list_payroll_batches(
     payroll_month: Optional[int] = None,
     payroll_year: Optional[int] = None,
@@ -292,7 +312,8 @@ def list_payroll_batches(
     return payroll_service.list_batches(filters)
 
 
-@router.get("/payroll/batches/{batch_id}", response_model=schemas.PayrollBatchResponse)
+@router.get("/payroll/batches/{batch_id}", response_model=schemas.PayrollBatchResponse,
+            dependencies=[Depends(require_any_permission(Permissions.PAYROLL_PROCESSING_VIEW, Permissions.PAYROLL_APPROVAL_VIEW))])
 def get_payroll_batch(
     batch_id: int,
     db: Session = Depends(get_db),
@@ -303,14 +324,16 @@ def get_payroll_batch(
     return payroll_service.get_batch(batch_id)
 
 
-@router.get("/payroll/{payroll_id}", response_model=schemas.EmployeePayrollResponse)
+@router.get("/payroll/{payroll_id}", response_model=schemas.EmployeePayrollResponse,
+            dependencies=[Depends(require_permission(*Permissions.PAYROLL_VIEW))])
 def get_payroll(payroll_id: int, db: Session = Depends(get_db)):
     """Get payroll by ID"""
     payroll_service = service.PayrollService(db)
     return payroll_service.get_payroll(payroll_id)
 
 
-@router.get("/payroll", response_model=List[schemas.EmployeePayrollResponse])
+@router.get("/payroll", response_model=List[schemas.EmployeePayrollResponse],
+            dependencies=[Depends(require_permission(*Permissions.PAYROLL_VIEW))])
 def list_payrolls(
     employee_id: Optional[str] = None,
     skip: int = Query(0, ge=0),
@@ -523,7 +546,8 @@ def create_salary_profile(
     return profile_service.create_profile(profile)
 
 
-@router.get("/salary-profiles", response_model=List[schemas.EmployeeSalaryProfile])
+@router.get("/salary-profiles", response_model=List[schemas.EmployeeSalaryProfile],
+            dependencies=[Depends(require_permission(*Permissions.SALARY_PROFILE_VIEW))])
 def list_salary_profiles(db: Session = Depends(get_db)):
     """List all salary profiles"""
     profile_service = service.SalaryProfileService(db)
@@ -531,7 +555,8 @@ def list_salary_profiles(db: Session = Depends(get_db)):
 
 
 @router.get(
-    "/salary-profiles/{profile_id}", response_model=schemas.EmployeeSalaryProfile
+    "/salary-profiles/{profile_id}", response_model=schemas.EmployeeSalaryProfile,
+    dependencies=[Depends(require_permission(*Permissions.SALARY_PROFILE_VIEW))],
 )
 def get_salary_profile(profile_id: int, db: Session = Depends(get_db)):
     """Get salary profile by ID"""
@@ -542,6 +567,7 @@ def get_salary_profile(profile_id: int, db: Session = Depends(get_db)):
 @router.get(
     "/employees/{employee_id}/salary-profile",
     response_model=schemas.EmployeeSalaryProfile,
+    dependencies=[Depends(require_permission(*Permissions.SALARY_PROFILE_VIEW))],
 )
 def get_employee_salary_profile(employee_id: str, db: Session = Depends(get_db)):
     """Get salary profile by employee ID"""
@@ -590,18 +616,20 @@ def create_promotion(
     return promotion_service.create_promotion(promotion)
 
 
-@router.get("/promotions/{promotion_id}", response_model=schemas.EmployeePromotion)
+@router.get("/promotions/{promotion_id}", response_model=schemas.EmployeePromotion,
+            dependencies=[Depends(require_permission(*Permissions.PROMOTION_VIEW))])
 def get_promotion(promotion_id: int, db: Session = Depends(get_db)):
     """Get promotion by ID"""
     promotion_service = service.PromotionService(db)
     return promotion_service.get_promotion(promotion_id)
 
 
-@router.get("/promotions", response_model=List[schemas.EmployeePromotion])
+@router.get("/promotions", response_model=List[schemas.EmployeePromotion],
+            dependencies=[Depends(require_permission(*Permissions.PROMOTION_VIEW))])
 def list_promotions(
     employee_id: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -610,8 +638,8 @@ def list_promotions(
     promotion_service = service.PromotionService(db)
     filters = schemas.HRListFilter(
         employee_id=employee_id,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit,
     )
@@ -659,14 +687,16 @@ def create_asset_assignment(
     return asset_service.create_asset_assignment(asset)
 
 
-@router.get("/employee-assets/{assignment_id}", response_model=schemas.EmployeeAsset)
+@router.get("/employee-assets/{assignment_id}", response_model=schemas.EmployeeAsset,
+            dependencies=[Depends(require_permission(*Permissions.HR_ASSET_VIEW))])
 def get_asset_assignment(assignment_id: int, db: Session = Depends(get_db)):
     """Get asset assignment by ID"""
     asset_service = service.EmployeeAssetService(db)
     return asset_service.get_asset_assignment(assignment_id)
 
 
-@router.get("/employee-assets", response_model=List[schemas.EmployeeAsset])
+@router.get("/employee-assets", response_model=List[schemas.EmployeeAsset],
+            dependencies=[Depends(require_permission(*Permissions.HR_ASSET_VIEW))])
 def list_asset_assignments(
     employee_id: Optional[str] = None,
     skip: int = Query(0, ge=0),

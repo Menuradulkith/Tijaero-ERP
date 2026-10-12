@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import AliasPath, BaseModel, Field
 from typing import Optional
 from datetime import date, datetime
 
@@ -18,6 +18,10 @@ class Employee(EmployeeBase, TijaeroBaseSchema):
     id: int
     created_at: datetime
     updated_at: datetime
+    full_name: str = ""
+    username: str = Field("", validation_alias=AliasPath("user", "username"))
+    email: Optional[str] = Field(None, validation_alias=AliasPath("user", "email"))
+    occupation: Optional[str] = Field(None, validation_alias=AliasPath("user", "occupation"))
 
 class EmployeePayrollBase(BaseModel):
     employee_id: str

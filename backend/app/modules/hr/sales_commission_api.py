@@ -31,7 +31,7 @@ def generate_monthly_summary(
     Calculates revenue, COGS, returns, discounts, net revenue, and gross profit.
     If branch_code is None, generates for all branches.
     """
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     return service.generate_monthly_summary(data, current_user.id)
 
 
@@ -47,7 +47,7 @@ def list_summaries(
     current_user: User = Depends(get_current_user),
 ):
     """List all monthly sales summaries with optional filters"""
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     filters = schemas.SalesSummaryListFilter(
         branch_code=branch_code,
         fiscal_year=fiscal_year,
@@ -66,7 +66,7 @@ def get_summary(
     current_user: User = Depends(get_current_user),
 ):
     """Get a single summary with its associated commissions"""
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     return service.get_summary(summary_id)
 
 
@@ -81,7 +81,7 @@ def finalize_summary(
     Step 2: Finance Accountant finalizes the summary after review.
     This enables commission calculation.
     """
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     return service.finalize_summary(summary_id, data, current_user.id)
 
 
@@ -98,9 +98,9 @@ def calculate_commissions(
     
     Only runs if summary is finalized. No commission if branch made a loss.
     """
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     from decimal import Decimal
-    comm_pct = Decimal(str(commission_percentage)) if commission_percentage else None
+    comm_pct = Decimal(str(commission_percentage)) if commission_percentage is not None else None
     return service.calculate_commissions(summary_id, comm_pct)
 
 
@@ -122,7 +122,7 @@ def list_commissions(
     current_user: User = Depends(get_current_user),
 ):
     """List all commission records with optional filters"""
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     filters = schemas.SalesCommissionListFilter(
         employee_id=employee_id,
         branch_code=branch_code,
@@ -143,7 +143,7 @@ def get_commission(
     current_user: User = Depends(get_current_user),
 ):
     """Get a single commission record by ID"""
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     return service.get_commission(commission_id)
 
 
@@ -158,7 +158,7 @@ def approve_commission(
     Step 5: Finance Manager approves an individual commission.
     Commission becomes ready for payroll inclusion.
     """
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     return service.approve_commission(commission_id, data, current_user.id)
 
 
@@ -169,7 +169,7 @@ def bulk_approve_commissions(
     current_user: User = Depends(get_current_user),
 ):
     """Bulk approve multiple commissions at once"""
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     return service.bulk_approve_commissions(data, current_user.id)
 
 
@@ -181,7 +181,7 @@ def reject_commission(
     current_user: User = Depends(get_current_user),
 ):
     """Reject a commission with reason"""
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     return service.reject_commission(commission_id, data, current_user.id)
 
 
@@ -201,7 +201,7 @@ def get_commissions_for_payroll(
     Step 6: Get approved commissions ready for payroll.
     Used by Payroll system to include in employee salary.
     """
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     return service.get_approved_commissions_for_payroll(fiscal_year, fiscal_month, employee_id)
 
 
@@ -213,7 +213,7 @@ def mark_commission_paid(
     current_user: User = Depends(get_current_user),
 ):
     """Mark commission as paid and link to payroll record"""
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     return service.mark_commission_as_paid(commission_id, payroll_id)
 
 
@@ -227,5 +227,5 @@ def get_dashboard_stats(
     current_user: User = Depends(get_current_user),
 ):
     """Get overview statistics for commission dashboard"""
-    service = SalesCommissionService(db)
+    service = SalesCommissionService(db, current_user)
     return service.get_dashboard_stats()

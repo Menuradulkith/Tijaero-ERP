@@ -1,5 +1,5 @@
 from typing import List, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.modules.employees.models import Employee, EmployeePayroll, EmployeeSalaryProfile
 from app.modules.employees.schemas import EmployeeCreate, EmployeeUpdate, EmployeePayrollCreate, EmployeeSalaryProfileCreate
 
@@ -14,7 +14,7 @@ class EmployeeRepository:
         return db.query(Employee).filter(Employee.user_id == user_id).first()
     
     def get_all(self, db: Session, skip: int = 0, limit: int = 100) -> List[Employee]:
-        return db.query(Employee).offset(skip).limit(limit).all()
+        return db.query(Employee).options(joinedload(Employee.user)).order_by(Employee.id).offset(skip).limit(limit).all()
     
     def create(self, db: Session, employee: EmployeeCreate) -> Employee:
         db_employee = Employee(**employee.dict())

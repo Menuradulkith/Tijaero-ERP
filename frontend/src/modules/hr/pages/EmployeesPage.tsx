@@ -33,7 +33,7 @@ import {
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { employeesApi } from "@/modules/hr/api";
-import { usersApi, type UserList } from "@/modules/users/api";
+import { usersApi } from "@/modules/users/api";
 import type { Employee, EmployeeCreate } from "@/modules/hr/types";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -49,6 +49,7 @@ export default function EmployeesPage() {
   const canCreate = usePermission("employees", "create");
   const canUpdate = usePermission("employees", "update");
   const canDelete = usePermission("employees", "delete");
+  const canViewUsers = usePermission("users", "view");
 
   const {
     searchQuery,
@@ -79,28 +80,18 @@ export default function EmployeesPage() {
   const { data: users } = useQuery({
     queryKey: ["all-users-light"],
     queryFn: () => usersApi.getUsers(1, 500),
+    enabled: canViewUsers && isCreating,
   });
-
-  const userMap = useMemo(() => {
-    const m = new Map<number, UserList>();
-    (users || []).forEach((u) => m.set(u.id, u));
-    return m;
-  }, [users]);
 
   const rows: EmployeeRow[] = useMemo(() => {
     return (employees || []).map((e) => {
-      const u = userMap.get(e.user_id);
       return {
         ...e,
-        full_name: u
-          ? `${u.first_name} ${u.middle_name || ""} ${u.last_name}`.replace(/\s+/g, " ").trim()
-          : `User #${e.user_id}`,
-        username: u?.username || "",
-        email: u?.email || "",
-        occupation: u?.occupation || "",
+        full_name: e.full_name || `User #${e.user_id}`,
+        username: e.username || "",
       };
     });
-  }, [employees, userMap]);
+  }, [employees]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -131,12 +122,10 @@ export default function EmployeesPage() {
       showSuccessToast("Employee linked successfully");
       setIsCreating(false);
       setIsEditing(false);
-      const u = userMap.get(newEmp.user_id);
       const row: EmployeeRow = {
         ...newEmp,
-        full_name: u ? `${u.first_name} ${u.last_name}` : `User #${newEmp.user_id}`,
-        username: u?.username || "",
-        email: u?.email || "",
+        full_name: newEmp.full_name || `User #${newEmp.user_id}`,
+        username: newEmp.username || "",
       };
       setTimeout(() => handleSelectItem(row), 0);
     },
@@ -322,7 +311,7 @@ export default function EmployeesPage() {
         ) : (
           <>
             <FormSection title="Employee Details" columns={2}>
-              <TextField
+              {isCreating && canViewUsers ? <TextField
                 label="System User"
                 size="small"
                 select
@@ -336,7 +325,16 @@ export default function EmployeesPage() {
                     {u.first_name} {u.last_name} ({u.username})
                   </MenuItem>
                 ))}
-              </TextField>
+              </TextField> : <TextField
+                label={isCreating ? "System User ID" : "System User"}
+                size="small"
+                type={isCreating ? "number" : "text"}
+                value={isCreating ? formData.user_id || "" : selectedEmployee?.full_name || ""}
+                onChange={(event) => setFormData({ ...formData, user_id: Number(event.target.value) })}
+                disabled={!isCreating}
+                required
+                inputProps={isCreating ? { min: 1, step: 1 } : undefined}
+              />}
               <TextField
                 label="Employee ID"
                 size="small"

@@ -209,12 +209,14 @@ class ReimbursementService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
         return self._to_response(reimbursement)
 
-    def list_reimbursements(self, filters: schemas.ReimbursementListFilter) -> List[schemas.Reimbursement]:
+    def list_reimbursements(self, filters: schemas.ReimbursementListFilter, allowed_branches: Optional[List[str]] = None) -> List[schemas.Reimbursement]:
         query = self.db.query(Reimbursements).options(
             joinedload(Reimbursements.items),
             joinedload(Reimbursements.branch),
         )
 
+        if allowed_branches is not None:
+            query = query.filter(Reimbursements.branch_code.in_(allowed_branches))
         if filters.employee_id:
             query = query.filter(Reimbursements.employee_id == filters.employee_id)
         if filters.branch_code:
@@ -599,11 +601,42 @@ class PayrollService:
         }
 
     # --- CRUD (backward compatible) ---
-    def create_payroll(self, payroll: schemas.EmployeePayrollCreate) -> schemas.EmployeePayrollResponse:
+    def _manual_payroll_values(self, payroll: schemas.EmployeePayrollCreate) -> dict:
+        from app.core.money import money
+
         employee = self.db.query(Employee).filter(Employee.employee_id == payroll.employee_id).first()
         if not employee:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{payroll.employee_id}' not found")
-        db_payroll = EmployeePayroll(**payroll.model_dump())
+            raise HTTPException(status_code=404, detail=f"Employee '{payroll.employee_id}' not found")
+        if payroll.payroll_batch_no:
+            raise HTTPException(status_code=400, detail="Use payroll processing to manage batch records")
+        values = payroll.model_dump()
+        additions = (
+            "basic_salary", "add_1_value", "add_2_value", "add_sales_commision",
+            "add_salary_advance", "add_reimbursements", "add_bonus",
+        )
+        deductions = (
+            "less_epf_employee", "less_etf_employee", "less_stamp_duty",
+            "less_late_deductions", "less_salary_advance_repayment",
+            "less_loan_repayment", "less_other_deductions", "less_apit",
+        )
+        for name in (*additions, *deductions, "epf_employer", "etf_employer"):
+            if values[name] is not None:
+                values[name] = money(values[name])
+        values["gross_salary"] = money(sum((values[name] or Decimal("0")) for name in additions))
+        values["total_deductions"] = money(sum((values[name] or Decimal("0")) for name in deductions))
+        values["net_salary"] = money(values["gross_salary"] - values["total_deductions"])
+        values["total_employer_cost"] = money(
+            values["gross_salary"] + (values["epf_employer"] or Decimal("0"))
+            + (values["etf_employer"] or Decimal("0"))
+        )
+        return values
+
+    def _ensure_payroll_editable(self, payroll: EmployeePayroll) -> None:
+        if payroll.payroll_batch_no or payroll.status not in (None, "draft") or payroll.payment_status == "paid":
+            raise HTTPException(status_code=400, detail="Only standalone draft payroll records can be changed")
+
+    def create_payroll(self, payroll: schemas.EmployeePayrollCreate) -> schemas.EmployeePayrollResponse:
+        db_payroll = EmployeePayroll(**self._manual_payroll_values(payroll))
         db_payroll.created_at = tz.now()
         self.db.add(db_payroll)
         self.db.commit()
@@ -624,19 +657,21 @@ class PayrollService:
         return [self._payroll_to_response(p) for p in results]
     
     def update_payroll(self, payroll_id: int, payroll: schemas.EmployeePayrollCreate) -> schemas.EmployeePayrollResponse:
-        db_payroll = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).first()
+        db_payroll = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).with_for_update().first()
         if not db_payroll:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll not found")
-        for key, value in payroll.model_dump().items():
+        self._ensure_payroll_editable(db_payroll)
+        for key, value in self._manual_payroll_values(payroll).items():
             setattr(db_payroll, key, value)
         self.db.commit()
         self.db.refresh(db_payroll)
         return self._payroll_to_response(db_payroll)
     
     def delete_payroll(self, payroll_id: int):
-        db_payroll = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).first()
+        db_payroll = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).with_for_update().first()
         if not db_payroll:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll not found")
+        self._ensure_payroll_editable(db_payroll)
         self.db.delete(db_payroll)
         self.db.commit()
 
@@ -896,6 +931,8 @@ class PayrollService:
                 detail=f"Cannot process payment. Current status: {batch.status}"
             )
         payment_date = data.payment_date or tz.today()
+        from app.core.period_guard import assert_period_open
+        assert_period_open(self.db, payment_date, document="Payroll salary payment")
         batch.status = "salary_paid"
         batch.salary_payment_date = payment_date
         batch.salary_payment_reference = data.payment_reference
@@ -915,46 +952,59 @@ class PayrollService:
         
         # Mark approved sales commissions as paid for employees in this batch
         employee_ids = [pr.employee_id for pr in payroll_records]
-        employee_internal_ids = self.db.query(Employee.id).filter(
+        employee_internal_ids = dict(self.db.query(Employee.employee_id, Employee.id).filter(
             Employee.employee_id.in_(employee_ids)
-        ).all()
-        employee_internal_ids = [e[0] for e in employee_internal_ids]
+        ).all())
         
         # Update commissions to paid status
-        self.db.query(SalesOfficerMonthlyCommission).filter(
-            SalesOfficerMonthlyCommission.fiscal_year == batch.payroll_year,
-            SalesOfficerMonthlyCommission.fiscal_month == batch.payroll_month,
-            SalesOfficerMonthlyCommission.employee_id.in_(employee_internal_ids),
-            SalesOfficerMonthlyCommission.status == "approved",
-        ).update({
-            "status": "paid",
-            "paid_in_payroll_id": batch.id,
-            "updated_at": tz.now(),
-        }, synchronize_session=False)
-        
-        self.db.commit()
-        self.db.refresh(batch)
+        for payroll in payroll_records:
+            self.db.query(SalesOfficerMonthlyCommission).filter(
+                SalesOfficerMonthlyCommission.fiscal_year == batch.payroll_year,
+                SalesOfficerMonthlyCommission.fiscal_month == batch.payroll_month,
+                SalesOfficerMonthlyCommission.employee_id == employee_internal_ids[payroll.employee_id],
+                SalesOfficerMonthlyCommission.status == "approved",
+            ).update({
+                "status": "paid",
+                "paid_in_payroll_id": payroll.id,
+                "updated_at": tz.now(),
+            }, synchronize_session=False)
         
         # ── GL Auto-Posting: Scenario 32 – Payroll Salary Payment ─────
         try:
             from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
             gl_service = PurchaseExpensePayrollGL(self.db)
-            gl_service.post_payroll_batch_to_gl(batch, user_id=user_id)
+            accrual = gl_service.post_payroll_batch_to_gl(batch, user_id=user_id, record_failure=False)
+            if accrual is None and not gl_service._check_already_posted(batch.id, f"PayrollBatch ID: {batch.id}"):
+                raise HTTPException(status_code=400, detail="Payroll accrual could not be posted")
+            net_salary = Decimal(str(batch.total_net_salary or 0))
+            if net_salary < 0:
+                raise HTTPException(status_code=400, detail="Cannot pay a negative payroll amount")
+            if net_salary > 0:
+                payment_account = "1010" if data.payment_method.lower() == "cash" else "1020"
+                payment_entry = gl_service._create_je_and_post(
+                    entry_date=payment_date,
+                    description=f"Salary payment | Batch: {batch.batch_no}",
+                    lines=[
+                        {"account_code": "2110", "debit": net_salary, "credit": Decimal("0"),
+                         "description": f"Salary payable settled - {batch.batch_no}"},
+                        {"account_code": payment_account, "debit": Decimal("0"), "credit": net_salary,
+                         "description": f"Salary disbursement - {batch.batch_no}"},
+                    ],
+                    branch_code=None, user_id=user_id, je_prefix="JE-SAL",
+                    transaction_type="Payroll", reference_type="SalaryPayment",
+                    reference_id=batch.id, reference_no=batch.batch_no,
+                    record_failure=False,
+                )
+                if payment_entry is None:
+                    raise HTTPException(status_code=400, detail="Salary payment could not be posted")
             self.db.commit()
         except Exception as gl_err:
             import logging
-            logging.getLogger(__name__).warning(f"GL posting for payroll batch {batch.batch_no} failed (non-blocking): {gl_err}")
+            logging.getLogger(__name__).warning("Payroll payment rolled back", exc_info=True)
             self.db.rollback()
-            record_gl_commit_failure(
-                self.db,
-                reference_type="PayrollBatch",
-                reference_id=batch.id,
-                reference_no=batch.batch_no,
-                transaction_type="Payroll",
-                description=f"Payroll batch GL commit failed ({batch.batch_no})",
-                error=gl_err,
-                user_id=user_id,
-            )
+            if isinstance(gl_err, HTTPException):
+                raise
+            raise HTTPException(status_code=400, detail="Payroll payment could not be posted; no payment was recorded") from gl_err
         # ────────────────────────────────────────────────────────────────
         
         return self._batch_to_response(batch, include_records=True)
@@ -971,6 +1021,8 @@ class PayrollService:
                 detail=f"Cannot process statutory. Must process salary payments first. Current status: {batch.status}"
             )
         payment_date = data.payment_date or tz.today()
+        from app.core.period_guard import assert_period_open
+        assert_period_open(self.db, payment_date, document="Payroll statutory payment")
         refs = []
         if data.epf_reference:
             refs.append(f"EPF: {data.epf_reference}")
@@ -990,9 +1042,6 @@ class PayrollService:
             "statutory_payment_reference": statutory_ref,
             "status": "statutory_paid",
         })
-        self.db.commit()
-        self.db.refresh(batch)
-        
         # ── GL Auto-Posting: Scenario 32 – Statutory Payment ──────────
         # Statutory payment posts: Dr EPF Payable + ETF Payable / Cr Bank
         try:
@@ -1045,7 +1094,7 @@ class PayrollService:
                         f"EPF: {total_epf} | ETF: {total_etf} | "
                         f"StatutoryPayment BatchID: {batch.id}"
                     )
-                    gl_service._create_je_and_post(
+                    statutory_entry = gl_service._create_je_and_post(
                         entry_date=payment_date,
                         description=description,
                         lines=lines,
@@ -1056,22 +1105,18 @@ class PayrollService:
                         reference_type="StatutoryPayment",
                         reference_id=batch.id,
                         reference_no=batch.batch_no,
+                        record_failure=False,
                     )
-                    self.db.commit()
+                    if statutory_entry is None:
+                        raise HTTPException(status_code=400, detail="Statutory payment could not be posted")
+            self.db.commit()
         except Exception as gl_err:
             import logging
-            logging.getLogger(__name__).warning(f"GL posting for statutory payment batch {batch.batch_no} failed (non-blocking): {gl_err}")
+            logging.getLogger(__name__).warning("Statutory payment rolled back", exc_info=True)
             self.db.rollback()
-            record_gl_commit_failure(
-                self.db,
-                reference_type="StatutoryPayment",
-                reference_id=batch.id,
-                reference_no=batch.batch_no,
-                transaction_type="Payroll",
-                description=f"Statutory payment GL commit failed ({batch.batch_no})",
-                error=gl_err,
-                user_id=user_id,
-            )
+            if isinstance(gl_err, HTTPException):
+                raise
+            raise HTTPException(status_code=400, detail="Statutory payment could not be posted; no payment was recorded") from gl_err
         # ────────────────────────────────────────────────────────────────
         
         return self._batch_to_response(batch, include_records=True)
@@ -1180,6 +1225,15 @@ class SalaryProfileService:
         db_profile = self.db.query(EmployeeSalaryProfile).filter(EmployeeSalaryProfile.id == profile_id).first()
         if not db_profile:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Salary profile not found")
+        employee = self.db.query(Employee).filter(Employee.employee_id == profile.employee_id).first()
+        if not employee:
+            raise HTTPException(status_code=404, detail=f"Employee '{profile.employee_id}' not found")
+        existing = self.db.query(EmployeeSalaryProfile).filter(
+            EmployeeSalaryProfile.employee_id == profile.employee_id,
+            EmployeeSalaryProfile.id != profile_id,
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Salary profile already exists for employee '{profile.employee_id}'")
         for key, value in profile.model_dump().items():
             setattr(db_profile, key, value)
         self.db.commit()

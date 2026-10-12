@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time
+from datetime import date as Date
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -46,13 +47,13 @@ class AttendanceCheckIn(BaseModel):
     employee_id: str
     branch_code: str
     check_in: Optional[time] = None  # default = now
-    date: Optional[date] = None  # default = today
+    date: Optional[Date] = None  # default = today
 
 
 class AttendanceCheckOut(BaseModel):
     employee_id: str
     check_out: Optional[time] = None  # default = now
-    date: Optional[date] = None  # default = today
+    date: Optional[Date] = None  # default = today
 
 
 class Attendance(AttendanceBase, TijaeroBaseSchema):
