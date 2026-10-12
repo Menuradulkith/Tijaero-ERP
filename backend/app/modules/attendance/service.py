@@ -172,6 +172,7 @@ class AttendanceService:
         weekday = data.weekday or calendar.day_name[data.date.weekday()]
         payload = data.model_dump()
         payload["weekday"] = weekday
+        payload.update(self._calc_minutes(data.check_in, data.check_out))
         att = attendance_repo.create(self.db, **payload)
         return _to_attendance_response(self.db, att)
 

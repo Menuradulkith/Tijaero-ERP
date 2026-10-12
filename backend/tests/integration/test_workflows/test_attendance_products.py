@@ -82,6 +82,22 @@ class TestAttendanceCalc:
 # Attendance — check-in / check-out flow
 # --------------------------------------------------------------------------- #
 class TestCheckInOut:
+    def test_manual_attendance_calculates_minutes(self, db, make_employee, make_branch):
+        employee = make_employee()
+        branch = make_branch()
+        attendance = AttendanceService(db).create(
+            att_schemas.AttendanceCreate(
+                employee_id=employee.employee_id,
+                branch_code=branch.branch_code,
+                date=date(2026, 6, 1),
+                check_in=time(9),
+                check_out=time(17),
+            )
+        )
+        assert attendance.work_mins == 480
+        assert attendance.full_attended_mins == 480
+        assert attendance.status == "present"
+
     def test_check_in_then_out(self, db, make_employee, make_branch):
         emp = make_employee()
         branch = make_branch()
