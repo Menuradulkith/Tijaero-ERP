@@ -5,9 +5,9 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_user_branch_filter
 from app.auth.models import User
-from app.auth.rbac import Permissions, require_permission
+from app.auth.rbac import Permissions, require_any_permission, require_permission
 from app.db.session import get_db
 
 from . import schemas, service
@@ -32,9 +32,10 @@ def list_attendance(
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=100000),
     db: Session = Depends(get_db),
+    allowed_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """List attendance records with optional filters."""
-    svc = service.AttendanceService(db)
+    svc = service.AttendanceService(db, allowed_branches)
     return svc.list(
         schemas.AttendanceFilter(
             employee_id=employee_id,
@@ -58,8 +59,9 @@ def attendance_summary(
     employee_id: Optional[str] = None,
     branch_code: Optional[str] = None,
     db: Session = Depends(get_db),
+    allowed_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    svc = service.AttendanceService(db)
+    svc = service.AttendanceService(db, allowed_branches)
     return svc.summary(date_from, date_to, employee_id, branch_code)
 
 
@@ -68,8 +70,8 @@ def attendance_summary(
     response_model=schemas.Attendance,
     dependencies=[Depends(require_permission(*Permissions.ATTENDANCE_VIEW))],
 )
-def get_attendance(attendance_id: int, db: Session = Depends(get_db)):
-    return service.AttendanceService(db).get(attendance_id)
+def get_attendance(attendance_id: int, db: Session = Depends(get_db), allowed_branches: Optional[List[str]] = Depends(get_user_branch_filter)):
+    return service.AttendanceService(db, allowed_branches).get(attendance_id)
 
 
 @router.post(
@@ -78,8 +80,8 @@ def get_attendance(attendance_id: int, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission(*Permissions.ATTENDANCE_CREATE))],
 )
-def create_attendance(data: schemas.AttendanceCreate, db: Session = Depends(get_db)):
-    return service.AttendanceService(db).create(data)
+def create_attendance(data: schemas.AttendanceCreate, db: Session = Depends(get_db), allowed_branches: Optional[List[str]] = Depends(get_user_branch_filter)):
+    return service.AttendanceService(db, allowed_branches).create(data)
 
 
 @router.post(
@@ -91,8 +93,9 @@ def attendance_check_in(
     data: schemas.AttendanceCheckIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    allowed_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    return service.AttendanceService(db).check_in(data, current_user.id)
+    return service.AttendanceService(db, allowed_branches).check_in(data, current_user.id)
 
 
 @router.post(
@@ -104,8 +107,9 @@ def attendance_check_out(
     data: schemas.AttendanceCheckOut,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    allowed_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    return service.AttendanceService(db).check_out(data, current_user.id)
+    return service.AttendanceService(db, allowed_branches).check_out(data, current_user.id)
 
 
 @router.put(
@@ -117,8 +121,9 @@ def update_attendance(
     attendance_id: int,
     data: schemas.AttendanceUpdate,
     db: Session = Depends(get_db),
+    allowed_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    return service.AttendanceService(db).update(attendance_id, data)
+    return service.AttendanceService(db, allowed_branches).update(attendance_id, data)
 
 
 @router.delete(
@@ -126,15 +131,15 @@ def update_attendance(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission(*Permissions.ATTENDANCE_DELETE))],
 )
-def delete_attendance(attendance_id: int, db: Session = Depends(get_db)):
-    service.AttendanceService(db).delete(attendance_id)
+def delete_attendance(attendance_id: int, db: Session = Depends(get_db), allowed_branches: Optional[List[str]] = Depends(get_user_branch_filter)):
+    service.AttendanceService(db, allowed_branches).delete(attendance_id)
 
 
 # ─── Leaves ────────────────────────────────────────────────────────────────────
 @router.get(
     "/leaves",
     response_model=List[schemas.Leave],
-    dependencies=[Depends(require_permission(*Permissions.LEAVE_VIEW))],
+    dependencies=[Depends(require_any_permission(Permissions.LEAVE_VIEW, Permissions.LEAVE_APPROVAL_VIEW))],
 )
 def list_leaves(
     employee_id: Optional[str] = None,
@@ -163,7 +168,7 @@ def list_leaves(
 @router.get(
     "/leaves/balance/{employee_id}",
     response_model=schemas.LeaveBalance,
-    dependencies=[Depends(require_permission(*Permissions.LEAVE_VIEW))],
+    dependencies=[Depends(require_any_permission(Permissions.LEAVE_VIEW, Permissions.LEAVE_APPROVAL_VIEW))],
 )
 def leave_balance(
     employee_id: str,
@@ -176,7 +181,7 @@ def leave_balance(
 @router.get(
     "/leaves/{leave_id}",
     response_model=schemas.Leave,
-    dependencies=[Depends(require_permission(*Permissions.LEAVE_VIEW))],
+    dependencies=[Depends(require_any_permission(Permissions.LEAVE_VIEW, Permissions.LEAVE_APPROVAL_VIEW))],
 )
 def get_leave(leave_id: int, db: Session = Depends(get_db)):
     return service.LeaveService(db).get(leave_id)

@@ -27,6 +27,7 @@ class AttendanceRepository:
     def list(
         db: Session,
         *,
+        allowed_branches: Optional[List[str]] = None,
         employee_id: Optional[str] = None,
         branch_code: Optional[str] = None,
         date_from: Optional[date] = None,
@@ -35,6 +36,8 @@ class AttendanceRepository:
         limit: int = 200,
     ) -> List[Attendance]:
         q = db.query(Attendance)
+        if allowed_branches is not None:
+            q = q.filter(Attendance.branch_code.in_(allowed_branches))
         if employee_id:
             q = q.filter(Attendance.employee_id == employee_id)
         if branch_code:

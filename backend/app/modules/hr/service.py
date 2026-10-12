@@ -931,6 +931,8 @@ class PayrollService:
                 detail=f"Cannot process payment. Current status: {batch.status}"
             )
         payment_date = data.payment_date or tz.today()
+        from app.core.period_guard import assert_period_open
+        assert_period_open(self.db, payment_date, document="Payroll salary payment")
         batch.status = "salary_paid"
         batch.salary_payment_date = payment_date
         batch.salary_payment_reference = data.payment_reference
@@ -967,29 +969,42 @@ class PayrollService:
                 "updated_at": tz.now(),
             }, synchronize_session=False)
         
-        self.db.commit()
-        self.db.refresh(batch)
-        
         # ── GL Auto-Posting: Scenario 32 – Payroll Salary Payment ─────
         try:
             from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
             gl_service = PurchaseExpensePayrollGL(self.db)
-            gl_service.post_payroll_batch_to_gl(batch, user_id=user_id)
+            accrual = gl_service.post_payroll_batch_to_gl(batch, user_id=user_id, record_failure=False)
+            if accrual is None and not gl_service._check_already_posted(batch.id, f"PayrollBatch ID: {batch.id}"):
+                raise HTTPException(status_code=400, detail="Payroll accrual could not be posted")
+            net_salary = Decimal(str(batch.total_net_salary or 0))
+            if net_salary < 0:
+                raise HTTPException(status_code=400, detail="Cannot pay a negative payroll amount")
+            if net_salary > 0:
+                payment_account = "1010" if data.payment_method.lower() == "cash" else "1020"
+                payment_entry = gl_service._create_je_and_post(
+                    entry_date=payment_date,
+                    description=f"Salary payment | Batch: {batch.batch_no}",
+                    lines=[
+                        {"account_code": "2110", "debit": net_salary, "credit": Decimal("0"),
+                         "description": f"Salary payable settled - {batch.batch_no}"},
+                        {"account_code": payment_account, "debit": Decimal("0"), "credit": net_salary,
+                         "description": f"Salary disbursement - {batch.batch_no}"},
+                    ],
+                    branch_code=None, user_id=user_id, je_prefix="JE-SAL",
+                    transaction_type="Payroll", reference_type="SalaryPayment",
+                    reference_id=batch.id, reference_no=batch.batch_no,
+                    record_failure=False,
+                )
+                if payment_entry is None:
+                    raise HTTPException(status_code=400, detail="Salary payment could not be posted")
             self.db.commit()
         except Exception as gl_err:
             import logging
-            logging.getLogger(__name__).warning(f"GL posting for payroll batch {batch.batch_no} failed (non-blocking): {gl_err}")
+            logging.getLogger(__name__).warning("Payroll payment rolled back", exc_info=True)
             self.db.rollback()
-            record_gl_commit_failure(
-                self.db,
-                reference_type="PayrollBatch",
-                reference_id=batch.id,
-                reference_no=batch.batch_no,
-                transaction_type="Payroll",
-                description=f"Payroll batch GL commit failed ({batch.batch_no})",
-                error=gl_err,
-                user_id=user_id,
-            )
+            if isinstance(gl_err, HTTPException):
+                raise
+            raise HTTPException(status_code=400, detail="Payroll payment could not be posted; no payment was recorded") from gl_err
         # ────────────────────────────────────────────────────────────────
         
         return self._batch_to_response(batch, include_records=True)
@@ -1006,6 +1021,8 @@ class PayrollService:
                 detail=f"Cannot process statutory. Must process salary payments first. Current status: {batch.status}"
             )
         payment_date = data.payment_date or tz.today()
+        from app.core.period_guard import assert_period_open
+        assert_period_open(self.db, payment_date, document="Payroll statutory payment")
         refs = []
         if data.epf_reference:
             refs.append(f"EPF: {data.epf_reference}")
@@ -1025,9 +1042,6 @@ class PayrollService:
             "statutory_payment_reference": statutory_ref,
             "status": "statutory_paid",
         })
-        self.db.commit()
-        self.db.refresh(batch)
-        
         # ── GL Auto-Posting: Scenario 32 – Statutory Payment ──────────
         # Statutory payment posts: Dr EPF Payable + ETF Payable / Cr Bank
         try:
@@ -1080,7 +1094,7 @@ class PayrollService:
                         f"EPF: {total_epf} | ETF: {total_etf} | "
                         f"StatutoryPayment BatchID: {batch.id}"
                     )
-                    gl_service._create_je_and_post(
+                    statutory_entry = gl_service._create_je_and_post(
                         entry_date=payment_date,
                         description=description,
                         lines=lines,
@@ -1091,22 +1105,18 @@ class PayrollService:
                         reference_type="StatutoryPayment",
                         reference_id=batch.id,
                         reference_no=batch.batch_no,
+                        record_failure=False,
                     )
-                    self.db.commit()
+                    if statutory_entry is None:
+                        raise HTTPException(status_code=400, detail="Statutory payment could not be posted")
+            self.db.commit()
         except Exception as gl_err:
             import logging
-            logging.getLogger(__name__).warning(f"GL posting for statutory payment batch {batch.batch_no} failed (non-blocking): {gl_err}")
+            logging.getLogger(__name__).warning("Statutory payment rolled back", exc_info=True)
             self.db.rollback()
-            record_gl_commit_failure(
-                self.db,
-                reference_type="StatutoryPayment",
-                reference_id=batch.id,
-                reference_no=batch.batch_no,
-                transaction_type="Payroll",
-                description=f"Statutory payment GL commit failed ({batch.batch_no})",
-                error=gl_err,
-                user_id=user_id,
-            )
+            if isinstance(gl_err, HTTPException):
+                raise
+            raise HTTPException(status_code=400, detail="Statutory payment could not be posted; no payment was recorded") from gl_err
         # ────────────────────────────────────────────────────────────────
         
         return self._batch_to_response(batch, include_records=True)

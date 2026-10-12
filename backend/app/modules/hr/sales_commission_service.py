@@ -375,7 +375,7 @@ class SalesCommissionService:
             return []
         
         # Get commission percentage
-        comm_pct = commission_percentage or self.DEFAULT_COMMISSION_PERCENTAGE
+        comm_pct = commission_percentage if commission_percentage is not None else self.DEFAULT_COMMISSION_PERCENTAGE
         
         # Calculate total commission pool
         total_commission_pool = branch_gross_profit * (comm_pct / Decimal("100"))

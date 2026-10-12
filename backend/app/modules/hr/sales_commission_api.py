@@ -100,7 +100,7 @@ def calculate_commissions(
     """
     service = SalesCommissionService(db)
     from decimal import Decimal
-    comm_pct = Decimal(str(commission_percentage)) if commission_percentage else None
+    comm_pct = Decimal(str(commission_percentage)) if commission_percentage is not None else None
     return service.calculate_commissions(summary_id, comm_pct)
 
 

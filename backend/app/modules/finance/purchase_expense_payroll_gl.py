@@ -218,6 +218,7 @@ class PurchaseExpensePayrollGL:
         reference_no: Optional[str] = None,
         marker: Optional[str] = None,
         idempotent: bool = True,
+        record_failure: bool = True,
     ) -> Optional[JournalEntry]:
         """
         Build + post a balanced JE through the central :class:`GLPostingService`.
@@ -250,7 +251,7 @@ class PurchaseExpensePayrollGL:
             source_module="purchasing",
             marker=marker,
             idempotent=idempotent,
-            record_failure=True,
+            record_failure=record_failure,
         )
         if result.failed:
             logger.error(
@@ -764,7 +765,7 @@ class PurchaseExpensePayrollGL:
     # SCENARIO 32: PAYROLL
     # ═══════════════════════════════════════════════════════════════════════
 
-    def post_payroll_batch_to_gl(self, batch, user_id: int) -> Optional[JournalEntry]:
+    def post_payroll_batch_to_gl(self, batch, user_id: int, *, record_failure: bool = True) -> Optional[JournalEntry]:
         """
         Post payroll batch to GL when salary payments are processed.
         
@@ -917,6 +918,7 @@ class PurchaseExpensePayrollGL:
             reference_type="PayrollBatch",
             reference_id=batch.id,
             reference_no=batch.batch_no,
+            record_failure=record_failure,
         )
 
         if je:

@@ -94,8 +94,13 @@ class AttendanceService:
     SCHEDULED_START = time(9, 0)
     SCHEDULED_END = time(17, 0)
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, allowed_branches: Optional[List[str]] = None):
         self.db = db
+        self.allowed_branches = allowed_branches
+
+    def _ensure_branch(self, branch_code: Optional[str]) -> None:
+        if branch_code is not None and self.allowed_branches is not None and branch_code not in self.allowed_branches:
+            raise HTTPException(status_code=403, detail="Access denied to attendance branch")
 
     # ---- creation -----------------------------------------------------------
     def _ensure_employee(self, employee_id: str) -> Employee:
@@ -131,11 +136,13 @@ class AttendanceService:
         return result
 
     def check_in(self, data: schemas.AttendanceCheckIn, user_id: int) -> schemas.Attendance:
+        self._ensure_branch(data.branch_code)
         self._ensure_employee(data.employee_id)
         day = data.date or tz.today()
         check_in = data.check_in or tz.now().time()
         existing = attendance_repo.get_by_employee_date(self.db, data.employee_id, day)
         if existing:
+            self._ensure_branch(existing.branch_code)
             if existing.check_in:
                 raise HTTPException(status_code=400, detail="Already checked in for today")
             metrics = self._calc_minutes(check_in, existing.check_out)
@@ -159,6 +166,7 @@ class AttendanceService:
         att = attendance_repo.get_by_employee_date(self.db, data.employee_id, day)
         if not att:
             raise HTTPException(status_code=404, detail="No check-in found for today")
+        self._ensure_branch(att.branch_code)
         if not att.check_in:
             raise HTTPException(status_code=400, detail="Cannot check out without checking in")
         metrics = self._calc_minutes(att.check_in, check_out)
@@ -166,6 +174,7 @@ class AttendanceService:
         return _to_attendance_response(self.db, updated)
 
     def create(self, data: schemas.AttendanceCreate) -> schemas.Attendance:
+        self._ensure_branch(data.branch_code)
         self._ensure_employee(data.employee_id)
         existing = attendance_repo.get_by_employee_date(self.db, data.employee_id, data.date)
         if existing:
@@ -181,6 +190,7 @@ class AttendanceService:
         att = attendance_repo.get(self.db, attendance_id)
         if not att:
             raise HTTPException(status_code=404, detail="Attendance not found")
+        self._ensure_branch(att.branch_code)
         update_data = data.model_dump(exclude_unset=True)
         # If check_in/check_out changed, recalc metrics
         if "check_in" in update_data or "check_out" in update_data:
@@ -195,17 +205,21 @@ class AttendanceService:
         att = attendance_repo.get(self.db, attendance_id)
         if not att:
             raise HTTPException(status_code=404, detail="Attendance not found")
+        self._ensure_branch(att.branch_code)
         attendance_repo.delete(self.db, att)
 
     def get(self, attendance_id: int) -> schemas.Attendance:
         att = attendance_repo.get(self.db, attendance_id)
         if not att:
             raise HTTPException(status_code=404, detail="Attendance not found")
+        self._ensure_branch(att.branch_code)
         return _to_attendance_response(self.db, att)
 
     def list(self, filters: schemas.AttendanceFilter) -> List[schemas.Attendance]:
+        self._ensure_branch(filters.branch_code)
         rows = attendance_repo.list(
             self.db,
+            allowed_branches=self.allowed_branches,
             employee_id=filters.employee_id,
             branch_code=filters.branch_code,
             date_from=filters.date_from,
@@ -222,8 +236,10 @@ class AttendanceService:
         employee_id: Optional[str] = None,
         branch_code: Optional[str] = None,
     ) -> schemas.AttendanceSummary:
+        self._ensure_branch(branch_code)
         rows = attendance_repo.list(
             self.db,
+            allowed_branches=self.allowed_branches,
             employee_id=employee_id,
             branch_code=branch_code,
             date_from=date_from,

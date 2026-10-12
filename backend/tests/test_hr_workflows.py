@@ -3,16 +3,21 @@ from datetime import date
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.orm import Session
 
 from app.modules.hr import schemas
 from app.modules.hr.service import PayrollService
 from app.modules.employees.models import EmployeePayroll
 from app.modules.hr.service import ReimbursementService, SalaryProfileService
-from app.modules.finance.accounting_models import ChartOfAccounts, GeneralLedger, JournalEntry
+from app.modules.finance.accounting_models import AccountingPeriod, ChartOfAccounts, GeneralLedger, JournalEntry
 from app.modules.hr.sales_commission_models import MonthlyBranchSalesSummary, SalesOfficerMonthlyCommission
 from app.modules.hr.sales_commission_service import SalesCommissionService
 from app.modules.hr import sales_commission_schemas
 from app.modules.inventory.models import CompanyAssets
+from app.modules.hr.models import PayrollBatch
+from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+from app.modules.attendance.service import AttendanceService
+from app.modules.attendance import schemas as attendance_schemas
 
 
 def test_employee_reader_does_not_need_user_admin_access(client, make_user):
@@ -121,7 +126,8 @@ def test_hr_read_permissions_are_resource_specific(client, make_user, make_branc
     assert response.status_code == 403
 
 
-def test_payroll_batch_lifecycle_and_balanced_postings(db, make_employee, make_user, make_account, make_branch):
+@pytest.mark.parametrize("commission_percentage,commission_amount", [(None, Decimal("2500")), (Decimal("0"), Decimal("0"))])
+def test_payroll_batch_lifecycle_and_balanced_postings(db, make_employee, make_user, make_account, make_branch, commission_percentage, commission_amount):
     maker, _ = make_user()
     checker, _ = make_user()
     branch = make_branch()
@@ -144,16 +150,16 @@ def test_payroll_batch_lifecycle_and_balanced_postings(db, make_employee, make_u
     db.flush()
     commissions = SalesCommissionService(db)
     commissions.finalize_summary(summary.id, sales_commission_schemas.FinalizeSummaryRequest(), checker.id)
-    commission = commissions.calculate_commissions(summary.id)[0]
-    assert commission.individual_commission_amount == Decimal("2500")
+    commission = commissions.calculate_commissions(summary.id, commission_percentage)[0]
+    assert commission.individual_commission_amount == commission_amount
     assert commissions.calculate_commissions(summary.id)[0].id == commission.id
     commissions.approve_commission(commission.id, sales_commission_schemas.ApproveCommissionRequest(), checker.id)
     service = PayrollService(db)
     request = schemas.PayrollRunRequest(payroll_month=6, payroll_year=2090, description="QA-payroll")
     batch = service.trigger_payroll_run(request, maker.id)
     record = next(record for record in batch.payroll_records if record.employee_id == employee.employee_id)
-    assert record.add_sales_commision == Decimal("2500")
-    assert record.net_salary == Decimal("94400")
+    assert record.add_sales_commision == commission_amount
+    assert record.net_salary == Decimal("91900") + commission_amount
     assert record.epf_employer == Decimal("12000")
     assert record.etf_employer == Decimal("3000")
     with pytest.raises(HTTPException):
@@ -177,7 +183,7 @@ def test_payroll_batch_lifecycle_and_balanced_postings(db, make_employee, make_u
     statutory = schemas.PayrollBatchProcessStatutory(payment_date=date(2090, 7, 1), epf_reference="QA-EPF", etf_reference="QA-ETF")
     assert service.process_statutory_payment(batch.id, statutory, maker.id).status == "statutory_paid"
     assert service.complete_batch(batch.id, maker.id).status == "completed"
-    for reference_type in ("PayrollBatch", "StatutoryPayment"):
+    for reference_type in ("PayrollBatch", "SalaryPayment", "StatutoryPayment"):
         entries = db.query(GeneralLedger).filter_by(reference_type=reference_type, reference_id=batch.id).all()
         assert entries
         assert sum(entry.debit_amount for entry in entries) == sum(entry.credit_amount for entry in entries)
@@ -186,6 +192,75 @@ def test_payroll_batch_lifecycle_and_balanced_postings(db, make_employee, make_u
         journal = db.get(JournalEntry, journal_ids.pop())
         assert journal.status == "posted"
         assert journal.total_debit == journal.total_credit
+    bank = db.query(ChartOfAccounts).filter_by(account_code="1020").one()
+    salary_payment = db.query(GeneralLedger).filter_by(
+        reference_type="SalaryPayment", reference_id=batch.id, account_id=bank.id,
+    ).one()
+    assert salary_payment.credit_amount == batch.total_net_salary
+
+
+@pytest.mark.parametrize("stage", ["salary", "disbursement", "statutory"])
+@pytest.mark.parametrize("failure", ["no_entry", "exception", "closed_period"])
+def test_payroll_posting_failure_rolls_back_payment(db, make_employee, make_user, make_account, monkeypatch, stage, failure):
+    employee = make_employee()
+    maker, _ = make_user()
+    initial_status = "salary_paid" if stage == "statutory" else "approved"
+    for code in ("5110", "5210", "5220", "2110", "2120", "2130", "2140", "1020"):
+        if not db.query(ChartOfAccounts).filter_by(account_code=code).first():
+            make_account(code=code)
+    batch = PayrollBatch(
+        batch_no=f"QA-FAIL-{employee.id}", payroll_year=2091, payroll_month=6,
+        status=initial_status, total_net_salary=Decimal("90"),
+        total_employer_epf=Decimal("12"), total_employer_etf=Decimal("3"),
+    )
+    db.add(batch)
+    db.flush()
+    record = EmployeePayroll(
+        employee_id=employee.employee_id, payroll_batch_no=batch.batch_no,
+        basic_salary=Decimal("100"), gross_salary=Decimal("100"), net_salary=Decimal("90"),
+        less_epf_employee=Decimal("8"), less_stamp_duty=Decimal("2"),
+        epf_employer=Decimal("12"), etf_employer=Decimal("3"), status=initial_status,
+    )
+    db.add(record)
+    if failure == "closed_period":
+        db.add(AccountingPeriod(
+            fiscal_year=2091, period_number=6, period_name="QA-closed",
+            start_date=date(2091, 6, 1), end_date=date(2091, 6, 30), status="closed",
+        ))
+    db.commit()
+    method = "post_payroll_batch_to_gl" if stage == "salary" else "_create_je_and_post"
+    original = getattr(PurchaseExpensePayrollGL, method)
+
+    def fail_posting(service, *args, **kwargs):
+        if stage == "disbursement" and kwargs.get("reference_type") != "SalaryPayment":
+            return original(service, *args, **kwargs)
+        assert kwargs["record_failure"] is False
+        if failure == "exception":
+            raise RuntimeError("QA-posting-failure")
+        return None
+
+    if failure != "closed_period":
+        monkeypatch.setattr(PurchaseExpensePayrollGL, method, fail_posting)
+    with Session(bind=db.connection(), join_transaction_mode="create_savepoint") as payment_db:
+        service = PayrollService(payment_db)
+        with pytest.raises(HTTPException) as error:
+            if stage != "statutory":
+                service.process_salary_payment(batch.id, schemas.PayrollBatchProcessPayment(payment_date=date(2091, 6, 15)), maker.id)
+            else:
+                service.process_statutory_payment(batch.id, schemas.PayrollBatchProcessStatutory(payment_date=date(2091, 6, 15)), maker.id)
+    assert error.value.status_code == 400
+    db.refresh(batch)
+    db.refresh(record)
+    assert batch.status == initial_status
+    assert record.status == initial_status
+    assert batch.statutory_payment_date is None
+    assert db.query(GeneralLedger).filter(
+        GeneralLedger.reference_id == batch.id,
+        GeneralLedger.reference_type.in_(("PayrollBatch", "SalaryPayment", "StatutoryPayment")),
+    ).count() == 0
+    if stage != "statutory":
+        assert batch.salary_payment_date is None
+        assert record.payment_status is None
 
 
 @pytest.mark.parametrize("path", ["reimbursements", "promotions"])
@@ -292,3 +367,35 @@ def test_reimbursements_enforce_branch_scope(client, db, make_user, make_branch,
     assert response.status_code == 403
     response = client.get("/api/v1/hr/reimbursements", headers=headers, params={"branch_code": other_branch.branch_code})
     assert response.status_code == 403
+
+
+def test_attendance_enforces_branch_scope(client, db, make_user, make_branch, make_employee):
+    own_branch, other_branch = make_branch(), make_branch()
+    employee = make_employee()
+    _, token = make_user(permissions=[("attendance", action) for action in ("view", "create", "update", "delete")], branches=[own_branch])
+    record = AttendanceService(db).create(attendance_schemas.AttendanceCreate(
+        employee_id=employee.employee_id, branch_code=other_branch.branch_code,
+        date=date(2026, 6, 1), check_in="09:00", check_out="17:00",
+    ))
+    headers = {"Authorization": f"Bearer {token}"}
+    response = client.get("/api/v1/hr/attendance", headers=headers)
+    assert response.status_code == 200
+    assert record.id not in [item["id"] for item in response.json()]
+    response = client.get("/api/v1/hr/attendance/summary?date_from=2026-06-01&date_to=2026-06-01", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["total_records"] == 0
+    for method, path, body in (
+        ("GET", f"attendance/{record.id}", None),
+        ("PUT", f"attendance/{record.id}", {"check_out": "18:00"}),
+        ("DELETE", f"attendance/{record.id}", None),
+        ("POST", "attendance/check-in", {"employee_id": employee.employee_id, "branch_code": own_branch.branch_code, "date": "2026-06-01"}),
+        ("POST", "attendance/check-out", {"employee_id": employee.employee_id, "date": "2026-06-01"}),
+    ):
+        response = client.request(method, f"/api/v1/hr/{path}", headers=headers, json=body)
+        assert response.status_code == 403, (method, path, response.json())
+
+
+def test_leave_approver_can_read_approval_queue(client, make_user):
+    _, token = make_user(permissions=[("leave_approvals", "view")])
+    response = client.get("/api/v1/hr/leaves?status=pending", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
