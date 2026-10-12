@@ -399,3 +399,48 @@ def test_leave_approver_can_read_approval_queue(client, make_user):
     _, token = make_user(permissions=[("leave_approvals", "view")])
     response = client.get("/api/v1/hr/leaves?status=pending", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
+
+
+def test_sales_commissions_enforce_branch_scope(client, db, make_branch, make_user, make_employee):
+    own_branch, other_branch = make_branch(), make_branch()
+    employee = make_employee()
+    _, token = make_user(permissions=[
+        ("hr_sales_commissions", action) for action in ("view", "create", "update")
+    ] + [("commission_payment_approvals", "approve")], branches=[own_branch])
+    summary = MonthlyBranchSalesSummary(
+        branch_code=other_branch.branch_code, fiscal_year=2092, fiscal_month=6,
+        month_name="June 2092", period_start_date=date(2092, 6, 1),
+        period_end_date=date(2092, 6, 30), gross_profit=Decimal("1000"), status="draft",
+    )
+    db.add(summary)
+    db.flush()
+    commission = SalesOfficerMonthlyCommission(
+        monthly_sales_summary_id=summary.id, employee_id=employee.id,
+        branch_code=other_branch.branch_code, fiscal_year=2092, fiscal_month=6,
+        branch_gross_profit=Decimal("1000"), commission_percentage=Decimal("2.5"),
+        total_commission_pool=Decimal("25"), total_branch_employees=1,
+        individual_commission_amount=Decimal("25"), status="pending",
+    )
+    db.add(commission)
+    db.flush()
+    headers = {"Authorization": f"Bearer {token}"}
+    base_url = "/api/v1/hr/sales-commissions"
+    for path, record_id in (("summaries", summary.id), ("commissions", commission.id)):
+        response = client.get(f"{base_url}/{path}", headers=headers)
+        assert response.status_code == 200
+        assert record_id not in [item["id"] for item in response.json()]
+        response = client.get(f"{base_url}/{path}/{record_id}", headers=headers)
+        assert response.status_code in (403, 404)
+    for path, body in (
+        (f"summaries/{summary.id}/finalize", {}),
+        (f"summaries/{summary.id}/calculate-commissions", None),
+        (f"commissions/{commission.id}/approve", {}),
+        (f"commissions/{commission.id}/reject", {"rejection_reason": "QA-denied"}),
+        (f"commissions/{commission.id}/mark-paid?payroll_id=1", None),
+        ("summaries/generate", {"branch_code": other_branch.branch_code, "fiscal_year": 2092, "fiscal_month": 6}),
+    ):
+        response = client.post(f"{base_url}/{path}", headers=headers, json=body)
+        assert response.status_code in (403, 404), (path, response.json())
+    response = client.get(f"{base_url}/dashboard/stats", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["total_commissions_pending"] == 0

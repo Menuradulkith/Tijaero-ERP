@@ -40,8 +40,15 @@ class SalesCommissionService:
     # Designation that qualifies for sales commission
     SALES_OFFICER_DESIGNATION = "Sales Officer"
     
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, current_user: Optional[User] = None):
         self.db = db
+        self.allowed_branches = None if current_user is None or current_user.is_superuser else [branch.branch_code for branch in current_user.branches]
+
+    def _query(self, model, *entities):
+        query = self.db.query(*(entities or (model,)))
+        if self.allowed_branches is not None:
+            query = query.filter(model.branch_code.in_(self.allowed_branches))
+        return query
     
     # =========================================================================
     # Helper Methods
@@ -152,7 +159,11 @@ class SalesCommissionService:
         
         # Get branches to process
         if data.branch_code:
+            if self.allowed_branches is not None and data.branch_code not in self.allowed_branches:
+                raise HTTPException(status_code=403, detail="Access denied to commission branch")
             branches = [data.branch_code]
+        elif self.allowed_branches is not None:
+            branches = self.allowed_branches
         else:
             # Get all branches
             branch_records = self.db.query(Branch.branch_code).all()
@@ -162,7 +173,7 @@ class SalesCommissionService:
         
         for branch_code in branches:
             # Check if summary already exists
-            existing = self.db.query(MonthlyBranchSalesSummary).filter(
+            existing = self._query(MonthlyBranchSalesSummary).filter(
                 MonthlyBranchSalesSummary.branch_code == branch_code,
                 MonthlyBranchSalesSummary.fiscal_year == year,
                 MonthlyBranchSalesSummary.fiscal_month == month,
@@ -304,7 +315,7 @@ class SalesCommissionService:
         Finance Accountant reviews and finalizes the summary.
         This triggers commission calculation.
         """
-        summary = self.db.query(MonthlyBranchSalesSummary).filter(
+        summary = self._query(MonthlyBranchSalesSummary).filter(
             MonthlyBranchSalesSummary.id == summary_id
         ).first()
         
@@ -343,7 +354,7 @@ class SalesCommissionService:
         
         Only runs if summary is finalized.
         """
-        summary = self.db.query(MonthlyBranchSalesSummary).filter(
+        summary = self._query(MonthlyBranchSalesSummary).filter(
             MonthlyBranchSalesSummary.id == summary_id
         ).first()
         
@@ -357,7 +368,7 @@ class SalesCommissionService:
             )
         
         # Check if commissions already exist for this summary
-        existing_commissions = self.db.query(SalesOfficerMonthlyCommission).filter(
+        existing_commissions = self._query(SalesOfficerMonthlyCommission).filter(
             SalesOfficerMonthlyCommission.monthly_sales_summary_id == summary_id
         ).all()
         
@@ -406,7 +417,7 @@ class SalesCommissionService:
         results = []
         for emp in sales_officers:
             # Check if commission already exists for this employee/period
-            existing = self.db.query(SalesOfficerMonthlyCommission).filter(
+            existing = self._query(SalesOfficerMonthlyCommission).filter(
                 SalesOfficerMonthlyCommission.employee_id == emp.id,
                 SalesOfficerMonthlyCommission.fiscal_year == summary.fiscal_year,
                 SalesOfficerMonthlyCommission.fiscal_month == summary.fiscal_month,
@@ -454,7 +465,7 @@ class SalesCommissionService:
     ) -> schemas.SalesOfficerCommissionResponse:
         """Finance Manager approves an individual commission"""
         # Lock the commission row to prevent concurrent approval
-        commission = self.db.query(SalesOfficerMonthlyCommission).filter(
+        commission = self._query(SalesOfficerMonthlyCommission).filter(
             SalesOfficerMonthlyCommission.id == commission_id
         ).with_for_update().first()
         
@@ -504,7 +515,7 @@ class SalesCommissionService:
         """Finance Manager rejects a commission"""
         # Lock the commission row to prevent a concurrent approve/reject race
         # (mirrors approve_commission's locking above).
-        commission = self.db.query(SalesOfficerMonthlyCommission).filter(
+        commission = self._query(SalesOfficerMonthlyCommission).filter(
             SalesOfficerMonthlyCommission.id == commission_id
         ).with_for_update().first()
 
@@ -540,7 +551,7 @@ class SalesCommissionService:
         Get approved commissions ready for payroll inclusion.
         Called by PayrollService when generating payroll.
         """
-        query = self.db.query(SalesOfficerMonthlyCommission).filter(
+        query = self._query(SalesOfficerMonthlyCommission).filter(
             SalesOfficerMonthlyCommission.fiscal_year == fiscal_year,
             SalesOfficerMonthlyCommission.fiscal_month == fiscal_month,
             SalesOfficerMonthlyCommission.status == "approved",
@@ -558,7 +569,7 @@ class SalesCommissionService:
         payroll_id: int
     ) -> schemas.SalesOfficerCommissionResponse:
         """Mark commission as paid and link to payroll record"""
-        commission = self.db.query(SalesOfficerMonthlyCommission).filter(
+        commission = self._query(SalesOfficerMonthlyCommission).filter(
             SalesOfficerMonthlyCommission.id == commission_id
         ).first()
         
@@ -582,7 +593,7 @@ class SalesCommissionService:
         filters: schemas.SalesSummaryListFilter
     ) -> List[schemas.MonthlyBranchSalesSummaryResponse]:
         """List all monthly sales summaries with filters"""
-        query = self.db.query(MonthlyBranchSalesSummary)
+        query = self._query(MonthlyBranchSalesSummary)
         
         if filters.branch_code:
             query = query.filter(MonthlyBranchSalesSummary.branch_code == filters.branch_code)
@@ -604,7 +615,7 @@ class SalesCommissionService:
     
     def get_summary(self, summary_id: int) -> schemas.MonthlyBranchSalesSummaryWithCommissions:
         """Get a single summary with its commissions"""
-        summary = self.db.query(MonthlyBranchSalesSummary).filter(
+        summary = self._query(MonthlyBranchSalesSummary).filter(
             MonthlyBranchSalesSummary.id == summary_id
         ).first()
         
@@ -612,7 +623,7 @@ class SalesCommissionService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Summary not found")
         
         # Get associated commissions
-        commissions = self.db.query(SalesOfficerMonthlyCommission).filter(
+        commissions = self._query(SalesOfficerMonthlyCommission).filter(
             SalesOfficerMonthlyCommission.monthly_sales_summary_id == summary_id
         ).all()
         
@@ -627,7 +638,7 @@ class SalesCommissionService:
         filters: schemas.SalesCommissionListFilter
     ) -> List[schemas.SalesOfficerCommissionResponse]:
         """List all commissions with filters"""
-        query = self.db.query(SalesOfficerMonthlyCommission)
+        query = self._query(SalesOfficerMonthlyCommission)
         
         if filters.employee_id:
             query = query.filter(SalesOfficerMonthlyCommission.employee_id == filters.employee_id)
@@ -655,7 +666,7 @@ class SalesCommissionService:
     
     def get_commission(self, commission_id: int) -> schemas.SalesOfficerCommissionResponse:
         """Get a single commission by ID"""
-        commission = self.db.query(SalesOfficerMonthlyCommission).filter(
+        commission = self._query(SalesOfficerMonthlyCommission).filter(
             SalesOfficerMonthlyCommission.id == commission_id
         ).first()
         
@@ -671,26 +682,26 @@ class SalesCommissionService:
     def get_dashboard_stats(self) -> schemas.CommissionDashboardStats:
         """Get overview statistics for commission dashboard"""
         # Summary counts
-        pending_summaries = self.db.query(func.count(MonthlyBranchSalesSummary.id)).filter(
+        pending_summaries = self._query(MonthlyBranchSalesSummary, func.count(MonthlyBranchSalesSummary.id)).filter(
             MonthlyBranchSalesSummary.status == "draft"
         ).scalar() or 0
         
-        finalized_summaries = self.db.query(func.count(MonthlyBranchSalesSummary.id)).filter(
+        finalized_summaries = self._query(MonthlyBranchSalesSummary, func.count(MonthlyBranchSalesSummary.id)).filter(
             MonthlyBranchSalesSummary.status.in_(["finalized", "commission_calculated"])
         ).scalar() or 0
         
         # Commission counts and amounts
-        pending_comms = self.db.query(
+        pending_comms = self._query(SalesOfficerMonthlyCommission,
             func.count(SalesOfficerMonthlyCommission.id),
             func.coalesce(func.sum(SalesOfficerMonthlyCommission.individual_commission_amount), 0)
         ).filter(SalesOfficerMonthlyCommission.status == "pending").first()
         
-        approved_comms = self.db.query(
+        approved_comms = self._query(SalesOfficerMonthlyCommission,
             func.count(SalesOfficerMonthlyCommission.id),
             func.coalesce(func.sum(SalesOfficerMonthlyCommission.individual_commission_amount), 0)
         ).filter(SalesOfficerMonthlyCommission.status == "approved").first()
         
-        paid_comms = self.db.query(
+        paid_comms = self._query(SalesOfficerMonthlyCommission,
             func.count(SalesOfficerMonthlyCommission.id),
             func.coalesce(func.sum(SalesOfficerMonthlyCommission.individual_commission_amount), 0)
         ).filter(SalesOfficerMonthlyCommission.status == "paid").first()
