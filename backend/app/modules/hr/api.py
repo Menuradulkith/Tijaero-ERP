@@ -22,6 +22,16 @@ router = APIRouter(
 )
 
 
+def require_reimbursement_branch(
+    reimbursement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    reimbursement = service.ReimbursementService(db).get_reimbursement(reimbursement_id)
+    if not validate_branch_access(current_user, reimbursement.branch_code):
+        raise HTTPException(status_code=403, detail="Access denied to reimbursement branch")
+
+
 # HR Dashboard Statistics
 @router.get("/statistics", response_model=schemas.HRStatistics,
             dependencies=[Depends(require_permission(*Permissions.HR_DASHBOARD_VIEW))])
@@ -109,6 +119,8 @@ def create_reimbursement(
     current_user: User = Depends(get_current_user),
 ):
     """Create a new reimbursement claim with line items."""
+    if not validate_branch_access(current_user, reimbursement.branch_code):
+        raise HTTPException(status_code=403, detail="Access denied to reimbursement branch")
     reimbursement_service = service.ReimbursementService(db)
     return reimbursement_service.create_reimbursement(
         reimbursement, created_by=current_user.id
@@ -116,7 +128,7 @@ def create_reimbursement(
 
 
 @router.get("/reimbursements/{reimbursement_id}", response_model=schemas.Reimbursement,
-            dependencies=[Depends(require_any_permission(Permissions.REIMBURSEMENT_VIEW, Permissions.REIMBURSEMENT_APPROVAL_VIEW))])
+            dependencies=[Depends(require_any_permission(Permissions.REIMBURSEMENT_VIEW, Permissions.REIMBURSEMENT_APPROVAL_VIEW)), Depends(require_reimbursement_branch)])
 def get_reimbursement(
     reimbursement_id: int,
     db: Session = Depends(get_db),
@@ -133,31 +145,34 @@ def list_reimbursements(
     employee_id: Optional[str] = None,
     branch_code: Optional[str] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    allowed_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """List all reimbursements with optional filters."""
+    if branch_code and not validate_branch_access(current_user, branch_code):
+        raise HTTPException(status_code=403, detail="Access denied to reimbursement branch")
     reimbursement_service = service.ReimbursementService(db)
     filters = schemas.ReimbursementListFilter(
         employee_id=employee_id,
         branch_code=branch_code,
         status=status_filter,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit,
     )
-    return reimbursement_service.list_reimbursements(filters)
+    return reimbursement_service.list_reimbursements(filters, allowed_branches=allowed_branches)
 
 
 @router.patch(
     "/reimbursements/{reimbursement_id}",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_UPDATE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_UPDATE)), Depends(require_reimbursement_branch)],
 )
 def update_reimbursement(
     reimbursement_id: int,
@@ -173,7 +188,7 @@ def update_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/approve",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE)), Depends(require_reimbursement_branch)],
 )
 def approve_reimbursement(
     reimbursement_id: int,
@@ -191,7 +206,7 @@ def approve_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/reject",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE)), Depends(require_reimbursement_branch)],
 )
 def reject_reimbursement(
     reimbursement_id: int,
@@ -209,7 +224,7 @@ def reject_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/verify",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE)), Depends(require_reimbursement_branch)],
 )
 def verify_reimbursement(
     reimbursement_id: int,
@@ -227,7 +242,7 @@ def verify_reimbursement(
 @router.post(
     "/reimbursements/{reimbursement_id}/pay",
     response_model=schemas.Reimbursement,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_APPROVAL_APPROVE)), Depends(require_reimbursement_branch)],
 )
 def process_reimbursement_payment(
     reimbursement_id: int,
@@ -245,7 +260,7 @@ def process_reimbursement_payment(
 @router.delete(
     "/reimbursements/{reimbursement_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_DELETE))],
+    dependencies=[Depends(require_permission(*Permissions.REIMBURSEMENT_DELETE)), Depends(require_reimbursement_branch)],
 )
 def delete_reimbursement(
     reimbursement_id: int,
@@ -613,8 +628,8 @@ def get_promotion(promotion_id: int, db: Session = Depends(get_db)):
             dependencies=[Depends(require_permission(*Permissions.PROMOTION_VIEW))])
 def list_promotions(
     employee_id: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -623,8 +638,8 @@ def list_promotions(
     promotion_service = service.PromotionService(db)
     filters = schemas.HRListFilter(
         employee_id=employee_id,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit,
     )

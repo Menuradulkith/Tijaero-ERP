@@ -549,8 +549,8 @@ export interface Employee {
   employee_id: string;
   created_at?: string;
   updated_at?: string;
-  // Resolved (frontend joins with users API when needed)
   full_name?: string;
+  username?: string;
   email?: string;
   occupation?: string;
 }

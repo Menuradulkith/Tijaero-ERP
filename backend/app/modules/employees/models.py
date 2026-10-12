@@ -45,6 +45,12 @@ class Employee(Base, AuditMixin):
         "Attendance", back_populates="employee", lazy="select", viewonly=True
     )
 
+    @property
+    def full_name(self):
+        return " ".join(filter(None, (
+            self.user.first_name, self.user.middle_name, self.user.last_name,
+        ))) if self.user else self.employee_id
+
 
 class EmployeePayroll(Base, AuditMixin):
     __tablename__ = "employee_payroll"

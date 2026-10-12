@@ -209,12 +209,14 @@ class ReimbursementService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
         return self._to_response(reimbursement)
 
-    def list_reimbursements(self, filters: schemas.ReimbursementListFilter) -> List[schemas.Reimbursement]:
+    def list_reimbursements(self, filters: schemas.ReimbursementListFilter, allowed_branches: Optional[List[str]] = None) -> List[schemas.Reimbursement]:
         query = self.db.query(Reimbursements).options(
             joinedload(Reimbursements.items),
             joinedload(Reimbursements.branch),
         )
 
+        if allowed_branches is not None:
+            query = query.filter(Reimbursements.branch_code.in_(allowed_branches))
         if filters.employee_id:
             query = query.filter(Reimbursements.employee_id == filters.employee_id)
         if filters.branch_code:
@@ -948,22 +950,22 @@ class PayrollService:
         
         # Mark approved sales commissions as paid for employees in this batch
         employee_ids = [pr.employee_id for pr in payroll_records]
-        employee_internal_ids = self.db.query(Employee.id).filter(
+        employee_internal_ids = dict(self.db.query(Employee.employee_id, Employee.id).filter(
             Employee.employee_id.in_(employee_ids)
-        ).all()
-        employee_internal_ids = [e[0] for e in employee_internal_ids]
+        ).all())
         
         # Update commissions to paid status
-        self.db.query(SalesOfficerMonthlyCommission).filter(
-            SalesOfficerMonthlyCommission.fiscal_year == batch.payroll_year,
-            SalesOfficerMonthlyCommission.fiscal_month == batch.payroll_month,
-            SalesOfficerMonthlyCommission.employee_id.in_(employee_internal_ids),
-            SalesOfficerMonthlyCommission.status == "approved",
-        ).update({
-            "status": "paid",
-            "paid_in_payroll_id": batch.id,
-            "updated_at": tz.now(),
-        }, synchronize_session=False)
+        for payroll in payroll_records:
+            self.db.query(SalesOfficerMonthlyCommission).filter(
+                SalesOfficerMonthlyCommission.fiscal_year == batch.payroll_year,
+                SalesOfficerMonthlyCommission.fiscal_month == batch.payroll_month,
+                SalesOfficerMonthlyCommission.employee_id == employee_internal_ids[payroll.employee_id],
+                SalesOfficerMonthlyCommission.status == "approved",
+            ).update({
+                "status": "paid",
+                "paid_in_payroll_id": payroll.id,
+                "updated_at": tz.now(),
+            }, synchronize_session=False)
         
         self.db.commit()
         self.db.refresh(batch)
@@ -1213,6 +1215,15 @@ class SalaryProfileService:
         db_profile = self.db.query(EmployeeSalaryProfile).filter(EmployeeSalaryProfile.id == profile_id).first()
         if not db_profile:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Salary profile not found")
+        employee = self.db.query(Employee).filter(Employee.employee_id == profile.employee_id).first()
+        if not employee:
+            raise HTTPException(status_code=404, detail=f"Employee '{profile.employee_id}' not found")
+        existing = self.db.query(EmployeeSalaryProfile).filter(
+            EmployeeSalaryProfile.employee_id == profile.employee_id,
+            EmployeeSalaryProfile.id != profile_id,
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Salary profile already exists for employee '{profile.employee_id}'")
         for key, value in profile.model_dump().items():
             setattr(db_profile, key, value)
         self.db.commit()
