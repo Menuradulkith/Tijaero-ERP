@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import List, Optional
 
-from sqlalchemy import and_
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from .models import Attendance, Leaves
@@ -79,6 +79,7 @@ class LeaveRepository:
         *,
         employee_id: Optional[str] = None,
         leave_type: Optional[str] = None,
+        status: Optional[str] = None,
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
         skip: int = 0,
@@ -89,6 +90,8 @@ class LeaveRepository:
             q = q.filter(Leaves.employee_id == employee_id)
         if leave_type:
             q = q.filter(Leaves.leave_type == leave_type)
+        if status:
+            q = q.filter(func.coalesce(Leaves.status, "pending") == status)
         if date_from:
             q = q.filter(Leaves.from_date >= date_from)
         if date_to:

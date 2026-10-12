@@ -6,6 +6,7 @@ from datetime import date, datetime, time
 from typing import List, Optional
 
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
@@ -304,6 +305,12 @@ class LeaveService:
         if leave.status not in ("pending", "draft", None):
             raise HTTPException(status_code=400, detail="Cannot edit a processed leave request")
         update_data = data.model_dump(exclude_unset=True)
+        payload = {name: getattr(leave, name) for name in schemas.LeaveCreate.model_fields}
+        payload.update({name: value for name, value in update_data.items() if value is not None})
+        try:
+            schemas.LeaveCreate.model_validate(payload)
+        except ValidationError as error:
+            raise HTTPException(status_code=400, detail="Invalid leave dates or duration") from error
         leave_repo.update(self.db, leave, **update_data)
         return _to_leave_response(self.db, leave)
 
@@ -318,13 +325,12 @@ class LeaveService:
             self.db,
             employee_id=filters.employee_id,
             leave_type=filters.leave_type,
+            status=filters.status,
             date_from=filters.date_from,
             date_to=filters.date_to,
             skip=filters.skip,
             limit=filters.limit,
         )
-        if filters.status:
-            leaves = [lv for lv in leaves if (lv.status or "pending") == filters.status]
         return [_to_leave_response(self.db, lv) for lv in leaves]
 
     def approve(self, leave_id: int, data: schemas.LeaveApprove, approver_id: int) -> schemas.Leave:

@@ -170,6 +170,35 @@ class TestCheckInOut:
 # Leaves — state machine
 # --------------------------------------------------------------------------- #
 class TestLeaveWorkflow:
+    def test_status_filter_applies_before_pagination(self, db, make_employee, make_user):
+        user, _ = make_user()
+        employee = make_employee(user=user)
+        pending = self._create_leave(db, employee, user_id=user.id)
+        rejected = self._create_leave(db, employee, user_id=user.id)
+        service = LeaveService(db)
+        service.reject(
+            rejected.id,
+            att_schemas.LeaveReject(rejection_reason="No coverage"),
+            approver_id=user.id,
+        )
+        results = service.list(att_schemas.LeaveFilter(
+            employee_id=employee.employee_id, status="pending", limit=1,
+        ))
+        assert [leave.id for leave in results] == [pending.id]
+
+    def test_partial_update_rejects_reversed_dates(self, db, make_employee, make_user):
+        from fastapi import HTTPException
+
+        user, _ = make_user()
+        employee = make_employee(user=user)
+        leave = self._create_leave(db, employee, user_id=user.id)
+        with pytest.raises(HTTPException) as error:
+            LeaveService(db).update(
+                leave.id, att_schemas.LeaveUpdate(from_date=date(2026, 6, 3)),
+            )
+        assert error.value.status_code == 400
+        assert LeaveService(db).get(leave.id).from_date == date(2026, 6, 1)
+
     def _create_leave(self, db, emp, user_id=1):
         svc = LeaveService(db)
         return svc.create(
