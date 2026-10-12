@@ -599,11 +599,42 @@ class PayrollService:
         }
 
     # --- CRUD (backward compatible) ---
-    def create_payroll(self, payroll: schemas.EmployeePayrollCreate) -> schemas.EmployeePayrollResponse:
+    def _manual_payroll_values(self, payroll: schemas.EmployeePayrollCreate) -> dict:
+        from app.core.money import money
+
         employee = self.db.query(Employee).filter(Employee.employee_id == payroll.employee_id).first()
         if not employee:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{payroll.employee_id}' not found")
-        db_payroll = EmployeePayroll(**payroll.model_dump())
+            raise HTTPException(status_code=404, detail=f"Employee '{payroll.employee_id}' not found")
+        if payroll.payroll_batch_no:
+            raise HTTPException(status_code=400, detail="Use payroll processing to manage batch records")
+        values = payroll.model_dump()
+        additions = (
+            "basic_salary", "add_1_value", "add_2_value", "add_sales_commision",
+            "add_salary_advance", "add_reimbursements", "add_bonus",
+        )
+        deductions = (
+            "less_epf_employee", "less_etf_employee", "less_stamp_duty",
+            "less_late_deductions", "less_salary_advance_repayment",
+            "less_loan_repayment", "less_other_deductions", "less_apit",
+        )
+        for name in (*additions, *deductions, "epf_employer", "etf_employer"):
+            if values[name] is not None:
+                values[name] = money(values[name])
+        values["gross_salary"] = money(sum((values[name] or Decimal("0")) for name in additions))
+        values["total_deductions"] = money(sum((values[name] or Decimal("0")) for name in deductions))
+        values["net_salary"] = money(values["gross_salary"] - values["total_deductions"])
+        values["total_employer_cost"] = money(
+            values["gross_salary"] + (values["epf_employer"] or Decimal("0"))
+            + (values["etf_employer"] or Decimal("0"))
+        )
+        return values
+
+    def _ensure_payroll_editable(self, payroll: EmployeePayroll) -> None:
+        if payroll.payroll_batch_no or payroll.status not in (None, "draft") or payroll.payment_status == "paid":
+            raise HTTPException(status_code=400, detail="Only standalone draft payroll records can be changed")
+
+    def create_payroll(self, payroll: schemas.EmployeePayrollCreate) -> schemas.EmployeePayrollResponse:
+        db_payroll = EmployeePayroll(**self._manual_payroll_values(payroll))
         db_payroll.created_at = tz.now()
         self.db.add(db_payroll)
         self.db.commit()
@@ -624,19 +655,21 @@ class PayrollService:
         return [self._payroll_to_response(p) for p in results]
     
     def update_payroll(self, payroll_id: int, payroll: schemas.EmployeePayrollCreate) -> schemas.EmployeePayrollResponse:
-        db_payroll = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).first()
+        db_payroll = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).with_for_update().first()
         if not db_payroll:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll not found")
-        for key, value in payroll.model_dump().items():
+        self._ensure_payroll_editable(db_payroll)
+        for key, value in self._manual_payroll_values(payroll).items():
             setattr(db_payroll, key, value)
         self.db.commit()
         self.db.refresh(db_payroll)
         return self._payroll_to_response(db_payroll)
     
     def delete_payroll(self, payroll_id: int):
-        db_payroll = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).first()
+        db_payroll = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).with_for_update().first()
         if not db_payroll:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll not found")
+        self._ensure_payroll_editable(db_payroll)
         self.db.delete(db_payroll)
         self.db.commit()
 

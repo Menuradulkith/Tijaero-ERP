@@ -12,13 +12,13 @@ router = APIRouter()
     "/",
     response_model=List[schemas.Employee],
     summary="List All Employees",
-    dependencies=[Depends(require_permission(*Permissions.USER_VIEW))]
+    dependencies=[Depends(require_permission(*Permissions.EMPLOYEE_VIEW))]
 )
 def list_employees(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.USER_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.EMPLOYEE_VIEW))
 ):
     return service.employee_service.get_all_employees(db, skip, limit)
 
@@ -26,12 +26,12 @@ def list_employees(
     "/{employee_id}",
     response_model=schemas.Employee,
     summary="Get Employee by ID",
-    dependencies=[Depends(require_permission(*Permissions.USER_VIEW))]
+    dependencies=[Depends(require_permission(*Permissions.EMPLOYEE_VIEW))]
 )
 def get_employee(
     employee_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.USER_VIEW))
+    current_user: User = Depends(require_permission(*Permissions.EMPLOYEE_VIEW))
 ):
     return service.employee_service.get_employee(db, employee_id)
 
@@ -40,12 +40,12 @@ def get_employee(
     response_model=schemas.Employee,
     status_code=status.HTTP_201_CREATED,
     summary="Create Employee",
-    dependencies=[Depends(require_permission(*Permissions.USER_CREATE))]
+    dependencies=[Depends(require_permission(*Permissions.EMPLOYEE_CREATE))]
 )
 def create_employee(
     employee: schemas.EmployeeCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.USER_CREATE))
+    current_user: User = Depends(require_permission(*Permissions.EMPLOYEE_CREATE))
 ):
     return service.employee_service.create_employee(db, employee)
 
@@ -53,13 +53,13 @@ def create_employee(
     "/{employee_id}",
     response_model=schemas.Employee,
     summary="Update Employee",
-    dependencies=[Depends(require_permission(*Permissions.USER_UPDATE))]
+    dependencies=[Depends(require_permission(*Permissions.EMPLOYEE_UPDATE))]
 )
 def update_employee(
     employee_id: int,
     employee: schemas.EmployeeUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.USER_UPDATE))
+    current_user: User = Depends(require_permission(*Permissions.EMPLOYEE_UPDATE))
 ):
     return service.employee_service.update_employee(db, employee_id, employee)
 
@@ -67,11 +67,11 @@ def update_employee(
     "/{employee_id}",
     status_code=status.HTTP_200_OK,
     summary="Delete Employee",
-    dependencies=[Depends(require_permission(*Permissions.USER_DELETE))]
+    dependencies=[Depends(require_permission(*Permissions.EMPLOYEE_DELETE))]
 )
 def delete_employee(
     employee_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.USER_DELETE))
+    current_user: User = Depends(require_permission(*Permissions.EMPLOYEE_DELETE))
 ):
     return service.employee_service.delete_employee(db, employee_id)

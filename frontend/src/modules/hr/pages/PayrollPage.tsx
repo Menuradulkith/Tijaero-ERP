@@ -69,12 +69,22 @@ export default function PayrollPage() {
     initialFormData: INITIAL_FORM,
     resetFormFromItem: (p) => ({
       employee_id: p.employee_id,
+      payroll_month: p.payroll_month,
+      payroll_year: p.payroll_year,
       basic_salary: p.basic_salary,
       add_1_name: p.add_1_name || "",
       add_1_value: p.add_1_value || 0,
       add_2_name: p.add_2_name || "",
       add_2_value: p.add_2_value || 0,
       add_sales_commision: p.add_sales_commision || 0,
+      add_salary_advance: p.add_salary_advance || 0,
+      add_reimbursements: p.add_reimbursements || 0,
+      add_bonus: p.add_bonus || 0,
+      less_late_deductions: p.less_late_deductions || 0,
+      less_salary_advance_repayment: p.less_salary_advance_repayment || 0,
+      less_loan_repayment: p.less_loan_repayment || 0,
+      less_other_deductions: p.less_other_deductions || 0,
+      less_apit: p.less_apit || 0,
       less_epf_employee: p.less_epf_employee || 0,
       less_etf_employee: p.less_etf_employee || 0,
       less_stamp_duty: p.less_stamp_duty || 0,
@@ -113,10 +123,11 @@ export default function PayrollPage() {
 
   const updateMut = useMutation({
     mutationFn: ({ id, data }: { id: number; data: EmployeePayrollCreate }) => payrollApi.update(id, data),
-    onSuccess: () => {
+    onSuccess: (record) => {
       qc.invalidateQueries({ queryKey: ["payroll"] });
       showSuccessToast("Payroll record updated");
       setIsEditing(false);
+      handleSelectItem(record);
     },
     onError: (e) => showErrorToast(handleApiError(e, "Failed to update payroll record")),
   });
@@ -149,6 +160,9 @@ export default function PayrollPage() {
   const isFormValid = !!formData.employee_id && formData.basic_salary > 0;
   const isSaving = createMut.isPending || updateMut.isPending;
   const isDisabled = !isEditing && !isCreating;
+  const canChangeSelected = !!selectedItem && !selectedItem.payroll_batch_no
+    && (!selectedItem.status || selectedItem.status === "draft")
+    && selectedItem.payment_status !== "paid";
 
   const statusColor = (s?: string): "success" | "warning" | "error" | "default" => {
     switch (s) {
@@ -224,7 +238,7 @@ export default function PayrollPage() {
         width: 140,
         align: "right",
         headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<EmployeePayroll>) => fmtLKR(params.row.net_salary || params.row.basic_salary),
+        renderCell: (params: GridRenderCellParams<EmployeePayroll>) => fmtLKR(params.row.net_salary ?? params.row.basic_salary),
       },
       {
         field: "status",
@@ -310,7 +324,7 @@ export default function PayrollPage() {
           ) : undefined
         }
       />
-      <ActionToolbar canCreate={canCreate} canUpdate={canUpdate} canDelete={canDelete} hasSelectedItem={!!selectedItem}
+      <ActionToolbar canCreate={canCreate} canUpdate={canUpdate && canChangeSelected} canDelete={canDelete && canChangeSelected} hasSelectedItem={!!selectedItem}
         isCreating={isCreating} isEditing={isEditing} isSaving={isSaving} isFormValid={isFormValid}
         onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={handleCancelPayroll} onEdit={handleStartEdit}
       />
