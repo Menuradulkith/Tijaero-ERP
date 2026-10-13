@@ -15,6 +15,7 @@ import { categoriesApi } from "../api";
 import { CategoryCreate, Category } from "../types";
 import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 interface CategoryDialogProps {
   open: boolean;
   onClose: () => void;
@@ -165,7 +166,7 @@ export default function CategoryDialog({ open, onClose }: CategoryDialogProps) {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose} color="inherit">
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={onClose}>
             Cancel
           </Button>
           <Button

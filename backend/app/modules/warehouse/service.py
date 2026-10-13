@@ -18,6 +18,93 @@ from app.common.enums import StockStatus
 
 from sqlalchemy import text
 
+def _item_stock(db, item):
+    """The (locked) sales_stock row a transfer line refers to: by the lot row
+    it was allocated to, or by barcode for serial units."""
+    query = db.query(SalesStock)
+    if item.sales_stock_id:
+        query = query.filter(SalesStock.id == item.sales_stock_id)
+    elif item.barcode:
+        query = query.filter(SalesStock.barcode == item.barcode)
+    else:
+        return None
+    return query.with_for_update().first()
+
+
+def _product_tracking(db, product_id: int) -> str:
+    from app.modules.products.models import Product
+
+    return db.query(Product.tracking_type).filter(Product.id == product_id).scalar() or "serial"
+
+
+def _reserve_lots(db, transfer_note, items) -> list:
+    """Allocate every unallocated batch/none line of a transfer note to real
+    stock at the source location, splitting lots so exactly the requested
+    units are committed. A line that spans several lots is expanded into one
+    line per lot. Returns the stock rows to move to transfer_pending."""
+    from sqlalchemy import or_
+    from app.modules.inventory.lots import FEFO_ORDER, take_units, units_in
+
+    source = db.query(Locations).filter(Locations.id == transfer_note.from_location_id).first()
+    pieces_all: list = []
+    for item in list(items):
+        if item.barcode or item.sales_stock_id:
+            continue
+        if _product_tracking(db, item.product_id) == "serial":
+            continue  # product-only line of a serial product: no stock effect (as before)
+        needed = item.quantity or 1
+        rows = (
+            db.query(SalesStock)
+            .filter(
+                SalesStock.product_id == item.product_id,
+                SalesStock.branch_code == (source.branch_code if source and source.branch_code else item.branch_code),
+                SalesStock.status == StockStatus.AVAILABLE,
+                SalesStock.is_active == True,  # noqa: E712
+                or_(SalesStock.location_id == transfer_note.from_location_id, SalesStock.location_id.is_(None)),
+            )
+            .order_by(*FEFO_ORDER)
+            .with_for_update()
+            .limit(needed)
+            .all()
+        )
+        pieces = take_units(db, rows, needed)
+        if units_in(pieces) < needed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Only {units_in(pieces)} unit(s) of product ID {item.product_id} are available at the "
+                    f"source location ({needed} requested). They may have been sold or committed elsewhere."
+                ),
+            )
+        first = pieces[0]
+        item.sales_stock_id = first.id
+        item.quantity = first.quantity
+        for extra in pieces[1:]:
+            db.add(ItemTransferNoteItems(
+                product_id=item.product_id,
+                branch_code=item.branch_code,
+                itemtransfernote_id=item.itemtransfernote_id,
+                remark=item.remark,
+                created_date=tz.now(),
+                quantity=extra.quantity,
+                sales_stock_id=extra.id,
+                item_recieved=False,
+            ))
+        pieces_all.extend(pieces)
+    db.flush()
+    return pieces_all
+
+
+def _apply_receipt(db, stock_item, transfer_note):
+    """Move a received stock row to the destination location/branch."""
+    stock_item.location_id = transfer_note.to_location_id
+    to_location = db.query(Locations).filter(Locations.id == transfer_note.to_location_id).first()
+    if to_location and to_location.branch_code:
+        stock_item.branch_code = to_location.branch_code
+    stock_item.status = StockStatus.AVAILABLE
+    stock_item.is_active = True
+
+
 # Item Transfer Note Service
 class ItemTransferNoteService:
     def __init__(self, db: Session):
@@ -249,6 +336,40 @@ class ItemTransferNoteService:
             cost_price=cost_price
         )
     
+    def validate_lot_for_transfer(self, request: schemas.LotValidationRequest) -> schemas.LotValidationResponse:
+        """Check that `quantity` units of a batch/none product are available at the source location."""
+        from sqlalchemy import func, or_
+        from app.modules.products.models import Product
+
+        product = self.db.query(Product).filter(Product.id == request.product_id).first()
+        source = self.db.query(Locations).filter(Locations.id == request.from_location_id).first()
+
+        def reply(valid, message, available=0):
+            return schemas.LotValidationResponse(
+                valid=valid,
+                message=message,
+                product_id=request.product_id,
+                product_name=product.name if product else None,
+                available_quantity=available,
+            )
+
+        if not product:
+            return reply(False, "Product not found")
+        if (product.tracking_type or "serial") == "serial":
+            return reply(False, "This product is serial-tracked; transfer it by barcode.")
+        query = self.db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
+            SalesStock.product_id == request.product_id,
+            SalesStock.status == StockStatus.AVAILABLE,
+            SalesStock.is_active == True,  # noqa: E712
+            or_(SalesStock.location_id == request.from_location_id, SalesStock.location_id.is_(None)),
+        )
+        if source and source.branch_code:
+            query = query.filter(SalesStock.branch_code == source.branch_code)
+        available = int(query.scalar() or 0)
+        if available < request.quantity:
+            return reply(False, f"Only {available} unit(s) available at the source location.", available)
+        return reply(True, "Valid - quantity can be transferred", available)
+
     def dispatch_transfer_note(self, transfer_note_id: int) -> ItemTransferNote:
         """Dispatch transfer note and mark items as in_transit"""
         db_transfer_note = self.get_transfer_note(transfer_note_id)
@@ -273,11 +394,9 @@ class ItemTransferNoteService:
         
         # Update stock status for each item - mark in_transit and clear location
         for item in items:
-            if item.barcode:
+            if item.barcode or item.sales_stock_id:
                 # Lock the stock item row before updating
-                stock_item = self.db.query(SalesStock).filter(
-                    SalesStock.barcode == item.barcode
-                ).with_for_update().first()
+                stock_item = _item_stock(self.db, item)
                 if stock_item:
                     stock_item.status = "in_transit"
                     stock_item.location_id = None  # No longer at source location
@@ -387,10 +506,8 @@ class ItemTransferNoteService:
         # approval instead of being silently overwritten to transfer_pending.
         locked_stock_items = []
         for item in items:
-            if item.barcode:
-                stock_item = self.db.query(SalesStock).filter(
-                    SalesStock.barcode == item.barcode
-                ).with_for_update().first()
+            if item.barcode or item.sales_stock_id:
+                stock_item = _item_stock(self.db, item)
                 if stock_item and stock_item.status != StockStatus.AVAILABLE:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -402,6 +519,9 @@ class ItemTransferNoteService:
                     )
                 if stock_item:
                     locked_stock_items.append(stock_item)
+
+        # Batch/none lines: allocate + split real stock now (fails the whole approval if short).
+        locked_stock_items.extend(_reserve_lots(self.db, transfer_note, items))
 
         transfer_note.status = TransferNoteStatus.APPROVED
 
@@ -447,11 +567,9 @@ class ItemTransferNoteService:
             ItemTransferNoteItems.itemtransfernote_id == transfer_note.id
         ).all()
         for item in items:
-            if item.barcode:
+            if item.barcode or item.sales_stock_id:
                 # Lock the stock item row before updating status
-                stock_item = self.db.query(SalesStock).filter(
-                    SalesStock.barcode == item.barcode
-                ).with_for_update().first()
+                stock_item = _item_stock(self.db, item)
                 if stock_item and stock_item.status in ["transfer_pending", "in_transit"]:
                     stock_item.status = StockStatus.AVAILABLE
                     stock_item.is_active = True
@@ -466,6 +584,17 @@ class ItemTransferNoteItemService:
         self.db = db
     
     def create_item(self, item: schemas.ItemTransferNoteItemCreate) -> ItemTransferNoteItems:
+        tracking = _product_tracking(self.db, item.product_id)
+        if tracking == "serial" and item.quantity != 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Serial-tracked products are transferred one unit per barcode.",
+            )
+        if tracking != "serial" and item.barcode:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Barcodes are not used for '{tracking}'-tracked products; enter a quantity.",
+            )
         db_item = ItemTransferNoteItems(
             **item.model_dump(),
             created_date=tz.now()
@@ -625,13 +754,14 @@ class ItemTransferNoteApprovalService:
                 ).all()
                 
                 for item in items:
-                    if item.barcode:
+                    if item.barcode or item.sales_stock_id:
                         # Lock the stock row to prevent concurrent status changes
-                        stock_item = self.db.query(SalesStock).filter(
-                            SalesStock.barcode == item.barcode
-                        ).with_for_update().first()
+                        stock_item = _item_stock(self.db, item)
                         if stock_item:
                             stock_item.status = "transfer_pending"
+
+                for piece in _reserve_lots(self.db, transfer_note, items):
+                    piece.status = "transfer_pending"
         
         # If rejected (2), update transfer note status and restore stock
         elif approval.approved_status == 2:
@@ -646,11 +776,9 @@ class ItemTransferNoteApprovalService:
                     ItemTransferNoteItems.itemtransfernote_id == transfer_note.id
                 ).all()
                 for item in items:
-                    if item.barcode:
+                    if item.barcode or item.sales_stock_id:
                         # Lock the stock row to prevent concurrent status changes
-                        stock_item = self.db.query(SalesStock).filter(
-                            SalesStock.barcode == item.barcode
-                        ).with_for_update().first()
+                        stock_item = _item_stock(self.db, item)
                         if stock_item and stock_item.status in ("transfer_pending", "in_transit"):
                             stock_item.status = StockStatus.AVAILABLE
                             stock_item.is_active = True
@@ -822,6 +950,36 @@ class ItemReceiveNoteService:
             ))
             received_count += 1
         
+        # Batch/none lines have no barcode: they are received whole, by item id.
+        id_to_item = {i.id: i for i in transfer_items}
+        for item_id in request.item_ids:
+            lot_item = id_to_item.get(item_id)
+            if lot_item is None or lot_item.barcode:
+                results.append(schemas.ReceivedItemResult(
+                    item_id=item_id, success=False, message="Line not found in this transfer note"
+                ))
+                continue
+            if lot_item.item_recieved:
+                results.append(schemas.ReceivedItemResult(
+                    item_id=item_id, success=False, message="Item already received"
+                ))
+                continue
+            lot_stock = _item_stock(self.db, lot_item)
+            if lot_stock is None:
+                results.append(schemas.ReceivedItemResult(
+                    item_id=item_id, success=False, message="This line has no allocated stock (transfer not approved?)"
+                ))
+                continue
+            lot_item.item_recieved = True
+            _apply_receipt(self.db, lot_stock, transfer_note)
+            results.append(schemas.ReceivedItemResult(
+                item_id=item_id,
+                success=True,
+                message=f"Received {lot_item.quantity} unit(s)",
+                product_name=lot_stock.product.name if lot_stock.product else None,
+            ))
+            received_count += 1
+
         # Update transfer note status based on received count
         total_items = len(transfer_items)
         already_received = len([i for i in transfer_items if i.item_recieved])

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
-from typing import Annotated, Generic, Optional, List, TypeVar
+from typing import Annotated, Generic, Literal, Optional, List, TypeVar
 
 T = TypeVar("T")
 from datetime import date, datetime
@@ -25,6 +25,9 @@ _Short = lambda n: Annotated[  # noqa: E731
 ]
 _ItemType = _Short(30)
 _Uom = _Short(20)
+# Mirrors app.common.enums.TrackingType.
+_TrackingType = Literal["serial", "batch", "none"]
+_Tolerance = Annotated[float, Field(ge=0, le=100)]
 _Price = Annotated[float, Field(ge=0, le=MAX_PRICE)]
 
 
@@ -126,6 +129,9 @@ class ProductBase(BaseModel):
     model: Optional[str] = Field(None, max_length=255)
     item_type: str = Field(..., max_length=30)
     unit_of_measure: str = Field(default="pcs", max_length=20)
+    tracking_type: str = Field(default="serial", max_length=10)
+    over_receipt_tolerance_pct: float = 0
+    under_receipt_tolerance_pct: float = 0
     description: Optional[str] = None
     website_active: bool = False
     website_price: Optional[float] = None
@@ -142,6 +148,9 @@ class ProductCreate(BaseModel):
     model: Optional[_Model] = None
     item_type: _ItemType
     unit_of_measure: _Uom = "pcs"
+    tracking_type: _TrackingType = "serial"
+    over_receipt_tolerance_pct: _Tolerance = 0
+    under_receipt_tolerance_pct: _Tolerance = 0
     description: Optional[_Description] = None
     website_active: bool = False
     website_price: Optional[_Price] = None
@@ -174,6 +183,9 @@ class ProductUpdate(BaseModel):
     model: Optional[_Model] = None
     item_type: Optional[_ItemType] = None
     unit_of_measure: Optional[_Uom] = None
+    tracking_type: Optional[_TrackingType] = None
+    over_receipt_tolerance_pct: Optional[_Tolerance] = None
+    under_receipt_tolerance_pct: Optional[_Tolerance] = None
     description: Optional[_Description] = None
     website_active: Optional[bool] = None
     website_price: Optional[_Price] = None
@@ -198,7 +210,8 @@ class ProductUpdate(BaseModel):
     _v_blank = field_validator("model", "description", mode="before")(_blank_to_none)
 
     @field_validator(
-        "name", "item_type", "unit_of_measure", "website_active", "active", "cost_price", "category_id", "items_brand_id"
+        "name", "item_type", "unit_of_measure", "tracking_type", "over_receipt_tolerance_pct",
+        "under_receipt_tolerance_pct", "website_active", "active", "cost_price", "category_id", "items_brand_id"
     )
     @classmethod
     def _required_not_null(cls, value):

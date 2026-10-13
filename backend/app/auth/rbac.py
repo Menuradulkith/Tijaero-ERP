@@ -317,6 +317,16 @@ class Permissions:
     EMPLOYEE_CREATE = ("employees", "create")
     EMPLOYEE_UPDATE = ("employees", "update")
     EMPLOYEE_DELETE = ("employees", "delete")
+    # Core HR (setup masters, reports, leave allocation, sensitive employee fields)
+    HR_SETUP_VIEW = ("hr_setup", "view")
+    HR_SETUP_CREATE = ("hr_setup", "create")
+    HR_SETUP_UPDATE = ("hr_setup", "update")
+    HR_REPORTS_VIEW = ("hr_reports", "view")
+    LEAVE_ALLOCATION_VIEW = ("leave_allocations", "view")
+    LEAVE_ALLOCATION_CREATE = ("leave_allocations", "create")
+    LEAVE_ALLOCATION_UPDATE = ("leave_allocations", "update")
+    EMPLOYEE_SENSITIVE_VIEW = ("employee_sensitive", "view")
+    EMPLOYEE_SENSITIVE_UPDATE = ("employee_sensitive", "update")
 
     # ═══════════════════════════════════════════════════════════════════
     # WAREHOUSE — per sub-page

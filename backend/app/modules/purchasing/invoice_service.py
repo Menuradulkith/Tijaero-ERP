@@ -684,8 +684,12 @@ class PurchaseInvoiceService:
                 from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
                 gl_helper = PurchaseExpensePayrollGL(self.db)
                 gl_helper.post_supplier_payment_to_gl(payment, created_by or 0)
+                # post() only flushes and get_db never commits: without this
+                # commit the payment JE was silently discarded (QA F1b).
+                self.db.commit()
             except Exception as e:
                 logger.warning(f"GL posting failed for payment {payment.payment_no}: {e}")
+                self.db.rollback()
                 from app.modules.finance.gl_posting_service import record_gl_commit_failure
                 record_gl_commit_failure(
                     self.db,
@@ -876,11 +880,11 @@ class PurchaseInvoiceService:
                 GoodReceivedItems.good_received_note == grn.good_received_no,
                 GoodReceivedItems.active == True,
             ).all()
-            total_received_qty = len(received_items)
+            total_received_qty = sum(ri.quantity for ri in received_items)
             
             # Calculate received amount from PO item prices
             total_received_amount = float(self.db.query(
-                func.coalesce(func.sum(PurchasingOrderItems.unit_price), 0)
+                func.coalesce(func.sum(PurchasingOrderItems.unit_price * GoodReceivedItems.quantity), 0)
             ).join(
                 GoodReceivedItems,
                 GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id
@@ -902,7 +906,7 @@ class PurchaseInvoiceService:
                     PurchasingOrderItems.id == ri.purchasing_order_items_id
                 ).first()
                 if poi:
-                    product_counter[(poi.product_id, poi.id, float(poi.unit_price))] += 1
+                    product_counter[(poi.product_id, poi.id, float(poi.unit_price))] += ri.quantity
 
             products = []
             for (pid, poi_id, uprice), qty in product_counter.items():
@@ -1152,11 +1156,11 @@ class PurchaseInvoiceService:
                 GoodReceivedItems.good_received_note == grn.good_received_no,
                 GoodReceivedItems.active == True,
             ).all()
-            total_received_qty = len(received_items)
+            total_received_qty = sum(ri.quantity for ri in received_items)
 
             total_received_amount = float(
                 self.db.query(
-                    func.coalesce(func.sum(PurchasingOrderItems.unit_price), 0)
+                    func.coalesce(func.sum(PurchasingOrderItems.unit_price * GoodReceivedItems.quantity), 0)
                 )
                 .join(GoodReceivedItems, GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id)
                 .filter(

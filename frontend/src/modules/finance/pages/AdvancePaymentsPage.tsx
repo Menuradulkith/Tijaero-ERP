@@ -5,7 +5,7 @@
  * Follows Purchasing/Sales UI pattern with Tijaero components.
  */
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
@@ -487,12 +487,17 @@ export default function AdvancePaymentsPage() {
 
   const isSaving = createCustomerMutation.isPending || createSupplierMutation.isPending;
 
+  // Blocks a second Save click before the first create has settled.
+  const savingRef = useRef(false);
+
   const handleSave = useCallback(() => {
-    if (!isCreating) return;
+    if (!isCreating || savingRef.current) return;
+    savingRef.current = true;
+    const done = { onSettled: () => { savingRef.current = false; } };
     if (advanceType === "customer") {
-      createCustomerMutation.mutate(customerForm as CustomerAdvancePaymentCreate);
+      createCustomerMutation.mutate(customerForm as CustomerAdvancePaymentCreate, done);
     } else {
-      createSupplierMutation.mutate(supplierForm as SupplierAdvancePaymentCreate);
+      createSupplierMutation.mutate(supplierForm as SupplierAdvancePaymentCreate, done);
     }
   }, [isCreating, advanceType, customerForm, supplierForm, createCustomerMutation, createSupplierMutation]);
 

@@ -70,6 +70,7 @@ import {
   SupplierCreditsSettleTransactionCreate,
 } from "@/modules/purchasing/types";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // Configuration
 const SORT_OPTIONS: SortOption[] = [
   { value: "company_name", label: "Name" },
@@ -295,7 +296,11 @@ export default function CreditSettlementPage() {
     setPaymentForm(INITIAL_PAYMENT_FORM);
   }, []);
 
+  // Blocks a second Submit click (or a re-entry while the confirm is open) before the first settles.
+  const submitInFlightRef = useRef(false);
+
   const handleSubmitPayment = useCallback(async () => {
+    if (submitInFlightRef.current) return;
     if (!selectedPO || !selectedPO.grn_id || !selectedSupplier) {
       showErrorToast("Invalid selection");
       return;
@@ -310,6 +315,7 @@ export default function CreditSettlementPage() {
       showErrorToast(`Payment cannot exceed remaining amount`);
       return;
     }
+    submitInFlightRef.current = true;
 
     const confirmed = await confirmDialog.confirm({
       title: "Confirm Payment",
@@ -317,7 +323,10 @@ export default function CreditSettlementPage() {
       confirmText: "Submit Payment",
     });
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      submitInFlightRef.current = false;
+      return;
+    }
 
     try {
       setSaving(true);
@@ -353,6 +362,7 @@ export default function CreditSettlementPage() {
       showErrorToast(msg);
     } finally {
       setSaving(false);
+      submitInFlightRef.current = false;
     }
   }, [selectedPO, selectedSupplier, paymentForm, confirmDialog, loadSupplierCredit, handleBackToSupplier]);
 
@@ -925,7 +935,7 @@ export default function CreditSettlementPage() {
 
         {/* Action Buttons */}
         <Box sx={{ mt: 3, display: "flex", gap: 2, justifyContent: "flex-end" }}>
-          <Button variant="outlined" onClick={handleCancelPayment} disabled={saving}>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelPayment} disabled={saving}>
             Cancel
           </Button>
           <Button

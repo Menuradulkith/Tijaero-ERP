@@ -79,6 +79,7 @@ import type {
   JournalEntryType,
 } from "@/modules/finance/types";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const STATUS_FILTER_OPTIONS = [
@@ -1045,7 +1046,7 @@ export default function JournalEntriesPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setReverseDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setReverseDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="warning"

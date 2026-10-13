@@ -9,6 +9,7 @@ import {
     getChoiceLabel,
     MasterDetailLayout,
     PRODUCT_ITEM_TYPE,
+    PRODUCT_TRACKING_TYPE,
     PRODUCT_UOM,
     showErrorToast,
     TabConfig,
@@ -112,6 +113,9 @@ const emptyProductForm: ProductCreate = {
   model: "",
   item_type: "inventory",
   unit_of_measure: "pcs",
+  tracking_type: "serial",
+  over_receipt_tolerance_pct: 0,
+  under_receipt_tolerance_pct: 0,
   description: "",
   website_active: false,
   website_price: undefined,
@@ -602,6 +606,15 @@ export default function ProductsPage({
           getChoiceLabel(PRODUCT_UOM, params.row.unit_of_measure),
       },
       {
+        field: "tracking_type",
+        header: "Tracking",
+        width: 100,
+        renderCell: (params: GridRenderCellParams<ProductRow>) =>
+          ({ serial: "Serial", batch: "Batch", none: "None" } as Record<string, string>)[
+            params.row.tracking_type || "serial"
+          ] ?? "-",
+      },
+      {
         field: "preferred_supplier_name",
         header: "Preferred Supplier",
         flex: 1,
@@ -1031,6 +1044,9 @@ export default function ProductsPage({
       model: product.model || "",
       item_type: product.item_type,
       unit_of_measure: product.unit_of_measure || "pcs",
+      tracking_type: product.tracking_type || "serial",
+      over_receipt_tolerance_pct: Number(product.over_receipt_tolerance_pct ?? 0),
+      under_receipt_tolerance_pct: Number(product.under_receipt_tolerance_pct ?? 0),
       description: product.description || "",
       website_active: product.website_active,
       website_price: product.website_price ?? undefined,
@@ -1631,6 +1647,56 @@ export default function ProductsPage({
                         </MenuItem>
                       ))}
                     </TextField>
+                    <TextField
+                      label="Tracking Type"
+                      size="small"
+                      select
+                      value={productState.formData.tracking_type || "serial"}
+                      onChange={(e) =>
+                        productState.setFormData({
+                          ...productState.formData,
+                          tracking_type: e.target.value,
+                        })
+                      }
+                      disabled={!productState.isEditing && !productState.isCreating}
+                      helperText="Cannot be changed once the product has stock."
+                    >
+                      {PRODUCT_TRACKING_TYPE.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                    <TextField
+                      label="Over-receipt tolerance (%)"
+                      size="small"
+                      type="number"
+                      value={productState.formData.over_receipt_tolerance_pct ?? 0}
+                      onChange={(e) =>
+                        productState.setFormData({
+                          ...productState.formData,
+                          over_receipt_tolerance_pct: Math.min(100, Math.max(0, Number(e.target.value) || 0)),
+                        })
+                      }
+                      disabled={!productState.isEditing && !productState.isCreating}
+                      inputProps={{ min: 0, max: 100, step: 0.5 }}
+                      helperText="A PO line may be received up to this % over the ordered quantity (0 = exact)."
+                    />
+                    <TextField
+                      label="Under-receipt tolerance (%)"
+                      size="small"
+                      type="number"
+                      value={productState.formData.under_receipt_tolerance_pct ?? 0}
+                      onChange={(e) =>
+                        productState.setFormData({
+                          ...productState.formData,
+                          under_receipt_tolerance_pct: Math.min(100, Math.max(0, Number(e.target.value) || 0)),
+                        })
+                      }
+                      disabled={!productState.isEditing && !productState.isCreating}
+                      inputProps={{ min: 0, max: 100, step: 0.5 }}
+                      helperText="A PO line counts as fully received once it is this % short (0 = exact)."
+                    />
                     <TextField
                       label="Description"
                       inputProps={{ maxLength: 5000 }}

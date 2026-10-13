@@ -4,24 +4,15 @@ from typing import Optional, List
 from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema
+from app.modules.hr.inputs import (  # noqa: F401  strict input schemas live in inputs.py
+    SalaryDeductionCreate, ReimbursementItemCreate, ReimbursementCreate, ReimbursementUpdate, ReimbursementApprove, ReimbursementReject, ReimbursementVerify, ReimbursementPayment, EmployeePayrollCreate, PayrollRunRequest, PayrollBatchApprove, PayrollBatchReject, PayrollBatchProcessPayment, PayrollBatchProcessStatutory, EmployeeSalaryProfileCreate, EmployeePromotionCreate, EmployeeAssetCreate,
+)
 
 # Salary Deduction Schemas
 class SalaryDeductionBase(BaseModel):
     employee_id: int
     reason: str
     amount: Decimal
-
-class SalaryDeductionCreate(SalaryDeductionBase):
-    approval_id: Optional[int] = None
-    deduction_period: Optional[str] = None
-    epf_employee: Optional[Decimal] = None
-    etf_employee: Optional[Decimal] = None
-    stamp_duty: Optional[Decimal] = None
-    late_deductions: Optional[Decimal] = None
-    salary_advance_repayment: Optional[Decimal] = None
-    loan_repayment: Optional[Decimal] = None
-    other_deductions: Optional[Decimal] = None
-    remarks: Optional[str] = None
 
 class SalaryDeduction(SalaryDeductionBase, TijaeroBaseSchema):
     id: int
@@ -48,9 +39,6 @@ class ReimbursementItemBase(BaseModel):
     receipt_date: Optional[date] = None
     receipt_number: Optional[str] = None
 
-class ReimbursementItemCreate(ReimbursementItemBase):
-    pass
-
 class ReimbursementItemResponse(ReimbursementItemBase, TijaeroBaseSchema):
     id: int
     reimbursement_id: int
@@ -63,30 +51,6 @@ class ReimbursementBase(BaseModel):
     description: Optional[str] = None
     reimbursement_type: str = "general"
     remark: Optional[str] = None
-
-class ReimbursementCreate(ReimbursementBase):
-    items: list[ReimbursementItemCreate] = []
-
-class ReimbursementUpdate(BaseModel):
-    description: Optional[str] = None
-    reimbursement_type: Optional[str] = None
-    remark: Optional[str] = None
-
-class ReimbursementApprove(BaseModel):
-    approved_amount: Optional[Decimal] = None
-    remarks: Optional[str] = None
-
-class ReimbursementReject(BaseModel):
-    rejection_reason: str
-
-class ReimbursementVerify(BaseModel):
-    remarks: Optional[str] = None
-
-class ReimbursementPayment(BaseModel):
-    payment_method: str
-    payment_reference: Optional[str] = None
-    paid_amount: Decimal
-    remarks: Optional[str] = None
 
 class Reimbursement(TijaeroBaseSchema):
     id: int
@@ -150,11 +114,6 @@ class EmployeePayrollBase(BaseModel):
     epf_employer: Optional[Decimal] = None
     etf_employer: Optional[Decimal] = None
 
-class EmployeePayrollCreate(EmployeePayrollBase):
-    payroll_month: Optional[int] = None
-    payroll_year: Optional[int] = None
-    payroll_batch_no: Optional[str] = None
-
 class EmployeePayrollResponse(EmployeePayrollBase, TijaeroBaseSchema):
     id: int
     payroll_month: Optional[int] = None
@@ -191,12 +150,6 @@ class EmployeeSalaryProfileBase(BaseModel):
     add_1_value: Optional[Decimal] = None
     add_2_name: Optional[str] = None
     add_2_value: Optional[Decimal] = None
-
-class EmployeeSalaryProfileCreate(EmployeeSalaryProfileBase):
-    designation: Optional[str] = None
-    department: Optional[str] = None
-    effective_from_date: Optional[date] = None
-    benefits: Optional[str] = None
 
 class EmployeeSalaryProfile(EmployeeSalaryProfileBase, TijaeroBaseSchema):
     id: int
@@ -243,30 +196,7 @@ class PayrollBatchResponse(TijaeroBaseSchema):
     payroll_records: Optional[List["EmployeePayrollResponse"]] = None
 
 # Payroll Run (trigger) Schema
-class PayrollRunRequest(BaseModel):
-    payroll_month: int
-    payroll_year: int
-    description: Optional[str] = None
-
 # Payroll Batch Action Schemas
-class PayrollBatchApprove(BaseModel):
-    remarks: Optional[str] = None
-
-class PayrollBatchReject(BaseModel):
-    rejection_reason: str
-
-class PayrollBatchProcessPayment(BaseModel):
-    payment_method: str = "bank_transfer"
-    payment_reference: Optional[str] = None
-    payment_date: Optional[date] = None
-    remarks: Optional[str] = None
-
-class PayrollBatchProcessStatutory(BaseModel):
-    epf_reference: Optional[str] = None
-    etf_reference: Optional[str] = None
-    payment_date: Optional[date] = None
-    remarks: Optional[str] = None
-
 class PayrollBatchListFilter(BaseModel):
     payroll_month: Optional[int] = None
     payroll_year: Optional[int] = None
@@ -281,9 +211,6 @@ class EmployeePromotionBase(BaseModel):
     appointed_date: date
     remark: Optional[str] = None
 
-class EmployeePromotionCreate(EmployeePromotionBase):
-    pass
-
 class EmployeePromotion(EmployeePromotionBase, TijaeroBaseSchema):
     id: int
     created_at: Optional[datetime] = None
@@ -295,9 +222,6 @@ class EmployeeAssetBase(BaseModel):
     asset_id: int
     assign_reason: Optional[str] = None
     revoke_assignment: bool = False
-
-class EmployeeAssetCreate(EmployeeAssetBase):
-    pass
 
 class EmployeeAsset(EmployeeAssetBase, TijaeroBaseSchema):
     id: int

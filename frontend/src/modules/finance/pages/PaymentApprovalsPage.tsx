@@ -783,7 +783,7 @@ export default function PaymentApprovalsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRemarksDialogOpen(false)}>OK</Button>
-          <Button onClick={() => setRemarksDialogOpen(false)} variant="outlined">
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRemarksDialogOpen(false)}>
             Cancel
           </Button>
         </DialogActions>

@@ -41,7 +41,7 @@ DISCOUNT ENTRY (if invoice discount or coupon applied):
 
 SERVICE CHARGE ENTRY (for card payments):
     Dr  1020  Bank Account ............. service_charge
-    Cr  4110  Other Income ............. service_charge  (bank charges recovered)
+    Cr  4100  Other Income ............. service_charge  (bank charges recovered)
 
 VOUCHER REDEMPTION:
     Dr  2510  Gift Vouchers Outstanding  voucher_amount
@@ -81,6 +81,7 @@ logger = logging.getLogger(__name__)
 # ─── Account Code Constants ──────────────────────────────────────────────────
 ACCT_CASH_ON_HAND = "1010"
 ACCT_BANK_ACCOUNT = "1020"
+ACCT_CHEQUES_IN_HAND = "1040"  # L2: customer cheques until the deposit is confirmed
 ACCT_TRADE_DEBTORS = "1110"
 ACCT_FINISHED_GOODS = "1210"
 ACCT_VAT_PAYABLE = "2210"
@@ -90,7 +91,7 @@ ACCT_CREDIT_NOTES = "2530"
 ACCT_CASH_SALES = "4010"
 ACCT_CREDIT_SALES = "4020"
 ACCT_SALES_RETURNS = "4030"
-ACCT_OTHER_INCOME = "4110"
+ACCT_OTHER_INCOME = "4100"  # "Other Income" (4110 is "Discount Received" in the chart)
 ACCT_COGS = "5010"
 ACCT_DISCOUNT_EXPENSE = "5160"
 
@@ -257,8 +258,13 @@ class SalesAccountingIntegration:
         credit_note_amount = Decimal(str(invoice.credit_note_amount or 0))
         subtotal = Decimal(str(invoice.subtotal or 0))
 
-        # Revenue = subtotal - discount - coupon (before tax, voucher, service charge)
-        revenue_amount = subtotal - discount_amount - coupon_amount
+        # Single convention: ``invoice.subtotal`` is ALREADY the net revenue
+        # (create_invoice / _recompute_invoice_totals store final_net = lines
+        # - coupon - header discount, before tax). Discount and coupon are
+        # therefore netted into revenue here and must NOT be deducted again
+        # (nor posted as a separate contra pair, see post_discount_to_gl).
+        # Dr tenders + voucher + credit note = Cr revenue + tax + service charge.
+        revenue_amount = subtotal
 
         # Build journal entry lines
         lines = []
@@ -291,7 +297,7 @@ class SalesAccountingIntegration:
                 })
             if cheque_amt > 0:
                 lines.append({
-                    "account_code": ACCT_BANK_ACCOUNT,
+                    "account_code": ACCT_CHEQUES_IN_HAND,
                     "debit": cheque_amt,
                     "credit": Decimal("0"),
                     "description": f"Sale {invoice.invoice_no} - Cheque received",
@@ -316,6 +322,8 @@ class SalesAccountingIntegration:
                 debit_account = ACCT_TRADE_DEBTORS
             elif payment_method == "cash":
                 debit_account = ACCT_CASH_ON_HAND
+            elif payment_method == "cheque":
+                debit_account = ACCT_CHEQUES_IN_HAND
             else:
                 debit_account = ACCT_BANK_ACCOUNT
             if grand_total > 0:
@@ -388,6 +396,23 @@ class SalesAccountingIntegration:
                 "credit": service_charge,
                 "description": f"Card service charge on {invoice.invoice_no}",
             })
+
+        # --- Customer advance applied to the order (H8) ---
+        # The advance is part of what the customer "paid" with, but it is not a tender: the order's tenders
+        # are already net of it. The missing debit is the portion of the sale settled by the advance; it is
+        # carried as receivable here and cleared by the advance-application JE (Dr 2520 Customer Deposits /
+        # Cr 1110 Trade Debtors), so net effect = Dr 2520 / Cr Revenue.
+        if getattr(invoice, "customer_advance_payments_id", None):
+            total_dr = sum((l["debit"] for l in lines), Decimal("0"))
+            total_cr = sum((l["credit"] for l in lines), Decimal("0"))
+            advance_portion = (total_cr - total_dr).quantize(Decimal("0.01"))
+            if advance_portion > 0:
+                lines.append({
+                    "account_code": ACCT_TRADE_DEBTORS,
+                    "debit": advance_portion,
+                    "credit": Decimal("0"),
+                    "description": f"Sale {invoice.invoice_no} - settled by customer advance",
+                })
 
         description = (
             f"Auto GL - Sale Revenue | Invoice: {invoice.invoice_no} | "
@@ -506,6 +531,13 @@ class SalesAccountingIntegration:
         
         This records the discount as a cost to the business.
         """
+        # The revenue entry already posts NET revenue (subtotal is stored net of
+        # header discount and coupon), so the discount is recognised exactly
+        # once, by netting. A second Dr 5160 / Cr revenue pair would overstate
+        # both revenue and expenses by the discount, so nothing is posted here.
+        # (Historical "Discount" JEs already in the ledger are left untouched.)
+        return None
+
         discount_amount = Decimal(str(invoice.discount_amount or 0))
         coupon_amount = Decimal(str(invoice.cupon_amount or 0))
         total_discount = discount_amount + coupon_amount
@@ -559,7 +591,7 @@ class SalesAccountingIntegration:
         return je
 
     def post_sale_return_to_gl(
-        self, sale_return: SaleReturn, user_id: int
+        self, sale_return: SaleReturn, user_id: int, ar_applied: Optional[Decimal] = None
     ) -> Optional[JournalEntry]:
         """
         Post sale return reversal to GL.
@@ -608,6 +640,9 @@ class SalesAccountingIntegration:
                 or Decimal(str(invoice.credit_amount or 0)) > 0
             )
             credit_account = ACCT_TRADE_DEBTORS if is_credit_sale else ACCT_CREDIT_NOTES
+            if ar_applied is not None:
+                # Receivable part is split out below; the rest is a note issued.
+                credit_account = ACCT_CREDIT_NOTES
         else:
             # Legacy fallback: derive from the original invoice tender.
             original = (invoice.payment_method or "").lower()
@@ -633,12 +668,23 @@ class SalesAccountingIntegration:
                 "credit": Decimal("0"),
                 "description": f"Tax reversed on return {sale_return.sale_return_no} (Return Amount: {revenue_reversal})",
             })
-        lines.append({
-            "account_code": credit_account,
-            "debit": Decimal("0"),
-            "credit": total_refund,
-            "description": f"Refund ({refund_method or 'original method'}) for return {sale_return.sale_return_no}",
-        })
+        ar_part = Decimal("0")
+        if ar_applied is not None:
+            ar_part = min(max(Decimal(str(ar_applied)), Decimal("0")), total_refund)
+        if ar_part > 0:
+            lines.append({
+                "account_code": ACCT_TRADE_DEBTORS,
+                "debit": Decimal("0"),
+                "credit": ar_part,
+                "description": f"Receivable cancelled by return {sale_return.sale_return_no}",
+            })
+        if total_refund - ar_part > 0:
+            lines.append({
+                "account_code": credit_account,
+                "debit": Decimal("0"),
+                "credit": total_refund - ar_part,
+                "description": f"Refund ({refund_method or 'original method'}) for return {sale_return.sale_return_no}",
+            })
 
         # ── COGS / inventory reversal for goods that returned to sellable stock ──
         # The original sale posted Dr 5010 COGS / Cr 1210 Inventory; reverse it
@@ -964,11 +1010,50 @@ class SalesAccountingIntegration:
             )
         return je
 
+    def post_gift_voucher_forfeit_to_gl(self, voucher, forfeited: Decimal, invoice_no: str, user_id: int) -> Optional[JournalEntry]:
+        """
+        Gift vouchers are one-time use: the unredeemed remainder is forfeited.
+        Dr  2510  Gift Vouchers Outstanding .. forfeited
+        Cr  4100  Other Income (Breakage) .... forfeited
+        """
+        if forfeited <= 0:
+            return None
+        if self._check_already_posted(voucher.id, reference_type="GiftVoucherForfeit"):
+            return None
+        lines = [
+            {
+                "account_code": ACCT_GIFT_VOUCHERS,
+                "debit": forfeited,
+                "credit": Decimal("0"),
+                "description": f"Unredeemed gift voucher balance forfeited - {voucher.barcode_no} (used on {invoice_no})",
+            },
+            {
+                "account_code": ACCT_OTHER_INCOME,
+                "debit": Decimal("0"),
+                "credit": forfeited,
+                "description": f"Breakage income: forfeited gift voucher balance - {voucher.barcode_no} (used on {invoice_no})",
+            },
+        ]
+        description = (
+            f"Auto GL - Gift Voucher Forfeited Balance | Barcode: {voucher.barcode_no} | "
+            f"Invoice: {invoice_no} | Amount: {forfeited} | GiftVoucherForfeit ID: {voucher.id}"
+        )
+        return self._create_je_and_post(
+            entry_date=tz.today(),
+            description=description,
+            lines=lines,
+            branch_code=getattr(voucher, "branch_code", None) or "HQ",
+            user_id=user_id,
+            reference_type="GiftVoucherForfeit",
+            reference_id=voucher.id,
+            reference_no=voucher.barcode_no,
+        )
+
     def post_gift_voucher_expiry_to_gl(self, voucher, user_id: int) -> Optional[JournalEntry]:
         """
         Post gift voucher expiry/breakage to GL.
         Dr  2510  Gift Vouchers Outstanding .. remaining_balance
-        Cr  4110  Other Income (Breakage) .... remaining_balance
+        Cr  4100  Other Income (Breakage) .... remaining_balance
 
         Called when a gift voucher expires with unspent balance.
         """

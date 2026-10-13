@@ -28,6 +28,7 @@ import {
   InputAdornment,
   Tooltip,
   Avatar,
+  Autocomplete,
 } from "@mui/material";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -71,6 +72,7 @@ import {
 
 import { transferNotesApi, transferNoteItemsApi, transferWorkflowApi } from "@/modules/warehouse/api";
 import { locationsApi } from "@/modules/common/api";
+import { productsApi } from "@/modules/inventory/api";
 import { useReferenceData } from "@/hooks";
 // OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import {
@@ -81,6 +83,7 @@ import {
 } from "@/modules/warehouse/types";
 import { useCurrencyStore } from "@/state/currencyStore";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
   const year = new Date().getFullYear();
   const yy = String(year).slice(-2);
@@ -115,7 +118,8 @@ interface ITNLineItem {
   id?: number;
   product_id: number;
   product_name: string;
-  barcode: string;
+  barcode: string;  // "" for batch/none lots
+  quantity?: number;  // units on a lot line (barcode items are 1)
   branch_code?: string;
   remark?: string;
   sales_stock_id?: number;
@@ -161,6 +165,18 @@ export default function ItemTransferNotesPage() {
   }>>([]);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   
+
+  // Batch/none-tracked products are transferred by quantity (no barcodes).
+  const [lotProductId, setLotProductId] = useState<number | null>(null);
+  const [lotQuantity, setLotQuantity] = useState('');
+  const [lotError, setLotError] = useState<string | null>(null);
+  const [isValidatingLot, setIsValidatingLot] = useState(false);
+  const { data: lotProducts = [] } = useQuery({
+    queryKey: ["transfer-lot-products"],
+    queryFn: async () => (await productsApi.getAll(0, 1000, true)).filter((p) => p.tracking_type && p.tracking_type !== "serial"),
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Confirm dialog for unsaved changes
   const confirmDialog = useTConfirmDialog();
   
@@ -287,6 +303,7 @@ export default function ItemTransferNotesPage() {
         product_id: item.product_id,
         product_name: item.product_name || "",
         barcode: item.barcode || "",
+        quantity: item.quantity ?? 1,
         branch_code: item.branch_code,
         remark: item.remark,
         item_recieved: item.item_recieved,
@@ -426,6 +443,68 @@ export default function ItemTransferNotesPage() {
     setLineItems(prev => prev.filter(item => item.barcode !== barcode));
   }, []);
 
+  // Add a quantity of a batch/none product (checked against stock at the source location).
+  const handleAddLot = useCallback(async () => {
+    const quantity = Math.floor(Number(lotQuantity));
+    if (!lotProductId) {
+      setLotError('Select a product');
+      return;
+    }
+    if (!quantity || quantity < 1) {
+      setLotError('Enter a quantity of at least 1');
+      return;
+    }
+    if (!formData.from_location_id) {
+      setLotError('Please select a source location first');
+      return;
+    }
+    // Quantity already added for this product counts against availability.
+    const alreadyAdded = lineItems
+      .filter((i) => i.product_id === lotProductId && !i.barcode)
+      .reduce((n, i) => n + (i.quantity ?? 0), 0);
+    setIsValidatingLot(true);
+    setLotError(null);
+    try {
+      const response = await transferWorkflowApi.validateLot({
+        product_id: lotProductId,
+        quantity: quantity + alreadyAdded,
+        from_location_id: formData.from_location_id,
+      });
+      if (!response.valid) {
+        setLotError(response.message);
+        return;
+      }
+      setLineItems((prev) => {
+        const existing = prev.find((i) => i.product_id === lotProductId && !i.barcode);
+        if (existing) {
+          return prev.map((i) => (i._id === existing._id ? { ...i, quantity: (i.quantity ?? 0) + quantity } : i));
+        }
+        return [
+          ...prev,
+          {
+            _id: Math.random().toString(),
+            product_id: lotProductId,
+            product_name: response.product_name || `Product #${lotProductId}`,
+            barcode: '',
+            quantity,
+            branch_code: formData.branch_code,
+            item_recieved: false,
+          },
+        ];
+      });
+      setLotQuantity('');
+      showSuccessToast(`Added ${quantity} × ${response.product_name}`);
+    } catch (error) {
+      setLotError(handleApiError(error, 'Could not validate quantity'));
+    } finally {
+      setIsValidatingLot(false);
+    }
+  }, [lotProductId, lotQuantity, formData.from_location_id, formData.branch_code, lineItems]);
+
+  const handleRemoveLine = useCallback((lineId: string) => {
+    setLineItems(prev => prev.filter(item => item._id !== lineId));
+  }, []);
+
   const handleSelectITNWithItems = useCallback(async (itn: ItemTransferNote) => {
     const selected = await handleSelectITN(itn);
     if (!selected) return;
@@ -475,7 +554,7 @@ export default function ItemTransferNotesPage() {
     mutationFn: async (data: ItemTransferNoteCreate) => {
       // Validate we have items
       if (lineItems.length === 0) {
-        throw new Error("No items to transfer. Please scan barcodes to add items.");
+        throw new Error("No items to transfer. Please scan barcodes or add a quantity to add items.");
       }
       
       // Create the ITN
@@ -485,7 +564,8 @@ export default function ItemTransferNotesPage() {
       for (const item of lineItems) {
         await transferNoteItemsApi.create({
           product_id: item.product_id,
-          barcode: item.barcode,
+          barcode: item.barcode || undefined,
+          quantity: item.barcode ? 1 : (item.quantity ?? 1),
           branch_code: item.branch_code || data.branch_code,
           remark: item.remark,
           item_recieved: false,
@@ -493,7 +573,7 @@ export default function ItemTransferNotesPage() {
         });
       }
       
-      return { itn: newITN, itemCount: lineItems.length };
+      return { itn: newITN, itemCount: lineItems.reduce((n, i) => n + (i.barcode ? 1 : (i.quantity ?? 1)), 0) };
     },
     onSuccess: ({ itn: newITN, itemCount }) => {
       queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
@@ -650,6 +730,18 @@ export default function ItemTransferNotesPage() {
         onNew={handleNewITN}
         onSave={handleSave}
         onCancel={() => handleCancel(filteredITNs)}
+        startActions={
+          isCreating && formStep === 1 ? (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={handlePreviousStep}
+              startIcon={<ArrowBackIcon />}
+            >
+              Back
+            </Button>
+          ) : undefined
+        }
         onEdit={handleStartEdit}
         canUpdate={selectedITN ? getITNStatus(selectedITN) === "pending" : false}
         canDelete={selectedITN ? getITNStatus(selectedITN) === "pending" : false}
@@ -784,18 +876,6 @@ export default function ItemTransferNotesPage() {
             {/* Step 2: Scan & Transfer Items */}
             {(formStep === 1 || !isCreating) && (
               <>
-                {/* Back button in create mode only */}
-                {isCreating && (
-                  <Button 
-                    variant="text" 
-                    onClick={handlePreviousStep}
-                    startIcon={<ArrowBackIcon />}
-                    sx={{ mb: 2 }}
-                  >
-                    Back to Transfer Information
-                  </Button>
-                )}
-
                 {/* After-hours warning */}
                 {isCreating && (() => {
                   const hour = new Date().getHours();
@@ -907,6 +987,53 @@ export default function ItemTransferNotesPage() {
                         Please select a source location in Step 1 before scanning items
                       </Alert>
                     )}
+
+                    {/* Batch / none-tracked products: transfer by quantity, no barcodes */}
+                    {lotProducts.length > 0 && (
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                          Or add a quantity of a batch / non-serial product:
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                          <Autocomplete
+                            size="small"
+                            sx={{ minWidth: 260, flex: 1 }}
+                            options={lotProducts}
+                            getOptionLabel={(p) => `${p.name} (${p.item_code})`}
+                            value={lotProducts.find((p) => p.id === lotProductId) || null}
+                            onChange={(_, p) => {
+                              setLotProductId(p ? p.id : null);
+                              setLotError(null);
+                            }}
+                            renderInput={(params) => (
+                              <TextField {...params} placeholder="Product" error={!!lotError} helperText={lotError || undefined} />
+                            )}
+                            disabled={!formData.from_location_id}
+                          />
+                          <TextField
+                            size="small"
+                            type="number"
+                            label="Quantity"
+                            value={lotQuantity}
+                            onChange={(e) => {
+                              setLotQuantity(e.target.value);
+                              if (lotError) setLotError(null);
+                            }}
+                            inputProps={{ min: 1 }}
+                            sx={{ width: 130 }}
+                            disabled={!formData.from_location_id}
+                          />
+                          <Button
+                            variant="contained"
+                            onClick={handleAddLot}
+                            disabled={isValidatingLot || !lotProductId || !lotQuantity || !formData.from_location_id}
+                            sx={{ minWidth: 100 }}
+                          >
+                            {isValidatingLot ? <CircularProgress size={20} /> : 'Add'}
+                          </Button>
+                        </Box>
+                      </Box>
+                    )}
                   </Paper>
                 )}
 
@@ -948,7 +1075,7 @@ export default function ItemTransferNotesPage() {
                             <TableCell>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <CheckCircleIcon fontSize="small" color="success" />
-                                <Typography variant="body2">{item.barcode}</Typography>
+                                <Typography variant="body2">{item.barcode || `Qty ${item.quantity ?? 1}`}</Typography>
                               </Box>
                             </TableCell>
                             <TableCell>{item.product_name || `Product #${item.product_id}`}</TableCell>
@@ -1000,7 +1127,7 @@ export default function ItemTransferNotesPage() {
                                   {validatedItem && (
                                     <CheckCircleIcon fontSize="small" color="success" />
                                   )}
-                                  <Typography variant="body2">{item.barcode}</Typography>
+                                  <Typography variant="body2">{item.barcode || `Qty ${item.quantity ?? 1}`}</Typography>
                                 </Box>
                               </TableCell>
                               <TableCell>
@@ -1015,7 +1142,7 @@ export default function ItemTransferNotesPage() {
                                 {item.cost_price || validatedItem?.cost_price ? fmtLKR(item.cost_price || validatedItem?.cost_price || 0) : '-'}
                               </TableCell>
                               <TableCell>
-                                <IconButton size="small" onClick={() => handleRemoveValidatedItem(item.barcode)} color="error">
+                                <IconButton size="small" onClick={() => (item.barcode ? handleRemoveValidatedItem(item.barcode) : handleRemoveLine(item._id))} color="error">
                                   <DeleteIcon fontSize="small" />
                                 </IconButton>
                               </TableCell>
@@ -1029,35 +1156,6 @@ export default function ItemTransferNotesPage() {
                   <EmptyState
                     message={isCreating ? "Scan barcodes above to add items for transfer" : "No items in this transfer note"}
                   />
-                )}
-
-                {/* Save/Cancel buttons for final step in create mode */}
-                {isCreating && lineItems.length > 0 && (
-                  <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2, mt: 3 }}>
-                    <Button 
-                      variant="text" 
-                      onClick={handlePreviousStep}
-                      startIcon={<ArrowBackIcon />}
-                    >
-                      Back
-                    </Button>
-                    <Box sx={{ display: "flex", gap: 2 }}>
-                      <Button 
-                        variant="outlined" 
-                        onClick={() => handleCancel(filteredITNs)}
-                      >
-                        Cancel
-                      </Button>
-                      <Button 
-                        variant="contained" 
-                        onClick={handleSave}
-                        disabled={!isFormValid || isSaving || lineItems.length === 0}
-                        startIcon={isSaving ? <CircularProgress size={16} /> : <SaveIcon />}
-                      >
-                        {isSaving ? "Saving..." : "Save Transfer Note"}
-                      </Button>
-                    </Box>
-                  </Box>
                 )}
               </>
             )}

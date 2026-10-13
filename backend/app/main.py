@@ -69,8 +69,10 @@ app = FastAPI(
 
 
 def custom_openapi():
-    if app.openapi_schema:
-        return app.openapi_schema
+    # `app` is rebound to the ProxyHeadersMiddleware wrapper at the bottom of
+    # this module; the schema cache lives on the FastAPI instance.
+    if _fastapi_app.openapi_schema:
+        return _fastapi_app.openapi_schema
 
     openapi_schema = get_openapi(
         title=settings.PROJECT_NAME,
@@ -103,7 +105,7 @@ The system will automatically obtain and use your JWT token for all requests.
 
 API calls are rate-limited to ensure fair usage.
         """,
-        routes=app.routes,
+        routes=_fastapi_app.routes,
         contact={
             "name": "API Support",
             "email": "support@example.com",
@@ -138,15 +140,22 @@ API calls are rate-limited to ensure fair usage.
         {"name": "health", "description": "Health check endpoints"},
     ]
 
-    app.openapi_schema = openapi_schema
-    return app.openapi_schema
+    _fastapi_app.openapi_schema = openapi_schema
+    return _fastapi_app.openapi_schema
 
 
+_fastapi_app = app
 app.openapi = custom_openapi
 
 # Keep in-flight requests below the DB pool (pool_size + max_overflow = 40).
 from app.core.admission import AdmissionControlMiddleware  # noqa: E402
 app.add_middleware(AdmissionControlMiddleware, max_concurrent=32, queue_timeout=15.0)
+
+from app.core.nul_guard import RejectNulMiddleware  # noqa: E402
+app.add_middleware(RejectNulMiddleware)
+
+from app.core.security_headers import SecurityHeadersMiddleware  # noqa: E402
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -262,6 +271,17 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
         # Service code should have already caught this and raised an HTTPException.
         # If it somehow bubbles up unwrapped, give a meaningful message.
         logging.warning(f"Uncaught IntegrityError: {exc}")
+        pgcode = getattr(getattr(exc, "orig", None), "pgcode", None) or getattr(getattr(exc, "orig", None), "sqlstate", None)
+        if pgcode == "23503":
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "The request references a record that does not exist or is still in use."},
+            )
+        if pgcode == "23502":
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "A required value is missing."},
+            )
         return JSONResponse(
             status_code=409,
             content={"detail": "A duplicate record was detected. Please check your data and try again."},

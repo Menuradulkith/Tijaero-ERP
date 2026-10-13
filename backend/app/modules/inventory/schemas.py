@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema
@@ -24,16 +24,21 @@ class Product(ProductBase, TijaeroBaseSchema):
 # Sales Stock Schemas
 class SalesStockBase(BaseModel):
     product_id: int
-    barcode: str
+    # Required for serial-tracked products; None for batch/none lots.
+    barcode: Optional[str] = None
     branch_code: str
     location_id: Optional[int] = None  # good_received_locations_id from GRN
     good_received_note_id: int
     purchasing_order_items_id: int
     warranty_month: Optional[str] = None  # From PO item or entered in GRN
     status: StockStatus = StockStatus.AVAILABLE
+    # Units this row represents: 1 for serial stock, lot size for batch/none.
+    quantity: int = 1
+    batch_no: Optional[str] = Field(default=None, max_length=100)
+    expiry_date: Optional[date] = None
 
 class SalesStockCreate(SalesStockBase):
-    pass
+    quantity: int = Field(default=1, ge=1)
 
 class SalesStock(SalesStockBase, TijaeroBaseSchema):
     id: int
@@ -95,6 +100,20 @@ class CompanyAsset(CompanyAssetBase, TijaeroBaseSchema):
     brand_id: Optional[int] = None
     cost_price: Optional[Decimal] = None
     grn_no: Optional[str] = None
+
+
+class ReclassifyRequest(BaseModel):
+    """Move a serial unit between sales stock and company assets."""
+    reason: str = Field(..., min_length=3, max_length=500)
+    location_id: Optional[int] = None  # target location when returning an asset to stock
+
+
+class ReclassifyResponse(BaseModel):
+    success: bool
+    message: str
+    barcode: str
+    sales_stock_id: int
+    company_asset_id: int
 
 
 # GRN Stock Save Request - for saving items to sales_stock and/or company_assets

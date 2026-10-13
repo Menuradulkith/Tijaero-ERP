@@ -149,6 +149,7 @@
     <div id="vat" class="price-box" style="top: 601px; left: 700px;"></div>
     <div id="btt" class="price-box" style="top: 622px; left: 700px;"></div>
     <div id="net-total" class="price-box" style="top: 645px; left: 700px; font-weight: bold;"></div>
+    <div id="adjustments" class="info-box" style="top: 662px; left: 596px; width: 195px; font-size: 9px;"></div>
   </div><!-- end .invoice-bg page 1 -->
 
   <script>
@@ -190,6 +191,7 @@
       vat:            '{{ invoice.vat }}',
       btt:            '{{ invoice.btt }}',
       netTotal:       '{{ invoice.netTotal }}',
+      adjustments:    {{ invoice.adjustments | tojson }},
       additionalRemarks: '{{ options.custom_remarks | default("", true) }}',
     };
 
@@ -220,6 +222,20 @@
       set('vat',              data.vat);
       set('btt',              data.btt);
       set('net-total',        data.netTotal);
+      // lines -> adjustments -> net total, so the printed amounts foot
+      const adjEl = pageEl.querySelector('#adjustments');
+      if (adjEl) {
+        adjEl.innerHTML = '';
+        (data.adjustments || []).forEach(a => {
+          const row = document.createElement('div');
+          row.style.display = 'flex';
+          row.style.justifyContent = 'space-between';
+          const l = document.createElement('span'); l.textContent = a.label;
+          const r = document.createElement('span'); r.textContent = a.amount;
+          row.appendChild(l); row.appendChild(r);
+          adjEl.appendChild(row);
+        });
+      }
       set('additional-remarks', data.additionalRemarks);
     }
 

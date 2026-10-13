@@ -8,6 +8,8 @@ import {
   ItemReceiveNote,
   ItemReceiveNoteCreate,
   BarcodeValidationRequest,
+  LotValidationRequest,
+  LotValidationResponse,
   BarcodeValidationResponse,
   ReceiveItemsRequest,
   ReceiveItemsResponse,
@@ -171,6 +173,14 @@ export const transferWorkflowApi = {
   validateBarcode: async (data: BarcodeValidationRequest) => {
     const response = await apiClient.post<BarcodeValidationResponse>(
       "/warehouse/transfer-notes/validate-barcode",
+      data
+    );
+    return response.data;
+  },
+
+  validateLot: async (data: LotValidationRequest) => {
+    const response = await apiClient.post<LotValidationResponse>(
+      "/warehouse/transfer-notes/validate-lot",
       data
     );
     return response.data;

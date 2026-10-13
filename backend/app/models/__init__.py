@@ -146,3 +146,7 @@ __all__ = [
     "ProductPriceTier",
     "Currency",
 ]
+from app.modules.hr_core.models import (  # noqa: F401
+    HRDepartment, HRDesignation, HREmploymentType, HRShift, HRHolidayList, HRHoliday, HRLeaveType, HRLeaveAllocation,
+    HREmergencyContact, HRDependent, HREducation, HRExperience, HRDocument, HROnboardingTask,
+)

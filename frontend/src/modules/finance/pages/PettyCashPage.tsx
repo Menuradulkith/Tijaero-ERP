@@ -17,7 +17,6 @@ import {
 import { useReferenceData } from "@/hooks";
 import {
   Add as AddIcon,
-  MonetizationOn as MoneyIcon,
 } from "@mui/icons-material";
 import {
   Box,
@@ -42,7 +41,7 @@ import {
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { pettyCashApi } from "../api";
 import {
   PettyCashFund,
@@ -52,6 +51,7 @@ import {
   PettyCashTransaction,
 } from "../types";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 export default function PettyCashPage() {
   const queryClient = useQueryClient();
   // Petty cash endpoints are gated by the cashbook permission on the backend
@@ -125,6 +125,9 @@ export default function PettyCashPage() {
     );
   }, [fundsData?.items, searchTerm]);
 
+  // Blocks a second click on any of the money dialogs before the first request settles.
+  const submitInFlightRef = useRef(false);
+
   // Handlers
   const handleCreateFund = async () => {
     if (!formData.opening_balance || formData.opening_balance <= 0) {
@@ -132,6 +135,8 @@ export default function PettyCashPage() {
       return;
     }
 
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     try {
       const result = await pettyCashApi.createFund(formData);
@@ -148,6 +153,7 @@ export default function PettyCashPage() {
       showErrorToast(error.response?.data?.detail || "Failed to create fund");
     } finally {
       setIsSubmitting(false);
+      submitInFlightRef.current = false;
     }
   };
 
@@ -161,6 +167,8 @@ export default function PettyCashPage() {
       return;
     }
 
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     try {
       await pettyCashApi.recordExpense(expenseData);
@@ -176,6 +184,7 @@ export default function PettyCashPage() {
       showErrorToast(error.response?.data?.detail || "Failed to record expense");
     } finally {
       setIsSubmitting(false);
+      submitInFlightRef.current = false;
     }
   };
 
@@ -185,6 +194,8 @@ export default function PettyCashPage() {
       return;
     }
 
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     try {
       await pettyCashApi.replenishFund(replenishData);
@@ -200,6 +211,7 @@ export default function PettyCashPage() {
       showErrorToast(error.response?.data?.detail || "Failed to replenish fund");
     } finally {
       setIsSubmitting(false);
+      submitInFlightRef.current = false;
     }
   };
 
@@ -210,6 +222,8 @@ export default function PettyCashPage() {
     }
     if (!selectedFundId) return;
 
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     try {
       await pettyCashApi.reconcileFund(selectedFundId, {
@@ -225,117 +239,9 @@ export default function PettyCashPage() {
       showErrorToast(error.response?.data?.detail || "Failed to reconcile fund");
     } finally {
       setIsSubmitting(false);
+      submitInFlightRef.current = false;
     }
   };
-
-  // Empty state
-  if (filteredFunds.length === 0 && !isLoadingFunds && !showCreateDialog) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Box
-          sx={{
-            mb: 3,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <Typography variant="h4">Petty Cash Management</Typography>
-          {canCreate && (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => setShowCreateDialog(true)}
-            >
-              Create Fund
-            </Button>
-          )}
-        </Box>
-
-        <EmptyState
-          message="No petty cash funds yet. Create your first fund to get started."
-          icon={<MoneyIcon sx={{ fontSize: 64 }} />}
-        />
-
-        {/* Create Fund Dialog */}
-        <Dialog
-          open={showCreateDialog}
-          onClose={() => setShowCreateDialog(false)}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle>Create New Petty Cash Fund</DialogTitle>
-          <DialogContent sx={{ pt: 2 }}>
-            <TextField
-              fullWidth
-              label="Branch"
-              select
-              value={formData.branch_code || ""}
-              onChange={(e) =>
-                setFormData({ ...formData, branch_code: e.target.value })
-              }
-              margin="normal"
-            >
-              {filteredBranches.map((branch) => (
-                <MenuItem key={branch.branch_code} value={branch.branch_code}>
-                  {branch.branch_name}
-                </MenuItem>
-              ))}
-            </TextField>
-
-            <TextField
-              fullWidth
-              label="Opening Balance"
-              type="number"
-              value={formData.opening_balance || 0}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  opening_balance: parseFloat(e.target.value),
-                })
-              }
-              margin="normal"
-              inputProps={{ step: "0.01", min: "0" }}
-            />
-
-            <TextField
-              fullWidth
-              label="Opened Date"
-              type="date"
-              value={formData.opened_date || ""}
-              onChange={(e) =>
-                setFormData({ ...formData, opened_date: e.target.value })
-              }
-              margin="normal"
-              InputLabelProps={{ shrink: true }}
-            />
-
-            <TRemarkField
-              fullWidth
-              label="Remarks"
-              multiline
-              rows={3}
-              value={formData.remarks || ""}
-              onChange={(value) =>
-                setFormData({ ...formData, remarks: value })
-              }
-              margin="normal"
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setShowCreateDialog(false)}>Cancel</Button>
-            <Button
-              onClick={handleCreateFund}
-              variant="contained"
-              disabled={isSubmitting}
-            >
-              Create
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </Box>
-    );
-  }
 
   // Main layout
   return (
@@ -676,7 +582,7 @@ export default function PettyCashPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowCreateDialog(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowCreateDialog(false)}>Cancel</Button>
           <Button
             onClick={handleCreateFund}
             variant="contained"
@@ -781,7 +687,7 @@ export default function PettyCashPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowExpenseDialog(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowExpenseDialog(false)}>Cancel</Button>
           <Button
             onClick={handleRecordExpense}
             variant="contained"
@@ -847,7 +753,7 @@ export default function PettyCashPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowReplenishDialog(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowReplenishDialog(false)}>Cancel</Button>
           <Button
             onClick={handleReplenish}
             variant="contained"
@@ -902,7 +808,7 @@ export default function PettyCashPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowReconcileDialog(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowReconcileDialog(false)}>Cancel</Button>
           <Button
             onClick={handleReconcile}
             variant="contained"

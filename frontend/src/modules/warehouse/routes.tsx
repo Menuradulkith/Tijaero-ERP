@@ -16,6 +16,7 @@ export default function WarehouseRoutes() {
       <Route path="sales-track" element={<ProtectedRoute resource="warehouse_sales_track" action="view"><SalesTrackPage /></ProtectedRoute>} />
       <Route path="transfer-notes" element={<ProtectedRoute resource="item_transfer_notes" action="view"><StockTransferNotesPage /></ProtectedRoute>} />
       <Route path="item-transfer-notes" element={<ProtectedRoute resource="item_transfer_notes" action="view"><ItemTransferNotesPage /></ProtectedRoute>} />
+      <Route path="approvals" element={<Navigate to="../itn-approvals" replace />} />
       <Route path="itn-approvals" element={<ProtectedRoute resource="itn_approvals" action="view"><ItemTransferNoteApprovalsPage /></ProtectedRoute>} />
       <Route path="receive-notes" element={<ProtectedRoute resource="receive_notes" action="view"><ReceiveNotesPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="." replace />} />

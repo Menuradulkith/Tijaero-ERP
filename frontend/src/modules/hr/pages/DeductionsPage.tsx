@@ -1,9 +1,9 @@
 /**
  * DeductionsPage — Browse table + single-record detail toggle for salary deductions.
  */
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, IconButton, InputAdornment, Paper, TextField, Tooltip, Typography } from "@mui/material";
+import { Avatar, Box, Button, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import MoneyOffIcon from "@mui/icons-material/MoneyOff";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -31,7 +31,7 @@ import {
   TRemarkField,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
-import { salaryDeductionsApi } from "@/modules/hr/api";
+import { salaryDeductionsApi, employeesApi } from "@/modules/hr/api";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import type { SalaryDeduction, SalaryDeductionCreate } from "@/modules/hr/types";
 
@@ -59,12 +59,16 @@ export default function DeductionsPage() {
       employee_id: d.employee_id,
       reason: d.reason,
       amount: d.amount,
-      approval_id: d.approval_id,
+      deduction_period: (d as { deduction_period?: string }).deduction_period,
       remarks: d.remarks || "",
     }),
     defaultSortField: "created_desc",
   });
 
+  const { data: employees } = useQuery({
+    queryKey: ["hr-employees-light"],
+    queryFn: () => employeesApi.getAll({ limit: 500 }),
+  });
   const { data: deductions, isLoading, refetch } = useQuery({
     queryKey: ["salary-deductions"],
     queryFn: () => salaryDeductionsApi.getAll(),
@@ -116,9 +120,12 @@ export default function DeductionsPage() {
 
   const confirmDialog = useTConfirmDialog();
 
+  const savingRef = useRef(false);   // blocks a second click before the first save has settled
   const handleSave = useCallback(() => {
-    if (isCreating) createMut.mutate(formData);
-    else if (selectedItem) updateMut.mutate({ id: selectedItem.id, data: formData });
+    if (savingRef.current) return;
+    const done = { onSettled: () => { savingRef.current = false; } };
+    if (isCreating) { savingRef.current = true; createMut.mutate(formData, done); }
+    else if (selectedItem) { savingRef.current = true; updateMut.mutate({ id: selectedItem.id, data: formData }, done); }
   }, [isCreating, selectedItem, formData, createMut, updateMut]);
 
   const handleDelete = useCallback(async () => {
@@ -255,13 +262,17 @@ export default function DeductionsPage() {
         ) : (
           <>
             <FormSection title="Deduction Details" columns={2}>
-              <TextField label="Employee ID" size="small" type="number" value={formData.employee_id || ""} onChange={(e) => setFormData({ ...formData, employee_id: Number(e.target.value) })} disabled={isDisabled} required />
+              <TextField label="Employee" size="small" select value={formData.employee_id || ""} onChange={(e) => setFormData({ ...formData, employee_id: Number(e.target.value) })} disabled={isDisabled || !isCreating} required>
+                {(employees || []).filter((emp) => ["active", "probation", "notice_period"].includes((emp as { status?: string }).status ?? "active") || emp.id === formData.employee_id).map((emp) => (
+                  <MenuItem key={emp.id} value={emp.id}>{emp.full_name ? `${emp.full_name} (${emp.employee_id})` : emp.employee_id}</MenuItem>
+                ))}
+              </TextField>
               <TextField label="Amount" size="small" type="number" value={Number(formData.amount) || ""} onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })} disabled={isDisabled} required inputProps={{ step: "0.01" }} />
               <Box sx={{ gridColumn: "1 / -1" }}>
                 <TextField label="Reason" size="small" value={formData.reason} onChange={(e) => setFormData({ ...formData, reason: e.target.value })} disabled={isDisabled} required fullWidth multiline rows={3} />
               </Box>
               <TRemarkField label="Remarks (Optional)" size="small" value={formData.remarks || ""} onChange={(value) => setFormData({ ...formData, remarks: value })} disabled={isDisabled} fullWidth />
-              <TextField label="Approval ID (Optional)" size="small" type="number" value={formData.approval_id || ""} onChange={(e) => setFormData({ ...formData, approval_id: Number(e.target.value) || undefined })} disabled={isDisabled} />
+              <TextField label="Payroll month (optional)" size="small" type="month" value={(formData as { deduction_period?: string }).deduction_period || ""} onChange={(e) => setFormData({ ...formData, deduction_period: e.target.value || undefined } as typeof formData)} disabled={isDisabled} InputLabelProps={{ shrink: true }} helperText="Leave empty to apply to the next payroll run" />
             </FormSection>
             {selectedItem && !isCreating && !isEditing && (
               <FormSection title="Record Info" columns={2}>

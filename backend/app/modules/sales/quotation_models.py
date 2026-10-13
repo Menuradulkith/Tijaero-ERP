@@ -119,6 +119,11 @@ class SalesQuote(Base, AuditMixin):
         "SalesQuoteItem", back_populates="quote", cascade="all, delete-orphan"
     )
 
+    @property
+    def discount_value(self):
+        """Header discount as entered (percentage or fixed amount), stored in discount_percentage."""
+        return self.discount_percentage
+
 
 class SalesQuoteItem(Base, AuditMixin):
 

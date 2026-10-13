@@ -126,7 +126,7 @@ def seed_chart_of_accounts(force: bool = Query(False), db: Session = Depends(get
 
 @router.post("/journal-entries", response_model=schemas.JournalEntryResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_CREATE))])
 def create_journal_entry(
-    data: schemas.JournalEntryCreate,
+    data: schemas.JournalEntryCreateInput,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -144,7 +144,7 @@ def create_journal_entry(
 @router.put("/journal-entries/{je_id}", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
 def update_journal_entry(
     je_id: int,
-    data: schemas.JournalEntryUpdate,
+    data: schemas.JournalEntryUpdateInput,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -389,18 +389,31 @@ def list_gl_entries(
     return {"items": items, "total": total}
 
 
+def _report_branch_scope(branch_code: Optional[str], user_branches: Optional[List[str]]):
+    """(branch_code, branch_codes) for a GL report: a branch-limited user may only
+    ask for one of their branches and, without one, sees only their branches."""
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
+    return branch_code, (user_branches if not branch_code else None)
+
+
 @router.get("/general-ledger/trial-balance", response_model=schemas.TrialBalanceResponse, dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
 def get_trial_balance(
     fiscal_year: int = Query(...),
     fiscal_period: Optional[int] = None,
     as_of_date: Optional[str] = None,
+    branch_code: Optional[str] = None,
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    """Generate trial balance report."""
+    """Generate trial balance report (optionally for one branch)."""
+    branch_code, branch_codes = _report_branch_scope(branch_code, user_branches)
     return GeneralLedgerService(db).get_trial_balance(
         fiscal_year=fiscal_year,
         fiscal_period=fiscal_period,
         as_of_date=date.fromisoformat(as_of_date) if as_of_date else None,
+        branch_code=branch_code,
+        branch_codes=branch_codes,
     )
 
 
@@ -429,14 +442,19 @@ def get_income_statement(
     fiscal_period: Optional[int] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    branch_code: Optional[str] = None,
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    """Generate Income Statement (Profit & Loss) report."""
+    """Generate Income Statement (Profit & Loss) report (optionally for one branch)."""
+    branch_code, branch_codes = _report_branch_scope(branch_code, user_branches)
     return GeneralLedgerService(db).get_income_statement(
         fiscal_year=fiscal_year,
         fiscal_period=fiscal_period,
         date_from=date.fromisoformat(date_from) if date_from else None,
         date_to=date.fromisoformat(date_to) if date_to else None,
+        branch_code=branch_code,
+        branch_codes=branch_codes,
     )
 
 
@@ -444,12 +462,17 @@ def get_income_statement(
 def get_balance_sheet(
     fiscal_year: int = Query(...),
     as_of_date: Optional[str] = None,
+    branch_code: Optional[str] = None,
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    """Generate Balance Sheet (Statement of Financial Position) report."""
+    """Generate Balance Sheet (Statement of Financial Position) report (optionally for one branch)."""
+    branch_code, branch_codes = _report_branch_scope(branch_code, user_branches)
     return GeneralLedgerService(db).get_balance_sheet(
         fiscal_year=fiscal_year,
         as_of_date=date.fromisoformat(as_of_date) if as_of_date else None,
+        branch_code=branch_code,
+        branch_codes=branch_codes,
     )
 
 
@@ -997,13 +1020,18 @@ def export_general_ledger_csv(
 def export_trial_balance_csv(
     fiscal_year: Optional[int] = None,
     fiscal_period: Optional[int] = None,
+    branch_code: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Export trial balance to CSV."""
+    branch_code, branch_codes = _report_branch_scope(branch_code, user_branches)
     tb = GeneralLedgerService(db).get_trial_balance(
         fiscal_year=fiscal_year or date.today().year,
         fiscal_period=fiscal_period,
+        branch_code=branch_code,
+        branch_codes=branch_codes,
     )
     return build_csv_response(
         filename="trial_balance",

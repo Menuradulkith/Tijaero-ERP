@@ -9,6 +9,10 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema
+from app.core.money import MoneyIn, PercentIn, PositiveMoneyIn
+
+# The *Base models are shared with the responses and stay lenient (a legacy row
+# must not break a list); Create/Update models carry the input constraints.
 
 
 # =============================================================================
@@ -20,20 +24,23 @@ class CustomerAgentCommissionBase(BaseModel):
     customer_agent_id: int = Field(..., description="Customer Agent ID")
     represented_customer_id: int = Field(..., description="Represented Customer ID")
     invoice_amount: Decimal = Field(..., description="Invoice amount")
-    commission_type: str = Field(..., max_length=20, description="PERCENT or AMOUNT")
+    commission_type: str = Field(..., description="PERCENT or AMOUNT")
     commission_rate: Optional[Decimal] = Field(None, description="Commission rate (for PERCENT type)")
     commission_amount: Decimal = Field(..., description="Calculated commission amount")
     remarks: Optional[str] = Field(None, description="Remarks")
 
 
 class CustomerAgentCommissionCreate(CustomerAgentCommissionBase):
-    pass
+    invoice_amount: MoneyIn = Field(..., description="Invoice amount")
+    commission_type: str = Field(..., max_length=20, description="PERCENT or AMOUNT")
+    commission_rate: Optional[PercentIn] = Field(None, description="Commission rate (for PERCENT type)")
+    commission_amount: MoneyIn = Field(..., description="Calculated commission amount")
 
 
 class CustomerAgentCommissionUpdate(BaseModel):
     commission_type: Optional[str] = Field(None, max_length=20)
-    commission_rate: Optional[Decimal] = None
-    commission_amount: Optional[Decimal] = None
+    commission_rate: Optional[PercentIn] = None
+    commission_amount: Optional[MoneyIn] = None
     status: Optional[str] = Field(None, max_length=30)
     remarks: Optional[str] = None
 
@@ -61,11 +68,11 @@ class CustomerAgentCommissionWithDetails(CustomerAgentCommission):
 
 class CommissionPaymentItemBase(BaseModel):
     commission_id: int = Field(..., description="Commission ID to pay")
-    paid_amount: Decimal = Field(..., gt=0, description="Amount paid for this commission")
+    paid_amount: Decimal = Field(..., description="Amount paid for this commission")
 
 
 class CommissionPaymentItemCreate(CommissionPaymentItemBase):
-    pass
+    paid_amount: PositiveMoneyIn = Field(..., description="Amount paid for this commission")
 
 
 class CommissionPaymentItem(TijaeroBaseSchema, CommissionPaymentItemBase):
@@ -85,15 +92,20 @@ class CommissionPaymentItemWithDetails(CommissionPaymentItem):
 class CustomerAgentCommissionPaymentBase(BaseModel):
     customer_agent_id: int = Field(..., description="Customer Agent ID")
     payment_date: date = Field(..., description="Payment date")
-    payment_method: str = Field(..., max_length=30, description="Cash, Bank Transfer, Cheque")
-    payment_amount: Decimal = Field(..., gt=0, description="Total payment amount")
-    reference_number: Optional[str] = Field(None, max_length=300, description="Payment reference")
-    bank_name: Optional[str] = Field(None, max_length=255, description="Bank name")
-    branch_code: str = Field(..., max_length=200, description="Branch code")
+    payment_method: str = Field(..., description="Cash, Bank Transfer, Cheque")
+    payment_amount: Decimal = Field(..., description="Total payment amount")
+    reference_number: Optional[str] = Field(None, description="Payment reference")
+    bank_name: Optional[str] = Field(None, description="Bank name")
+    branch_code: str = Field(..., description="Branch code")
     remarks: Optional[str] = Field(None, description="Remarks")
 
 
 class CustomerAgentCommissionPaymentCreate(CustomerAgentCommissionPaymentBase):
+    payment_method: str = Field(..., max_length=30, description="Cash, Bank Transfer, Cheque")
+    payment_amount: PositiveMoneyIn = Field(..., description="Total payment amount")
+    reference_number: Optional[str] = Field(None, max_length=300, description="Payment reference")
+    bank_name: Optional[str] = Field(None, max_length=255, description="Bank name")
+    branch_code: str = Field(..., max_length=200, description="Branch code")
     items: List[CommissionPaymentItemCreate] = Field(..., min_length=1, description="Payment items")
 
 

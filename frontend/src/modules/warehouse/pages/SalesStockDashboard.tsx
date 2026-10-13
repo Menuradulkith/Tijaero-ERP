@@ -12,7 +12,9 @@ import { TChip, fmtLKR } from "@/components/tijaero";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { KpiSparkCard } from "@/components/dashboard";
 import { LocationRef, REFERENCE_DATA_PRESETS, useReferenceData } from "@/hooks";
-import { productImageUrl, salesStockApi } from "@/modules/inventory/api";
+import { productImageUrl, reclassifyApi, salesStockApi } from "@/modules/inventory/api";
+import ReclassifyDialog from "@/modules/inventory/components/ReclassifyDialog";
+import { handleApiError, showSuccessToast } from "@/components/tijaero";
 import {
     Brand,
     Category,
@@ -30,6 +32,7 @@ import {
     Refresh as RefreshIcon,
     AssignmentReturn as ReturnIcon,
     Search as SearchIcon,
+    Business as AssetIcon,
 } from "@mui/icons-material";
 import {
   Autocomplete,
@@ -53,7 +56,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { useEffect, useState } from "react";
 
@@ -139,6 +142,7 @@ const StatusChip = ({ status }: { status: string }) => {
     transfer_pending: { label: "Transfer Pending", color: "warning" },
     in_transit: { label: "In Transit", color: "info" },
     damaged: { label: "Damaged", color: "error" },
+    cancelled: { label: "Cancelled (GRN)", color: "default" },
   };
 
   const config = statusConfig[status?.toLowerCase()] || {
@@ -169,6 +173,7 @@ const SALES_STOCK_STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "transfer_pending", label: "Transfer Pending" },
   { value: "in_transit", label: "In Transit" },
   { value: "damaged", label: "Damaged" },
+  { value: "cancelled", label: "Cancelled (GRN)" },
 ];
 
 // Stock Details Panel Component
@@ -190,6 +195,32 @@ const StockDetailsPanel = ({
   onClose,
 }: StockDetailsPanelProps) => {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
+  const queryClient = useQueryClient();
+  const canMoveToAsset =
+    usePermission("sales_stock", "update") && usePermission("company_assets", "create");
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
+
+  const handleMoveToAsset = async (reason: string) => {
+    if (!stock) return;
+    setMoveBusy(true);
+    setMoveError(null);
+    try {
+      await reclassifyApi.moveStockToAsset(stock.id, reason);
+      showSuccessToast("Moved to company assets");
+      setMoveOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["salesStock"] });
+      queryClient.invalidateQueries({ queryKey: ["companyAssets"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-tracking", stock.id] });
+      onClose();
+    } catch (error) {
+      setMoveError(handleApiError(error, "Could not move this unit to company assets"));
+    } finally {
+      setMoveBusy(false);
+    }
+  };
+
   // Fetch real tracking data from API when panel is open
   const { data: trackingEvents, isLoading: trackingLoading } = useQuery<
     StockTrackingEvent[]
@@ -225,6 +256,33 @@ const StockDetailsPanel = ({
 
       {stock && product && (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {/* Standard ERP practice: goods are received into stock, then capitalised as an asset in an audited step */}
+          {canMoveToAsset && stock.status === "available" && !!stock.barcode && (
+            <Box>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<AssetIcon />}
+                onClick={() => {
+                  setMoveError(null);
+                  setMoveOpen(true);
+                }}
+              >
+                Move to Company Assets
+              </Button>
+              <ReclassifyDialog
+                open={moveOpen}
+                title="Move to Company Assets"
+                description="This unit leaves sales stock and becomes a company asset (e.g. a laptop kept for office use)."
+                confirmLabel="Move to assets"
+                isSubmitting={moveBusy}
+                error={moveError}
+                onClose={() => setMoveOpen(false)}
+                onSubmit={(reason) => handleMoveToAsset(reason)}
+              />
+            </Box>
+          )}
+
           {/* Product Info */}
           <Box>
             <Typography variant="subtitle2" color="text.secondary" gutterBottom>
@@ -336,9 +394,41 @@ const StockDetailsPanel = ({
                     fontWeight={500}
                     fontFamily="monospace"
                   >
-                    {stock.barcode}
+                    {stock.barcode || "—"}
                   </Typography>
                 </Grid>
+                {!stock.barcode && (
+                  <>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">
+                        Quantity
+                      </Typography>
+                      <Typography variant="body2" fontWeight={500}>
+                        {stock.quantity}
+                      </Typography>
+                    </Grid>
+                    {stock.batch_no && (
+                      <Grid item xs={6}>
+                        <Typography variant="caption" color="text.secondary">
+                          Batch No
+                        </Typography>
+                        <Typography variant="body2" fontWeight={500}>
+                          {stock.batch_no}
+                        </Typography>
+                      </Grid>
+                    )}
+                    {stock.expiry_date && (
+                      <Grid item xs={6}>
+                        <Typography variant="caption" color="text.secondary">
+                          Expiry
+                        </Typography>
+                        <Typography variant="body2" fontWeight={500}>
+                          {stock.expiry_date}
+                        </Typography>
+                      </Grid>
+                    )}
+                  </>
+                )}
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">
                     Status
@@ -1127,7 +1217,7 @@ export default function SalesStockDashboard() {
             <Table stickyHeader size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Barcode</TableCell>
+                  <TableCell>Barcode / Lot</TableCell>
                   <TableCell>Product</TableCell>
                   <TableCell>Item Code</TableCell>
                   <TableCell>Brand</TableCell>
@@ -1162,7 +1252,8 @@ export default function SalesStockDashboard() {
                       <TableCell
                         sx={{ fontFamily: "monospace", fontSize: "0.85rem" }}
                       >
-                        {stock.barcode}
+                        {stock.barcode ||
+                          `${stock.batch_no ? `Batch ${stock.batch_no}` : "Lot"} \u00d7 ${stock.quantity}`}
                       </TableCell>
                       <TableCell sx={{ fontWeight: 500 }}>
                         <Box

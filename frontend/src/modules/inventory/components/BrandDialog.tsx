@@ -13,6 +13,7 @@ import { brandsApi } from "../api";
 import { BrandCreate, Brand } from "../types";
 import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 interface BrandDialogProps {
   open: boolean;
   onClose: () => void;
@@ -137,7 +138,7 @@ export default function BrandDialog({ open, onClose }: BrandDialogProps) {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose} color="inherit">
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={onClose}>
             Cancel
           </Button>
           <Button

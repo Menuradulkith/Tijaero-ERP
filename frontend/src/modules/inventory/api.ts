@@ -438,3 +438,31 @@ export const priceTiersApi = {
     await apiClient.delete(`/inventory/products/${productId}/price-tiers/${tierId}`);
   },
 };
+
+
+// Reclassify a serial unit between sales stock and company assets (reason required, audited)
+export interface ReclassifyResponse {
+  success: boolean;
+  message: string;
+  barcode: string;
+  sales_stock_id: number;
+  company_asset_id: number;
+}
+
+export const reclassifyApi = {
+  moveStockToAsset: async (stockId: number, reason: string) => {
+    const response = await apiClient.post<ReclassifyResponse>(
+      `/inventory/sales-stock/${stockId}/move-to-company-assets`,
+      { reason }
+    );
+    return response.data;
+  },
+
+  returnAssetToStock: async (assetId: number, reason: string, locationId?: number) => {
+    const response = await apiClient.post<ReclassifyResponse>(
+      `/inventory/company-assets/${assetId}/return-to-sales-stock`,
+      { reason, location_id: locationId }
+    );
+    return response.data;
+  },
+};

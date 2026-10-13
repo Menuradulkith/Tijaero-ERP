@@ -10,8 +10,18 @@ class GoodReceivedNote(Base, AuditMixin):
     id = Column(Integer, primary_key=True, index=True)
     good_received_no = Column(String(200), unique=True, nullable=False)
     good_received_date = Column(Date, nullable=False)
+    # Legacy: the supplier invoice is now matched at purchase-invoice time. New GRNs
+    # store "" / the GRN date here so the NOT NULL columns stay satisfied.
     supplier_invoice_no = Column(String(200), nullable=False)
     supplier_invoice_date = Column(Date, nullable=False)
+    delivery_note_no = Column(String(200), nullable=True)  # supplier's delivery note reference
+    vehicle_no = Column(String(50), nullable=True)
+    received_by = Column(String(200), nullable=True)  # who received the goods (defaults to the posting user)
+    # 'posted' | 'cancelled'. A posted GRN is reversed by cancelling it, never edited/deleted.
+    status = Column(String(20), nullable=False, default="posted", server_default="posted", index=True)
+    cancelled_at = Column(TIMESTAMP, nullable=True)
+    cancelled_by = Column(Integer, nullable=True)
+    cancel_reason = Column(Text, nullable=True)
     remark = Column(Text)
     branch_code = Column(String(200), nullable=False, index=True)
     created_date = Column(Date, nullable=False)
@@ -26,6 +36,62 @@ class GoodReceivedNote(Base, AuditMixin):
     sales_stock_items = relationship("SalesStock", back_populates="good_received_note")
     company_asset_items = relationship("CompanyAssets", back_populates="good_received_note")
     advance_applications = relationship("SupplierAdvanceApplication", back_populates="good_received_note")
+    rejections = relationship("GoodReceivedRejection", back_populates="good_received_note")
+    landed_cost_vouchers = relationship("LandedCostVoucher", back_populates="good_received_note")
+
+
+class GoodReceivedRejection(Base, AuditMixin):
+    """Goods delivered but not accepted at receipt. Never stocked and not counted
+    against the PO line, which stays open for the replacement delivery."""
+    __tablename__ = "good_received_rejections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    good_received_note_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False, index=True)
+    purchasing_order_items_id = Column(Integer, ForeignKey("purchasing_order_items.id"), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    reason = Column(Text, nullable=False)
+
+    good_received_note = relationship("GoodReceivedNote", back_populates="rejections")
+    purchasing_order_item = relationship("PurchasingOrderItems")
+
+
+class LandedCostVoucher(Base, AuditMixin):
+    """Freight / duty / insurance... on a GRN, allocated across its PO lines so each line
+    has a landed unit cost. Posted to the GL (Dr 1210 Inventory / Cr creditors, cash or bank)."""
+    __tablename__ = "landed_cost_vouchers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    voucher_no = Column(String(100), unique=True, nullable=False)
+    voucher_date = Column(Date, nullable=False)
+    good_received_note_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False, index=True)
+    branch_code = Column(String(200), nullable=False)
+    supplier_id = Column(Integer, ForeignKey("supplier.id"), nullable=True)  # the forwarder / broker
+    charge_type = Column(String(30), nullable=False)  # freight | duty | insurance | handling | other
+    description = Column(String(200), nullable=True)
+    amount = Column(Numeric(18, 2), nullable=False)
+    allocation_basis = Column(String(20), nullable=False)  # quantity | value
+    payment_method = Column(String(20), nullable=False)  # credit | cash | bank
+    reference_no = Column(String(200), nullable=True)
+    status = Column(String(20), nullable=False, default="posted", server_default="posted")
+    cancelled_at = Column(TIMESTAMP, nullable=True)
+    cancelled_by = Column(Integer, nullable=True)
+    cancel_reason = Column(Text, nullable=True)
+
+    good_received_note = relationship("GoodReceivedNote", back_populates="landed_cost_vouchers")
+    allocations = relationship("LandedCostAllocation", back_populates="voucher", cascade="all, delete-orphan")
+
+
+class LandedCostAllocation(Base, AuditMixin):
+    __tablename__ = "landed_cost_allocations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    voucher_id = Column(Integer, ForeignKey("landed_cost_vouchers.id"), nullable=False, index=True)
+    purchasing_order_items_id = Column(Integer, ForeignKey("purchasing_order_items.id"), nullable=False)
+    quantity = Column(Integer, nullable=False)  # units of the line on this GRN
+    amount = Column(Numeric(18, 2), nullable=False)  # share of the voucher allocated to the line
+
+    voucher = relationship("LandedCostVoucher", back_populates="allocations")
+    purchasing_order_item = relationship("PurchasingOrderItems")
 
 
 class GoodReceivedItems(Base, AuditMixin):
@@ -33,7 +99,13 @@ class GoodReceivedItems(Base, AuditMixin):
     
     id = Column(Integer, primary_key=True, index=True)
     good_received_note = Column(String(355), nullable=False)
-    barcode = Column(Text, nullable=False)
+    # NULL for batch/none-tracked receipts (see Product.tracking_type).
+    barcode = Column(Text, nullable=True)
+    # Units this row represents: 1 for serial, the received qty for batch/none.
+    # Received qty for a PO line is SUM(quantity), never the row count.
+    quantity = Column(Integer, nullable=False, default=1, server_default="1")
+    batch_no = Column(String(100), nullable=True)
+    expiry_date = Column(Date, nullable=True)
     branch_code = Column(String(200), nullable=False)
     active = Column(Boolean, nullable=False)
     created_date = Column(Date, nullable=False)
@@ -372,8 +444,11 @@ class PurchasingReturnItems(Base, AuditMixin):
     
     id = Column(Integer, primary_key=True, index=True)
     purchasing_price = Column(Numeric(60, 2), nullable=False)
+    # purchasing_price / return_price are PER UNIT; the amount is price * quantity.
     return_price = Column(Numeric(60, 2), nullable=False)
-    barcode = Column(Text, nullable=False)
+    # NULL for batch/none-tracked returns (identified by sales_stock_id).
+    barcode = Column(Text, nullable=True)
+    quantity = Column(Integer, nullable=False, default=1, server_default="1")
     branch_code = Column(String(200), nullable=False)
     added_date = Column(TIMESTAMP, nullable=False)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)

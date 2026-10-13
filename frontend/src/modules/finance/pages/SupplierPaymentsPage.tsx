@@ -108,6 +108,7 @@ import {
   SupplierPaymentAccountType,
 } from "@/modules/purchasing/types";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // ─── Monthly Instalment Outstanding ─────────────────────────────────────────
 // Computes how much of the credit invoice is overdue relative to an even monthly
 // instalment schedule. Returns null for non-credit invoices.
@@ -754,8 +755,12 @@ export default function SupplierPaymentsPage() {
     isPendingVerificationDocument,
   ]);
 
+  // Blocks a second Post click (or a re-entry while the confirm is open) before the first settles.
+  const postInFlightRef = useRef(false);
+
   const handlePostPayment = useCallback(async () => {
     if (!selectedSupplier || paymentLines.length === 0) return;
+    if (postInFlightRef.current) return;
 
     const hasPendingVerificationDoc = paymentLines.some((line) =>
       isPendingVerificationDocument(line.document)
@@ -764,6 +769,7 @@ export default function SupplierPaymentsPage() {
       showErrorToast("Pending verification documents cannot be paid");
       return;
     }
+    postInFlightRef.current = true;
 
     const confirmMessage = `Post payment of ${currencySymbol} ${fmtLKR(totalPaymentAmount)} for ${selectedSupplier.company_name}?`;
 
@@ -773,7 +779,10 @@ export default function SupplierPaymentsPage() {
       confirmText: "Confirm",
     });
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      postInFlightRef.current = false;
+      return;
+    }
 
     try {
       setSaving(true);
@@ -817,6 +826,7 @@ export default function SupplierPaymentsPage() {
       showErrorToast(msg);
     } finally {
       setSaving(false);
+      postInFlightRef.current = false;
     }
   }, [
     selectedSupplier,
@@ -1527,7 +1537,7 @@ export default function SupplierPaymentsPage() {
 
       {/* Actions */}
       <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
-        <Button variant="outlined" onClick={handleCancelPayment}>
+        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelPayment}>
           Cancel
         </Button>
         <Button
@@ -1754,7 +1764,7 @@ export default function SupplierPaymentsPage() {
 
       {/* Actions */}
       <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
-        <Button variant="outlined" onClick={handleCancelPayment}>
+        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelPayment}>
           Cancel
         </Button>
         <Button variant="contained" onClick={handleProceedToReview}>
@@ -1886,7 +1896,7 @@ export default function SupplierPaymentsPage() {
 
       {/* Actions */}
       <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
-        <Button variant="outlined" onClick={handleCancelPayment}>
+        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelPayment}>
           Cancel
         </Button>
         <Button

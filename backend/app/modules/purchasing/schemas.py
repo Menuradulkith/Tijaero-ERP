@@ -1,7 +1,7 @@
 from pydantic import BaseModel, BeforeValidator, EmailStr, Field, StringConstraints, field_validator, field_serializer, model_validator
 from app.common.validators import normalize_phone_number
 from datetime import date, datetime
-from typing import Annotated, Generic, Optional, List, TypeVar
+from typing import Annotated, Generic, Literal, Optional, List, TypeVar
 from decimal import Decimal
 import re
 
@@ -26,7 +26,13 @@ class Page(BaseModel, Generic[T]):
 # field message instead of a database error (500). Text is trimmed; optional
 # text that is blank becomes None.
 INT4_MAX = 2_147_483_647
-MAX_MONEY = Decimal("9999999999999.99")
+# One money cap for every input (QA F7) - shared with the HR inputs.
+from app.modules.hr.inputs import MAX_MONEY  # noqa: E402
+
+# Money INPUT types. Never use these on response schemas: stored legacy rows
+# must still serialise.
+MoneyInput = Annotated[Decimal, Field(ge=0, le=MAX_MONEY, allow_inf_nan=False)]
+PositiveMoneyInput = Annotated[Decimal, Field(gt=0, le=MAX_MONEY, allow_inf_nan=False)]
 
 
 def _blank_to_none(v):
@@ -68,6 +74,16 @@ def _upper_currency(v):
     if not re.fullmatch(r"[A-Z]{3}", v):
         raise ValueError("Currency must be a 3-letter code, e.g. LKR")
     return v
+
+
+def _not_null(label: str):
+    """After-validator for PATCH fields backed by NOT NULL columns: an explicit
+    null (or a blank that normalises to null) is a 422 naming the field."""
+    def _check(v):
+        if v is None:
+            raise ValueError(f"{label} cannot be empty")
+        return v
+    return _check
 
 
 def _check_distinct_phones(first, second):
@@ -194,6 +210,10 @@ class SupplierUpdate(BaseModel):
     _v_website = field_validator("company_website")(_check_website)
     _v_email_len = field_validator("email")(_check_email_len)
     _v_currency = field_validator("default_currency", mode="before")(_upper_currency)
+    _v_nn_company = field_validator("company_name")(_not_null("Company name"))
+    _v_nn_mobile = field_validator("mobile_contact_number")(_not_null("Contact No 1 (mobile)"))
+    _v_nn_billing = field_validator("billing_address_line1")(_not_null("Billing address line 1"))
+    _v_nn_active = field_validator("active")(_not_null("Active"))
     # Optimistic concurrency check: the `updated_at` the client last saw for
     # this supplier. If omitted, no check is performed (backward compatible).
     # If it no longer matches the current row, the update is rejected with a
@@ -293,6 +313,9 @@ class SupplierContactPersonCreate(SupplierContactPersonInputBase):
 
 class SupplierContactPersonUpdate(BaseModel):
     _v_phone = field_validator("phone", mode="before")(normalize_phone_number)
+    _v_nn_name = field_validator("full_name")(_not_null("Full name"))
+    _v_nn_phone = field_validator("phone")(_not_null("Contact No"))
+    _v_nn_title = field_validator("title")(_not_null("Title"))
     title: OptStr(30) = None
     full_name: Optional[ReqStr(255)] = None
     occupation: OptStr(255) = None
@@ -519,6 +542,9 @@ class SupplierProductCreate(SupplierProductBase):
 
 
 class SupplierProductUpdate(BaseModel):
+    _v_nn_cost = field_validator("cost_price")(_not_null("Cost price"))
+    _v_nn_active = field_validator("active")(_not_null("Active"))
+    _v_nn_pref = field_validator("is_preferred")(_not_null("Preferred flag"))
     supplier_sku: OptStr(255) = None
     cost_price: Optional[Decimal] = Field(default=None, ge=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
     minimum_order_qty: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
@@ -792,12 +818,16 @@ class ProcurementQueueItem(BaseModel):
 class PurchasingReturnItemBase(BaseModel):
     product_id: int
     purchasing_price: Decimal
-    return_price: Decimal
-    barcode: str
+    return_price: Decimal  # per unit
+    # Required for serial units; omitted for batch/none lots, which are
+    # identified by sales_stock_id + quantity.
+    barcode: Optional[str] = None
+    quantity: int = Field(default=1, ge=1)
     sales_stock_id: Optional[int] = None 
 
 class PurchasingReturnItemCreate(PurchasingReturnItemBase):
-    pass
+    purchasing_price: MoneyInput
+    return_price: MoneyInput  # per unit
 
 class PurchasingReturnItem(PurchasingReturnItemBase, TijaeroBaseSchema):
     id: int
@@ -851,6 +881,23 @@ class BarcodeValidationResponse(BaseModel):
     warranty_expiry_date: Optional[str] = None  # When warranty expires
 
 
+class LotReturnValidationRequest(BaseModel):
+    grn_id: int
+    sales_stock_id: int
+    quantity: int = Field(..., ge=1)
+
+
+class LotReturnValidationResponse(BaseModel):
+    valid: bool
+    message: str
+    sales_stock_id: Optional[int] = None
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    batch_no: Optional[str] = None
+    available_quantity: int = 0
+    purchasing_price: Optional[Decimal] = None  # per unit
+
+
 class PurchaseReturnApprovalRequest(BaseModel):
     return_id: int
     approve: bool 
@@ -887,8 +934,13 @@ class PurchaseOrderListFilter(BaseModel):
 class GoodReceivedNoteBase(BaseModel):
     good_received_no: Optional[str] = None  # Auto-generated on server
     good_received_date: date
-    supplier_invoice_no: str
-    supplier_invoice_date: date
+    # Legacy/optional: the supplier invoice is matched later (purchase invoice). Blank / the
+    # GRN date are stored when omitted.
+    supplier_invoice_no: str = ""
+    supplier_invoice_date: Optional[date] = None
+    delivery_note_no: Optional[str] = Field(default=None, max_length=200)
+    vehicle_no: Optional[str] = Field(default=None, max_length=50)
+    received_by: Optional[str] = Field(default=None, max_length=200)  # defaults to the posting user
     remark: Optional[str] = None
     branch_code: str
     good_received_locations_id: int
@@ -897,22 +949,129 @@ class GoodReceivedNoteBase(BaseModel):
 class GoodReceivedNoteCreate(GoodReceivedNoteBase):
     pass
 
+
+class GRNReceiveUnit(BaseModel):
+    """One accepted serial unit."""
+    barcode: str = Field(..., min_length=1, max_length=200)
+    warranty_month: Optional[str] = Field(default=None, max_length=30)
+
+
+class GRNReceiveLine(BaseModel):
+    """What happened to one PO line at receipt: accepted + rejected quantities.
+    Serial products list their accepted `units`; batch/none products give `quantity`."""
+    purchasing_order_items_id: int
+    units: List[GRNReceiveUnit] = []
+    quantity: int = Field(default=0, ge=0, le=1_000_000)
+    batch_no: Optional[str] = Field(default=None, max_length=100)
+    expiry_date: Optional[date] = None
+    warranty_month: Optional[str] = Field(default=None, max_length=30)
+    rejected_quantity: int = Field(default=0, ge=0, le=1_000_000)
+    rejection_reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class GoodReceivedNoteReceive(GoodReceivedNoteBase):
+    """A complete receipt - header + every line - posted in ONE transaction."""
+    lines: List[GRNReceiveLine] = Field(..., min_length=1, max_length=500)
+
+
+class GRNCancelRequest(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=500)
+
+
+class LandedCostCreate(BaseModel):
+    charge_type: Literal["freight", "duty", "insurance", "handling", "other"]
+    description: Optional[str] = Field(default=None, max_length=200)
+    amount: PositiveMoneyInput
+    allocation_basis: Literal["quantity", "value"] = "value"
+    # How the charge was / will be settled: credit = owed to the forwarder (Cr Trade Creditors),
+    # cash / bank = paid now (Cr Cash / Bank).
+    payment_method: Literal["credit", "cash", "bank"] = "credit"
+    supplier_id: Optional[int] = Field(default=None, ge=1)
+    reference_no: Optional[str] = Field(default=None, max_length=200)
+    voucher_date: Optional[date] = None
+
+
+class LandedCostVoucherOut(BaseModel):
+    id: int
+    voucher_no: str
+    voucher_date: date
+    charge_type: str
+    description: Optional[str] = None
+    amount: Decimal
+    allocation_basis: str
+    payment_method: str
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
+    reference_no: Optional[str] = None
+    status: str
+    cancel_reason: Optional[str] = None
+
+
+class LandedCostLineOut(BaseModel):
+    purchasing_order_items_id: int
+    product_name: Optional[str] = None
+    quantity: int
+    unit_price: Decimal
+    landed_total: Decimal
+    landed_per_unit: Decimal
+    landed_unit_cost: Decimal
+
+
+class LandedCostSummary(BaseModel):
+    vouchers: List[LandedCostVoucherOut]
+    lines: List[LandedCostLineOut]
+    total_landed: Decimal
+
+
+class GoodReceivedRejectionOut(BaseModel):
+    id: int
+    purchasing_order_items_id: int
+    quantity: int
+    reason: str
+    product_name: Optional[str] = None
+
 class GoodReceivedNote(GoodReceivedNoteBase, TijaeroBaseSchema):
     id: int
     created_date: date
     added_date: datetime
+    status: str = "posted"
+    cancelled_at: Optional[datetime] = None
+    cancel_reason: Optional[str] = None
     po_no: Optional[str] = None  # Populated from purchasing_order relationship
     supplier_name: Optional[str] = None  # Populated from PO→supplier
 
+
+class GoodReceivedNoteReceiveResult(BaseModel):
+    grn: GoodReceivedNote
+    units_received: int
+    units_rejected: int
+
 class GoodReceivedItemBase(BaseModel):
     good_received_note: str
-    barcode: str
+    # Required for serial-tracked products, omitted for batch/none (the
+    # service validates against Product.tracking_type).
+    barcode: Optional[str] = None
+    # Units this row represents: 1 for serial, the received qty for batch/none.
+    quantity: int = Field(default=1, ge=1)
+    batch_no: Optional[str] = Field(default=None, max_length=100)
+    expiry_date: Optional[date] = None
     branch_code: str
     active: bool = True
     purchasing_order_items_id: int
 
 class GoodReceivedItemCreate(GoodReceivedItemBase):
     pass
+
+
+class GenerateBarcodesRequest(BaseModel):
+    count: int = Field(..., ge=1, le=2000)
+    # Optional human-readable prefix (e.g. the item code), kept short so the
+    # printed label stays scannable.
+    prefix: Optional[str] = Field(default=None, max_length=12, pattern=r"^[A-Za-z0-9-]*$")
+
+
+class GenerateBarcodesResponse(BaseModel):
+    barcodes: List[str]
 
 class GoodReceivedItem(GoodReceivedItemBase, TijaeroBaseSchema):
     id: int
@@ -943,7 +1102,7 @@ class SupplierCreditsSettleTransactionBase(BaseModel):
     good_received_id: int
 
 class SupplierCreditsSettleTransactionCreate(SupplierCreditsSettleTransactionBase):
-    pass
+    payment_amount: PositiveMoneyInput
 
 class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase, TijaeroBaseSchema):
     id: int
@@ -1029,13 +1188,13 @@ class SupplierPaymentBase(BaseModel):
 
 
 class SupplierPaymentCreate(SupplierPaymentBase):
-    pass
+    payment_amount: PositiveMoneyInput
 
 
 class SupplierPaymentUpdate(BaseModel):
     payment_date: Optional[date] = None
     payment_method: Optional[str] = None
-    payment_amount: Optional[Decimal] = None
+    payment_amount: Optional[PositiveMoneyInput] = None
     reference_number: Optional[str] = None
     bank_name: Optional[str] = None
     payment_for: Optional[str] = None
@@ -1088,7 +1247,7 @@ class SupplierAdvancePaymentBase(BaseModel):
 
 
 class SupplierAdvancePaymentCreate(SupplierAdvancePaymentBase):
-    pass
+    original_amount: PositiveMoneyInput  # Original advance amount
 
 
 class SupplierAdvancePaymentUpdate(BaseModel):
@@ -1100,7 +1259,7 @@ class SupplierAdvancePaymentUpdate(BaseModel):
 
 
 class SupplierAdvanceReturnCreate(BaseModel):
-    return_amount: Decimal
+    return_amount: PositiveMoneyInput
     return_date: date
     return_method: str  # Cash, Bank Transfer, Cheque
     return_reference: Optional[str] = None
@@ -1154,7 +1313,7 @@ class SupplierAdvanceApplicationBase(BaseModel):
 
 
 class SupplierAdvanceApplicationCreate(SupplierAdvanceApplicationBase):
-    pass
+    applied_amount: PositiveMoneyInput
 
 
 class SupplierAdvanceApplication(SupplierAdvanceApplicationBase, TijaeroBaseSchema):

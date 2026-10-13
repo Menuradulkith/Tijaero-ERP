@@ -19,7 +19,7 @@ from app.modules.inventory.models import SalesStock
 from app.modules.sales.models import Invoice, InvoiceItems
 from app.modules.support.models import CustomerSupport, WarrantyClaims
 from app.modules.warehouse.models import ItemReceiveNote, ItemTransferNote
-from sqlalchemy import and_, desc, extract, func, or_
+from sqlalchemy import and_, case, desc, extract, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from . import schemas
@@ -37,144 +37,212 @@ class ReportingService:
     def get_sales_report(
         self, request: schemas.SalesReportRequest
     ) -> schemas.SalesReportResponse:
-        """Generate comprehensive sales report"""
-        query = self.db.query(Invoice).filter(
-            and_(
-                Invoice.created_date >= request.start_date,
-                Invoice.created_date <= request.end_date,
+        """Generate comprehensive sales report, on the same basis as the GL.
+
+        * Only real sales count (approved/completed; not cancelled, pending
+          approval or pending bank verification).
+        * Each sale is valued exactly like its GL revenue posting
+          (``post_sale_to_gl`` credits ``invoice.subtotal``): net of line and
+          header discounts and coupons, before tax, and GROSS of gift vouchers,
+          credit notes and customer advances (those are tenders, not revenue -
+          ``grand_total`` is net of them, which made voucher-paid sales 0).
+        * Processed sale returns in the period are netted exactly like their
+          GL posting (Dr 4030 = total_refund - tax_refund, dated added_date,
+          on the return's branch).
+        * The branch/customer filters apply to every section; top_products,
+          sales_by_date and sales_by_branch use the same basis (returns netted
+          per product / date / branch).
+        """
+        from decimal import Decimal
+
+        from app.modules.sales.models import SaleReturn, SaleReturnItems
+        from app.modules.sales.sales_metrics import (
+            counted_invoice_filters,
+            gl_return_revenue,
+            gl_revenue_expr,
+        )
+
+        rev_expr = gl_revenue_expr()
+        conds = [
+            Invoice.created_date >= request.start_date,
+            Invoice.created_date <= request.end_date,
+            *counted_invoice_filters(),
+        ]
+        if request.branch_code:
+            conds.append(Invoice.branch_code == request.branch_code)
+        if request.customer_id:
+            conds.append(Invoice.customer_id == request.customer_id)
+
+        gross_sales, total_orders, unique_customers = self.db.query(
+            func.coalesce(func.sum(rev_expr), 0),
+            func.count(Invoice.id),
+            func.count(func.distinct(Invoice.customer_id)),
+        ).filter(*conds).one()
+        gross_sales = Decimal(str(gross_sales or 0))
+
+        # ── Processed returns in the period (GL basis) ──
+        ret_q = (
+            self.db.query(SaleReturn)
+            .join(Invoice, Invoice.id == SaleReturn.invoice_id)
+            .filter(
+                SaleReturn.status == "processed",
+                SaleReturn.added_date >= request.start_date,
+                SaleReturn.added_date <= request.end_date,
             )
         )
-
         if request.branch_code:
-            query = query.filter(Invoice.branch_code == request.branch_code)
+            ret_q = ret_q.filter(SaleReturn.branch_code == request.branch_code)
         if request.customer_id:
-            query = query.filter(Invoice.customer_id == request.customer_id)
+            ret_q = ret_q.filter(Invoice.customer_id == request.customer_id)
+        returns = ret_q.all()
 
-        invoices = query.all()
-
-        # Calculate totals
-        total_sales = sum(
-            [
-                inv.cash_amount
-                + inv.card_amex_amount
-                + inv.card_mastercard_amount
-                + inv.card_visa_amount
-                + inv.cheque_amount
-                + inv.bank_transfer_amount
-                + inv.credit_amount
-                for inv in invoices
+        returns_total = Decimal("0")
+        returns_by_date: Dict[str, Decimal] = {}
+        returns_by_branch: Dict[str, Decimal] = {}
+        returns_by_product: Dict[int, Dict[str, Decimal]] = {}
+        for sr in returns:
+            amount = gl_return_revenue(sr)
+            if amount <= 0:
+                continue
+            returns_total += amount
+            d = str(sr.added_date)
+            returns_by_date[d] = returns_by_date.get(d, Decimal("0")) + amount
+            returns_by_branch[sr.branch_code] = returns_by_branch.get(sr.branch_code, Decimal("0")) + amount
+            # Allocate the return's revenue reversal over its items by value.
+            items = self.db.query(SaleReturnItems).filter(SaleReturnItems.sale_return_id == sr.id).all()
+            weights = [
+                (it, Decimal(str(it.return_price or 0)) * Decimal(str(it.quantity or 1)))
+                for it in items if it.product_id
             ]
-        )
-        total_orders = len(invoices)
-        unique_customers = len(set([inv.customer_id for inv in invoices]))
-        average_order_value = total_sales / total_orders if total_orders > 0 else 0
+            wsum = sum((w for _, w in weights), Decimal("0"))
+            allocated = Decimal("0")
+            for idx, (it, w) in enumerate(weights):
+                if wsum > 0:
+                    share = (
+                        amount - allocated if idx == len(weights) - 1
+                        else (amount * w / wsum).quantize(Decimal("0.01"))
+                    )
+                else:
+                    share = Decimal("0")
+                allocated += share
+                slot = returns_by_product.setdefault(it.product_id, {"qty": Decimal("0"), "rev": Decimal("0")})
+                slot["qty"] += Decimal(str(it.quantity or 1))
+                slot["rev"] += share
 
-        # Top products
-        product_sales = (
+        total_sales = (gross_sales - returns_total).quantize(Decimal("0.01"))
+        average_order_value = total_sales / total_orders if total_orders > 0 else Decimal("0")
+
+        # ── Top products: each invoice's GL revenue allocated over its lines by
+        #    line value (line_total, falling back to price x qty for legacy rows)
+        line_weight = case(
+            (func.coalesce(InvoiceItems.line_total, 0) > 0, InvoiceItems.line_total),
+            else_=InvoiceItems.selling_price * InvoiceItems.quantity,
+        )
+        inv_weight = (
             self.db.query(
+                InvoiceItems.invoice_id.label("invoice_id"),
+                func.sum(line_weight).label("w"),
+            )
+            .group_by(InvoiceItems.invoice_id)
+            .subquery()
+        )
+        item_rev = case(
+            (inv_weight.c.w > 0, line_weight * rev_expr / inv_weight.c.w),
+            else_=0,
+        )
+        prod_q = (
+            self.db.query(
+                Product.id,
                 Product.name,
                 func.sum(InvoiceItems.quantity).label("total_quantity"),
-                func.sum(InvoiceItems.selling_price * InvoiceItems.quantity).label(
-                    "total_revenue"
-                ),
+                func.sum(item_rev).label("total_revenue"),
             )
-            .join(InvoiceItems)
-            .join(Invoice)
-            .filter(
-                and_(
-                    Invoice.created_date >= request.start_date,
-                    Invoice.created_date <= request.end_date,
-                )
-            )
-            .group_by(Product.id, Product.name)
-            .order_by(desc("total_revenue"))
-            .limit(10)
-            .all()
+            .join(InvoiceItems, InvoiceItems.product_id == Product.id)
+            .join(Invoice, Invoice.id == InvoiceItems.invoice_id)
+            .join(inv_weight, inv_weight.c.invoice_id == Invoice.id)
+            .filter(*conds)
         )
-
+        if request.product_id:
+            prod_q = prod_q.filter(Product.id == request.product_id)
+        products: Dict[int, Dict[str, Any]] = {}
+        for p in prod_q.group_by(Product.id, Product.name).all():
+            products[p.id] = {
+                "name": p.name,
+                "qty": Decimal(str(p.total_quantity or 0)),
+                "rev": Decimal(str(p.total_revenue or 0)),
+            }
+        missing = [
+            pid for pid in returns_by_product
+            if pid not in products and (not request.product_id or pid == request.product_id)
+        ]
+        if missing:
+            for p in self.db.query(Product.id, Product.name).filter(Product.id.in_(missing)).all():
+                products[p.id] = {"name": p.name, "qty": Decimal("0"), "rev": Decimal("0")}
+        for pid, r in returns_by_product.items():
+            if pid in products:
+                products[pid]["qty"] -= r["qty"]
+                products[pid]["rev"] -= r["rev"]
+        ranked = sorted(products.values(), key=lambda v: v["rev"], reverse=True)[:10]
         top_products = [
             {
-                "product_name": p.name,
-                "quantity_sold": int(p.total_quantity),
-                "revenue": float(p.total_revenue),
+                "product_name": v["name"],
+                "quantity_sold": int(v["qty"]),
+                "revenue": float(v["rev"].quantize(Decimal("0.01"))),
             }
-            for p in product_sales
+            for v in ranked
         ]
 
-        # Sales by date
-        daily_sales = (
+        # ── By date ──
+        by_date: Dict[str, Dict[str, Any]] = {}
+        for d in (
             self.db.query(
                 Invoice.created_date,
                 func.count(Invoice.id).label("order_count"),
-                func.sum(
-                    Invoice.cash_amount
-                    + Invoice.card_amex_amount
-                    + Invoice.card_mastercard_amount
-                    + Invoice.card_visa_amount
-                    + Invoice.cheque_amount
-                    + Invoice.bank_transfer_amount
-                    + Invoice.credit_amount
-                ).label("daily_total"),
+                func.sum(rev_expr).label("daily_total"),
             )
-            .filter(
-                and_(
-                    Invoice.created_date >= request.start_date,
-                    Invoice.created_date <= request.end_date,
-                )
-            )
+            .filter(*conds)
             .group_by(Invoice.created_date)
-            .order_by(Invoice.created_date)
             .all()
-        )
-
-        sales_by_date = [
-            {
-                "date": str(d.created_date),
+        ):
+            by_date[str(d.created_date)] = {
                 "orders": d.order_count,
-                "revenue": float(d.daily_total or 0),
+                "rev": Decimal(str(d.daily_total or 0)),
             }
-            for d in daily_sales
+        for d, amt in returns_by_date.items():
+            by_date.setdefault(d, {"orders": 0, "rev": Decimal("0")})["rev"] -= amt
+        sales_by_date = [
+            {"date": d, "orders": v["orders"], "revenue": float(v["rev"].quantize(Decimal("0.01")))}
+            for d, v in sorted(by_date.items())
         ]
 
-        # Sales by branch
-        branch_sales = (
+        # ── By branch ──
+        by_branch: Dict[str, Dict[str, Any]] = {}
+        for b in (
             self.db.query(
                 Invoice.branch_code,
                 func.count(Invoice.id).label("order_count"),
-                func.sum(
-                    Invoice.cash_amount
-                    + Invoice.card_amex_amount
-                    + Invoice.card_mastercard_amount
-                    + Invoice.card_visa_amount
-                    + Invoice.cheque_amount
-                    + Invoice.bank_transfer_amount
-                    + Invoice.credit_amount
-                ).label("branch_total"),
+                func.sum(rev_expr).label("branch_total"),
             )
-            .filter(
-                and_(
-                    Invoice.created_date >= request.start_date,
-                    Invoice.created_date <= request.end_date,
-                )
-            )
+            .filter(*conds)
             .group_by(Invoice.branch_code)
             .all()
-        )
-
-        sales_by_branch = [
-            {
-                "branch_code": b.branch_code,
+        ):
+            by_branch[b.branch_code] = {
                 "orders": b.order_count,
-                "revenue": float(b.branch_total or 0),
+                "rev": Decimal(str(b.branch_total or 0)),
             }
-            for b in branch_sales
+        for bc, amt in returns_by_branch.items():
+            by_branch.setdefault(bc, {"orders": 0, "rev": Decimal("0")})["rev"] -= amt
+        sales_by_branch = [
+            {"branch_code": bc, "orders": v["orders"], "revenue": float(v["rev"].quantize(Decimal("0.01")))}
+            for bc, v in by_branch.items()
         ]
 
         return schemas.SalesReportResponse(
-            total_sales=total_sales,
+            total_sales=float(total_sales),
             total_orders=total_orders,
             total_customers=unique_customers,
-            average_order_value=average_order_value,
+            average_order_value=float(average_order_value),
             top_products=top_products,
             sales_by_date=sales_by_date,
             sales_by_branch=sales_by_branch,
@@ -319,7 +387,7 @@ class ReportingService:
         available_counts = dict(
             self.db.query(
                 SalesStock.product_id,
-                func.count(SalesStock.id),
+                func.coalesce(func.sum(SalesStock.quantity), 0),
             )
             .filter(
                 SalesStock.status == "available",
@@ -592,7 +660,7 @@ class ReportingService:
             available_subq = (
                 self.db.query(
                     SalesStock.product_id.label("product_id"),
-                    func.count(SalesStock.id).label("available_qty"),
+                    func.coalesce(func.sum(SalesStock.quantity), 0).label("available_qty"),
                 )
                 .filter(
                     SalesStock.status == "available",
@@ -630,7 +698,7 @@ class ReportingService:
             total_purchases_month = (
                 self.db.query(
                     func.coalesce(
-                        func.sum(PurchasingOrderItems.unit_price),
+                        func.sum(PurchasingOrderItems.unit_price * GoodReceivedItems.quantity),
                         0,
                     )
                 )
@@ -693,7 +761,7 @@ class ReportingService:
             # Total value of all active GRN items (goods actually received)
             total_grn_value = (
                 self.db.query(
-                    func.coalesce(func.sum(PurchasingOrderItems.unit_price), 0)
+                    func.coalesce(func.sum(PurchasingOrderItems.unit_price * GoodReceivedItems.quantity), 0)
                 )
                 .join(
                     GoodReceivedItems,
@@ -744,7 +812,7 @@ class ReportingService:
             # Total approved purchase return amounts (reduces payable liability)
             total_purchase_returns = (
                 self.db.query(
-                    func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+                    func.coalesce(func.sum(PurchasingReturnItems.return_price * PurchasingReturnItems.quantity), 0)
                 )
                 .join(
                     PurchasingReturn,

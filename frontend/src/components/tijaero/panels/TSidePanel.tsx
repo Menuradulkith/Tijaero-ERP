@@ -38,6 +38,8 @@ import {
   Stack,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import CancelIcon from "@mui/icons-material/Cancel";
+import SaveIcon from "@mui/icons-material/Save";
 import { TButton } from "../base/TButton";
 
 export interface TSidePanelProps {
@@ -127,16 +129,18 @@ export const TSidePanel: React.FC<TSidePanelProps> = ({
         <Divider />
 
         {/* Footer */}
-        <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, px: 3, py: 2 }}>
+        {/* Right padding leaves room for the floating assistant launcher (fixed, bottom-right). */}
+        <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, pl: 3, pr: 11, py: 2 }}>
           {actions || (
             <>
               {extraActions}
-              <TButton variant="secondary" onClick={onClose} disabled={isSubmitting}>
+              <TButton variant="danger" startIcon={<CancelIcon />} onClick={onClose} disabled={isSubmitting}>
                 {cancelText}
               </TButton>
               {onSubmit && (
                 <TButton
-                  variant="primary"
+                  variant="success"
+                  startIcon={<SaveIcon />}
                   onClick={onSubmit}
                   loading={isSubmitting}
                   disabled={submitDisabled}

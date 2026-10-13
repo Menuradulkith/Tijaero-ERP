@@ -134,7 +134,26 @@ def export_customers_csv(
             "Commission Rate",
             "Created At",
             "Updated At",
+            "Customer No",
+            "Bank Account Name",
+            "Bank Name",
+            "Bank Account No",
+            "Bank Branch",
+            "Bank Branch Code",
+            "Bank SWIFT Code",
+            "Billing Country",
+            "Shipping Country",
+            "Currency",
         ]
+    )
+
+    from app.modules.common.models import Country
+    country_ids = {
+        cid for c in customers for cid in (c.billing_country_id, c.shipping_country_id) if cid
+    }
+    country_names = (
+        dict(db.query(Country.id, Country.name).filter(Country.id.in_(country_ids)).all())
+        if country_ids else {}
     )
 
     gender_label = {"m": "Male", "male": "Male", "f": "Female", "female": "Female"}
@@ -165,6 +184,16 @@ def export_customers_csv(
                 customer.commission_rate or 0,
                 customer.created_at.isoformat() if getattr(customer, "created_at", None) else "",
                 customer.updated_at.isoformat() if getattr(customer, "updated_at", None) else "",
+                customer.customer_no or "",
+                customer.bank_account_name or "",
+                customer.bank_name or "",
+                customer.bank_account_no or "",
+                customer.bank_branch or "",
+                customer.bank_branch_code or "",
+                customer.bank_swift_code or "",
+                country_names.get(customer.billing_country_id, ""),
+                country_names.get(customer.shipping_country_id, ""),
+                customer.default_currency or "",
             ]]
         )
 
@@ -353,11 +382,21 @@ def get_customer_aging_report(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def get_all_customers_aging_report(
+    branch_code: Optional[str] = Query(None, max_length=200, description="Limit to one branch"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
 ):
+    from fastapi import HTTPException
 
-    return customer_credit_service.get_aging_report(db)
+    # Branch-limited users only see receivables of their own branches.
+    user_branches = None if current_user.is_superuser else [b.branch_code for b in current_user.branches]
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
+    return customer_credit_service.get_aging_report(
+        db,
+        branch_code=branch_code,
+        branch_codes=user_branches if not branch_code else None,
+    )
 
 
 @router.get(
@@ -394,14 +433,14 @@ def create_customer_credit_settlement(
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
 ):
 
-    if settlement.customers_id != customer_id:
+    if settlement.customer_id != customer_id:
         from fastapi import HTTPException, status
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Settlement customer_id doesn't match URL customer_id",
         )
-    return customer_credit_service.create_credit_settlement(db, settlement)
+    return customer_credit_service.create_credit_settlement(db, settlement, user_id=current_user.id)
 
 
 @router.get(
@@ -707,7 +746,7 @@ def create_voucher(
     current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_CREATE)),
 ):
     """Create a new gift voucher"""
-    return service.voucher_service.create_voucher(db, voucher)
+    return service.voucher_service.create_voucher(db, voucher, user_id=current_user.id)
 
 
 @router.put(

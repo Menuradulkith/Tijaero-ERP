@@ -227,7 +227,7 @@ class SalesQuoteRepository:
         last_quote = (
             db.query(SalesQuote)
             .filter(SalesQuote.quote_no.like(pattern))
-            .filter(~SalesQuote.quote_no.like("%-R%"))
+            .filter(SalesQuote.quote_no.op("!~")(r"-R[0-9]+$"))
             .order_by(SalesQuote.id.desc())
             .first()
         )

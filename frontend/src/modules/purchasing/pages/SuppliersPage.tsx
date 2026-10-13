@@ -799,7 +799,7 @@ export default function SuppliersPage() {
     selectedSupplier.shipping_state,
     selectedSupplier.shipping_postal_code,
     selectedSupplier.shipping_country_id,
-  ].every((field) => !field) && !selectedSupplier.country_id);
+  ].every((field) => !field));
   const isContactPersonUnfilled = displayedContactPersons.length === 0;
 
   // Whether the fields on each tab can be edited right now, independent of
@@ -1390,7 +1390,12 @@ export default function SuppliersPage() {
   }, [isCreating, setSelectedSupplier, setIsCreating, setIsEditing]);
 
   // Email validation regex
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  // Same shape as the server check, which also refuses special-use domains such as .test and .local.
+  const emailRegex = {
+    test: (value: string) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) &&
+      !/\.(test|local|localhost|invalid|example|onion)$/i.test(value.trim()),
+  };
 
   // Validation error messages
   const getFieldError = (fieldName: string): string | undefined => {

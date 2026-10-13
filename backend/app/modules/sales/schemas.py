@@ -1,23 +1,77 @@
-from pydantic import BaseModel, Field, ConfigDict, model_validator
-from typing import Optional, List
+from pydantic import BaseModel, BeforeValidator, Field, ConfigDict, StringConstraints, model_validator
+from typing import Annotated, Literal, Optional, List
 from datetime import date, datetime
 
+from app.core.money import MAX_MONEY as _CORE_MAX_MONEY
+
+INT4_MAX = 2_147_483_647
+MAX_MONEY = float(_CORE_MAX_MONEY)  # 999,999,999.99 — the shared cap in app.core.money
+
+
+def _blank_to_none(v):
+    if isinstance(v, str):
+        v = v.strip()
+        return v or None
+    return v
+
+
+def _lower(v):
+    return v.strip().lower() if isinstance(v, str) else v
+
+
+def _json_number(v):
+    """L4: money / quantity / rate inputs must be JSON numbers. Pydantic's lax mode would coerce `true` -> 1 and
+    `"2"` -> 2, silently turning a malformed payload into a valid order."""
+    if isinstance(v, (bool, str)):
+        raise ValueError("must be a number")
+    return v
+
+
+# Create/update inputs are strict; the response models below stay lenient so old rows still serialise.
+Id = Annotated[int, BeforeValidator(_json_number), Field(ge=1, le=INT4_MAX)]
+OptId = Annotated[Optional[int], BeforeValidator(_json_number), Field(default=None, ge=1, le=INT4_MAX)]
+Money = Annotated[float, BeforeValidator(_json_number), Field(ge=0, le=MAX_MONEY, allow_inf_nan=False)]
+OptMoney = Annotated[Optional[float], BeforeValidator(_json_number), Field(default=None, ge=0, le=MAX_MONEY, allow_inf_nan=False)]
+Percent100 = Annotated[float, BeforeValidator(_json_number), Field(ge=0, le=100, allow_inf_nan=False)]
+OptPercent100 = Annotated[Optional[float], BeforeValidator(_json_number), Field(default=None, ge=0, le=100, allow_inf_nan=False)]
+# Sales tax: the UI only offers 0-18 presets; nothing above 50% is a real sales tax, so 100% is a typo, not a rate.
+MAX_TAX_RATE = 50
+TaxRate = Annotated[float, BeforeValidator(_json_number), Field(ge=0, le=MAX_TAX_RATE, allow_inf_nan=False)]
+
+
+def OptText(n: int):
+    return Annotated[Optional[Annotated[str, StringConstraints(max_length=n)]], BeforeValidator(_blank_to_none), Field(default=None)]
+
+
+INVOICE_PAYMENT_METHODS = ("cash", "card", "card_visa", "card_mastercard", "card_amex", "cheque", "bank_transfer", "credit")
+PaymentMethod = Annotated[Literal[INVOICE_PAYMENT_METHODS], BeforeValidator(_lower)]
+
 class InvoiceItemBase(BaseModel):
+    # Lenient: shared with the InvoiceItem response. Input rules are on InvoiceItemCreate.
     product_id: int
-    quantity: int = Field(..., gt=0)
-    selling_price: float = Field(..., ge=0)
-    minimum_selling_price: float = Field(..., ge=0)
-    warrenty_month: str = Field(..., max_length=30)
+    quantity: int
+    selling_price: float
+    minimum_selling_price: float
+    warrenty_month: str
     barcode: Optional[str] = None
-    discount_percent: Optional[float] = Field(default=0, ge=0, le=100)
-    discount_amount: Optional[float] = Field(default=0, ge=0)
+    discount_percent: Optional[float] = 0
+    discount_amount: Optional[float] = 0
     # Optional link to a ProductPriceTier; when provided the service uses
     # the tier's prices and the selling_price / minimum_selling_price fields
     # above are still accepted (allowing the rep to pass them for validation).
     price_tier_id: Optional[int] = None
 
 class InvoiceItemCreate(InvoiceItemBase):
-    pass
+    product_id: Id
+    quantity: Annotated[int, BeforeValidator(_json_number), Field(gt=0, le=100000)]
+    # M2: an order line is never sold below one cent (zero-price lines would give stock away; quotes may estimate)
+    selling_price: Annotated[float, BeforeValidator(_json_number), Field(ge=0.01, le=MAX_MONEY, allow_inf_nan=False)]
+    minimum_selling_price: Money = 0
+    warrenty_month: str = Field(..., max_length=30)
+    barcode: OptText(100) = None
+    discount_percent: Annotated[Optional[float], BeforeValidator(_json_number), Field(default=0, ge=0, le=100, allow_inf_nan=False)]
+    discount_amount: Annotated[Optional[float], BeforeValidator(_json_number), Field(default=0, ge=0, le=MAX_MONEY, allow_inf_nan=False)]
+    price_tier_id: OptId = None
 
 class InvoiceItem(InvoiceItemBase):
     id: int
@@ -28,24 +82,26 @@ class InvoiceItem(InvoiceItemBase):
     model_config = ConfigDict(from_attributes=True)
 
 class InvoiceBase(BaseModel):
+    # Lenient: shared with the Invoice response so a legacy row never 500s a list.
+    # Every constrained input field is re-declared strictly on InvoiceCreate.
     invoice_no: Optional[str] = None  # Auto-generated on server
-    branch_code: str = Field(..., max_length=200)
+    branch_code: str
     customer_id: int
-    sale_rep_id: int
+    sale_rep_id: Optional[int] = None  # NULL for orders converted from a quotation without a rep
     customer_agent_id: Optional[int] = None
     # Agent commission assigned on the sales order. When provided these take
     # precedence over the agent's default profile rate so the commission entry
     # reflects exactly what was assigned on the order.
-    agent_commission_rate: Optional[float] = Field(default=None, ge=0, le=100)
-    agent_commission_amount: Optional[float] = Field(default=None, ge=0)
-    payment_method: str = Field(..., max_length=30)
-    cash_amount: float = Field(default=0, ge=0)
-    card_visa_amount: float = Field(default=0, ge=0)
-    card_mastercard_amount: float = Field(default=0, ge=0)
-    card_amex_amount: float = Field(default=0, ge=0)
-    cheque_amount: float = Field(default=0, ge=0)
-    bank_transfer_amount: float = Field(default=0, ge=0)
-    credit_amount: float = Field(default=0, ge=0)
+    agent_commission_rate: Optional[float] = None
+    agent_commission_amount: Optional[float] = None
+    payment_method: str
+    cash_amount: float = 0
+    card_visa_amount: float = 0
+    card_mastercard_amount: float = 0
+    card_amex_amount: float = 0
+    cheque_amount: float = 0
+    bank_transfer_amount: float = 0
+    credit_amount: float = 0
     credit_terms: Optional[str] = None
     override_credit_validation: Optional[bool] = None
     payment_adjustments: float = Field(default=0)
@@ -65,40 +121,78 @@ class InvoiceBase(BaseModel):
     bank_name: Optional[str] = None
     # Tax fields
     is_tax_invoice: bool = Field(default=False, description="True for tax-inclusive, False for tax-exclusive")
-    tax_rate: float = Field(default=0, ge=0, le=100)
+    tax_rate: float = 0
     # Discount fields
-    discount_percent: float = Field(default=0, ge=0, le=100)
-    discount_amount: float = Field(default=0, ge=0)
+    discount_percent: float = 0
+    discount_amount: float = 0
     # Coupon/Discount code fields
     cupon_id: Optional[int] = None
-    cupon_amount: float = Field(default=0, ge=0)
+    cupon_amount: float = 0
     # Credit note redemption
-    credit_note_amount: float = Field(default=0, ge=0)
+    credit_note_amount: float = 0
     # Gift voucher payment fields (legacy single voucher support)
     gift_voucher_id: Optional[int] = None
-    gift_voucher_amount: float = Field(default=0, ge=0)
+    gift_voucher_amount: float = 0
 
 # Gift voucher redemption for invoice
 class VoucherRedemptionItem(BaseModel):
-    voucher_id: int
-    amount_to_redeem: float = Field(..., gt=0)
+    voucher_id: Id
+    amount_to_redeem: Annotated[float, BeforeValidator(_json_number), Field(gt=0, le=MAX_MONEY, allow_inf_nan=False)]
 
 class InvoiceCreate(InvoiceBase):
-    items: List[InvoiceItemCreate]
+    branch_code: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    customer_id: Id
+    sale_rep_id: Id
+    customer_agent_id: OptId = None
+    agent_commission_rate: OptPercent100 = None
+    agent_commission_amount: OptMoney = None
+    payment_method: PaymentMethod
+    cash_amount: Money = 0
+    card_visa_amount: Money = 0
+    card_mastercard_amount: Money = 0
+    card_amex_amount: Money = 0
+    cheque_amount: Money = 0
+    bank_transfer_amount: Money = 0
+    credit_amount: Money = 0
+    credit_terms: OptText(100) = None
+    payment_adjustments: Money = 0
+    remarks: OptText(2000) = None
+    source_quote_id: OptId = None
+    source_quote_type: OptText(30) = None
+    cheque_number: OptText(50) = None
+    cheque_bank: OptText(100) = None
+    cheque_date: Annotated[Optional[date], BeforeValidator(_blank_to_none)] = None
+    card_ref_number: OptText(100) = None
+    card_holder_name: OptText(100) = None
+    bank_transfer_ref: OptText(100) = None
+    bank_name: OptText(100) = None
+    tax_rate: TaxRate = 0
+    discount_percent: Percent100 = 0
+    discount_amount: Money = 0
+    cupon_id: OptId = None
+    cupon_amount: Money = 0
+    credit_note_amount: Money = 0
+    # Customer advance (deposit) applied to this order. The amount defaults to
+    # min(advance remaining, order payable); an explicit amount may not exceed either.
+    customer_advance_payments_id: OptId = None
+    customer_advance_amount: OptMoney = None
+    gift_voucher_id: OptId = None
+    gift_voucher_amount: Money = 0
+    items: List[InvoiceItemCreate] = Field(..., min_length=1, max_length=200)
     # Multiple voucher redemptions
-    voucher_redemptions: Optional[List[VoucherRedemptionItem]] = []
+    voucher_redemptions: Optional[List[VoucherRedemptionItem]] = Field(default_factory=list, max_length=20)
 
 class InvoiceUpdate(BaseModel):
-    remarks: Optional[str] = None
-    status: Optional[bool] = None
-    approval: Optional[bool] = None
-    approval_status: Optional[str] = None
-    is_tax_invoice: Optional[bool] = None
-    items: Optional[List[InvoiceItemCreate]] = None
+    """Editable parts of an order. Approval and status are never set from here: they change only through the
+    approval, bank-transfer, cancel and complete actions."""
+    remarks: OptText(2000) = None
+    items: Optional[List[InvoiceItemCreate]] = Field(default=None, min_length=1, max_length=200)
 
 class Invoice(InvoiceBase):
+    approval_id: Optional[int] = None  # the approver queue entry (use it to approve/reject centrally)
     id: int
     customer_agent_id: Optional[int] = None
+    customer_advance_payments_id: Optional[int] = None
     created_date: date
     created_date_time: datetime
     status: bool
@@ -116,6 +210,8 @@ class Invoice(InvoiceBase):
     paid_amount: float = 0
     balance_due: float = 0
     payment_status: str = "unpaid"
+    # Cash over-tender returned to the customer (create response only; the order books the payable)
+    change_due: float = 0
     # Timestamps
     created_at: datetime
     updated_at: datetime
@@ -179,18 +275,26 @@ class InvoiceWithItems(Invoice):
     model_config = ConfigDict(from_attributes=True)
 
 class SaleReturnItemBase(BaseModel):
+    # Lenient: shared with the SaleReturnItem response. Input rules are on SaleReturnItemCreate.
     barcode: str
-    return_price: float = Field(..., ge=0)
-    sold_price: float = Field(..., ge=0)
-    branch_code: str = Field(..., max_length=200)
+    return_price: float
+    sold_price: float
+    branch_code: str
     invoice_item_id: Optional[int] = None
     product_id: Optional[int] = None
-    quantity: int = Field(default=1, ge=1)
-    condition: str = Field(default="good", max_length=50)  # good, damaged, defective, opened
+    quantity: int = 1
+    condition: str = "good"  # good, damaged, defective, opened
     restockable: bool = True
 
 class SaleReturnItemCreate(SaleReturnItemBase):
-    pass
+    barcode: str = Field(..., max_length=200)
+    branch_code: str = Field(..., max_length=200)
+    condition: str = Field(default="good", max_length=50)
+    return_price: Money
+    sold_price: Money
+    invoice_item_id: OptId = None
+    product_id: OptId = None
+    quantity: Annotated[int, BeforeValidator(_json_number), Field(ge=1, le=INT4_MAX)] = 1
 
 class SaleReturnItem(SaleReturnItemBase):
     id: int
@@ -202,22 +306,30 @@ class SaleReturnItem(SaleReturnItemBase):
     model_config = ConfigDict(from_attributes=True)
 
 class SaleReturnBase(BaseModel):
+    # Lenient: shared with the SaleReturn response (a legacy over-long remark must
+    # not 500 GET /sales/returns/). Input rules are on SaleReturnCreate/Update.
     sale_return_no: Optional[str] = None  # Auto-generated on server
-    branch_code: str = Field(..., max_length=200)
+    branch_code: str
     invoice_id: int
     good_received_locations_id: int
-    payment_method: str = Field(..., max_length=30)  # cash, bank_transfer, credit_note, cheque
+    payment_method: str  # cash, bank_transfer, credit_note, cheque
     remark: Optional[str] = None
     return_reason: Optional[str] = None  # defective, wrong_item, customer_changed_mind, damaged, other
 
 class SaleReturnCreate(SaleReturnBase):
+    branch_code: str = Field(..., max_length=200)
+    invoice_id: Id
+    good_received_locations_id: Id
+    payment_method: str = Field(..., max_length=30)
+    remark: Optional[str] = Field(default=None, max_length=2000)
+    return_reason: Optional[str] = Field(default=None, max_length=500)
     items: List[SaleReturnItemCreate]
 
 class SaleReturnUpdate(BaseModel):
-    remark: Optional[str] = None
-    return_reason: Optional[str] = None
-    status: Optional[str] = None
-    payment_method: Optional[str] = None
+    remark: Optional[str] = Field(default=None, max_length=2000)
+    return_reason: Optional[str] = Field(default=None, max_length=500)
+    status: Optional[str] = Field(default=None, max_length=30)
+    payment_method: Optional[str] = Field(default=None, max_length=30)
 
 class SaleReturn(SaleReturnBase):
     id: int
@@ -260,6 +372,10 @@ class SaleReturnProcessResponse(BaseModel):
     message: str
 
 
+class OrderRejectRequest(BaseModel):
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
+
 class FullInvoiceReturnRequest(BaseModel):
     """Request body for the one-click "Return Invoice" action.
 
@@ -268,30 +384,30 @@ class FullInvoiceReturnRequest(BaseModel):
     reversing financial records are posted on processing (maker-checker intact).
     """
     payment_method: str = Field(..., max_length=30)  # cash, bank_transfer, credit_note, cheque
-    return_reason: Optional[str] = None
-    remark: Optional[str] = None
-    good_received_locations_id: Optional[int] = None
+    return_reason: Optional[str] = Field(default=None, max_length=500)
+    remark: Optional[str] = Field(default=None, max_length=2000)
+    good_received_locations_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
 
 
 # Credit Payment Settlement Schemas
 class CreditPaymentCreate(BaseModel):
-    invoice_id: int
-    payment_method: str = Field(..., max_length=30)  # cash, cheque, card_visa, card_mastercard, card_amex, bank_transfer
-    payment_amount: float = Field(..., gt=0)
+    invoice_id: int = Field(default=1, ge=1, le=INT4_MAX)   # the path id wins
+    payment_method: Annotated[Literal["cash", "cheque", "card", "card_visa", "card_mastercard", "card_amex", "bank_transfer"], BeforeValidator(_lower)]
+    payment_amount: float = Field(..., gt=0, le=MAX_MONEY, allow_inf_nan=False)
     payment_date: date
     # Cheque details
-    cheque_number: Optional[str] = None
-    cheque_bank: Optional[str] = None
+    cheque_number: OptText(50) = None
+    cheque_bank: OptText(100) = None
     cheque_date: Optional[date] = None
     # Card details
-    card_ref_number: Optional[str] = None
-    card_holder_name: Optional[str] = None
-    service_charge_amount: Optional[float] = None
+    card_ref_number: OptText(100) = None
+    card_holder_name: OptText(100) = None
+    service_charge_amount: OptMoney = None
     # Bank transfer details
-    bank_transfer_ref: Optional[str] = None
-    bank_name: Optional[str] = None
+    bank_transfer_ref: OptText(100) = None
+    bank_name: OptText(100) = None
     # General
-    remarks: Optional[str] = None
+    remarks: OptText(1000) = None
 
 class CreditPaymentResponse(BaseModel):
     invoice_id: int
@@ -341,12 +457,12 @@ class PendingBankTransfer(BaseModel):
 
 
 class BankTransferConfirmRequest(BaseModel):
-    action: str = Field(..., description="'verify' or 'reject'")
-    rejection_reason: Optional[str] = None
+    action: Literal["verify", "reject"] = Field(..., description="'verify' or 'reject'")
+    rejection_reason: OptText(1000) = None
 
 
 class BankTransferRejectRequest(BaseModel):
-    reason: Optional[str] = None
+    reason: OptText(1000) = None
 
 
 class BankTransferConfirmResponse(BaseModel):
@@ -361,21 +477,24 @@ class BankTransferConfirmResponse(BaseModel):
 # =============================================================================
 
 class PaymentCardBase(BaseModel):
-    card_name: str = Field(..., max_length=100, description="Card name (e.g., Visa, Mastercard)")
-    card_type: str = Field(..., pattern="^(credit|debit)$", description="Card type: credit or debit")
-    service_charge_percent: float = Field(default=0, ge=0, le=100, description="Service charge percentage")
+    # Lenient: shared with the PaymentCard response. Input rules are on PaymentCardCreate.
+    card_name: str = Field(..., description="Card name (e.g., Visa, Mastercard)")
+    card_type: str = Field(..., description="Card type: credit or debit")
+    service_charge_percent: float = Field(default=0, description="Service charge percentage")
     description: Optional[str] = None
     active: bool = True
 
 
 class PaymentCardCreate(PaymentCardBase):
-    pass
+    card_name: str = Field(..., max_length=100, description="Card name (e.g., Visa, Mastercard)")
+    card_type: str = Field(..., pattern="^(credit|debit)$", description="Card type: credit or debit")
+    service_charge_percent: Percent100 = Field(default=0, description="Service charge percentage")
 
 
 class PaymentCardUpdate(BaseModel):
     card_name: Optional[str] = Field(None, max_length=100)
     card_type: Optional[str] = Field(None, pattern="^(credit|debit)$")
-    service_charge_percent: Optional[float] = Field(None, ge=0, le=100)
+    service_charge_percent: OptPercent100 = None
     description: Optional[str] = None
     active: Optional[bool] = None
 
@@ -390,7 +509,7 @@ class PaymentCard(PaymentCardBase):
 
 class InvoiceCardPaymentCreate(BaseModel):
     payment_card_id: int
-    amount: float = Field(..., gt=0)
+    amount: Annotated[float, BeforeValidator(_json_number), Field(gt=0, le=MAX_MONEY, allow_inf_nan=False)]
     reference_no: Optional[str] = None
 
 

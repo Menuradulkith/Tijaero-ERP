@@ -13,20 +13,23 @@ import {
   PaginatedSaleReturns,
 } from "./types";
 
-export const salesApi = {
-  getAll: async (skip = 0, limit = 100000) => {
-    const response = await apiClient.get<Invoice[]>("/sales/", {
-      params: { skip, limit },
-    });
-    return response.data;
-  },
+const PAGE = 1000; // the API serves at most 1000 rows per request
 
-  search: async (query: string, skip = 0, limit = 100000) => {
-    const response = await apiClient.get<Invoice[]>("/sales/search", {
-      params: { q: query, skip, limit },
-    });
-    return response.data;
-  },
+/** Reads every row of a skip/limit list, one page at a time (stops at `maxRows` so a huge table cannot lock the browser). */
+async function fetchAllRows<T>(url: string, params: Record<string, unknown> = {}, skip = 0, maxRows = 50000): Promise<T[]> {
+  const out: T[] = [];
+  for (let at = skip; out.length < maxRows; at += PAGE) {
+    const { data } = await apiClient.get<T[]>(url, { params: { ...params, skip: at, limit: PAGE } });
+    out.push(...data);
+    if (data.length < PAGE) break;
+  }
+  return out;
+}
+
+export const salesApi = {
+  getAll: async (skip = 0) => fetchAllRows<Invoice>("/sales/", {}, skip),
+
+  search: async (query: string, skip = 0) => fetchAllRows<Invoice>("/sales/search", { q: query }, skip),
 
   getById: async (id: number) => {
     const response = await apiClient.get<InvoiceWithItems>(`/sales/${id}`);
@@ -53,6 +56,12 @@ export const salesApi = {
   // Approve a pending credit invoice
   approve: async (id: number, credentials?: any) => {
     const response = await apiClient.post<InvoiceWithItems>(`/sales/${id}/approve`, credentials || null);
+    return response.data;
+  },
+
+  // Reject a pending order; the reason is required and kept
+  reject: async (id: number, reason: string) => {
+    const response = await apiClient.post<InvoiceWithItems>(`/sales/${id}/reject`, { reason });
     return response.data;
   },
 
@@ -115,15 +124,10 @@ export const salesApi = {
   },
 
   // OPTIMIZED: Get invoices by customer - now uses server-side filtering
-  getByCustomer: async (customerId: number, skip = 0, limit = 100000) => {
-    const response = await apiClient.get<Invoice[]>(`/sales/by-customer/${customerId}`, {
-      params: { skip, limit },
-    });
-    return response.data;
-  },
+  getByCustomer: async (customerId: number, skip = 0) => fetchAllRows<Invoice>(`/sales/by-customer/${customerId}`, {}, skip),
 
   // Get recent sales for a customer (last 5 from any branch)
-  getRecentByCustomer: async (customerId: number, limit = 100000) => {
+  getRecentByCustomer: async (customerId: number, limit = 5) => {
     const response = await apiClient.get<InvoiceWithItems[]>(`/sales/customer/${customerId}/recent`, {
       params: { limit },
     });
@@ -131,12 +135,7 @@ export const salesApi = {
   },
 
   // OPTIMIZED: Get pending approval invoices - now uses server-side filtering
-  getPendingApproval: async (skip = 0, limit = 100000) => {
-    const response = await apiClient.get<Invoice[]>("/sales/pending-approval", {
-      params: { skip, limit },
-    });
-    return response.data;
-  },
+  getPendingApproval: async (skip = 0) => fetchAllRows<Invoice>("/sales/pending-approval", {}, skip),
 
   // Get payment history for an invoice
   getPaymentHistory: async (invoiceId: number) => {
@@ -152,12 +151,7 @@ export const salesApi = {
 };
 
 export const saleReturnsApi = {
-  getAll: async (skip = 0, limit = 100000) => {
-    const response = await apiClient.get<SaleReturn[]>("/sales/returns/", {
-      params: { skip, limit },
-    });
-    return response.data;
-  },
+  getAll: async (skip = 0) => fetchAllRows<SaleReturn>("/sales/returns/", {}, skip),
 
   // OPTIMIZED: Paginated list with server-side filtering
   getPaginated: async (params: {
@@ -244,12 +238,7 @@ export const saleReturnsApi = {
   },
 
   // OPTIMIZED: Get returns by invoice - now uses server-side filtering
-  getByInvoice: async (invoiceId: number, skip = 0, limit = 100000) => {
-    const response = await apiClient.get<SaleReturn[]>(`/sales/returns/by-invoice/${invoiceId}`, {
-      params: { skip, limit },
-    });
-    return response.data;
-  },
+  getByInvoice: async (invoiceId: number, skip = 0) => fetchAllRows<SaleReturn>(`/sales/returns/by-invoice/${invoiceId}`, {}, skip),
 };
 
 

@@ -15,12 +15,18 @@ import ReimbursementApprovalsPage from "./pages/ReimbursementApprovalsPage";
 import DeductionsPage from "./pages/DeductionsPage";
 import EmployeeAssetsPage from "./pages/EmployeeAssetsPage";
 import SalesCommissionsPage from "./pages/SalesCommissionsPage";
+import HRSetupPage from "./pages/HRSetupPage";
+import LeaveBalancesPage from "./pages/LeaveBalancesPage";
+import HRReportsPage from "./pages/HRReportsPage";
 
 export default function HRRoutes() {
   return (
     <Routes>
       <Route index element={<ProtectedRoute resource="hr_dashboard" action="view"><HRDashboard /></ProtectedRoute>} />
       <Route path="employees" element={<ProtectedRoute resource="employees" action="view"><EmployeesPage /></ProtectedRoute>} />
+      <Route path="setup" element={<ProtectedRoute resource="hr_setup" action="view"><HRSetupPage /></ProtectedRoute>} />
+      <Route path="leave-balances" element={<ProtectedRoute resource="leave_allocations" action="view"><LeaveBalancesPage /></ProtectedRoute>} />
+      <Route path="reports" element={<ProtectedRoute resource="hr_reports" action="view"><HRReportsPage /></ProtectedRoute>} />
       <Route path="attendance" element={<ProtectedRoute resource="attendance" action="view"><AttendancePage /></ProtectedRoute>} />
       <Route path="leaves" element={<ProtectedRoute resource="leaves" action="view"><LeavesPage /></ProtectedRoute>} />
       <Route path="leave-approvals" element={<ProtectedRoute resource="leave_approvals" action="view"><LeaveApprovalsPage /></ProtectedRoute>} />

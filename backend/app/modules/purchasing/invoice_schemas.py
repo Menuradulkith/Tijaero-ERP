@@ -6,6 +6,8 @@ from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
 
+from app.modules.purchasing.schemas import MoneyInput, PositiveMoneyInput
+
 
 # ==================== PURCHASE INVOICE ITEM SCHEMAS ====================
 
@@ -21,7 +23,9 @@ class PurchaseInvoiceItemBase(BaseModel):
 
 
 class PurchaseInvoiceItemCreate(PurchaseInvoiceItemBase):
-    pass
+    unit_price: MoneyInput
+    line_total: MoneyInput
+    tax_amount: MoneyInput = Decimal("0")
 
 
 class PurchaseInvoiceItemResponse(PurchaseInvoiceItemBase):
@@ -55,6 +59,10 @@ class PurchaseInvoiceBase(BaseModel):
 
 
 class PurchaseInvoiceCreate(PurchaseInvoiceBase):
+    subtotal: MoneyInput = Decimal("0")
+    tax_amount: MoneyInput = Decimal("0")
+    discount_amount: MoneyInput = Decimal("0")
+    total_amount: MoneyInput = Decimal("0")
     items: List[PurchaseInvoiceItemCreate]
 
 
@@ -63,10 +71,10 @@ class PurchaseInvoiceUpdate(BaseModel):
     supplier_invoice_date: Optional[date] = None
     received_date: Optional[date] = None
     due_date: Optional[date] = None
-    subtotal: Optional[Decimal] = None
-    tax_amount: Optional[Decimal] = None
-    discount_amount: Optional[Decimal] = None
-    total_amount: Optional[Decimal] = None
+    subtotal: Optional[MoneyInput] = None
+    tax_amount: Optional[MoneyInput] = None
+    discount_amount: Optional[MoneyInput] = None
+    total_amount: Optional[MoneyInput] = None
     remarks: Optional[str] = None
     items: Optional[List[PurchaseInvoiceItemCreate]] = None
 
@@ -115,7 +123,7 @@ class PurchaseInvoiceListResponse(PurchaseInvoiceBase):
 class PaymentAllocationItem(BaseModel):
     """Single allocation line: how much of a payment goes to one invoice."""
     purchase_invoice_id: int
-    allocated_amount: Decimal
+    allocated_amount: PositiveMoneyInput
 
 
 class PaymentWithAllocationsCreate(BaseModel):
@@ -131,7 +139,7 @@ class PaymentWithAllocationsCreate(BaseModel):
     supplier_id: int
     payment_date: date
     payment_method: str  # Cash, Bank Transfer, Cheque
-    payment_amount: Decimal  # Total payment amount
+    payment_amount: PositiveMoneyInput  # Total payment amount
     reference_number: Optional[str] = None
     bank_name: Optional[str] = None
     branch_code: str

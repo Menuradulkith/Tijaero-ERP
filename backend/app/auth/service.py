@@ -113,7 +113,15 @@ class AuthService:
                 db.query(Employee).filter(Employee.user_id == user.id).first()
             )
             if not existing_emp_for_user:
-                employee = Employee(user_id=user.id, employee_id=user_in.employee_id)
+                employee = Employee(user_id=user.id, employee_id=user_in.employee_id, date_of_joining=user.date_joined)
+                # sensible HR defaults: working branch, default shift and holiday list
+                primary = next((b for b in branches if b.id == user.primary_branch_id), None) or (branches[0] if branches else None)
+                employee.branch_code = primary.branch_code if primary else None
+                from app.modules.hr_core.models import HRHolidayList, HRShift
+                shift = db.query(HRShift).filter(HRShift.is_default.is_(True)).first()
+                hol = db.query(HRHolidayList).filter(HRHolidayList.is_default.is_(True), HRHolidayList.year == user.date_joined.year).first()
+                employee.shift_id = shift.id if shift else None
+                employee.holiday_list_id = hol.id if hol else None
                 db.add(employee)
                 db.flush()
 
@@ -152,11 +160,15 @@ class AuthService:
         return user
 
     def get_users(
-        self, db: Session, skip: int = 0, limit: int = 100
+        self, db: Session, skip: int = 0, limit: int = 100, viewer: Optional[models.User] = None
     ) -> List[models.User]:
         # Stable order: without one, a skip/limit window can repeat or miss rows.
+        query = db.query(models.User)
+        scope = user_access.visible_users_clause(viewer) if viewer is not None else None
+        if scope is not None:
+            query = query.filter(scope)
         return (
-            db.query(models.User)
+            query
             .order_by(func.lower(models.User.username), models.User.id)
             .offset(skip)
             .limit(limit)
@@ -176,6 +188,7 @@ class AuthService:
         self, db: Session, *, page: int, size: int, q: Optional[str] = None,
         active: Optional[bool] = None, branch_id: Optional[int] = None,
         group_id: Optional[int] = None, sort_by: Optional[str] = None, order: str = "asc",
+        viewer: Optional[models.User] = None,
     ) -> dict:
         """Server-side paged list for the Users page. Superuser accounts are
         not listed here (by design), same as the page always did client-side."""
@@ -183,6 +196,9 @@ class AuthService:
         from sqlalchemy.orm import joinedload, selectinload
 
         query = db.query(models.User).filter(models.User.is_superuser.is_(False))
+        scope = user_access.visible_users_clause(viewer) if viewer is not None else None
+        if scope is not None:
+            query = query.filter(scope)
         term = (q or "").strip()
         if term:
             pat = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
@@ -431,10 +447,19 @@ class AuthService:
     def upload_profile_picture(self, db: Session, user_id: int, relative_path: str) -> models.User:
         from app.common.file_storage import delete_file
 
-        user = self.get_user(db, user_id)
-        old_path = user.profile_picture_path
-        user.profile_picture_path = relative_path
-        db.commit()
+        try:
+            # Row lock: concurrent uploads for one user serialize, so each one
+            # deletes the file its predecessor wrote instead of orphaning it.
+            user = db.query(models.User).filter(models.User.id == user_id).with_for_update().first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            old_path = user.profile_picture_path
+            user.profile_picture_path = relative_path
+            db.commit()
+        except Exception:
+            db.rollback()
+            delete_file(relative_path)  # the endpoint already wrote the new file
+            raise
         db.refresh(user)
         if old_path and old_path != relative_path:
             delete_file(old_path)

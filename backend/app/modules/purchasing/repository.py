@@ -878,6 +878,8 @@ class GoodReceivedNoteRepository:
     
     def create(self, grn: schemas.GoodReceivedNoteCreate) -> models.GoodReceivedNote:
         grn_data = grn.model_dump()
+        if not grn_data.get('supplier_invoice_date'):
+            grn_data['supplier_invoice_date'] = grn_data['good_received_date']
         # Server-side sequential number generation with branch code
         branch_code = grn_data.get('branch_code', 'HQ')
         grn_data['good_received_no'] = self.get_next_grn_number(branch_code)

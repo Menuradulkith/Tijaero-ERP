@@ -425,8 +425,9 @@ export interface PurchasingReturnItem {
   id: number;
   product_id: number;
   purchasing_price: number;
-  return_price: number;
-  barcode: string;
+  return_price: number;  // per unit
+  barcode?: string | null;  // null for batch/none lot returns
+  quantity: number;
   purchasingreturn_id: number;
   branch_code: string;
   added_date: string;
@@ -438,9 +439,27 @@ export interface PurchasingReturnItem {
 export interface PurchasingReturnItemCreate {
   product_id: number;
   purchasing_price: number;
-  return_price: number;
-  barcode: string;
+  return_price: number;  // per unit
+  barcode?: string;  // serial units; omit for batch/none lots
+  quantity?: number;  // lots: units returned (identified by sales_stock_id)
   sales_stock_id?: number;
+}
+
+export interface LotReturnValidationRequest {
+  grn_id: number;
+  sales_stock_id: number;
+  quantity: number;
+}
+
+export interface LotReturnValidationResponse {
+  valid: boolean;
+  message: string;
+  sales_stock_id?: number;
+  product_id?: number;
+  product_name?: string;
+  batch_no?: string;
+  available_quantity: number;
+  purchasing_price?: number;  // per unit
 }
 
 export interface PurchasingReturn {
@@ -520,8 +539,14 @@ export interface GoodReceivedNote {
   id: number;
   good_received_no: string;
   good_received_date: string;
-  supplier_invoice_no: string;
-  supplier_invoice_date: string;
+  supplier_invoice_no?: string;  // legacy: the supplier invoice is matched at purchase-invoice time
+  supplier_invoice_date?: string;
+  delivery_note_no?: string | null;
+  vehicle_no?: string | null;
+  received_by?: string | null;
+  status?: "posted" | "cancelled";
+  cancelled_at?: string | null;
+  cancel_reason?: string | null;
   remark?: string;
   branch_code: string;
   created_date: string;
@@ -535,19 +560,103 @@ export interface GoodReceivedNote {
 export interface GoodReceivedNoteCreate {
   good_received_no: string;
   good_received_date: string;
-  supplier_invoice_no: string;
-  supplier_invoice_date: string;
+  supplier_invoice_no?: string;
+  supplier_invoice_date?: string;
+  delivery_note_no?: string;
+  vehicle_no?: string;
+  received_by?: string;  // defaults to the posting user
   remark?: string;
   branch_code: string;
   good_received_locations_id: number;
   purchasingorders_id: number;
 }
 
+// Atomic receipt (POST /purchasing/grn/receive): header + accepted/rejected quantities per PO line
+export interface GRNReceiveUnit {
+  barcode: string;
+  warranty_month?: string;
+}
+
+export interface GRNReceiveLine {
+  purchasing_order_items_id: number;
+  units?: GRNReceiveUnit[];  // accepted serial units
+  quantity?: number;  // accepted qty for batch/none products
+  batch_no?: string;
+  expiry_date?: string;
+  warranty_month?: string;
+  rejected_quantity?: number;
+  rejection_reason?: string;
+}
+
+export interface GoodReceivedNoteReceive extends GoodReceivedNoteCreate {
+  lines: GRNReceiveLine[];
+}
+
+export interface GoodReceivedNoteReceiveResult {
+  grn: GoodReceivedNote;
+  units_received: number;
+  units_rejected: number;
+}
+
+// Landed cost (freight, duty...) allocated across a GRN's lines
+export interface LandedCostCreate {
+  charge_type: "freight" | "duty" | "insurance" | "handling" | "other";
+  amount: number;
+  allocation_basis: "value" | "quantity";
+  payment_method: "credit" | "cash" | "bank";
+  description?: string;
+  reference_no?: string;
+  supplier_id?: number;
+  voucher_date?: string;
+}
+
+export interface LandedCostVoucher {
+  id: number;
+  voucher_no: string;
+  voucher_date: string;
+  charge_type: string;
+  description?: string | null;
+  amount: number | string;
+  allocation_basis: string;
+  payment_method: string;
+  supplier_name?: string | null;
+  reference_no?: string | null;
+  status: "posted" | "cancelled";
+  cancel_reason?: string | null;
+}
+
+export interface LandedCostLine {
+  purchasing_order_items_id: number;
+  product_name?: string | null;
+  quantity: number;
+  unit_price: number | string;
+  landed_total: number | string;
+  landed_per_unit: number | string;
+  landed_unit_cost: number | string;
+}
+
+export interface LandedCostSummary {
+  vouchers: LandedCostVoucher[];
+  lines: LandedCostLine[];
+  total_landed: number | string;
+}
+
+export interface GRNRejection {
+  id: number;
+  purchasing_order_items_id: number;
+  quantity: number;
+  reason: string;
+  product_name?: string;
+}
+
 // Good Received Items Types
 export interface GoodReceivedItem {
   id: number;
   good_received_note: string;
-  barcode: string;
+  barcode?: string | null;  // null for batch/none-tracked receipts
+  quantity: number;  // units this row represents (1 for serial)
+  batch_no?: string | null;
+  expiry_date?: string | null;
   branch_code: string;
   active: boolean;
   created_date: string;
@@ -562,7 +671,10 @@ export interface GoodReceivedItem {
 
 export interface GoodReceivedItemCreate {
   good_received_note: string;
-  barcode: string;
+  barcode?: string;  // required for serial-tracked products only
+  quantity?: number;  // defaults to 1; the received qty for batch/none products
+  batch_no?: string;
+  expiry_date?: string;
   branch_code: string;
   active: boolean;
   purchasing_order_items_id: number;

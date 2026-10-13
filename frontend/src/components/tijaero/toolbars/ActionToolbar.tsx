@@ -166,7 +166,7 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
 
       {/* Custom End Actions */}
       {customEnd && (
-        <Box sx={{ ml: "auto" }}>
+        <Box sx={isEditing || isCreating ? { ml: 0.5 } : { ml: "auto" }}>
           {customEnd}
         </Box>
       )}

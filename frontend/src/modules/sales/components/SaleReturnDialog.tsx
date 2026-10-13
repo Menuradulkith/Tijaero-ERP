@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useForm, Controller, useFieldArray } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -22,6 +23,7 @@ import {
 } from "@mui/material";
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import { saleReturnsApi, salesApi } from "../api";
+import { locationsApi } from "@/modules/common/api";
 import { Invoice, SaleReturnCreate } from "../types";
 import { useReferenceData } from "@/hooks";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
@@ -30,6 +32,7 @@ import { showSuccessToast, showErrorToast, fmtLKR } from "@/components/tijaero";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { format } from "date-fns";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 interface SaleReturnDialogProps {
   open: boolean;
   onClose: () => void;
@@ -68,7 +71,7 @@ export default function SaleReturnDialog({
       sale_return_no: '', // Server generates return number,
       branch_code: getDefaultBranchCode || "MAIN",
       invoice_id: preselectedInvoice?.id || 0,
-      good_received_locations_id: 1,
+      good_received_locations_id: 0, // resolved from the branch's locations below
       payment_method: "cash",
       remark: "",
       items: [],
@@ -89,6 +92,23 @@ export default function SaleReturnDialog({
     queryFn: () => salesApi.getById(selectedInvoiceId),
     enabled: selectedInvoiceId > 0,
   });
+
+  // Returned stock is received into a location of the return's branch (the invoice's branch).
+  const branchCode = watch("branch_code");
+  const { data: branchLocations, isFetched: locationsFetched } = useQuery({
+    queryKey: ["locations", branchCode],
+    queryFn: async () => (await locationsApi.getAll(branchCode)).filter((l) => l.branch_code === branchCode),
+    enabled: open && !!branchCode,
+  });
+  useEffect(() => {
+    if (selectedInvoice?.branch_code) setValue("branch_code", selectedInvoice.branch_code);
+  }, [selectedInvoice?.branch_code, setValue]);
+  useEffect(() => {
+    if (locationsFetched) setValue("good_received_locations_id", branchLocations?.[0]?.id ?? 0);
+  }, [branchLocations, locationsFetched, setValue]);
+
+  // Blocks a second submit before the first create has settled.
+  const savingRef = useRef(false);
 
   const calculateTotal = () => {
     return items.reduce((sum, item) => sum + (item.return_price || 0), 0);
@@ -113,7 +133,13 @@ export default function SaleReturnDialog({
       showErrorToast("Please add at least one return item");
       return;
     }
-    createMutation.mutate(data);
+    if (!data.good_received_locations_id) {
+      showErrorToast(`Branch ${data.branch_code} has no stock location to receive the returned items.`);
+      return;
+    }
+    if (savingRef.current) return;
+    savingRef.current = true;
+    createMutation.mutate(data, { onSettled: () => { savingRef.current = false; } });
   };
 
   const addItem = () => {
@@ -376,7 +402,7 @@ export default function SaleReturnDialog({
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleClose}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleClose}>Cancel</Button>
           <Button
             type="submit"
             variant="contained"

@@ -428,6 +428,19 @@ class CreatePartialSORequest(BaseModel):
     remarks: OptStr(2000) = None
 
 
+class MarkSoCreatedRequest(BaseModel):
+    """Product ids on a quotation that have been put on a sales order.
+    A bare JSON array of ids is still accepted for older clients."""
+    product_ids: List[Id] = Field(..., min_length=1, max_length=500)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_bare_list(cls, data):
+        if isinstance(data, list):
+            return {"product_ids": data}
+        return data
+
+
 class CancelQuoteItemRequest(BaseModel):
     """Request to cancel one item on a quotation"""
     reason: OptStr(500) = None

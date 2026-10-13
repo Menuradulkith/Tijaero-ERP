@@ -34,6 +34,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { passcodeApi } from "../api";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // ─── 6-cell PIN input (same component pattern as LoginPage) ──────────────────
 
 interface PinInputProps {
@@ -343,7 +344,7 @@ export function PasscodeSettingsSection() {
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="error"

@@ -6,11 +6,11 @@ from app.modules.common.api import router as common_router
 from app.modules.communication.api import router as communication_router
 from app.modules.customers.api import router as customers_router
 from app.modules.customers.commission_api import router as commissions_router
-from app.modules.employees.api import router as employees_router
 from app.modules.finance.accounting_api import router as accounting_router
 from app.modules.finance.api import router as finance_router
 from app.modules.groups.api import router as groups_router
 from app.modules.hr.api import router as hr_router
+from app.modules.hr_core.api import router as hr_core_router, employee_router as hr_core_employee_router
 from app.modules.hr.sales_commission_api import router as sales_commissions_router
 from app.modules.attendance.api import router as attendance_router
 from app.modules.inventory.api import router as inventory_router
@@ -65,7 +65,8 @@ api_router.include_router(settings_router)
 api_router.include_router(notifications_router)
 api_router.include_router(common_router)
 api_router.include_router(communication_router, prefix="/communication", tags=["communication"])
-api_router.include_router(employees_router, prefix="/employees", tags=["employees"])
+api_router.include_router(hr_core_router)
+api_router.include_router(hr_core_employee_router, prefix="/employees", tags=["employees"])
 api_router.include_router(branches_router)
 api_router.include_router(chat_agent_router)
 

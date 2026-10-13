@@ -35,7 +35,7 @@ import {
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 import {
@@ -76,6 +76,7 @@ import { expensesApi } from "@/modules/finance/api";
 import type { Expense, ExpenseCreate, ExpensePaymentData } from "@/modules/finance/types";
 import { useCurrencyStore } from "@/state/currencyStore";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // An expense row as shown in the browse table, with display-only lookup
 // fields precomputed so the grid's own column-header sort orders by the
 // displayed label rather than a raw code.
@@ -389,13 +390,19 @@ export default function ExpensesPage() {
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
+  // Blocks a second Save click before the first save has settled.
+  const savingRef = useRef(false);
+
   const handleSave = useCallback(async () => {
-    if (!isFormValid) return;
-    
+    if (!isFormValid || savingRef.current) return;
+    const done = { onSettled: () => { savingRef.current = false; } };
+
     if (isCreating) {
-      createMutation.mutate(formData as ExpenseCreate);
+      savingRef.current = true;
+      createMutation.mutate(formData as ExpenseCreate, done);
     } else if (isEditing && selectedExpense) {
-      updateMutation.mutate({ id: selectedExpense.id, data: formData });
+      savingRef.current = true;
+      updateMutation.mutate({ id: selectedExpense.id, data: formData }, done);
     }
   }, [isCreating, isEditing, isFormValid, formData, selectedExpense, createMutation, updateMutation]);
 
@@ -1115,7 +1122,7 @@ export default function ExpensesPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="error"
@@ -1142,8 +1149,11 @@ export default function ExpensesPage() {
       >
         <form
           onSubmit={paymentForm.handleSubmit((data) =>
-            selectedExpense &&
-            paymentMutation.mutate({ id: selectedExpense.id, data })
+            {
+              if (!selectedExpense || savingRef.current) return;
+              savingRef.current = true;
+              paymentMutation.mutate({ id: selectedExpense.id, data }, { onSettled: () => { savingRef.current = false; } });
+            }
           )}
         >
           <DialogTitle>Process Payment</DialogTitle>
@@ -1207,7 +1217,7 @@ export default function ExpensesPage() {
             </Box>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setPaymentDialogOpen(false)}>
+            <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setPaymentDialogOpen(false)}>
               Cancel
             </Button>
             <Button
@@ -1230,8 +1240,11 @@ export default function ExpensesPage() {
       >
         <form
           onSubmit={recordForm.handleSubmit((data) =>
-            selectedExpense &&
-            recordMutation.mutate({ id: selectedExpense.id, data })
+            {
+              if (!selectedExpense || savingRef.current) return;
+              savingRef.current = true;
+              recordMutation.mutate({ id: selectedExpense.id, data }, { onSettled: () => { savingRef.current = false; } });
+            }
           )}
         >
           <DialogTitle>Record in Accounting</DialogTitle>
@@ -1269,7 +1282,7 @@ export default function ExpensesPage() {
             </Box>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setRecordDialogOpen(false)}>Cancel</Button>
+            <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRecordDialogOpen(false)}>Cancel</Button>
             <Button
               type="submit"
               variant="contained"

@@ -7,6 +7,7 @@ from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
 from app.modules.sales.quotation_schemas import (
     CancelQuoteItemRequest,
+    MarkSoCreatedRequest,
     ConvertToInvoiceRequest,
     ConvertToInvoiceResponse,
     CreatePartialSORequest,
@@ -648,7 +649,7 @@ def create_partial_so(
 )
 def mark_items_so_created(
     quote_id: RowId,
-    product_ids: List[int],
+    body: MarkSoCreatedRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
@@ -656,7 +657,7 @@ def mark_items_so_created(
     Called after a Sales Order is saved from the SO page.
     Marks the given product_ids on this quote as 'so_created' and recomputes header status.
     """
-    return sales_quote_service.mark_items_so_created(db, quote_id, product_ids)
+    return sales_quote_service.mark_items_so_created(db, quote_id, body.product_ids)
 
 
 @router.post(

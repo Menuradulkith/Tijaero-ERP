@@ -1,5 +1,5 @@
-from pydantic import BaseModel, field_serializer
-from typing import Optional, List, Any
+from pydantic import BaseModel, Field, StringConstraints, field_serializer, field_validator
+from typing import Annotated, Optional, List, Any
 from datetime import datetime
 from decimal import Decimal
 
@@ -18,8 +18,15 @@ class Country(CountryBase, TijaeroBaseSchema):
     iso_numeric: int
 
 class LocationBase(BaseModel):
-    name: str
-    branch_code: str
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    branch_code: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+
+    @field_validator("name", "branch_code")
+    @classmethod
+    def _no_nul(cls, v: str) -> str:
+        if "\x00" in v:
+            raise ValueError("must not contain NUL characters")
+        return v
 
 class LocationCreate(LocationBase):
     pass
@@ -41,7 +48,7 @@ class ApprovalUpdate(BaseModel):
     status_changed_by: Optional[int] = None
     next_approval_group: Optional[str] = None
     next_user_to_approve: Optional[int] = None
-    remark: Optional[str] = None
+    remark: Optional[str] = Field(default=None, max_length=500)
 
 class Approval(ApprovalBase, TijaeroBaseSchema):
     id: int

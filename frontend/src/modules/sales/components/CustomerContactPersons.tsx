@@ -33,7 +33,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   FormSection,
@@ -51,6 +51,7 @@ import type {
   CustomerContactPersonCreate,
 } from "@/modules/customers/types";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 const EMPTY_FORM: CustomerContactPersonCreate = {
   title: "",
   full_name: "",
@@ -105,6 +106,13 @@ export default function CustomerContactPersons({
 
   const closeDialog = () => setDialogOpen(false);
 
+  // One save per dialog session: a double-click must not add the contact twice
+  // (neither as two API calls nor as two drafts) before the dialog has closed.
+  const savingRef = useRef(false);
+  useEffect(() => {
+    savingRef.current = false;
+  }, [dialogOpen]);
+
   const saveMutation = useMutation({
     mutationFn: (data: CustomerContactPersonCreate) =>
       editingRow?.saved
@@ -148,8 +156,10 @@ export default function CustomerContactPersons({
   };
 
   const handleSave = () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     if (!isDraftMode) {
-      saveMutation.mutate(form);
+      saveMutation.mutate(form, { onError: () => { savingRef.current = false; } });
       return;
     }
     // Drafts: keep exactly one primary, and make the first row primary.
@@ -223,7 +233,7 @@ export default function CustomerContactPersons({
             {rows.map((r) => (
               <TableRow key={r.key} hover>
                 <TableCell>
-                  {[r.title, r.full_name].filter(Boolean).join(" ")}{" "}
+                  {[TITLE_CHOICES.find((t) => t.value === r.title)?.label ?? r.title, r.full_name].filter(Boolean).join(" ")}{" "}
                   {r.is_primary && <TChip label="Primary" size="small" color="primary" />}
                 </TableCell>
                 <TableCell>{r.designation || "—"}</TableCell>
@@ -261,7 +271,6 @@ export default function CustomerContactPersons({
               value={form.title ?? ""}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
             >
-              <MenuItem value="">—</MenuItem>
               {TITLE_CHOICES.map((o) => (
                 <MenuItem key={o.value} value={o.value}>
                   {o.label}
@@ -310,7 +319,7 @@ export default function CustomerContactPersons({
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeDialog}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={closeDialog}>Cancel</Button>
           <Button variant="contained" disabled={!canSave} onClick={handleSave}>
             {editingRow ? "Update" : "Add"}
           </Button>

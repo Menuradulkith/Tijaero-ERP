@@ -4,7 +4,7 @@
  * Detail mode: the record's detail form (unchanged), full-width, with a
  * "Back to Leaves" link returning to the table.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Avatar, Box, Button, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
@@ -37,6 +37,8 @@ import {
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { leavesApi, employeesApi } from "@/modules/hr/api";
+import apiClient from "@/api/client";
+import { hrOrgApi } from "@/modules/hr/core-api";
 import type { Leave, LeaveCreate } from "@/modules/hr/types";
 
 const STATUS_OPTIONS: TFilterStatusOption[] = [
@@ -138,22 +140,36 @@ export default function LeavesPage() {
     queryFn: () => employeesApi.getAll({ limit: 500 }),
   });
 
+  const { data: leaveTypes = [] } = useQuery({
+    queryKey: ["hr", "leave-types-active"],
+    queryFn: () => hrOrgApi.leaveTypes.list({ active: true }),
+  });
+
   const { data: balance } = useQuery({
     queryKey: ["leave-balance", formData.employee_id],
     queryFn: () => leavesApi.balance(formData.employee_id),
     enabled: !!formData.employee_id && (isCreating || isEditing),
   });
 
-  // Sync computed days
+  // Leave days are worked out by the server: weekly offs and holidays inside the range are not leave days.
+  const [daysError, setDaysError] = useState<string | null>(null);
   useEffect(() => {
-    if (isCreating || isEditing) {
-      const d = computeDays(formData.from_date, formData.to_date);
-      if (d !== formData.leave_duration) {
-        setFormData({ ...formData, leave_duration: d });
-      }
-    }
+    if (!(isCreating || isEditing) || !formData.employee_id || !formData.leave_type || !formData.from_date || !formData.to_date) return;
+    if (formData.to_date < formData.from_date) { setDaysError("To date must be on or after the from date"); return; }
+    let cancelled = false;
+    apiClient
+      .get<{ days: number }>("/hr/leave-days", {
+        params: { employee_id: formData.employee_id, leave_type: formData.leave_type, from_date: formData.from_date, to_date: formData.to_date, leave_time: formData.leave_time || "FULL DAY" },
+      })
+      .then((r) => {
+        if (cancelled) return;
+        setDaysError(null);
+        setFormData((f) => (f.leave_duration === r.data.days ? f : { ...f, leave_duration: r.data.days }));
+      })
+      .catch((e) => { if (!cancelled) setDaysError(handleApiError(e, "Could not work out the leave days")); });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.from_date, formData.to_date, isCreating, isEditing]);
+  }, [formData.employee_id, formData.leave_type, formData.from_date, formData.to_date, formData.leave_time, isCreating, isEditing]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -208,9 +224,12 @@ export default function LeavesPage() {
 
   const confirmDialog = useTConfirmDialog();
 
+  const savingRef = useRef(false);   // blocks a second click before the first save has settled
   const handleSave = useCallback(() => {
-    if (isCreating) createMutation.mutate(formData);
-    else if (selectedLeave) updateMutation.mutate({ id: selectedLeave.id, data: formData });
+    if (savingRef.current) return;
+    const done = { onSettled: () => { savingRef.current = false; } };
+    if (isCreating) { savingRef.current = true; createMutation.mutate(formData, done); }
+    else if (selectedLeave) { savingRef.current = true; updateMutation.mutate({ id: selectedLeave.id, data: formData }, done); }
   }, [isCreating, selectedLeave, formData, createMutation, updateMutation]);
 
   const handleDelete = useCallback(async () => {
@@ -436,7 +455,7 @@ export default function LeavesPage() {
                 disabled={isDisabled}
                 required
               >
-                {LEAVE_TYPES.map((t) => (
+                {(leaveTypes.length ? leaveTypes.map((t) => ({ value: t.code, label: t.name })) : LEAVE_TYPES).map((t) => (
                   <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
                 ))}
               </TextField>
@@ -478,6 +497,8 @@ export default function LeavesPage() {
                 type="number"
                 value={formData.leave_duration}
                 disabled
+                error={Boolean(daysError)}
+                helperText={daysError ?? "Weekly offs and holidays are not counted"}
                 InputLabelProps={{ shrink: true }}
               />
               <Box sx={{ gridColumn: "1 / -1" }}>
@@ -497,24 +518,15 @@ export default function LeavesPage() {
 
             {balance && (isCreating || isEditing) && (
               <FormSection title={`Leave Balance (${balance.year})`} columns={3}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Annual</Typography>
-                  <Typography variant="body2" fontWeight={600}>
-                    {balance.annual_remaining} / {balance.annual_total}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Casual</Typography>
-                  <Typography variant="body2" fontWeight={600}>
-                    {balance.casual_remaining} / {balance.casual_total}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Medical</Typography>
-                  <Typography variant="body2" fontWeight={600}>
-                    {balance.medical_remaining} / {balance.medical_total}
-                  </Typography>
-                </Box>
+                {((balance as unknown as { types?: { code: string; name: string; balance: number; total: number; used: number; pending: number }[] }).types ?? []).map((t) => (
+                  <Box key={t.code}>
+                    <Typography variant="caption" color="text.secondary">{t.name}</Typography>
+                    <Typography variant="body2" fontWeight={600} color={t.balance < 0 ? "error" : undefined}>
+                      {t.balance} left of {t.total}
+                      {t.pending ? <Typography component="span" variant="caption" color="text.secondary"> · {t.pending} pending</Typography> : null}
+                    </Typography>
+                  </Box>
+                ))}
               </FormSection>
             )}
 

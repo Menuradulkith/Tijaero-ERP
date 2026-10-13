@@ -151,3 +151,23 @@ Write `docs/qa/<module>-<YYYY-MM-DD>.md`: table of Page | Status (OK/Issue) | Fi
 - Every create form is a full page (Branches, Roles, Users, Categories, Brands, Products, Suppliers, Customers, PO wizard, Quotation) that returns to the detail view; edit = `Edit` button -> change -> `Save`. Check the toast text ("... created/updated successfully") and `.Mui-error` after each Save; a failed Save also shows "Please fill in the highlighted mandatory fields".
 - Approval pages ask for approver username/password in a step-up dialog; use the dev admin test account only. A PO needs a supplier mapped to the product (product page -> Suppliers tab) before the PO wizard offers it. Pick autocomplete options by name, not first row (the first row can be a real supplier).
 - Cleanup: `cleanup_ui.py`-style script keyed on one QA branch code plus name prefixes (dry-run first, abort on unexpected FK dependents); remember the auto-created `good_received_locations` row blocks deleting the branch.
+
+## HR audit lessons (2026-10-09)
+- HR forms send "" for empty dates; the `modules/hr/api.ts` interceptor turns "" into null for `/hr/*` and `/employees*` bodies. Check new forms for the same 422.
+- Grids that format `HH:MM:SS` strings with `new Date()` crash the page (`Invalid time value`); slice the string instead.
+- Test harness: service `db.rollback()` wipes earlier fixture data; pre-check duplicates instead. `api(token)` shares headers — reset with `api(superuser[1])`.
+- Limited test users need `hr_dashboard:view` (router-level permission).
+- Do not run payroll/reimbursement payments in the dev UI or race scripts: they post journal entries; a leftover current-month payroll batch also breaks the payroll-run tests. Clean with a guarded script.
+- Built-in browser: `window.confirm` is blocked, so a flow using it silently does nothing; prefer `TConfirmDialog`. Typing into `type=time/date` inputs does not register, use `form_input`. Drive MUI Autocomplete with `computer left_click` on its ref, `type`, then click the `[role=option]` via `javascript_tool`.
+- When a list page is empty, compare the `status=` query it sends with the real status values (the Payroll Approvals page asked for `pending`, stored value is `pending_approval`).
+- A mismatch between a form input type and the API field (datetime-local vs time) shows as a 422 on create and blank values on edit: test create AND edit.
+- Always `dblclick` Save on HR create forms and count POSTs.
+
+## Sales order lessons (2026-10-10)
+- Re-test **Edit** as well as Create: the Sales Order Edit button had been dead for a long time (Save disabled on step 1, payment-balance check blocked any change of total). Open an existing record, change one value, Save, and watch for the PUT in the network log.
+- An id route with no branch check is the usual leak: loop `GET /{id}`, the sub-resources (`/payment-history`, `/gl-*`, `/approve`, `/cancel`) and the CSV export as a user from another branch.
+- Hard-delete paths: delete a *pending* record once and confirm 200, then delete 5x in parallel (expect 1x200 + 4x404) and check dependents (items, payments, approval rows, quote links, deposit rows).
+- The DB session does not autoflush: after changing a row's status in Python, `db.flush()` before querying it again by that status.
+- `list` pages calling `limit=100000` break as soon as the API caps limits: page in chunks (`fetchAllRows` in `modules/sales/api.ts`).
+- Approver queues: check the filter is the exact status (`pending_approval`), not `approval == False` (cancelled and bank-pending orders also have approval False).
+- Don't test with `from tests.x import *` in a scratch probe: it pulls every test class into the run.

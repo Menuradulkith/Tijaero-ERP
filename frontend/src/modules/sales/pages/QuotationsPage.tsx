@@ -35,6 +35,7 @@ import {
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
+  continueOrReveal,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { minimumPriceApi } from "@/modules/inventory/api";
@@ -111,6 +112,7 @@ import {
   CreateRevisionResponse,
 } from "../quotation-types";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // Line item type
 interface ItemFormData {
   product_id: number;
@@ -996,7 +998,12 @@ export default function QuotationsPage() {
     }
   }, [selectedQuote, setFormData, handleStartEdit]);
 
+  // Spans the whole save so a double-click cannot send two creates/updates
+  // before the mutation's pending state has re-rendered the button.
+  const saveInFlightRef = useRef(false);
+
   const handleSave = useCallback(() => {
+    if (saveInFlightRef.current) return;
     if (!formData.customer_id || formData.customer_id === 0) {
       showErrorToast("Please select a customer");
       return;
@@ -1004,6 +1011,11 @@ export default function QuotationsPage() {
 
     if (lineItems.length === 0) {
       showErrorToast("Please add at least one item");
+      return;
+    }
+
+    if (lineItems.some((item) => !item.product_id)) {
+      showErrorToast("Select a product for every line, or remove the empty line.");
       return;
     }
 
@@ -1030,18 +1042,21 @@ export default function QuotationsPage() {
       price_tier_id: item.price_tier_id,
     }));
 
+    const releaseGuard = { onSettled: () => { saveInFlightRef.current = false; } };
     if (isCreating) {
+      saveInFlightRef.current = true;
       createMutation.mutate({
         ...formData,
         items,
         tax_mode: taxMode,
         tax_rate: effectiveTaxRate,
-      } as SalesQuoteCreate);
+      } as SalesQuoteCreate, releaseGuard);
     } else if (isEditing && selectedQuote) {
+      saveInFlightRef.current = true;
       updateMutation.mutate({
         id: selectedQuote.id,
         data: { ...formData, items, tax_mode: taxMode, tax_rate: effectiveTaxRate, expected_version: selectedQuote.version } as never,
-      });
+      }, releaseGuard);
     }
   }, [formData, lineItems, isCreating, isEditing, selectedQuote, createMutation, updateMutation]);
 
@@ -1308,10 +1323,8 @@ export default function QuotationsPage() {
           endActions={
             isCreating || isEditing ? (
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <Button
+                <Button variant="contained" color="error" startIcon={<CancelIcon />}
                   size="small"
-                  variant="contained"
-                  color="error"
                   onClick={handleDiscardChanges}
                   disabled={createMutation.isPending || updateMutation.isPending}
                 >
@@ -1322,15 +1335,13 @@ export default function QuotationsPage() {
                   variant="contained"
                   color="success"
                   startIcon={<SaveIcon />}
-                  onClick={handleSave}
-                  disabled={
-                    createMutation.isPending ||
-                    updateMutation.isPending ||
-                    !formData.customer_id ||
-                    !formData.branch_code ||
-                    !formData.valid_until ||
-                    lineItems.length === 0
+                  onClick={() =>
+                    continueOrReveal(
+                      !!(formData.customer_id && formData.branch_code && formData.valid_until && lineItems.length > 0),
+                      handleSave,
+                    )
                   }
+                  disabled={createMutation.isPending || updateMutation.isPending}
                 >
                   {createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
                 </Button>
@@ -1923,6 +1934,17 @@ export default function QuotationsPage() {
                 size="small"
                 options={customers || []}
                 getOptionLabel={(option) => customerDisplayName(option)}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                renderOption={({ key: _key, ...props }, option) => (
+                  <li key={option.id} {...props}>
+                    {customerDisplayName(option)}
+                    {option.mobile_contact_number ? (
+                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                        {option.mobile_contact_number}
+                      </Typography>
+                    ) : null}
+                  </li>
+                )}
                 value={customers?.find((c) => c.id === formData.customer_id) || null}
                 onChange={(_, newValue) => setFormData({ ...formData, customer_id: newValue?.id || 0 })}
                 renderInput={(params) => (
@@ -2516,7 +2538,7 @@ export default function QuotationsPage() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button variant="contained" color="error" onClick={handleRejectSubmit}
             disabled={rejectMutation.isPending}>
             {rejectMutation.isPending ? "Rejecting..." : "Reject"}

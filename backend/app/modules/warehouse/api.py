@@ -289,6 +289,15 @@ def validate_barcode_for_transfer(
     return transfer_service.validate_barcode_for_transfer(request)
 
 
+@router.post("/transfer-notes/validate-lot", response_model=schemas.LotValidationResponse, dependencies=[Depends(require_permission(*Permissions.ITN_VIEW))])
+def validate_lot_for_transfer(
+    request: schemas.LotValidationRequest,
+    db: Session = Depends(get_db)
+):
+    """Validate a quantity of a batch/none-tracked product for transfer (availability at the source location)."""
+    return service.ItemTransferNoteService(db).validate_lot_for_transfer(request)
+
+
 # Dispatch Transfer Note (mark as dispatched and update stock status)
 @router.post("/transfer-notes/{transfer_note_id}/dispatch", response_model=schemas.ItemTransferNote, dependencies=[Depends(require_permission(*Permissions.ITN_UPDATE))])
 def dispatch_transfer_note(

@@ -31,6 +31,8 @@ import {
   Divider,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import CancelIcon from "@mui/icons-material/Cancel";
+import SaveIcon from "@mui/icons-material/Save";
 import { TButton } from "../base/TButton";
 
 export interface TFormDialogProps {
@@ -172,7 +174,8 @@ export const TFormDialog: React.FC<TFormDialogProps> = ({
           {actions || (
             <>
               <TButton
-                variant="secondary"
+                variant="danger"
+                startIcon={<CancelIcon />}
                 onClick={onClose}
                 disabled={isSubmitting}
               >
@@ -180,7 +183,8 @@ export const TFormDialog: React.FC<TFormDialogProps> = ({
               </TButton>
               {onSubmit && (
                 <TButton
-                  variant="primary"
+                  variant="success"
+                  startIcon={<SaveIcon />}
                   type="submit"
                   loading={isSubmitting}
                   disabled={submitDisabled}

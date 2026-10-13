@@ -57,6 +57,7 @@ import type {
   PayrollBatchProcessStatutory,
 } from "@/modules/hr/types";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 const WORKFLOW_STEPS = [
   "Setup Profiles",
   "Run Payroll",
@@ -108,6 +109,8 @@ export default function PayrollProcessingPage() {
   // State
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
   const [runDialogOpen, setRunDialogOpen] = useState(false);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [statutoryDialogOpen, setStatutoryDialogOpen] = useState(false);
   const [runForm, setRunForm] = useState<PayrollRunRequest>({
@@ -175,9 +178,11 @@ export default function PayrollProcessingPage() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (id: number) =>
-      payrollBatchApi.reject(id, { rejection_reason: "Rejected by manager" }),
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      payrollBatchApi.reject(id, { rejection_reason: reason }),
     onSuccess: () => {
+      setRejectDialogOpen(false);
+      setRejectReason("");
       queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
       showSuccessToast("Payroll batch rejected and returned to draft");
@@ -260,15 +265,10 @@ export default function PayrollProcessingPage() {
     if (confirmed) approveMutation.mutate(selectedBatchId);
   };
 
-  const handleRejectBatch = async () => {
+  const handleRejectBatch = () => {
     if (!selectedBatchId) return;
-    const confirmed = await confirm({
-      title: "Reject Payroll",
-      message: "Reject this payroll batch? It will be returned to draft for corrections.",
-      confirmText: "Reject",
-      danger: true,
-    });
-    if (confirmed) rejectMutation.mutate(selectedBatchId);
+    setRejectReason("");
+    setRejectDialogOpen(true);
   };
 
   const handleCompleteBatch = async () => {
@@ -309,10 +309,8 @@ export default function PayrollProcessingPage() {
           >
             Submit for Approval
           </Button>,
-          <Button
+          <Button variant="contained" color="error" startIcon={<CancelIcon />}
             key="cancel"
-            variant="outlined"
-            color="error"
             onClick={handleCancelBatch}
             size="small"
           >
@@ -751,6 +749,37 @@ export default function PayrollProcessingPage() {
         </Paper>
       )}
 
+      {/* Reject Payroll Dialog */}
+      <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Reject Payroll</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            The batch returns to draft for corrections. Say what needs to change.
+          </Typography>
+          <TextField
+            label="Reason"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            inputProps={{ maxLength: 1000 }}
+            multiline
+            minRows={2}
+            fullWidth
+            autoFocus
+            required
+          />
+        </DialogContent>
+        <DialogActions>
+          <TButton variant="danger" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</TButton>
+          <Button variant="contained"
+            color="error"
+            disabled={!rejectReason.trim() || rejectMutation.isPending}
+            onClick={() => selectedBatchId && rejectMutation.mutate({ id: selectedBatchId, reason: rejectReason.trim() })}
+          >
+            Reject
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Run Payroll Dialog */}
       <Dialog
         open={runDialogOpen}
@@ -762,7 +791,7 @@ export default function PayrollProcessingPage() {
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             This will generate payroll records for all employees with salary profiles.
-            EPF (Employee 8%, Employer 12%), ETF (Employee 3%, Employer 3%), Stamp Duty (LKR 100),
+            EPF (Employee 8%, Employer 12%), ETF (Employer 3%), Stamp Duty (LKR 100),
             and APIT (Advance Personal Income Tax 2025/2026) will be calculated automatically.
           </Typography>
           <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
@@ -800,7 +829,7 @@ export default function PayrollProcessingPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRunDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRunDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             startIcon={<RunIcon />}
@@ -853,7 +882,7 @@ export default function PayrollProcessingPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             startIcon={<PaymentIcon />}
@@ -930,7 +959,7 @@ export default function PayrollProcessingPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setStatutoryDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setStatutoryDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="secondary"

@@ -27,7 +27,8 @@ export interface GroupUpdate {
 export const groupsApi = {
   // Get all groups
   getGroups: async (): Promise<Group[]> => {
-    const response = await apiClient.get("/groups/");
+    // The API pages at 100 by default; ask for everything so roles past 100 are not hidden.
+    const response = await apiClient.get("/groups/", { params: { limit: 100000 } });
     return response.data;
   },
 

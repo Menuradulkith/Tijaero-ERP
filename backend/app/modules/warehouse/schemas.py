@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import date, datetime
 from typing import Optional, List
 
@@ -32,6 +32,7 @@ class ItemTransferNote(ItemTransferNoteBase, TijaeroBaseSchema):
 class ItemTransferNoteItemBase(BaseModel):
     product_id: int
     barcode: Optional[str] = None
+    quantity: int = Field(default=1, ge=1)  # units (lots); 1 for barcode items
     branch_code: str
     remark: Optional[str] = None
     item_recieved: bool = False
@@ -44,6 +45,7 @@ class ItemTransferNoteItem(ItemTransferNoteItemBase, TijaeroBaseSchema):
     itemtransfernote_id: int
     created_date: datetime
     product_name: Optional[str] = None
+    sales_stock_id: Optional[int] = None  # set once a lot line is allocated at approval
 
 # Item Transfer Note Approved Schemas
 class ItemTransferNoteApprovedBase(BaseModel):
@@ -110,14 +112,30 @@ class BarcodeValidationResponse(BaseModel):
     cost_price: Optional[float] = None
 
 
+class LotValidationRequest(BaseModel):
+    product_id: int
+    quantity: int = Field(..., ge=1)
+    from_location_id: int
+
+
+class LotValidationResponse(BaseModel):
+    valid: bool
+    message: str
+    product_id: int
+    product_name: Optional[str] = None
+    available_quantity: int = 0
+
+
 # Receive Items Schemas
 class ReceiveItemsRequest(BaseModel):
-    barcodes: List[str]
+    barcodes: List[str] = []
+    item_ids: List[int] = []  # lot lines (no barcode) are received whole, by item id
     received_note: Optional[str] = None
     received_user_id: Optional[int] = None
 
 class ReceivedItemResult(BaseModel):
-    barcode: str
+    barcode: Optional[str] = None
+    item_id: Optional[int] = None
     success: bool
     message: str
     product_name: Optional[str] = None

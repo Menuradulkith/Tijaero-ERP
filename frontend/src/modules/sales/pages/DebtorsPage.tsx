@@ -55,6 +55,7 @@ import {
   FollowupRecord,
 } from "../types/debtors";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 const DEBTORS_STATUS_COLORS: Record<string, "success" | "warning" | "error"> = {
   current: "success",
   overdue: "warning",
@@ -751,7 +752,7 @@ function FollowupDialog({
         </Box>
 
         <Box sx={{ mt: 3, display: "flex", gap: 1, justifyContent: "flex-end" }}>
-          <Button onClick={onClose} variant="outlined">
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -859,7 +860,7 @@ function PaymentDialog({
         </Box>
 
         <Box sx={{ mt: 3, display: "flex", gap: 1, justifyContent: "flex-end" }}>
-          <Button onClick={onClose} variant="outlined">
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={onClose}>
             Cancel
           </Button>
           <Button

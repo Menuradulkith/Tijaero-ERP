@@ -43,10 +43,13 @@ class SalesRepository:
     
     def search(self, db: Session, query_str: str, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
         """Search invoices with indexed columns and eager loading"""
+        from app.modules.customers.models import Customer
+        term = "%" + query_str.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         query = db.query(Invoice).options(*_invoice_eager_options()).filter(
             or_(
-                Invoice.invoice_no.ilike(f"%{query_str}%"),
-                Invoice.branch_code.ilike(f"%{query_str}%")
+                Invoice.invoice_no.ilike(term, escape="\\"),
+                Invoice.branch_code.ilike(term, escape="\\"),
+                Invoice.customer_id.in_(db.query(Customer.id).filter(Customer.customer_name.ilike(term, escape="\\"))),
             )
         )
         if branch_codes:
@@ -62,7 +65,9 @@ class SalesRepository:
     
     def get_pending_approval(self, db: Session, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
         """Get invoices pending approval - server-side filtered with eager loading"""
-        query = db.query(Invoice).options(*_invoice_eager_options()).filter(Invoice.approval == False)
+        query = db.query(Invoice).options(*_invoice_eager_options()).filter(
+            Invoice.approval == False, Invoice.approval_status == "pending_approval"  # noqa: E712
+        )
         if branch_codes:
             query = query.filter(Invoice.branch_code.in_(branch_codes))
         return query.order_by(desc(Invoice.created_date), desc(Invoice.id))\

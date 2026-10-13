@@ -61,9 +61,9 @@ import { useCurrencyStore } from "@/state/currencyStore";
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const STATUS_FILTER_OPTIONS = [
-  { value: "pending", label: "Pending Approval" },
+  { value: "pending_approval", label: "Pending Approval" },
   { value: "approved", label: "Approved" },
-  { value: "rejected", label: "Rejected" },
+  { value: "draft", label: "Returned to Draft" },
   { value: "salary_paid", label: "Salary Paid" },
   { value: "statutory_paid", label: "Statutory Paid" },
   { value: "completed", label: "Completed" },
@@ -85,7 +85,7 @@ export default function PayrollApprovalsPage() {
   // State
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState("payroll_month");
-  const [filterStatus, setFilterStatus] = useState<string>("pending");
+  const [filterStatus, setFilterStatus] = useState<string>("pending_approval");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<PayrollBatch | null>(null);
 
@@ -281,7 +281,7 @@ export default function PayrollApprovalsPage() {
         <TStatusChip status={detail.status} statusMap="payrollStatus" />
       </Box>
 
-      {detail.status === "pending" && (
+      {detail.status === "pending_approval" && (
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 3 }}>
           <Button
             variant="contained"
@@ -406,7 +406,7 @@ export default function PayrollApprovalsPage() {
         </FormSection>
       )}
 
-      {detail.status === "rejected" && (
+      {detail.status === "draft" && (detail.description || "").includes("[Rejected:") && (
         <Alert severity="error" sx={{ mt: 2 }}>
           <Typography variant="subtitle2">Batch Rejected</Typography>
           <Typography variant="body2">This payroll batch was rejected and needs to be corrected.</Typography>
@@ -496,7 +496,7 @@ export default function PayrollApprovalsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="error"

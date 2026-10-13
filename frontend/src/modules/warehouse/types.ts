@@ -44,6 +44,8 @@ export interface ItemTransferNoteItem {
   item_recieved: boolean;
   itemtransfernote_id: number;
   created_date: string;
+  quantity: number;  // units on this line (1 for barcode items)
+  sales_stock_id?: number | null;  // set once a lot line is allocated at approval
   // Extended properties
   product_name?: string;
   product_item_code?: string;
@@ -52,6 +54,7 @@ export interface ItemTransferNoteItem {
 export interface ItemTransferNoteItemCreate {
   product_id: number;
   barcode?: string;
+  quantity?: number;  // batch/none lots: units to transfer (no barcode)
   branch_code: string;
   remark?: string;
   item_recieved?: boolean;
@@ -113,14 +116,30 @@ export interface BarcodeValidationResponse {
 }
 
 // Receive Items Types
+export interface LotValidationRequest {
+  product_id: number;
+  quantity: number;
+  from_location_id: number;
+}
+
+export interface LotValidationResponse {
+  valid: boolean;
+  message: string;
+  product_id: number;
+  product_name?: string;
+  available_quantity: number;
+}
+
 export interface ReceiveItemsRequest {
-  barcodes: string[];
+  barcodes?: string[];
+  item_ids?: number[];  // lot lines (no barcode) are received whole, by item id
   received_note?: string;
   received_user_id?: number;
 }
 
 export interface ReceivedItemResult {
-  barcode: string;
+  barcode?: string;
+  item_id?: number;
   success: boolean;
   message: string;
   product_name?: string;

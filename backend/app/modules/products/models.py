@@ -37,6 +37,13 @@ class Product(Base, AuditMixin):
     model = Column(String(255))
     item_type = Column(String(30), nullable=False)
     unit_of_measure = Column(String(20), nullable=False, server_default="pcs")
+    # 'serial' | 'batch' | 'none' — see app.common.enums.TrackingType. Decides how
+    # GRN receipts create stock rows. Locked once the product has stock rows.
+    tracking_type = Column(String(10), nullable=False, server_default="serial")
+    # Receipt tolerances (% of the ordered quantity): a PO line may be over-received up to
+    # +over% and counts as fully received once -under% has arrived. 0 = exact quantity.
+    over_receipt_tolerance_pct = Column(Numeric(5, 2), nullable=False, server_default="0")
+    under_receipt_tolerance_pct = Column(Numeric(5, 2), nullable=False, server_default="0")
     description = Column(Text)
     website_active = Column(Boolean, nullable=False)
     website_price = Column(Numeric(60, 2))

@@ -10,9 +10,29 @@ from app.modules.finance.gl_posting_service import record_gl_commit_failure
 from app.modules.customers.credit_service import CustomerCreditService
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.core import timezone as tz
+from app.modules.inventory.lots import FEFO_ORDER, find_grn_item, split_lot, take_units, units_in
 from app.common.audit import log_audit, diff_changes
 from app.common.enums import DocumentStatus, PaymentStatus, StockStatus
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
+from app.core.money import money, line_amounts
+
+# M7: an order may not be worth more than this (fits every column that stores a total, e.g. cashbook numeric(15,2))
+MAX_ORDER_TOTAL = Decimal("100000000000.00")
+
+
+def _assert_order_value(order_value: Decimal) -> None:
+    """M2/M7: the value of an order (after discounts and tax, before vouchers / credit notes / advances) must be a
+    positive amount that fits the books. A zero-value order gives stock away; it is only ever settled by tenders."""
+    if order_value <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The order total must be greater than zero. Check the prices and discounts.",
+        )
+    if order_value > MAX_ORDER_TOTAL:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"The order total (Rs. {order_value:,.2f}) exceeds the maximum allowed per order (Rs. {MAX_ORDER_TOTAL:,.2f}).",
+        )
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 from typing import List, Optional
@@ -21,6 +41,10 @@ logger = logging.getLogger(__name__)
 
 # Initialize credit service
 customer_credit_service = CustomerCreditService()
+
+# L1: half of the smallest currency unit; any larger gap between tenders and payable is refused (short) or
+# returned as change (cash over-tender), never absorbed.
+PAYMENT_EPSILON = Decimal("0.005")
 
 class SalesService:
     def _get_next_invoice_number(self, db: Session, branch_code: str = None) -> str:
@@ -155,14 +179,14 @@ class SalesService:
             elif status == "cancelled":
                 query = query.filter(Invoice.approval_status == DocumentStatus.CANCELLED)
         
-        # Apply search filter
+        # Apply search filter (invoice number or customer name; wildcards in the text are literal)
         if search:
-            search_term = f"%{search}%"
+            from app.modules.customers.models import Customer as _Cust
+            term = "%" + search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             query = query.filter(
                 or_(
-                    Invoice.invoice_no.ilike(search_term),
-                    # Invoice.payment_reference.ilike(search_term), # Field does not exist
-                    # Invoice.customer_code.ilike(search_term), # Field does not exist
+                    Invoice.invoice_no.ilike(term, escape="\\"),
+                    Invoice.customer_id.in_(db.query(_Cust.id).filter(_Cust.customer_name.ilike(term, escape="\\"))),
                 )
             )
         
@@ -171,7 +195,9 @@ class SalesService:
         total = fast_count(query)
         
         # Apply sorting
-        sort_column = getattr(Invoice, sort_by, Invoice.created_date)
+        sort_column = getattr(Invoice, sort_by, None) if sort_by in ("created_date", "invoice_no", "branch_code", "approval_status", "payment_status", "grand_total", "subtotal", "paid_amount", "balance_due", "id") else None
+        if sort_column is None:
+            sort_column = Invoice.created_date
         if sort_desc:
             query = query.order_by(desc(sort_column), desc(Invoice.id))
         else:
@@ -277,27 +303,24 @@ class SalesService:
         last_month_end = current_month_start - relativedelta(days=1)
         
         # Base query with branch filtering
+        from app.modules.sales.sales_metrics import counted_invoice_filters, net_sales_expr
+
+        # Only real sales (approved/completed, not cancelled) are counted;
+        # pending/cancelled orders are reported separately below.
         def base_query():
-            q = db.query(Invoice)
+            q = db.query(Invoice).filter(*counted_invoice_filters())
             if branch_codes:
                 q = q.filter(Invoice.branch_code.in_(branch_codes))
             return q
         
         # Revenue expression helper
-        invoice_total_expr = (
-            Invoice.cash_amount + Invoice.card_visa_amount + Invoice.card_mastercard_amount +
-            Invoice.card_amex_amount + Invoice.cheque_amount + Invoice.bank_transfer_amount + Invoice.credit_amount
-        )
-        
+        # Value = document grand_total net of processed returns (not the sum of
+        # tender columns, which ignores vouchers / credit notes / returns).
+        invoice_total_expr = net_sales_expr()
+
         def calc_revenue(query):
             return query.with_entities(
-                func.coalesce(func.sum(Invoice.cash_amount), 0) +
-                func.coalesce(func.sum(Invoice.card_visa_amount), 0) +
-                func.coalesce(func.sum(Invoice.card_mastercard_amount), 0) +
-                func.coalesce(func.sum(Invoice.card_amex_amount), 0) +
-                func.coalesce(func.sum(Invoice.cheque_amount), 0) +
-                func.coalesce(func.sum(Invoice.bank_transfer_amount), 0) +
-                func.coalesce(func.sum(Invoice.credit_amount), 0)
+                func.coalesce(func.sum(invoice_total_expr), 0)
             ).scalar() or 0
         
         # ── Core counts ───────────────────────────────────────────────
@@ -325,8 +348,15 @@ class SalesService:
         today_revenue = calc_revenue(base_query().filter(Invoice.created_date == today))
         today_orders = base_query().filter(Invoice.created_date == today).with_entities(func.count(Invoice.id)).scalar() or 0
         
-        pending_approval = base_query().filter(Invoice.approval == False).with_entities(func.count(Invoice.id)).scalar() or 0
-        approved = base_query().filter(Invoice.approval == True).with_entities(func.count(Invoice.id)).scalar() or 0
+        # Real pending only: awaiting approval (not cancelled, not counted sales)
+        pending_q = db.query(Invoice).filter(
+            Invoice.status == True,
+            Invoice.approval_status == "pending_approval",
+        )
+        if branch_codes:
+            pending_q = pending_q.filter(Invoice.branch_code.in_(branch_codes))
+        pending_approval = pending_q.with_entities(func.count(Invoice.id)).scalar() or 0
+        approved = total_invoices
         
         # Sale returns (with branch filtering)
         returns_query = db.query(SaleReturn)
@@ -414,8 +444,7 @@ class SalesService:
         recent_invoices_raw = base_query().order_by(Invoice.created_date.desc()).limit(5).all()
         
         def invoice_to_dict(inv):
-            total = (inv.cash_amount + inv.card_visa_amount + inv.card_mastercard_amount +
-                     inv.card_amex_amount + inv.cheque_amount + inv.bank_transfer_amount + inv.credit_amount)
+            total = inv.grand_total
             return {
                 "id": inv.id,
                 "invoice_no": inv.invoice_no,
@@ -452,65 +481,50 @@ class SalesService:
             "recent_invoices": [invoice_to_dict(inv) for inv in recent_invoices_raw],
         }
     
-    def get_available_products_from_stock(self, db: Session):
-        """
-        Get all products that have available items in sales stock.
-        
-        Returns:
-            List of products with their available quantity in sales stock
-        """
+    def get_available_products_from_stock(self, db: Session, branch_codes: Optional[List[str]] = None):
+        """Products that have available items in sales stock, with the available quantity.
+        Limited to the caller's branches when ``branch_codes`` is given."""
         from app.modules.products.models import Product
-        from sqlalchemy import distinct
-        
-        # Query to get products with available stock and their quantities
-        products_with_stock = db.query(
+
+        query = db.query(
             Product.id,
-            Product.product_code,
-            Product.product_name,
+            Product.item_code,
+            Product.name,
             Product.description,
             Product.category_id,
-            Product.brand_id,
+            Product.items_brand_id,
             Product.unit_of_measure,
-            Product.reorder_level,
-            Product.status,
-            func.count(SalesStock.id).label('available_quantity')
-        ).join(
-            SalesStock, SalesStock.product_id == Product.id
-        ).filter(
+            Product.selling_price,
+            Product.active,
+            func.coalesce(func.sum(SalesStock.quantity), 0).label("available_quantity"),
+        ).join(SalesStock, SalesStock.product_id == Product.id).filter(
             SalesStock.status == StockStatus.AVAILABLE,
-            SalesStock.is_active == True,
-            Product.status == True
-        ).group_by(
-            Product.id,
-            Product.product_code,
-            Product.product_name,
-            Product.description,
-            Product.category_id,
-            Product.brand_id,
-            Product.unit_of_measure,
-            Product.reorder_level,
-            Product.status
-        ).all()
-        
-        # Convert to list of dictionaries
-        result = []
-        for row in products_with_stock:
-            result.append({
-                "id": row.id,
-                "product_code": row.product_code,
-                "product_name": row.product_name,
-                "description": row.description,
-                "category_id": row.category_id,
-                "brand_id": row.brand_id,
-                "unit_of_measure": row.unit_of_measure,
-                "reorder_level": row.reorder_level,
-                "status": row.status,
-                "available_quantity": row.available_quantity
-            })
-        
-        return result
-    
-    def validate_product_availability(self, db: Session, product_id: int, requested_quantity: int):
+            SalesStock.is_active == True,  # noqa: E712
+            Product.active == True,  # noqa: E712
+        )
+        if branch_codes:
+            query = query.filter(SalesStock.branch_code.in_(branch_codes))
+        rows = query.group_by(
+            Product.id, Product.item_code, Product.name, Product.description, Product.category_id,
+            Product.items_brand_id, Product.unit_of_measure, Product.selling_price, Product.active,
+        ).order_by(Product.name).all()
+        return [
+            {
+                "id": r.id,
+                "product_code": r.item_code,
+                "product_name": r.name,
+                "description": r.description,
+                "category_id": r.category_id,
+                "brand_id": r.items_brand_id,
+                "unit_of_measure": r.unit_of_measure,
+                "selling_price": float(r.selling_price) if r.selling_price is not None else None,
+                "status": r.active,
+                "available_quantity": r.available_quantity,
+            }
+            for r in rows
+        ]
+
+    def validate_product_availability(self, db: Session, product_id: int, requested_quantity: int, branch_code: Optional[str] = None):
         """
         Validate if a product is available in sales stock with sufficient quantity.
         
@@ -523,10 +537,11 @@ class SalesService:
             HTTPException: If product is not available or insufficient quantity
         """
         # Count available stock items for this product
-        available_count = db.query(func.count(SalesStock.id)).filter(
+        available_count = db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
             SalesStock.product_id == product_id,
             SalesStock.status == StockStatus.AVAILABLE,
-            SalesStock.is_active == True
+            SalesStock.is_active == True,
+            *([SalesStock.branch_code == branch_code] if branch_code else []),
         ).scalar() or 0
         
         if available_count == 0:
@@ -541,6 +556,24 @@ class SalesService:
                 detail=f"Insufficient stock for product ID {product_id}. Requested: {requested_quantity}, Available: {available_count}"
             )
     
+    @staticmethod
+    def _forfeit_voucher_remainder(db: Session, voucher, redeemed: Decimal, invoice_no: str, user_id: int) -> None:
+        """Post the forfeited remainder of a one-time-use voucher (Dr 2510 / Cr other income)."""
+        forfeited = (Decimal(str(voucher.balance or 0)) - Decimal(str(redeemed))).quantize(Decimal("0.01"))
+        if forfeited <= 0:
+            return
+        try:
+            from app.modules.sales.accounting_integration import SalesAccountingIntegration
+            SalesAccountingIntegration(db).post_gift_voucher_forfeit_to_gl(voucher, forfeited, invoice_no, user_id)
+        except Exception as e:  # never block the sale; the failure is also recorded by the GL service
+            logger.error(f"Voucher forfeit GL posting failed for {voucher.barcode_no}: {e}")
+
+    @staticmethod
+    def _is_superuser(db: Session, user_id: int) -> bool:
+        from app.auth.models import User as _User
+        u = db.query(_User).filter(_User.id == user_id).first()
+        return bool(u and getattr(u, 'is_superuser', False))
+
     def create_invoice(self, db: Session, invoice_data: schemas.InvoiceCreate, user_id: int):
         # ── Validate branch is active ──
         from app.common.branch_validation import validate_branch_is_active
@@ -618,6 +651,7 @@ class SalesService:
                 .filter(
                     SalesStock.barcode.in_(barcodes_in_order),
                     SalesStock.status == StockStatus.AVAILABLE,
+                    SalesStock.branch_code == invoice_data.branch_code,
                 )
                 .with_for_update()
                 .all()
@@ -640,11 +674,11 @@ class SalesService:
         is_tax_invoice = getattr(invoice_data, 'is_tax_invoice', False)
         tax_rate = Decimal(str(getattr(invoice_data, 'tax_rate', 0) or 0))
         for item in invoice_data.items:
-            item_gross = Decimal(str(item.quantity)) * Decimal(str(item.selling_price))
+            # M1: the subtotal is the sum of the rounded printed line totals (the document foots)
+            item_gross, _item_disc, item_net = line_amounts(item.quantity, item.selling_price, getattr(item, 'discount_percent', 0) or 0)
             gross_total += item_gross
-            item_discount_percent = Decimal(str(getattr(item, 'discount_percent', 0) or 0))
-            item_discount = item_gross * (item_discount_percent / 100)
-            subtotal += (item_gross - item_discount)
+            subtotal += item_net
+        _assert_order_value(subtotal)  # M2/M7: before any stock is touched
         
         # Get discount parameters for combined validation
         # Flow: Normalize → Item Discount → Coupon → Invoice Discount → Tax
@@ -720,7 +754,7 @@ class SalesService:
         # Validate all products are available in sales stock before creating invoice
         from app.modules.products.repository import minimum_price_repository
         for item_data in invoice_data.items:
-            self.validate_product_availability(db, item_data.product_id, item_data.quantity)
+            self.validate_product_availability(db, item_data.product_id, item_data.quantity, invoice_data.branch_code)
 
             # Server-authoritative minimum price. NEVER trust the client-supplied
             # item_data.minimum_selling_price — look the floor up from the
@@ -774,6 +808,18 @@ class SalesService:
         payment_method = invoice_data.payment_method.lower() if invoice_data.payment_method else ""
         is_credit_payment = payment_method == "credit" or (getattr(invoice_data, 'credit_amount', 0) or 0) > 0
         credit_validation = None
+
+        # A bank transfer needs the bank and the reference to be verified against; a cheque needs its number and bank.
+        if (invoice_data.bank_transfer_amount or 0) > 0 and not (bank_name and bank_transfer_ref):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A bank transfer needs the bank name and the reference number.",
+            )
+        if (invoice_data.cheque_amount or 0) > 0 and not (cheque_number and cheque_bank):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A cheque payment needs the cheque number and the bank.",
+            )
         
         # Calculate tax rate (discount values already calculated above)
         tax_rate = Decimal(str(getattr(invoice_data, 'tax_rate', 0) or 0))
@@ -792,28 +838,29 @@ class SalesService:
         
         # Step 2: Normalize to net for inclusive
         if is_tax_invoice and tax_rate > 0:
-            net_subtotal_calc = (subtotal / (Decimal('1') + tax_rate / Decimal('100'))).quantize(Decimal('0.01'))
+            net_subtotal_calc = money(subtotal / (Decimal('1') + tax_rate / Decimal('100')))
         else:
-            net_subtotal_calc = subtotal.quantize(Decimal('0.01'))
+            net_subtotal_calc = money(subtotal)
         
         # Step 3: Coupon (on net subtotal)
-        after_coupon_calc = (net_subtotal_calc - coupon_amount).quantize(Decimal('0.01'))
+        after_coupon_calc = money(net_subtotal_calc - coupon_amount)
         
         # Step 4: Invoice discount (after coupon)
         calculated_discount = Decimal("0")
         if discount_percent > 0:
-            calculated_discount = (after_coupon_calc * (discount_percent / Decimal('100'))).quantize(Decimal('0.01'))
+            calculated_discount = money(after_coupon_calc * (discount_percent / Decimal('100')))
         elif discount_amount_input > 0:
-            calculated_discount = discount_amount_input.quantize(Decimal('0.01'))
-        final_net = (after_coupon_calc - calculated_discount).quantize(Decimal('0.01'))
+            calculated_discount = money(discount_amount_input)
+        final_net = money(after_coupon_calc - calculated_discount)
         
         # Step 5: Tax - recalculate on final net (same formula for both inclusive & exclusive)
-        tax_amount = (final_net * (tax_rate / Decimal('100'))).quantize(Decimal('0.01')) if tax_rate > 0 else Decimal("0.00")
+        tax_amount = money(final_net * (tax_rate / Decimal('100'))) if tax_rate > 0 else Decimal("0.00")
         
         # Step 6: Grand total = Net + Tax
         subtotal_final = final_net
-        grand_total = (final_net + tax_amount).quantize(Decimal('0.01'))
+        grand_total = money(final_net + tax_amount)
         after_tax = grand_total
+        _assert_order_value(after_tax)
         
         # Get voucher payment amount
         gift_voucher_id = getattr(invoice_data, 'gift_voucher_id', None)
@@ -826,7 +873,14 @@ class SalesService:
             # Use total from multiple vouchers
             total_voucher_amount = sum(Decimal(str(r.amount_to_redeem)) for r in voucher_redemptions)
         elif gift_voucher_amount > 0:
-            # Use legacy single voucher
+            # Use legacy single voucher. A voucher amount is a payment tender:
+            # it is only valid when backed by the voucher it redeems, otherwise
+            # a client could discount any order for free.
+            if not gift_voucher_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A gift voucher amount was sent without a gift voucher. Please select the voucher to redeem.",
+                )
             total_voucher_amount = gift_voucher_amount
         
         # Step 5: After voucher
@@ -838,7 +892,9 @@ class SalesService:
             # Validate customer has sufficient credit balance
             from app.modules.finance.service import CustomerCreditNoteService
             credit_service = CustomerCreditNoteService(db)
-            available_balance = Decimal(str(credit_service.get_customer_credit_balance(invoice_data.customer_id)))
+            # C2: lock the customer's credit note rows and re-read the balance under the lock, so parallel
+            # redemptions serialise (the lock is held until this order's transaction commits)
+            available_balance = Decimal(str(credit_service.get_customer_credit_balance(invoice_data.customer_id, lock=True)))
             
             if credit_note_amount > available_balance:
                 raise HTTPException(
@@ -854,6 +910,47 @@ class SalesService:
                 )
         
         after_credit_note = after_voucher - credit_note_amount
+
+        # Step 6b (H8): customer advance. Validate and size it here (row locked) so the payable, the service
+        # charge and the credit-limit check all see the order net of the advance; it is consumed further down.
+        advance_payment_id = getattr(invoice_data, 'customer_advance_payments_id', None)
+        advance_deducted = Decimal("0")
+        advance_row = None
+        if advance_payment_id:
+            from app.modules.customers.models import CustomerAdvancePayments
+            advance_row = db.query(CustomerAdvancePayments).filter(
+                CustomerAdvancePayments.id == advance_payment_id
+            ).with_for_update().first()
+            if advance_row is None or not advance_row.active:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The customer advance payment was not found or is not active.")
+            if advance_row.customer_id != invoice_data.customer_id:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The customer advance payment belongs to a different customer.")
+            advance_remaining = (
+                Decimal(str(advance_row.payment_amount)) - Decimal(str(advance_row.applied_amount or 0))
+            ).quantize(Decimal("0.01"))
+            if advance_row.is_fully_applied or advance_remaining <= 0:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The customer advance payment has no balance left.")
+            requested_advance = getattr(invoice_data, 'customer_advance_amount', None)
+            if requested_advance is not None:
+                requested_advance = Decimal(str(requested_advance)).quantize(Decimal("0.01"))
+                if requested_advance <= 0:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The advance amount to apply must be greater than zero.")
+                if requested_advance > advance_remaining:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Advance amount (Rs. {requested_advance:.2f}) exceeds the advance balance (Rs. {advance_remaining:.2f}).",
+                    )
+                if requested_advance > after_credit_note:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Advance amount (Rs. {requested_advance:.2f}) exceeds the amount due on the order (Rs. {after_credit_note:.2f}).",
+                    )
+                advance_deducted = requested_advance
+            else:
+                advance_deducted = min(advance_remaining, max(after_credit_note, Decimal("0")))
+            if advance_deducted <= 0:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="There is nothing on this order for the advance to be applied to.")
+            after_credit_note = after_credit_note - advance_deducted
         
         # Step 7: Calculate service charges for card payments (on remaining amount after credit note)
         # Use the service charge from payment_adjustments (sent by frontend from PaymentCard table)
@@ -867,13 +964,13 @@ class SalesService:
                 service_charge_rate = service_charge_amount / after_credit_note
         elif payment_method == "card_amex":
             service_charge_rate = Decimal("0.03")  # 3% for Amex (legacy fallback)
-            service_charge_amount = after_credit_note * service_charge_rate
+            service_charge_amount = money(after_credit_note * service_charge_rate)
         elif payment_method in ["card_visa", "card_mastercard"]:
             service_charge_rate = Decimal("0.027")  # 2.7% for Visa/Mastercard (legacy fallback)
-            service_charge_amount = after_credit_note * service_charge_rate
+            service_charge_amount = money(after_credit_note * service_charge_rate)
         
         # Step 8: Calculate grand total (remaining amount to pay)
-        grand_total = after_credit_note + service_charge_amount
+        grand_total = money(after_credit_note + service_charge_amount)
 
         # Define immediate_payment and total_prepaid
         immediate_payment = (
@@ -886,6 +983,37 @@ class SalesService:
         total_prepaid = total_voucher_amount + credit_note_amount
 
         # Comprehensive credit sale validation (BLOCKING validations)
+        # #8: override_credit_validation is honoured only for superusers.
+        if getattr(invoice_data, 'override_credit_validation', False) and not self._is_superuser(db, user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="override_credit_validation can only be used by a superuser.",
+            )
+        # #9: credit_amount is never client-controlled: order total minus other payments.
+        credit_from_payments = max(
+            grand_total - immediate_payment - Decimal(str(invoice_data.bank_transfer_amount or 0)),
+            Decimal("0"),
+        )
+        credit_override_note = None
+        if is_credit_payment and getattr(invoice_data, 'override_credit_validation', False):
+            # Superuser override: skips the time window and the blocking checks, but the
+            # customer row lock and the limit bookkeeping still run, so parallel
+            # overrides serialise and an over-limit order is flagged for the approver.
+            _ov_customer = db.query(Customer).filter(
+                Customer.id == invoice_data.customer_id
+            ).with_for_update().first()
+            if _ov_customer is not None:
+                _ov_outstanding = customer_credit_service._calculate_outstanding_credit(db, invoice_data.customer_id)
+                _ov_limit = Decimal(str(_ov_customer.max_credit_limit or 0))
+                _ov_new_total = _ov_outstanding + credit_from_payments
+                if _ov_new_total > _ov_limit:
+                    credit_override_note = (
+                        f"CREDIT LIMIT OVERRIDDEN by superuser: limit Rs. {_ov_limit:,.2f}, "
+                        f"outstanding before Rs. {_ov_outstanding:,.2f}, new total Rs. {_ov_new_total:,.2f}, "
+                        f"exceeds limit by Rs. {(_ov_new_total - _ov_limit):,.2f}"
+                    )
+                else:
+                    credit_override_note = "Credit validation overridden by superuser (within limit)"
         if is_credit_payment and not getattr(invoice_data, 'override_credit_validation', False):
             # Lock the customer row to serialise concurrent credit-sale requests
             # for the same customer — prevents two requests from both reading the
@@ -895,11 +1023,7 @@ class SalesService:
             ).with_for_update().first()
 
             # Calculate credit amount portion for validation
-            calculated_credit = getattr(invoice_data, 'credit_amount', 0) or 0
-            if calculated_credit <= 0:
-                calculated_credit = grand_total - total_prepaid - immediate_payment
-            if calculated_credit < 0:
-                calculated_credit = Decimal("0")
+            calculated_credit = credit_from_payments
                 
             # Use comprehensive validation - blocking by default
             credit_validation = customer_credit_service.validate_credit_sale_comprehensive(
@@ -928,7 +1052,7 @@ class SalesService:
             'gift_voucher_id', 'gift_voucher_amount',  # We'll handle voucher separately
             'voucher_redemptions',  # Array field - not stored in Invoice table
             'agent_commission_rate', 'agent_commission_amount',  # Drive the commission entry, not Invoice columns
-            'credit_terms', 'override_credit_validation'
+            'credit_terms', 'override_credit_validation', 'customer_advance_amount'
         })
         
         # Override sale_rep_id with the logged-in user
@@ -959,11 +1083,7 @@ class SalesService:
         
         # Calculate final credit amount for the DB field
         if is_credit_payment:
-            calculated_credit = getattr(invoice_data, 'credit_amount', 0) or 0
-            if calculated_credit <= 0:
-                calculated_credit = grand_total - total_prepaid - immediate_payment
-            if calculated_credit < 0:
-                calculated_credit = Decimal("0")
+            calculated_credit = credit_from_payments
             invoice_dict['credit_amount'] = float(calculated_credit)
         else:
             invoice_dict['credit_amount'] = 0
@@ -989,31 +1109,18 @@ class SalesService:
         # If invoice has a customer_advance_payments_id, deduct from
         # the advance remaining_amount and track as prepaid
         # ═══════════════════════════════════════════════════════════════
-        advance_payment_id = getattr(invoice_data, 'customer_advance_payments_id', None)
-        advance_deducted = Decimal("0")
+        # (validated + sized + locked in step 6b above; grand_total / amount_after_voucher are already net of
+        # the advance, exactly like a voucher or credit note, so only the advance row is consumed here)
         advance_for_gl = None  # Store for GL posting later
-        if advance_payment_id:
-            from app.modules.customers.models import CustomerAdvancePayments
-            # Lock the advance payment row to prevent race condition
-            advance = db.query(CustomerAdvancePayments).filter(
-                CustomerAdvancePayments.id == advance_payment_id,
-                CustomerAdvancePayments.active == True
-            ).with_for_update().first()
-            if advance:
-                available = Decimal(str(advance.remaining_amount or advance.payment_amount))
-                # Deduct up to the remaining invoice amount
-                advance_deducted = min(available, amount_after_voucher)
-                if advance_deducted > 0:
-                    advance.applied_amount = Decimal(str(advance.applied_amount or 0)) + advance_deducted
-                    advance.remaining_amount = Decimal(str(advance.payment_amount)) - Decimal(str(advance.applied_amount))
-                    if advance.remaining_amount <= 0:
-                        advance.remaining_amount = Decimal("0")
-                        advance.is_fully_applied = True
-                    amount_after_voucher -= advance_deducted
-                    grand_total -= advance_deducted
-                    total_prepaid += advance_deducted
-                    invoice_dict['grand_total'] = float(grand_total)
-                    advance_for_gl = advance  # Save for GL posting
+        if advance_row is not None and advance_deducted > 0:
+            advance = advance_row
+            advance.applied_amount = Decimal(str(advance.applied_amount or 0)) + advance_deducted
+            advance.remaining_amount = Decimal(str(advance.payment_amount)) - Decimal(str(advance.applied_amount))
+            if advance.remaining_amount <= 0:
+                advance.remaining_amount = Decimal("0")
+                advance.is_fully_applied = True
+            total_prepaid += advance_deducted
+            advance_for_gl = advance  # Save for GL posting
         
         # Set payment tracking fields
         immediate_payment = (
@@ -1023,19 +1130,52 @@ class SalesService:
             Decimal(str(invoice_data.card_amex_amount or 0)) +
             Decimal(str(invoice_data.cheque_amount or 0))
         )
+        # L1: tenders must equal the payable. Half the smallest currency unit is the only slack (float noise);
+        # a customer short by 0.04 is NOT written off, and cash handed over in excess is returned as change.
+        overpaid = immediate_payment - grand_total
+        change_due = Decimal("0")
+        if overpaid > PAYMENT_EPSILON:
+            overpaid = overpaid.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            cash_in = Decimal(str(invoice_data.cash_amount or 0))
+            if is_credit_payment or payment_method == "bank_transfer" or overpaid > cash_in:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"The payments entered ({float(immediate_payment):.2f}) are more than the amount due "
+                        f"({float(grand_total):.2f}). Only cash can be over-tendered."
+                    ),
+                )
+            # the difference is change handed back: record what was kept
+            invoice_data.cash_amount = float(cash_in - overpaid)
+            invoice_dict['cash_amount'] = invoice_data.cash_amount
+            immediate_payment -= overpaid
+            change_due = overpaid
+
         if is_credit_payment:
             # Credit payment - needs approval, unpaid until settled
             invoice_dict['approval'] = False
             invoice_dict['approval_status'] = "pending_approval"
-            invoice_dict['paid_amount'] = float(total_prepaid + immediate_payment)  # Voucher + credit note + immediate paid
+            # Convention (same as cash orders): grand_total is already NET of
+            # voucher / credit note / advance, so paid_amount counts only the
+            # tenders received against it => paid + balance_due == grand_total.
+            invoice_dict['paid_amount'] = float(immediate_payment)
             invoice_dict['balance_due'] = float(amount_after_voucher - immediate_payment)
-            invoice_dict['payment_status'] = "unpaid" if (amount_after_voucher - immediate_payment) > 0 else "paid"
+            # M3: nothing tendered -> unpaid, something tendered but a balance remains -> partial, no balance -> paid
+            _credit_balance = amount_after_voucher - immediate_payment
+            if _credit_balance <= 0:
+                invoice_dict['payment_status'] = PaymentStatus.PAID
+            elif immediate_payment > 0:
+                invoice_dict['payment_status'] = PaymentStatus.PARTIAL
+            else:
+                invoice_dict['payment_status'] = PaymentStatus.UNPAID
         elif payment_method == "bank_transfer":
             # Bank transfer - needs verification by finance manager
             invoice_dict['approval'] = False
             invoice_dict['approval_status'] = "pending_bank_verification"
             invoice_dict['bank_transfer_status'] = "pending_verification"
-            invoice_dict['paid_amount'] = float(total_prepaid)  # Voucher + credit note paid
+            # grand_total is already net of voucher / credit note: nothing has
+            # been tendered against it until the transfer is verified.
+            invoice_dict['paid_amount'] = 0
             invoice_dict['balance_due'] = float(amount_after_voucher)
             invoice_dict['payment_status'] = PaymentStatus.UNPAID
         else:
@@ -1045,14 +1185,13 @@ class SalesService:
             # note/advance, so cash+card+cheque tendered must cover it (cash may
             # exceed it → change). Without this a client could post e.g.
             # cash_amount=10 on a 1000 invoice and have it recorded fully paid.
-            payment_tolerance = Decimal("0.05")
-            if immediate_payment + payment_tolerance < grand_total:
+            if immediate_payment + PAYMENT_EPSILON < grand_total:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=(
                         f"Insufficient payment: tendered amount "
                         f"({float(immediate_payment):.2f}) does not cover the invoice "
-                        f"total ({float(grand_total):.2f})."
+                        f"total ({float(grand_total):.2f}); short by {float(grand_total - immediate_payment):.2f}."
                     ),
                 )
             invoice_dict['approval'] = True
@@ -1070,7 +1209,7 @@ class SalesService:
         # Handle cheque date
         if cheque_date_str:
             try:
-                invoice_dict['cheque_date'] = datetime.strptime(cheque_date_str, '%Y-%m-%d').date()
+                invoice_dict['cheque_date'] = cheque_date_str if isinstance(cheque_date_str, date) else datetime.strptime(str(cheque_date_str), '%Y-%m-%d').date()
             except (ValueError, TypeError):
                 logger.warning("Invalid cheque_date %r, defaulting to today", cheque_date_str)
                 invoice_dict['cheque_date'] = tz.today()
@@ -1220,7 +1359,8 @@ class SalesService:
                 # Lock the stock row to prevent two invoices reserving the same item
                 stock_item = db.query(SalesStock).filter(
                     SalesStock.barcode == barcode,
-                    SalesStock.status == StockStatus.AVAILABLE
+                    SalesStock.status == StockStatus.AVAILABLE,
+                    SalesStock.branch_code == invoice_dict['branch_code'],
                 ).with_for_update().first()
                 if stock_item:
                     allocated_units = [stock_item]
@@ -1244,39 +1384,44 @@ class SalesService:
                         SalesQuoteItem.product_id == item_dict['product_id'],
                     ).first()
                     if quote_item:
-                        reserved_units = (
+                        reserved_rows = (
                             db.query(SalesStock)
                             .filter(
                                 SalesStock.reserved_for_quote_item_id == quote_item.id,
                                 SalesStock.status == StockStatus.RESERVED,
                                 SalesStock.is_active == True,
                             )
-                            .order_by(SalesStock.id)
+                            .order_by(*FEFO_ORDER)
                             .with_for_update(skip_locked=True)
                             .limit(quantity_req)
                             .all()
                         )
-                still_needed = quantity_req - len(reserved_units)
+                        # A batch/none lot is split so only the units this line
+                        # needs are consumed (serial rows are always whole).
+                        reserved_units = take_units(db, reserved_rows, quantity_req)
+                still_needed = quantity_req - units_in(reserved_units)
                 extra_units: list = []
                 if still_needed > 0:
-                    extra_units = (
+                    extra_rows = (
                         db.query(SalesStock)
                         .filter(
                             SalesStock.product_id == item_dict['product_id'],
                             SalesStock.status == StockStatus.AVAILABLE,
                             SalesStock.is_active == True,
+                            SalesStock.branch_code == invoice_dict['branch_code'],
                         )
-                        .order_by(SalesStock.id)
+                        .order_by(*FEFO_ORDER)
                         .with_for_update(skip_locked=True)
                         .limit(still_needed)
                         .all()
                     )
+                    extra_units = take_units(db, extra_rows, still_needed)
                 allocated_units = reserved_units + extra_units
-                if len(allocated_units) < quantity_req:
+                if units_in(allocated_units) < quantity_req:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
                         detail=(
-                            f"Only {len(allocated_units)} unit(s) of product ID "
+                            f"Only {units_in(allocated_units)} unit(s) of product ID "
                             f"{item_dict['product_id']} are available right now "
                             f"({quantity_req} requested). Another sale may have just "
                             f"taken the remaining stock."
@@ -1294,12 +1439,10 @@ class SalesService:
                     unit.status = StockStatus.RESERVED
             
             # Calculate line total with item discount
-            gross_line_total = Decimal(str(item_dict['quantity'])) * Decimal(str(item_dict['selling_price']))
             item_discount_percent = Decimal(str(item_dict.get('discount_percent', 0) or 0))
-            item_discount_amount = gross_line_total * (item_discount_percent / Decimal('100'))
+            _gross_line, item_discount_amount, line_total = line_amounts(item_dict['quantity'], item_dict['selling_price'], item_discount_percent)
             item_dict['discount_percent'] = float(item_discount_percent)
             item_dict['discount_amount'] = float(item_discount_amount)
-            line_total = gross_line_total - item_discount_amount
             item_dict['line_total'] = float(line_total)
             
             # Persist rows. Barcode lines keep their single row; barcode-less
@@ -1313,15 +1456,14 @@ class SalesService:
                 db.flush()
                 created_rows.append((item, allocated_units[0] if allocated_units else None))
             else:
-                unit_gross = Decimal(str(item_dict['selling_price']))
-                unit_discount = unit_gross * (item_discount_percent / Decimal('100'))
                 for unit in allocated_units:
                     row = dict(item_dict)
-                    row['quantity'] = 1
+                    row['quantity'] = unit.quantity  # 1 per serial unit, the taken qty for a lot
                     row['barcode'] = unit.barcode
                     row['sales_stock_id'] = unit.id
-                    row['discount_amount'] = float(unit_discount)
-                    row['line_total'] = float(unit_gross - unit_discount)
+                    _g, _row_disc, _row_total = line_amounts(unit.quantity, item_dict['selling_price'], item_discount_percent)
+                    row['discount_amount'] = float(_row_disc)
+                    row['line_total'] = float(_row_total)
                     item = InvoiceItems(**row)
                     db.add(item)
                     db.flush()
@@ -1338,11 +1480,8 @@ class SalesService:
                 ).first()
                 
                 if grn:
-                    # Find the GRN item for this barcode using the note number
-                    grn_item = db.query(GoodReceivedItems).filter(
-                        GoodReceivedItems.good_received_note == grn.good_received_no,
-                        GoodReceivedItems.barcode == unit.barcode
-                    ).first()
+                    # Find the GRN item for this unit (by barcode, or by PO line + batch for a lot)
+                    grn_item = find_grn_item(db, grn.good_received_no, unit)
                     
                     if grn_item:
                         barcode_link = InvoiceItemsBarcode(
@@ -1367,6 +1506,8 @@ class SalesService:
                     )
                 if warnings:
                     approval_remarks = f"{approval_remarks} | Warning: " + "; ".join(warnings)
+            if credit_override_note:
+                approval_remarks = f"{approval_remarks} | Warning: {credit_override_note}"
             approval_record = approval_service.create_approval_request(
                 db=db,
                 approval_type=ApprovalType.SALES_ORDER,
@@ -1378,7 +1519,10 @@ class SalesService:
                 approval_group="sales_approvers"
             )
             invoice.approval_id = approval_record.id
-        
+            # the pending order already counts as exposure: keep left_credit_amount in step
+            db.flush()
+            customer_credit_service.refresh_customer_left_credit(db, invoice.customer_id)
+
         # Record coupon usage if coupon was applied
         if coupon_id and coupon_amount > 0:
             from app.modules.customers.models import CouponUsage, CustomerCuponCodes
@@ -1485,8 +1629,9 @@ class SalesService:
                 )
                 db.add(voucher_usage)
                 
-                # ONE-TIME USE: Always mark as fully_claimed regardless of amount used
-                # Any remaining balance is forfeited
+                # ONE-TIME USE (rule shown on the sales page): the unredeemed remainder is
+                # forfeited, and posted to income so 2510 clears by the full voucher balance.
+                self._forfeit_voucher_remainder(db, voucher, amount_requested, invoice_data.invoice_no, user_id)
                 voucher.balance = Decimal("0")  # Zero out balance
                 voucher.status = "fully_claimed"
                 voucher.claimed_date = tz.now()
@@ -1501,6 +1646,13 @@ class SalesService:
             voucher = db.query(CustomerGiftVoucher).filter(
                 CustomerGiftVoucher.id == gift_voucher_id
             ).with_for_update().first()
+            if not voucher:
+                # The voucher amount was already subtracted from the invoice
+                # total; skipping would record a tender that never happened.
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Gift voucher {gift_voucher_id} not found",
+                )
             if voucher:
                 # Verify voucher hasn't been used already
                 if voucher.status != "active":
@@ -1538,7 +1690,8 @@ class SalesService:
                 )
                 db.add(voucher_usage)
                 
-                # ONE-TIME USE: Always mark as fully_claimed regardless of amount used
+                # ONE-TIME USE: the unredeemed remainder is forfeited and posted to income
+                self._forfeit_voucher_remainder(db, voucher, gift_voucher_amount, invoice_data.invoice_no, user_id)
                 voucher.balance = Decimal("0")  # Zero out balance
                 voucher.status = "fully_claimed"
                 voucher.claimed_date = tz.now()
@@ -1673,7 +1826,10 @@ class SalesService:
         )
 
         db.commit()
-        return repository.sales_repository.get_by_id(db, invoice.id)
+        created = repository.sales_repository.get_by_id(db, invoice.id)
+        # Not persisted: change handed back for a cash over-tender (the order and the JE book the payable only).
+        created.change_due = float(change_due)
+        return created
 
     def _assert_branch_access(self, db: Session, user_id: Optional[int], branch_code: Optional[str]) -> None:
         """Block an operational mutation when the acting user has no access to
@@ -1701,28 +1857,29 @@ class SalesService:
         changes those). Runs in the caller's transaction (no commit)."""
         rows = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice.id).all()
         # line_total is already net of each line's own item discount.
-        gross_subtotal = sum((Decimal(str(r.line_total or 0)) for r in rows), Decimal("0"))
+        gross_subtotal = money(sum((Decimal(str(r.line_total or 0)) for r in rows), Decimal("0")))
 
         tax_rate = Decimal(str(invoice.tax_rate or 0))
         if invoice.is_tax_invoice and tax_rate > 0:
-            net_subtotal = (gross_subtotal / (Decimal("1") + tax_rate / Decimal("100"))).quantize(Decimal("0.01"))
+            net_subtotal = money(gross_subtotal / (Decimal("1") + tax_rate / Decimal("100")))
         else:
-            net_subtotal = gross_subtotal.quantize(Decimal("0.01"))
+            net_subtotal = money(gross_subtotal)
 
         coupon_amount = Decimal(str(getattr(invoice, "cupon_amount", 0) or 0))
-        after_coupon = (net_subtotal - coupon_amount).quantize(Decimal("0.01"))
+        after_coupon = money(net_subtotal - coupon_amount)
 
         discount_percent = Decimal(str(invoice.discount_percent or 0))
         if discount_percent > 0:
-            calculated_discount = (after_coupon * discount_percent / Decimal("100")).quantize(Decimal("0.01"))
+            calculated_discount = money(after_coupon * discount_percent / Decimal("100"))
         else:
-            calculated_discount = Decimal(str(invoice.discount_amount or 0)).quantize(Decimal("0.01"))
-        final_net = (after_coupon - calculated_discount).quantize(Decimal("0.01"))
+            calculated_discount = money(Decimal(str(invoice.discount_amount or 0)))
+        final_net = money(after_coupon - calculated_discount)
         if final_net < 0:
             final_net = Decimal("0.00")
 
-        tax_amount = (final_net * tax_rate / Decimal("100")).quantize(Decimal("0.01")) if tax_rate > 0 else Decimal("0.00")
-        after_tax = (final_net + tax_amount).quantize(Decimal("0.01"))
+        tax_amount = money(final_net * tax_rate / Decimal("100")) if tax_rate > 0 else Decimal("0.00")
+        after_tax = money(final_net + tax_amount)
+        _assert_order_value(after_tax)
 
         voucher_amount = Decimal(str(invoice.gift_voucher_amount or 0))
         credit_note_amount = Decimal(str(invoice.credit_note_amount or 0))
@@ -1738,6 +1895,70 @@ class SalesService:
         paid = Decimal(str(invoice.paid_amount or 0))
         invoice.balance_due = float((grand_total - paid).quantize(Decimal("0.01")))
 
+    def _store_edited_lines(self, db: Session, invoice, items) -> None:
+        """Write the new lines of an edited, still-pending order. Each line gets real stock units (the scanned barcode, or the
+        next available units of the product), the units are reserved, one row per unit is stored when no barcode was given and
+        the GRN barcode links used for warranty and returns are recreated."""
+        from app.modules.purchasing.models import GoodReceivedItems, GoodReceivedNote
+
+        for item_data in items:
+            row_base = item_data.model_dump()
+            row_base["invoice_id"] = invoice.id
+            row_base["created_date"] = tz.now()
+            barcode = row_base.get("barcode")
+            qty = int(row_base["quantity"])
+
+            if barcode:
+                unit = db.query(SalesStock).filter(
+                    SalesStock.barcode == barcode, SalesStock.status == StockStatus.AVAILABLE
+                ).with_for_update().first()
+                if not unit:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Barcode {barcode} is no longer available")
+                units = [unit]
+            else:
+                unit_rows = (
+                    db.query(SalesStock)
+                    .filter(
+                        SalesStock.product_id == row_base["product_id"],
+                        SalesStock.status == StockStatus.AVAILABLE,
+                        SalesStock.is_active == True,  # noqa: E712
+                    )
+                    .order_by(*FEFO_ORDER)
+                    .with_for_update(skip_locked=True)
+                    .limit(qty)
+                    .all()
+                )
+                units = take_units(db, unit_rows, qty)
+                if units_in(units) < qty:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Only {units_in(units)} unit(s) of product ID {row_base['product_id']} are available right now ({qty} requested).",
+                    )
+            for unit in units:
+                unit.status = StockStatus.RESERVED
+
+            discount_percent = Decimal(str(row_base.get("discount_percent") or 0))
+            price = Decimal(str(row_base["selling_price"]))
+            rows = []
+            if barcode:
+                _g, disc, net_line = line_amounts(qty, price, discount_percent)
+                row_base.update(sales_stock_id=units[0].id, discount_percent=float(discount_percent), discount_amount=float(disc), line_total=float(net_line))
+                rows.append((InvoiceItems(**row_base), units[0]))
+            else:
+                for unit in units:
+                    r = dict(row_base)
+                    _g, row_disc, row_net = line_amounts(unit.quantity, price, discount_percent)
+                    r.update(quantity=unit.quantity, barcode=unit.barcode, sales_stock_id=unit.id, discount_percent=float(discount_percent),
+                             discount_amount=float(row_disc), line_total=float(row_net))
+                    rows.append((InvoiceItems(**r), unit))
+            for row, unit in rows:
+                db.add(row)
+                db.flush()
+                grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == unit.good_received_note_id).first() if unit.good_received_note_id else None
+                grn_item = find_grn_item(db, grn.good_received_no, unit) if grn else None
+                if grn_item:
+                    db.add(InvoiceItemsBarcode(created_date=tz.now(), good_received_items_id=grn_item.id, invoice_items_id=row.id))
+
     def update_invoice(self, db: Session, invoice_id: int, invoice_data: schemas.InvoiceUpdate, user_id: int):
         # Lock the invoice row to prevent concurrent edits / double-approval
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
@@ -1746,7 +1967,13 @@ class SalesService:
         
         # Branch isolation: a user may only edit invoices in their own branch(es).
         self._assert_branch_access(db, user_id, invoice.branch_code)
-        
+
+        if invoice.approval_status in (DocumentStatus.CANCELLED, "rejected"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A {invoice.approval_status} order cannot be edited.",
+            )
+
         # ── Validate customer is active (if customer is being changed) ──
         update_data_raw = invoice_data.model_dump(exclude_unset=True, exclude={'items'})
         if 'customer_id' in update_data_raw:
@@ -1813,6 +2040,12 @@ class SalesService:
                         "Cancel the order or create a sale return instead."
                     ),
                 )
+            if invoice.approval_status not in (DocumentStatus.PENDING_APPROVAL, DocumentStatus.PENDING, DocumentStatus.DRAFT):
+                # e.g. a bank transfer awaiting verification: its payment was recorded for the old total
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Items can only be changed while the order is waiting for approval (current status: {invoice.approval_status}).",
+                )
             # First, restore stock for existing items (lock rows to prevent concurrent modification)
             existing_items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
             before_items = [
@@ -1825,7 +2058,7 @@ class SalesService:
                     if stock_item and stock_item.status in [StockStatus.SOLD, StockStatus.RESERVED]:
                         stock_item.status = StockStatus.AVAILABLE
                         stock_item.is_active = True
-            
+            db.flush()   # make the released units visible to the allocation below (the session does not autoflush)
             # Delete existing items and barcode links
             db.query(InvoiceItemsBarcode).filter(
                 InvoiceItemsBarcode.invoice_items_id.in_(
@@ -1834,56 +2067,22 @@ class SalesService:
             ).delete(synchronize_session=False)
             db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).delete()
             
-            # Validate product availability for all new items
+            # Same price floor as at creation: the configured minimum is read from the server, never the payload
+            from app.modules.products.repository import minimum_price_repository
             for item_data in invoice_data.items:
-                if item_data.barcode:
-                    # Check if this barcode is still available
-                    stock = db.query(SalesStock).filter(
-                        SalesStock.barcode == item_data.barcode,
-                        SalesStock.status == StockStatus.AVAILABLE
-                    ).first()
-                    if not stock:
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Barcode {item_data.barcode} is no longer available"
-                        )
-                else:
-                    self.validate_product_availability(db, item_data.product_id, item_data.quantity)
-            
-            # Create new items
-            for item_data in invoice_data.items:
-                item_dict = item_data.model_dump()
-                item_dict['invoice_id'] = invoice_id
-                item_dict['created_date'] = tz.now()
-                
-                barcode = item_dict.get('barcode', None)
-                sales_stock_id = None
-                
-                if barcode:
-                    # Lock the stock row to prevent concurrent reservation
-                    stock_item = db.query(SalesStock).filter(
-                        SalesStock.barcode == barcode,
-                        SalesStock.status == StockStatus.AVAILABLE
-                    ).with_for_update().first()
-                    
-                    if stock_item:
-                        sales_stock_id = stock_item.id
-                        item_dict['sales_stock_id'] = sales_stock_id
-                        
-                        # Reserve/sell stock based on approval status
-                        if invoice.approval_status == DocumentStatus.COMPLETED:
-                            stock_item.status = StockStatus.SOLD
-                            stock_item.is_active = False
-                        else:
-                            stock_item.status = StockStatus.RESERVED
-                
-                # Calculate line total
-                line_total = item_dict['quantity'] * item_dict['selling_price']
-                item_dict['line_total'] = line_total
-                
-                item = InvoiceItems(**item_dict)
-                db.add(item)
-        
+                _min_row = minimum_price_repository.get_current_for_product(db, item_data.product_id)
+                min_price = Decimal(str(_min_row.minimum_price)) if _min_row else Decimal("0")
+                item_data.minimum_selling_price = float(min_price)
+                effective = Decimal(str(item_data.selling_price)) * (Decimal("1") - Decimal(str(item_data.discount_percent or 0)) / Decimal("100"))
+                if effective < min_price:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Price after discount ({float(effective):.2f}) cannot be less than the minimum price ({min_price}) for product ID {item_data.product_id}",
+                    )
+
+            # Allocate real stock units for every line, exactly as creation does, and reserve them
+            self._store_edited_lines(db, invoice, invoice_data.items)
+
         # Check if payment method is being updated to credit - if so, reset approval
         if 'payment_method' in update_data:
             payment_method = update_data['payment_method'].lower()
@@ -1986,6 +2185,30 @@ class SalesService:
         
         return repository.sales_repository.get_by_id(db, invoice.id)
     
+    @staticmethod
+    def _void_pending_bank_deposits(db: Session, invoice, user_id: Optional[int] = None) -> int:
+        """A cancelled / rejected order must not leave its bank deposit open: void every deposit of the order that
+        is still pending (not verified, not confirmed). Confirmed deposits are never touched. No commit."""
+        from sqlalchemy import or_
+        from app.modules.finance.models import BankDeposits as _BankDeposits
+
+        conditions = [_BankDeposits.invoice_no == invoice.invoice_no]
+        if invoice.bank_transfer_id:
+            conditions.append(_BankDeposits.id == invoice.bank_transfer_id)
+        deposits = db.query(_BankDeposits).filter(
+            or_(*conditions),
+            or_(_BankDeposits.verified == False, _BankDeposits.verified.is_(None)),  # noqa: E712
+            or_(_BankDeposits.status == "pending", _BankDeposits.status.is_(None)),
+            or_(_BankDeposits.payment_for.is_(None), _BankDeposits.payment_for != "Credit Settlement"),
+        ).with_for_update().all()
+        for deposit in deposits:
+            deposit.status = "rejected"
+            deposit.returned = True
+            deposit.confirmed_by = user_id
+            deposit.confirmed_date = tz.now()
+            deposit.remarks = f"{deposit.remarks or ''} | VOIDED: order {invoice.invoice_no} cancelled/rejected".strip(" |")
+        return len(deposits)
+
     def _release_invoice_instruments(self, db: Session, invoice, user_id: int = 0, for_delete: bool = False):
         """Give back every payment instrument an invoice consumed at creation.
 
@@ -2050,9 +2273,12 @@ class SalesService:
         if invoice.customer_advance_payments_id:
             from app.modules.finance.accounting_models import JournalEntry
 
+            # JournalEntry carries no reference columns: the application JE is found by its description marker
+            # (written by post_customer_advance_application_to_gl)
             appl_je = db.query(JournalEntry).filter(
-                JournalEntry.reference_type == "CustomerAdvanceApplication",
-                JournalEntry.reference_id == invoice.id,
+                JournalEntry.description.like(
+                    f"%CustomerAdvanceApplication InvID: {invoice.id} AdvID: {invoice.customer_advance_payments_id}%"
+                ),
             ).first()
             if appl_je:
                 applied = Decimal(str(appl_je.total_debit or 0))
@@ -2111,8 +2337,35 @@ class SalesService:
             else:
                 commission.status = "cancelled"
 
+    @staticmethod
+    def _lock_approval_first(db: Session, invoice_id: int) -> None:
+        """Lock order is always approval row -> invoice row (the approval endpoints
+        take the approval lock first); every invoice mutation that also touches the
+        approval record takes the locks in the same order to avoid deadlocks."""
+        from app.modules.common.models import Approvals
+
+        approval_id = db.query(Invoice.approval_id).filter(Invoice.id == invoice_id).scalar()
+        if approval_id:
+            db.query(Approvals.id).filter(Approvals.id == approval_id).with_for_update().first()
+
+    def _close_approval_request(self, db: Session, invoice, user_id: Optional[int]) -> None:
+        """A cancelled or deleted order must not stay in the approvers' queue."""
+        if not invoice.approval_id:
+            return
+        from app.modules.common.models import Approvals
+
+        record = db.query(Approvals).filter(Approvals.id == invoice.approval_id).first()
+        if record and record.status == ApprovalStatus.PENDING:
+            record.status = ApprovalStatus.CANCELLED
+            record.status_changed_by = user_id
+            record.remark = "The sales order was cancelled or deleted."
+
     def delete_invoice(self, db: Session, invoice_id: int, user_id: Optional[int] = None):
-        invoice = self.get_invoice(db, invoice_id)
+        # Lock the row so two deletes cannot both run (and give a voucher or coupon back twice)
+        self._lock_approval_first(db, invoice_id)
+        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if not invoice:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
         
         # Branch isolation: only delete invoices in the user's own branch(es).
         self._assert_branch_access(db, user_id, invoice.branch_code)
@@ -2144,7 +2397,26 @@ class SalesService:
         
         invoice_id_for_log = invoice.id
         invoice_no_for_log = invoice.invoice_no
+        self._close_approval_request(db, invoice, user_id)
+
+        # The lines, their barcode links and any card payment rows point at the order: remove them first,
+        # and let a quotation that was converted into it be converted again.
+        from app.modules.sales.models import InvoiceCardPayment
+        from app.modules.sales.quotation_models import SalesQuote
+
+        item_ids = [i.id for i in items]
+        if item_ids:
+            db.query(InvoiceItemsBarcode).filter(InvoiceItemsBarcode.invoice_items_id.in_(item_ids)).delete(synchronize_session=False)
+            db.query(InvoiceItems).filter(InvoiceItems.id.in_(item_ids)).delete(synchronize_session=False)
+        db.query(InvoiceCardPayment).filter(InvoiceCardPayment.invoice_id == invoice_id).delete(synchronize_session=False)
+        db.query(SalesQuote).filter(SalesQuote.converted_to_invoice_id == invoice_id).update(
+            {"converted_to_invoice_id": None}, synchronize_session=False
+        )
+        db.expire(invoice, ["items"])
         db.delete(invoice)
+        db.flush()
+        # a bank transfer that was never verified leaves a pending deposit row behind
+        db.query(BankDeposits).filter(BankDeposits.invoice_no == invoice_no_for_log, BankDeposits.verified == False).delete(synchronize_session=False)  # noqa: E712
 
         log_audit(
             db,
@@ -2164,6 +2436,7 @@ class SalesService:
         Updates the approval record and changes invoice status to completed.
         """
         # Lock the invoice row to prevent concurrent approval
+        self._lock_approval_first(db, invoice_id)
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
         if not invoice:
             raise HTTPException(
@@ -2175,6 +2448,14 @@ class SalesService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invoice is already {invoice.approval_status}"
+            )
+        self._assert_branch_access(db, user_id, invoice.branch_code)
+        from app.auth.models import User as _User
+        _approver = db.query(_User).filter(_User.id == user_id).first()
+        if _approver and not _approver.is_superuser and invoice.created_by and invoice.created_by == user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot approve a sales order you created. Ask another approver.",
             )
         
         # Verify and update approval record
@@ -2294,10 +2575,11 @@ class SalesService:
         if not invoice:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
 
-        if invoice.approval_status not in ['approved', 'pending_approval']:
+        self._assert_branch_access(db, user_id, invoice.branch_code)
+        if invoice.approval_status != 'approved':
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invoice cannot be completed from status: {invoice.approval_status}"
+                detail=f"Only an approved order can be completed (current status: {invoice.approval_status}). A pending order must be approved first.",
             )
         
         invoice.approval = True
@@ -2351,6 +2633,7 @@ class SalesService:
         Cancel an invoice and restore stock to available.
         """
         # Lock the invoice row to prevent concurrent cancel / approve race
+        self._lock_approval_first(db, invoice_id)
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
         if not invoice:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
@@ -2362,6 +2645,14 @@ class SalesService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot cancel a completed invoice. Please create a sale return instead."
+            )
+        if invoice.approval_status == DocumentStatus.CANCELLED:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This order is already cancelled.")
+        if invoice.approval_status == DocumentStatus.APPROVED:
+            # an approved credit order is already in the ledger; cancelling would leave the postings behind
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An approved order is already posted. Create a sale return instead of cancelling it.",
             )
         
         # Restore sales stock for all items (lock rows to prevent concurrent modification)
@@ -2389,9 +2680,23 @@ class SalesService:
         # allowance and applied advance balance — and cancel its pending
         # agent commissions so nothing stays payable for a dead sale.
         self._release_invoice_instruments(db, invoice, user_id=user_id)
-        
+        # H10: the order's pending bank deposit dies with it
+        self._void_pending_bank_deposits(db, invoice, user_id)
+
+        # M4: a cancelled order owes nothing and holds no credit; the original amounts stay in the audit trail
+        had_credit = bool(invoice.credit_amount and invoice.credit_amount > 0)
+        original_amounts = {
+            "credit_amount": str(invoice.credit_amount or 0),
+            "balance_due": str(invoice.balance_due or 0),
+            "paid_amount": str(invoice.paid_amount or 0),
+            "payment_status": str(invoice.payment_status),
+        }
         invoice.status = False
         invoice.approval_status = DocumentStatus.CANCELLED
+        invoice.balance_due = 0
+        invoice.credit_amount = 0
+        invoice.payment_status = PaymentStatus.CANCELLED
+        self._close_approval_request(db, invoice, user_id)
 
         log_audit(
             db,
@@ -2399,17 +2704,49 @@ class SalesService:
             action="cancel",
             entity_type="sales_order",
             entity_id=invoice.id,
-            changes={"status": str(invoice.approval_status)},
+            changes={"status": str(invoice.approval_status), "before_cancel": original_amounts},
         )
 
         db.commit()
 
         # Restore customer credit balance (recalculate left_credit_amount)
-        if invoice.credit_amount and invoice.credit_amount > 0:
+        if had_credit:
             customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
         
         return repository.sales_repository.get_by_id(db, invoice.id)
     
+    def reject_invoice(self, db: Session, invoice_id: int, user_id: int, reason: str):
+        """An approver turns a pending order down: stock and instruments go back, the order is cancelled and the
+        reason stays on the approval request and in the audit trail."""
+        self._lock_approval_first(db, invoice_id)
+        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if not invoice:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+        if invoice.approval_status != DocumentStatus.PENDING_APPROVAL:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Only an order waiting for approval can be rejected (current status: {invoice.approval_status}).",
+            )
+        result = self.cancel_invoice(db, invoice_id, user_id)
+        if invoice.approval_id:
+            from app.modules.common.models import Approvals
+
+            record = db.query(Approvals).filter(Approvals.id == invoice.approval_id).first()
+            if record:
+                record.status = ApprovalStatus.REJECTED
+                record.status_changed_by = user_id
+                record.remark = reason
+        log_audit(
+            db,
+            user_id=user_id or 0,
+            action="reject",
+            entity_type="sales_order",
+            entity_id=invoice_id,
+            changes={"reason": reason},
+        )
+        db.commit()
+        return result
+
     def get_sale_return(self, db: Session, return_id: int):
         sale_return = db.query(SaleReturn).filter(SaleReturn.id == return_id).first()
         if not sale_return:
@@ -2429,6 +2766,61 @@ class SalesService:
             )
         return sale_return
     
+    @staticmethod
+    def _cum_share(total: Decimal, units: int, qty: int) -> Decimal:
+        """Cumulative share of ``total`` for the first ``units`` of ``qty`` units
+        (half-up, 2dp). Slices are differences of cumulative shares, so the
+        slices of one line always add up to the line exactly."""
+        if qty <= 0:
+            return Decimal("0.00")
+        if units >= qty:
+            return total
+        return (total * units / qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def _invoice_item_return_values(self, db: Session, invoice) -> dict:
+        """Per invoice line: qty, recognised net revenue and tax.
+
+        net = line value after the line discount (and, for tax-inclusive
+        prices, with the tax taken out), scaled by the invoice-level factor
+        invoice.subtotal / sum(lines) which carries the header discount and
+        coupon proportionally. tax = net x invoice tax rate. Rounding residue
+        vs. the invoice header (subtotal / tax_amount) goes to the last line, so
+        the lines always add up to what was recognised.
+        """
+        cent = Decimal("0.01")
+        rows = (
+            db.query(InvoiceItems)
+            .filter(InvoiceItems.invoice_id == invoice.id)
+            .order_by(InvoiceItems.id)
+            .all()
+        )
+        if not rows:
+            return {}
+        rate = Decimal(str(invoice.tax_rate or 0)) / Decimal("100")
+        inclusive = bool(invoice.is_tax_invoice) and rate > 0
+
+        pre = {}
+        for r in rows:
+            line = Decimal(str(r.line_total or 0))
+            if line <= 0:
+                gross = Decimal(str(r.selling_price or 0)) * Decimal(str(r.quantity or 0))
+                line = gross * (Decimal("1") - Decimal(str(r.discount_percent or 0)) / Decimal("100"))
+            pre[r.id] = line / (Decimal("1") + rate) if inclusive else line
+        sum_pre = sum(pre.values(), Decimal("0"))
+        target_net = Decimal(str(invoice.subtotal or 0))
+        factor = (target_net / sum_pre) if sum_pre > 0 else Decimal("0")
+
+        nets = {r.id: (pre[r.id] * factor).quantize(cent, rounding=ROUND_HALF_UP) for r in rows}
+        nets[rows[-1].id] += target_net - sum(nets.values(), Decimal("0"))
+        taxes = {r.id: (nets[r.id] * rate).quantize(cent, rounding=ROUND_HALF_UP) for r in rows}
+        target_tax = Decimal(str(invoice.tax_amount or 0))
+        taxes[rows[-1].id] += target_tax - sum(taxes.values(), Decimal("0"))
+
+        return {
+            r.id: {"qty": int(r.quantity or 0), "net": nets[r.id], "tax": taxes[r.id]}
+            for r in rows
+        }
+
     def create_sale_return(self, db: Session, sale_return_data: schemas.SaleReturnCreate, user_id: int = None):
         """
         Create a new sale return with full validation and processing.
@@ -2447,14 +2839,15 @@ class SalesService:
         # Branch isolation: only create returns in the user's own branch(es).
         self._assert_branch_access(db, user_id, sale_return_data.branch_code)
 
-        # Get and validate the original invoice
-        invoice = db.query(Invoice).filter(Invoice.id == sale_return_data.invoice_id).first()
+        # Get and validate the original invoice (row lock serialises concurrent
+        # returns so the over-return guards below see each other's rows)
+        invoice = db.query(Invoice).filter(Invoice.id == sale_return_data.invoice_id).with_for_update().first()
         if not invoice:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Original invoice not found"
             )
-        
+
         if invoice.approval_status not in ['completed', 'approved']:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -2502,6 +2895,8 @@ class SalesService:
 
         # Validate each return item
         subtotal = Decimal("0")
+        tax_refund = Decimal("0")
+        item_values = self._invoice_item_return_values(db, invoice)
         validated_items = []
         requested_qty_by_item: dict = {}
         seen_request_barcodes: set = set()
@@ -2594,21 +2989,44 @@ class SalesService:
                     ),
                 )
             requested_qty_by_item[invoice_item.id] = pending_qty + quantity
-            
+
+            # ── Refund value = what was actually recognised for these units ──
+            # net of the line discount and the proportional header discount /
+            # coupon, plus the tax that belongs to them (exclusive: on top,
+            # inclusive: the part already inside the price). The cumulative
+            # split guarantees the sum of all returns equals the line exactly.
+            iv = item_values.get(invoice_item.id)
+            if iv is None or not iv["qty"]:
+                slice_net = Decimal("0")
+                slice_tax = Decimal("0")
+            else:
+                done = prior_qty + pending_qty
+                slice_net = (
+                    self._cum_share(iv["net"], done + quantity, iv["qty"])
+                    - self._cum_share(iv["net"], done, iv["qty"])
+                )
+                slice_tax = (
+                    self._cum_share(iv["tax"], done + quantity, iv["qty"])
+                    - self._cum_share(iv["tax"], done, iv["qty"])
+                )
+            # An explicit lower return price (e.g. a deduction) scales the refund down.
+            if sold_unit_price > 0 and return_price < sold_unit_price - Decimal("0.005"):
+                ratio = return_price / sold_unit_price
+                slice_net = (slice_net * ratio).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                slice_tax = (slice_tax * ratio).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
             validated_items.append({
                 'item_data': item_data,
                 'invoice_item': invoice_item,
                 'sales_stock': sales_stock,
-                'return_price': return_price,
+                'return_price': (slice_net / quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if quantity else return_price,
                 'quantity': quantity,
                 'product_id': invoice_item.product_id if invoice_item else (sales_stock.product_id if sales_stock else None)
             })
-            
-            subtotal += return_price * quantity
-        
-        # Calculate tax refund based on original invoice tax rate
-        tax_rate = Decimal(str(invoice.tax_rate or 0))
-        tax_refund = subtotal * (tax_rate / 100) if tax_rate > 0 else Decimal("0")
+
+            subtotal += slice_net
+            tax_refund += slice_tax
+
         total_refund = subtotal + tax_refund
         
         # ── Cumulative refunds may never exceed the invoice's goods value ──
@@ -2947,6 +3365,10 @@ class SalesService:
                         SalesStock.barcode == item.barcode
                     ).with_for_update().first()
                 if stock and stock.status == StockStatus.SOLD:
+                    # Partial return of a batch/none lot: only the returned
+                    # units go back to available, the rest stay sold.
+                    if not stock.barcode and 0 < item.quantity < stock.quantity:
+                        stock = split_lot(db, stock, item.quantity)
                     stock.status = StockStatus.AVAILABLE
                     stock.is_active = True
                     stock.returned_date = tz.now()
@@ -2958,6 +3380,17 @@ class SalesService:
                         "could not be matched to a SOLD stock unit; not restocked.",
                         sale_return.sale_return_no, item.id, item.barcode, item.sales_stock_id,
                     )
+            elif not item.barcode and item.sales_stock_id:
+                # Non-restockable batch/none units: company assets are
+                # serial-only, so just take the returned units out of stock.
+                lot = db.query(SalesStock).filter(
+                    SalesStock.id == item.sales_stock_id
+                ).with_for_update().first()
+                if lot and lot.status == StockStatus.SOLD:
+                    part = split_lot(db, lot, min(item.quantity, lot.quantity))
+                    part.status = StockStatus.RETURNED
+                    part.is_active = False
+                    part.returned_date = tz.now()
             else:
                 # Non-restockable items → save to company assets
                 from app.modules.inventory.models import CompanyAssets
@@ -3019,28 +3452,43 @@ class SalesService:
         # Handle refund based on payment method
         refund_reference = None
         credit_note_id = None
-        
+
+        # Receivable first: on a credit sale the returned value first cancels
+        # what the customer still OWES on this invoice (AR + credit limit is
+        # released); only the remainder (money the customer really paid) is
+        # refunded through the chosen method / issued as a credit note.
+        refund_dec = Decimal(str(sale_return.total_refund or 0))
+        is_credit_invoice = (
+            (invoice.payment_method or '').lower() == 'credit'
+            or Decimal(str(invoice.credit_amount or 0)) > 0
+        )
+        balance_before = Decimal(str(invoice.balance_due or 0))
+        ar_applied = min(refund_dec, max(balance_before, Decimal("0"))) if is_credit_invoice else Decimal("0")
+        paid_out = refund_dec - ar_applied  # value that goes back to the customer
+
         if sale_return.payment_method == 'credit_note':
-            # Create a credit note for the customer
-            from app.modules.customers.models import CustomerCreditNotes
-            
-            # Get customer from invoice
-            customer_id = invoice.customer_id
-            
-            credit_note = CustomerCreditNotes(
-                customer_id=customer_id,
-                date=tz.now(),
-                amount=sale_return.total_refund,
-                remark=f"Sale Return: {sale_return.sale_return_no}",
-                invoice_no=invoice.invoice_no
-            )
-            db.add(credit_note)
-            db.flush()
-            
-            credit_note_id = credit_note.id
-            sale_return.credit_note_id = credit_note_id
-            refund_reference = f"CN-{credit_note.id}"
-            
+            if paid_out > 0:
+                # Issue the customer's credit note. The note is ISSUED here; it
+                # is never counted as redeemed on the invoice
+                # (invoice.credit_note_amount = notes redeemed ON this invoice).
+                from app.modules.customers.models import CustomerCreditNotes
+
+                credit_note = CustomerCreditNotes(
+                    customer_id=invoice.customer_id,
+                    date=tz.now(),
+                    amount=paid_out,
+                    remark=f"Sale Return: {sale_return.sale_return_no}",
+                    invoice_no=invoice.invoice_no
+                )
+                db.add(credit_note)
+                db.flush()
+
+                credit_note_id = credit_note.id
+                sale_return.credit_note_id = credit_note_id
+                refund_reference = f"CN-{credit_note.id}"
+            else:
+                refund_reference = f"AR-{sale_return.sale_return_no}"
+
         elif sale_return.payment_method == 'cash':
             # Cash refund - record as processed
             refund_reference = f"CASH-{sale_return.sale_return_no}"
@@ -3062,41 +3510,51 @@ class SalesService:
         sale_return.processed_by = user_id
         
         # Update invoice totals based on refund method
-        refund_total = float(sale_return.total_refund)
+        # Convention (settled-order view after a return):
+        #   * credit part: credit_amount and balance_due drop by the receivable
+        #     the return cancelled (customer outstanding / credit limit follow);
+        #   * cash/bank/cheque refund: paid_amount = money kept (drops by what
+        #     was handed back); a credit-note refund leaves paid_amount alone -
+        #     the money stays with us as a credit note liability;
+        #   * balance_due is NEVER raised by a return - the customer does not
+        #     owe the refunded amount;
+        #   * invoice.credit_note_amount (notes redeemed ON the invoice) is untouched.
+        if is_credit_invoice and ar_applied > 0:
+            invoice.credit_amount = max(Decimal("0"), Decimal(str(invoice.credit_amount or 0)) - ar_applied)
+            invoice.balance_due = max(Decimal("0"), balance_before - ar_applied)
+        if sale_return.payment_method != 'credit_note' and paid_out > 0:
+            invoice.paid_amount = max(Decimal("0"), Decimal(str(invoice.paid_amount or 0)) - paid_out)
 
-        if sale_return.payment_method == 'credit_note':
-            # Credit note: track via credit_note_amount, adjust balance_due for credit sales
-            invoice.credit_note_amount = float(invoice.credit_note_amount or 0) + refund_total
-            # For credit sales, reduce balance_due
-            if (invoice.payment_method or '').lower() == 'credit' or (invoice.credit_amount or 0) > 0:
-                invoice.balance_due = max(0, float(invoice.balance_due or 0) - refund_total)
-        else:
-            # Cash/bank/cheque refund: reduce paid_amount (money going out)
-            new_paid_amount = float(invoice.paid_amount or 0) - refund_total
-            if new_paid_amount < 0:
-                new_paid_amount = 0
-            invoice.paid_amount = new_paid_amount
-            invoice.balance_due = max(0, float(invoice.grand_total or 0) - new_paid_amount)
-        
-        # Recalculate payment status
-        grand = float(invoice.grand_total or 0)
-        paid = float(invoice.paid_amount or 0)
-        balance = float(invoice.balance_due or 0)
-
-        if grand > 0 and balance <= 0 and paid >= grand:
+        # Recalculate payment status. Flush so this return counts as processed.
+        db.flush()
+        sold_units = int(
+            db.query(func.coalesce(func.sum(InvoiceItems.quantity), 0))
+            .filter(InvoiceItems.invoice_id == invoice.id).scalar() or 0
+        )
+        returned_units = int(
+            db.query(func.coalesce(func.sum(SaleReturnItems.quantity), 0))
+            .join(SaleReturn, SaleReturn.id == SaleReturnItems.sale_return_id)
+            .filter(SaleReturn.invoice_id == invoice.id, SaleReturn.status == 'processed')
+            .scalar() or 0
+        )
+        paid_now = Decimal(str(invoice.paid_amount or 0))
+        balance_now = Decimal(str(invoice.balance_due or 0))
+        if sold_units > 0 and returned_units >= sold_units and balance_now <= 0:
+            invoice.payment_status = PaymentStatus.REFUNDED
+        elif balance_now <= 0:
             invoice.payment_status = PaymentStatus.PAID
-            if (invoice.payment_method or '').lower() == 'credit' or (invoice.credit_amount or 0) > 0:
-                invoice.approval_status = DocumentStatus.COMPLETED
-        elif paid > 0:
+        elif paid_now > 0:
             invoice.payment_status = PaymentStatus.PARTIAL
         else:
             invoice.payment_status = PaymentStatus.UNPAID
-        
+        if is_credit_invoice and balance_now <= 0 and invoice.approval_status == DocumentStatus.APPROVED:
+            invoice.approval_status = DocumentStatus.COMPLETED
+
         # Scenario 30: Auto-post sale return reversal to GL
         try:
             from app.modules.sales.accounting_integration import SalesAccountingIntegration
             gl_integration = SalesAccountingIntegration(db)
-            gl_integration.post_sale_return_to_gl(sale_return, user_id)
+            gl_integration.post_sale_return_to_gl(sale_return, user_id, ar_applied=ar_applied)
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(
@@ -3117,8 +3575,8 @@ class SalesService:
         # Cashbook hook: cash/bank/cheque refunds move real money out of the
         # till — mirror the GL credit (1010/1020) so the day-end cashbook ↔ GL
         # identity holds. Credit-note refunds move no money → no cashbook entry.
-        if (sale_return.payment_method or "").lower() in ("cash", "bank_transfer", "cheque"):
-            self._ensure_cashbook_entry_for_sale_return(db, sale_return, invoice)
+        if (sale_return.payment_method or "").lower() in ("cash", "bank_transfer", "cheque") and paid_out > 0:
+            self._ensure_cashbook_entry_for_sale_return(db, sale_return, invoice, money_out=paid_out)
 
         log_audit(
             db,
@@ -3133,7 +3591,7 @@ class SalesService:
         
         # Update customer credit balance if this return affects a credit invoice
         # (balance_due may have been reduced by credit note, changing outstanding credit)
-        if invoice.customer_id and ((invoice.payment_method or '').lower() == 'credit' or (invoice.credit_amount or 0) > 0):
+        if invoice.customer_id and is_credit_invoice:
             try:
                 customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
             except Exception as cred_err:
@@ -3154,7 +3612,7 @@ class SalesService:
             "message": f"Sale return processed successfully. {items_restocked} items restocked. {items_to_company_assets} items saved to company assets."
         }
     
-    def _ensure_cashbook_entry_for_sale_return(self, db: Session, sale_return, invoice) -> None:
+    def _ensure_cashbook_entry_for_sale_return(self, db: Session, sale_return, invoice, money_out=None) -> None:
         """Record cashbook money-out for a cash/bank/cheque sale-return refund.
 
         Mirrors the GL credit to 1010/1020 so the day-end cashbook ↔ GL
@@ -3172,7 +3630,7 @@ class SalesService:
             if existing:
                 return
 
-            total_refund = Decimal(str(sale_return.total_refund or 0))
+            total_refund = Decimal(str(sale_return.total_refund if money_out is None else money_out or 0))
             if total_refund <= 0:
                 return
 
@@ -3184,31 +3642,34 @@ class SalesService:
                 ).first()
                 customer_name = row[0] if row else None
 
-            db.execute(
-                text("""
-                    SELECT fn_insert_cashbook_entry(
-                        :entry_type, :transaction_date, :source_table, :source_id,
-                        :reference_no, :description, :party_name, :payment_method,
-                        :money_in, :money_out, :branch_code
-                    )
-                """),
-                {
-                    "entry_type": "sale_return_refund",
-                    "transaction_date": datetime.combine(
-                        sale_return.refund_date or sale_return.added_date or tz.today(),
-                        datetime.min.time(),
-                    ),
-                    "source_table": "sale_return",
-                    "source_id": sale_return.id,
-                    "reference_no": sale_return.sale_return_no,
-                    "description": f"Sale Return {sale_return.sale_return_no} - refund to customer",
-                    "party_name": customer_name or (f"Customer #{invoice.customer_id}" if invoice else "Customer"),
-                    "payment_method": sale_return.payment_method,
-                    "money_in": Decimal("0"),
-                    "money_out": total_refund,
-                    "branch_code": sale_return.branch_code,
-                },
-            )
+            # SAVEPOINT: a failing (or missing) DB function must not abort the
+            # surrounding transaction - the step is non-blocking.
+            with db.begin_nested():
+                db.execute(
+                    text("""
+                        SELECT fn_insert_cashbook_entry(
+                            :entry_type, :transaction_date, :source_table, :source_id,
+                            :reference_no, :description, :party_name, :payment_method,
+                            :money_in, :money_out, :branch_code
+                        )
+                    """),
+                    {
+                        "entry_type": "sale_return_refund",
+                        "transaction_date": datetime.combine(
+                            sale_return.refund_date or sale_return.added_date or tz.today(),
+                            datetime.min.time(),
+                        ),
+                        "source_table": "sale_return",
+                        "source_id": sale_return.id,
+                        "reference_no": sale_return.sale_return_no,
+                        "description": f"Sale Return {sale_return.sale_return_no} - refund to customer",
+                        "party_name": customer_name or (f"Customer #{invoice.customer_id}" if invoice else "Customer"),
+                        "payment_method": sale_return.payment_method,
+                        "money_in": Decimal("0"),
+                        "money_out": total_refund,
+                        "branch_code": sale_return.branch_code,
+                    },
+                )
         except Exception as cashbook_err:
             logging.getLogger(__name__).warning(
                 f"Cashbook posting for sale return {sale_return.sale_return_no} failed (non-blocking): {cashbook_err}"
@@ -3299,6 +3760,20 @@ class SalesService:
                 detail=f"Cannot settle payment for invoice with status: {invoice.approval_status}"
             )
         
+        # M5: a settlement is dated between the order date and today; the transaction and its journal entry use that date
+        _today = tz.today()
+        _order_day = invoice.created_date.date() if isinstance(invoice.created_date, datetime) else invoice.created_date
+        if payment_data.payment_date > _today:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"The payment date ({payment_data.payment_date}) cannot be in the future.",
+            )
+        if _order_day and payment_data.payment_date < _order_day:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"The payment date ({payment_data.payment_date}) cannot be before the order date ({_order_day}).",
+            )
+
         # Validate payment amount (accounting for pending bank transfer amounts)
         pending_bt_amount = db.query(func.coalesce(func.sum(CustomerCreditsSettleTransaction.payment_amount), 0)).filter(
             CustomerCreditsSettleTransaction.invoice_id == invoice.id,
@@ -3335,10 +3810,12 @@ class SalesService:
         settle_no = f"{settle_prefix}-{next_seq:05d}"
         
         # Create credit settle record
+        # the settlement (and the journal entry dated from it) carries the validated payment date
+        _now = tz.now()
         credit_settle = CustomerCreditsSettle(
             customer_credits_settle_no=settle_no,
             branch_code=invoice.branch_code,
-            created_date=tz.now(),
+            created_date=datetime.combine(payment_data.payment_date, _now.time()),
             customer_id=invoice.customer_id
         )
         db.add(credit_settle)
@@ -3744,6 +4221,9 @@ class SalesService:
             # Mark bank deposit as verified
             if invoice.bank_transfer:
                 invoice.bank_transfer.verified = True
+                invoice.bank_transfer.status = "confirmed"
+                invoice.bank_transfer.confirmed_by = user_id
+                invoice.bank_transfer.confirmed_date = tz.now()
             
             # Mark reserved stock as sold (lock rows to prevent concurrent modification)
             for item in invoice.items:
@@ -3801,9 +4281,15 @@ class SalesService:
             invoice.bank_transfer_rejection_reason = rejection_reason
             invoice.approval = False
             invoice.approval_status = DocumentStatus.CANCELLED
-            invoice.payment_status = PaymentStatus.UNPAID
+            invoice.payment_status = PaymentStatus.CANCELLED  # M4: a cancelled order owes nothing
+            invoice.balance_due = 0
+            invoice.credit_amount = 0
             invoice.status = False
-            
+
+            # H10: void the order's pending deposit; give back vouchers / coupon / advance it consumed
+            self._void_pending_bank_deposits(db, invoice, user_id)
+            self._release_invoice_instruments(db, invoice, user_id=user_id)
+
             # Release reserved stock back to available (lock rows to prevent concurrent modification)
             for item in invoice.items:
                 if item.sales_stock_id:
@@ -3958,6 +4444,9 @@ class SalesService:
                     bank_deposit.confirmed_date = tz.now()
 
             db.commit()
+
+            # a rejected settlement never reduced balance_due; recompute so left_credit_amount stays consistent
+            customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
 
             return {
                 "success": True,

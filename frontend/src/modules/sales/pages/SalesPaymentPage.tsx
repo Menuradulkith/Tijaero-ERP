@@ -70,6 +70,7 @@ import { customersApi } from "@/modules/customers/api";
 import { useReferenceData } from "@/hooks";
 import { TChip, fmtLKR, showErrorToast, TPageSkeleton, TConfirmDialog, useCrudMutation, useTConfirmDialog } from "@/components/tijaero";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // Payment method types
 type PaymentMethodType = "cash" | "card_visa" | "card_mastercard" | "card_amex" | "cheque" | "bank_transfer" | "credit";
 
@@ -631,28 +632,18 @@ export default function SalesPaymentPage() {
                                 </Paper>
 
                                 {/* Action Buttons */}
-                                <Box sx={{ mt: 3, display: "flex", gap: 2 }}>
+                                <Box sx={{ mt: 3, display: "flex", gap: 1, justifyContent: "flex-end" }}>
                                     <Button
-                                        fullWidth
                                         variant="contained"
+                                        color="success"
                                         size="large"
                                         onClick={handleProcessPayment}
                                         disabled={!isPaymentComplete || processPaymentMutation.isPending}
                                         startIcon={processPaymentMutation.isPending ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
-                                        sx={{
-                                            py: 1.5,
-                                            fontSize: "1.1rem",
-                                            fontWeight: 700,
-                                            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                                            "&:hover": {
-                                                background: "linear-gradient(135deg, #764ba2 0%, #667eea 100%)",
-                                            },
-                                        }}
                                     >
                                         {processPaymentMutation.isPending ? "Processing..." : "Process Payment"}
                                     </Button>
-                                    <Button
-                                        variant="outlined"
+                                    <Button variant="contained" color="error" startIcon={<CancelIcon />}
                                         size="large"
                                         onClick={() => navigate(-1)}
                                         sx={{ minWidth: 120 }}

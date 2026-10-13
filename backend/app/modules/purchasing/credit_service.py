@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import set_committed_value
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from fastapi import HTTPException, status
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -348,7 +348,7 @@ class SupplierCreditService:
         from app.modules.purchasing.models import PurchasingOrderItems
 
         return db.query(
-            func.coalesce(func.sum(PurchasingOrderItems.unit_price), 0)
+            func.coalesce(func.sum(PurchasingOrderItems.unit_price * GoodReceivedItems.quantity), 0)
         ).join(
             GoodReceivedItems,
             GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id
@@ -360,7 +360,7 @@ class SupplierCreditService:
     def _get_credit_purchase_orders(self, db: Session, supplier_id: int, credit_days: int) -> List[Dict]:
         from app.modules.purchasing.models import PurchasingOrderItems
         
-        valid_statuses = ['draft', 'pending', 'pending_approval', 'approved', 'completed', 'partially_completed']
+        valid_statuses = ['draft', 'pending', 'pending_approval', 'approved', 'completed', 'partially_completed', 'short_closed']
         credit_pos = db.query(PurchasingOrder).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
             func.lower(PurchasingOrder.payment_method) == "credit",
@@ -379,10 +379,16 @@ class SupplierCreditService:
             ).scalar() or Decimal("0")
 
             grns = db.query(GoodReceivedNote).filter(
-                GoodReceivedNote.purchasingorders_id == po.id
+                GoodReceivedNote.purchasingorders_id == po.id,
+                or_(GoodReceivedNote.status.is_(None), GoodReceivedNote.status != "cancelled"),
             ).order_by(GoodReceivedNote.good_received_date.asc(), GoodReceivedNote.id.asc()).all()
             grn = grns[0] if grns else None
             grn_ids = [g.id for g in grns]
+            # QA F3: once goods are received the payable is the RECEIVED value
+            # (active GRN items x unit price), not the ordered value; pre-GRN
+            # rows keep the PO total for planning visibility.
+            if grn_ids:
+                po_total = self._get_po_received_amount(db, po.id)
             
             # Get settlements for this PO (through GRN, only verified settlements)
             total_settled = Decimal("0")
@@ -394,7 +400,8 @@ class SupplierCreditService:
                     SupplierCreditsSettle,
                     SupplierCreditsSettleTransaction.supplier_credit_settle_id == SupplierCreditsSettle.id
                 ).filter(
-                    SupplierCreditsSettleTransaction.good_received_id.in_(grn_ids)
+                    SupplierCreditsSettleTransaction.good_received_id.in_(grn_ids),
+                    SupplierCreditsSettle.status == "verified",
                 ).scalar() or Decimal("0")
 
                 # Also account for payments made through the Purchase Invoice system.
@@ -430,7 +437,7 @@ class SupplierCreditService:
                 approved_return_ids = [r[0] for r in approved_return_ids]
                 if approved_return_ids:
                     total_returns = db.query(
-                        func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+                        func.coalesce(func.sum(PurchasingReturnItems.return_price * PurchasingReturnItems.quantity), 0)
                     ).filter(
                         PurchasingReturnItems.purchasingreturn_id.in_(approved_return_ids)
                     ).scalar() or Decimal("0")
@@ -574,13 +581,19 @@ class SupplierCreditService:
                 approved_return_ids = [r[0] for r in approved_return_ids]
                 if approved_return_ids:
                     total_returns = db.query(
-                        func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+                        func.coalesce(func.sum(PurchasingReturnItems.return_price * PurchasingReturnItems.quantity), 0)
                     ).filter(
                         PurchasingReturnItems.purchasingreturn_id.in_(approved_return_ids)
                     ).scalar() or Decimal("0")
 
             # Calculate remaining after payments, advance applications, AND returns
             total_all_paid_decimal = total_paid + effective_advance + total_returns
+            # QA F3: a cash / bank / cheque GRN is paid at receipt (GL Cr
+            # 1010/1020), so received goods are never outstanding. Only an
+            # ADVANCE PO can leave a remainder (received value not covered by
+            # the advance); pre-GRN rows keep the PO total for planning.
+            if has_grn and (po.payment_method or "").strip().lower() != "advance":
+                total_all_paid_decimal = max(total_all_paid_decimal, base_amount)
             remaining_decimal = base_amount - total_all_paid_decimal
             if remaining_decimal < Decimal("0"):
                 remaining_decimal = Decimal("0")
@@ -621,33 +634,69 @@ class SupplierCreditService:
         
         return result
     
-    def _calculate_outstanding_payable(self, db: Session, supplier_id: int) -> Decimal:
-        from app.modules.purchasing.models import PurchasingOrderItems
-        
-        completed_credit_po_ids = db.query(PurchasingOrder.id).filter(
+    def _credit_grn_ids(self, db: Session, supplier_id: int, branch_codes: Optional[List[str]] = None) -> List[int]:
+        """Non-cancelled GRNs of this supplier's CREDIT POs - the only receipts
+        that create a payable (cash/bank/cheque GRNs are paid at receipt: GL
+        Cr 1010/1020; advance GRNs consume 2020)."""
+        q = db.query(GoodReceivedNote.id).join(
+            PurchasingOrder, GoodReceivedNote.purchasingorders_id == PurchasingOrder.id
+        ).filter(
             PurchasingOrder.first_suppliers_id == supplier_id,
             func.lower(PurchasingOrder.payment_method) == "credit",
-            PurchasingOrder.status.in_(['completed', 'partially_completed'])
-        ).all()
-        completed_credit_po_ids = [p[0] for p in completed_credit_po_ids]
-        
-        if not completed_credit_po_ids:
+            or_(GoodReceivedNote.status.is_(None), GoodReceivedNote.status != "cancelled"),
+        )
+        if branch_codes is not None:
+            q = q.filter(GoodReceivedNote.branch_code.in_(branch_codes))
+        return [g[0] for g in q.all()]
+
+    def _calculate_outstanding_payable(self, db: Session, supplier_id: int) -> Decimal:
+        """Trade-creditor balance from the old PO/GRN system (QA F3):
+
+            received value (active GRN items x PO unit price, non-cancelled GRNs
+            of credit POs)
+          - VERIFIED credit settlements on those GRNs
+          - payments on credit purchase invoices
+          - APPROVED purchase returns on those GRNs
+          - supplier-advance applications to those GRNs (Dr 2010 / Cr 2020)
+        """
+        from app.modules.purchasing.models import (
+            PurchasingOrderItems, PurchasingReturn, PurchasingReturnItems, SupplierAdvanceApplication,
+        )
+
+        grn_ids = self._credit_grn_ids(db, supplier_id)
+        if not grn_ids:
             return Decimal("0")
-        
+
+        grn_nos = [
+            r[0] for r in db.query(GoodReceivedNote.good_received_no).filter(GoodReceivedNote.id.in_(grn_ids)).all()
+        ]
         total_grn_value = db.query(
-            func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+            func.coalesce(func.sum(PurchasingOrderItems.unit_price * GoodReceivedItems.quantity), 0)
+        ).join(
+            GoodReceivedItems,
+            GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id
+        ).join(
+            GoodReceivedNote,
+            and_(
+                GoodReceivedNote.good_received_no == GoodReceivedItems.good_received_note,
+                GoodReceivedNote.purchasingorders_id == PurchasingOrderItems.purchasingorders_id,
+            ),
         ).filter(
-            PurchasingOrderItems.purchasingorders_id.in_(completed_credit_po_ids)
+            GoodReceivedNote.id.in_(grn_ids),
+            GoodReceivedItems.good_received_note.in_(grn_nos),
+            GoodReceivedItems.active == True,  # noqa: E712
         ).scalar() or Decimal("0")
-        
-        # Get all settled amounts for this supplier (only verified settlements)
+
+        # Only VERIFIED settlements have posted Dr 2010 to the GL.
         total_settled = db.query(
             func.coalesce(func.sum(SupplierCreditsSettleTransaction.payment_amount), 0)
         ).join(
             SupplierCreditsSettle,
             SupplierCreditsSettleTransaction.supplier_credit_settle_id == SupplierCreditsSettle.id
         ).filter(
-            SupplierCreditsSettle.suppliers_id == supplier_id
+            SupplierCreditsSettle.suppliers_id == supplier_id,
+            SupplierCreditsSettle.status == "verified",
+            SupplierCreditsSettleTransaction.good_received_id.in_(grn_ids),
         ).scalar() or Decimal("0")
 
         # Also account for payments made via Purchase Invoices (new system).
@@ -661,31 +710,27 @@ class SupplierCreditService:
             PurchaseInvoice.payment_type == "credit",
             PurchaseInvoice.status != "cancelled",
         ).scalar() or Decimal("0")
-        
-        from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
-        
-        grn_ids = db.query(GoodReceivedNote.id).filter(
-            GoodReceivedNote.purchasingorders_id.in_(completed_credit_po_ids)
-        ).all()
-        grn_ids = [g[0] for g in grn_ids]
-        
-        total_returns = Decimal("0")
-        if grn_ids:
-            approved_return_ids = db.query(PurchasingReturn.id).filter(
-                PurchasingReturn.goodreceivednote_id.in_(grn_ids),
-                PurchasingReturn.status == "approved"
-            ).all()
-            approved_return_ids = [r[0] for r in approved_return_ids]
-            
-            if approved_return_ids:
-                total_returns = db.query(
-                    func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
-                ).filter(
-                    PurchasingReturnItems.purchasingreturn_id.in_(approved_return_ids)
-                ).scalar() or Decimal("0")
-        
-        return total_grn_value - total_settled - invoice_total_paid - total_returns
-    
+
+        total_returns = db.query(
+            func.coalesce(func.sum(PurchasingReturnItems.return_price * PurchasingReturnItems.quantity), 0)
+        ).join(
+            PurchasingReturn, PurchasingReturn.id == PurchasingReturnItems.purchasingreturn_id
+        ).filter(
+            PurchasingReturn.goodreceivednote_id.in_(grn_ids),
+            PurchasingReturn.status == "approved",
+        ).scalar() or Decimal("0")
+
+        total_advance_applied = db.query(
+            func.coalesce(func.sum(SupplierAdvanceApplication.applied_amount), 0)
+        ).filter(
+            SupplierAdvanceApplication.grn_id.in_(grn_ids)
+        ).scalar() or Decimal("0")
+
+        return (
+            Decimal(str(total_grn_value)) - Decimal(str(total_settled)) - Decimal(str(invoice_total_paid))
+            - Decimal(str(total_returns)) - Decimal(str(total_advance_applied))
+        )
+
     def _calculate_pending_credits(self, db: Session, supplier_id: int, exclude_po_id: Optional[int] = None) -> Decimal:
         from app.modules.purchasing.models import PurchasingOrderItems
         
@@ -726,10 +771,10 @@ class SupplierCreditService:
             GoodReceivedNote.purchasingorders_id.in_(po_ids),
             GoodReceivedNote.good_received_date < cutoff_date
         ).all()
-        
+
         overdue_list = []
         for grn in grns:
-            remaining = self._get_grn_remaining_payable(db, grn.id)
+            remaining = self._get_grn_remaining_payable(db, grn.id, verified_only=True)
             if remaining > 0:
                 due_date = self.calculate_due_date(grn.good_received_date, credit_days)
                 overdue_list.append({
@@ -760,7 +805,7 @@ class SupplierCreditService:
         
         unpaid_list = []
         for grn in grns:
-            remaining = self._get_grn_remaining_payable(db, grn.id)
+            remaining = self._get_grn_remaining_payable(db, grn.id, verified_only=True)
             if remaining > 0:
                 due_date = self.calculate_due_date(grn.good_received_date, credit_days)
                 days_overdue = (tz.today() - due_date).days
@@ -777,16 +822,30 @@ class SupplierCreditService:
         
         return unpaid_list
     
-    def _get_grn_remaining_payable(self, db: Session, grn_id: int) -> Decimal:
+    def _get_grn_remaining_payable(self, db: Session, grn_id: int, verified_only: bool = False) -> Decimal:
+        """What is still owed on one GRN.
 
+        Only CREDIT GRNs (and the un-covered remainder of ADVANCE GRNs) are
+        payables; cash / bank / cheque GRNs were paid at receipt (GL Cr
+        1010/1020) and a cancelled GRN owes nothing (QA F3). Only APPROVED
+        returns reduce it. ``verified_only`` counts only verified credit
+        settlements (what the GL has posted - used by the aging reports);
+        the default also counts pending ones so a new settlement cannot
+        over-pay a GRN that already has one in flight.
+        """
         grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
-        if not grn:
+        if not grn or (grn.status or "").lower() == "cancelled":
+            return Decimal("0")
+        po_method = db.query(PurchasingOrder.payment_method).filter(
+            PurchasingOrder.id == grn.purchasingorders_id
+        ).scalar()
+        if (po_method or "").strip().lower() not in ("credit", "advance"):
             return Decimal("0")
         
         from app.modules.purchasing.models import PurchasingOrderItems
 
         total = db.query(
-            func.coalesce(func.sum(PurchasingOrderItems.unit_price), 0)
+            func.coalesce(func.sum(PurchasingOrderItems.unit_price * GoodReceivedItems.quantity), 0)
         ).join(
             GoodReceivedItems,
             GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id
@@ -803,20 +862,23 @@ class SupplierCreditService:
             SupplierCreditsSettle,
             SupplierCreditsSettleTransaction.supplier_credit_settle_id == SupplierCreditsSettle.id
         ).filter(
-            SupplierCreditsSettleTransaction.good_received_id == grn_id
+            SupplierCreditsSettleTransaction.good_received_id == grn_id,
+            (SupplierCreditsSettle.status == "verified") if verified_only
+            else or_(SupplierCreditsSettle.status.is_(None), SupplierCreditsSettle.status != "cancelled"),
         ).scalar() or Decimal("0")
 
         from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
-        
+
         return_ids = db.query(PurchasingReturn.id).filter(
-            PurchasingReturn.goodreceivednote_id == grn_id
+            PurchasingReturn.goodreceivednote_id == grn_id,
+            PurchasingReturn.status == "approved",
         ).all()
         return_ids = [r[0] for r in return_ids]
         
         total_returns = Decimal("0")
         if return_ids:
             total_returns = db.query(
-                func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+                func.coalesce(func.sum(PurchasingReturnItems.return_price * PurchasingReturnItems.quantity), 0)
             ).filter(
                 PurchasingReturnItems.purchasingreturn_id.in_(return_ids)
             ).scalar() or Decimal("0")
@@ -1262,9 +1324,24 @@ class SupplierCreditService:
         }
 
     
-    def get_aging_report(self, db: Session, supplier_id: Optional[int] = None) -> Dict[str, Any]:
-        grn_query = db.query(GoodReceivedNote)
-        
+    def get_aging_report(
+        self,
+        db: Session,
+        supplier_id: Optional[int] = None,
+        branch_codes: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Payables aging. Only credit / advance-remainder GRNs carry a balance
+        (see ``_get_grn_remaining_payable``). ``branch_codes`` (None = all)
+        restricts to GRNs received at those branches."""
+        grn_query = db.query(GoodReceivedNote).join(
+            PurchasingOrder, GoodReceivedNote.purchasingorders_id == PurchasingOrder.id
+        ).filter(
+            func.lower(PurchasingOrder.payment_method).in_(["credit", "advance"]),
+            or_(GoodReceivedNote.status.is_(None), GoodReceivedNote.status != "cancelled"),
+        )
+        if branch_codes is not None:
+            grn_query = grn_query.filter(GoodReceivedNote.branch_code.in_(branch_codes))
+
         if supplier_id:
             po_ids = db.query(PurchasingOrder.id).filter(
                 PurchasingOrder.first_suppliers_id == supplier_id
@@ -1284,10 +1361,10 @@ class SupplierCreditService:
         }
         
         for grn in grns:
-            remaining = self._get_grn_remaining_payable(db, grn.id)
+            remaining = self._get_grn_remaining_payable(db, grn.id, verified_only=True)
             if remaining <= 0:
                 continue
-            
+
             po = db.query(PurchasingOrder).filter(
                 PurchasingOrder.id == grn.purchasingorders_id
             ).first()
@@ -1668,7 +1745,7 @@ class SupplierCreditService:
             if remaining <= 0:
                 continue
             grn_total = db.query(
-                func.coalesce(func.sum(PurchasingOrderItems.unit_price), 0)
+                func.coalesce(func.sum(PurchasingOrderItems.unit_price * GoodReceivedItems.quantity), 0)
             ).join(
                 GoodReceivedItems,
                 GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id
@@ -1765,7 +1842,7 @@ class SupplierCreditService:
                 ).all()]
                 if ret_ids:
                     total_returns = db.query(
-                        func.coalesce(func.sum(PurchasingReturnItems.return_price), 0)
+                        func.coalesce(func.sum(PurchasingReturnItems.return_price * PurchasingReturnItems.quantity), 0)
                     ).filter(PurchasingReturnItems.purchasingreturn_id.in_(ret_ids)).scalar() or Decimal("0")
 
             received_amount = self._get_po_received_amount(db, po.id) if grn_ids else Decimal("0")
@@ -1774,6 +1851,10 @@ class SupplierCreditService:
 
             remaining = base_amount - total_paid - effective_advance - total_returns
             if remaining < Decimal("0"):
+                remaining = Decimal("0")
+            # QA F3: received goods on a cash / bank / cheque PO were paid at
+            # receipt (GL Cr 1010/1020) - only an advance PO can leave a remainder.
+            if grn_ids and (po.payment_method or "").strip().lower() != "advance":
                 remaining = Decimal("0")
             if remaining <= 0:
                 continue

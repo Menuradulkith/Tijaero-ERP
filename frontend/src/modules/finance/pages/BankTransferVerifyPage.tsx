@@ -351,7 +351,7 @@ export default function BankTransferVerifyPage() {
         const statusChip = getStatusChip(transfer.bank_transfer_status);
         return (
           <SelectableListItem
-            key={transfer.id}
+            key={`${transfer.source || "sale"}-${transfer.id}-${transfer.settlement_transaction_id ?? ""}`}
             id={transfer.id}
             isSelected={isSelected}
             onClick={() => handleSelectTransfer(transfer)}
@@ -981,7 +981,7 @@ export default function BankTransferVerifyPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button
             onClick={handleConfirmReject}
             color="error"

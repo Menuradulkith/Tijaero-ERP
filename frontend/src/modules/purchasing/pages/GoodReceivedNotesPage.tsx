@@ -64,7 +64,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 
@@ -98,10 +98,12 @@ import {
 import { useReferenceData } from "@/hooks";
 import { locationsApi } from "@/modules/common/api";
 import { companyAssetsApi, productsApi, salesStockApi } from "@/modules/inventory/api";
+import ReclassifyDialog from "@/modules/inventory/components/ReclassifyDialog";
+import LandedCostPanel from "@/modules/purchasing/components/LandedCostPanel";
 import { Product } from "@/modules/inventory/types";
 import { goodReceivedItemsApi, goodReceivedNotesApi, purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import {
-  GoodReceivedItem, GoodReceivedItemCreate, GoodReceivedNote,
+  GoodReceivedItem, GoodReceivedItemCreate, GoodReceivedNote, GRNReceiveLine,
   GoodReceivedNoteCreate, PurchasingOrder,
   PurchasingOrderItem,
   PurchasingOrderWithItems, Supplier
@@ -109,6 +111,7 @@ import {
 // Currency formatting uses fmtLKR from tijaero
 import { formatDateTimeReadable } from "@/utils/formatters";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 const FORM_STEPS = ["GRN Information", "Received Items"];
 
 // Location type for reference data
@@ -140,18 +143,24 @@ const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: 
 const INITIAL_FORM_DATA: GoodReceivedNoteCreate = {
   good_received_no: "",
   good_received_date: new Date().toISOString().split("T")[0],
-  supplier_invoice_no: "",
-  supplier_invoice_date: new Date().toISOString().split("T")[0],
-  // supplier_invoice fields kept in form data for API compatibility but hidden from UI
+  // The supplier invoice is matched later (purchase invoice); the GRN carries the delivery note.
+  delivery_note_no: "",
+  vehicle_no: "",
+  received_by: "",
   remark: "",
   branch_code: "HQ",
   good_received_locations_id: 1,
   purchasingorders_id: 0,
 };
 
-interface GRNLineItem extends GoodReceivedItemCreate {
+type TrackingType = "serial" | "batch" | "none";
+
+interface GRNLineItem extends Omit<GoodReceivedItemCreate, "barcode"> {
   _id: string;
   id?: number; // For existing items
+  barcode: string; // "" for batch/none lots (no per-unit barcode)
+  tracking_type: TrackingType;
+  max_quantity?: number; // Remaining receivable qty for a batch/none lot
   product_name?: string;
   product_id?: number;
   quantity?: number;
@@ -163,6 +172,15 @@ interface GRNLineItem extends GoodReceivedItemCreate {
   saveToCompanyAssets: boolean;
   barcodeError?: string;  // Error message if barcode already exists
 }
+
+// Batch/none-tracked products are received as one lot line carrying a
+// quantity (no per-unit barcode); serial products stay one line per unit.
+const isLotItem = (i: { tracking_type?: TrackingType }) => (i.tracking_type ?? "serial") !== "serial";
+const isLotReady = (i: GRNLineItem) =>
+  (i.quantity ?? 0) >= 1 &&
+  (i.max_quantity === undefined || (i.quantity ?? 0) <= i.max_quantity) &&
+  (i.tracking_type !== "batch" || !!i.batch_no?.trim());
+const lineUnits = (i: GRNLineItem) => (isLotItem(i) ? (i.quantity ?? 0) : 1);
 
 // Grouped items by product for nice display
 interface ProductGroup {
@@ -191,8 +209,9 @@ type GRNRow = GoodReceivedNote & {
 const resetFormFromGRN = (grn: GoodReceivedNote): GoodReceivedNoteCreate => ({
   good_received_no: grn.good_received_no,
   good_received_date: grn.good_received_date?.split("T")[0] || "",
-  supplier_invoice_no: grn.supplier_invoice_no,
-  supplier_invoice_date: grn.supplier_invoice_date?.split("T")[0] || "",
+  delivery_note_no: grn.delivery_note_no || "",
+  vehicle_no: grn.vehicle_no || "",
+  received_by: grn.received_by || "",
   remark: grn.remark || "",
   branch_code: grn.branch_code,
   good_received_locations_id: grn.good_received_locations_id,
@@ -211,13 +230,26 @@ export default function GoodReceivedNotesPage() {
   const [lineItems, setLineItems] = useState<GRNLineItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [formStep, setFormStep] = useState(0);
-  const [defaultSaveToSalesStock, setDefaultSaveToSalesStock] = useState(true);
-  const [defaultSaveToCompanyAssets, setDefaultSaveToCompanyAssets] = useState(false);
+  // Everything received goes to Sales Stock; asset capitalisation is a separate step.
+  const defaultSaveToSalesStock = true;
+  const defaultSaveToCompanyAssets = false;
   const [productGroups, setProductGroups] = useState<ProductGroup[]>([]);
   const [_products, setProducts] = useState<Product[]>([]);
   const [loadingPOItems, setLoadingPOItems] = useState(false);
   const [activeScanItem, setActiveScanItem] = useState<string | null>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+
+  // Most units still receivable per PO line (ordered + the product's over-receipt tolerance - already received).
+  const [receiptCaps, setReceiptCaps] = useState<Record<number, number>>({});
+
+  // Goods delivered but NOT accepted, per PO line: they never enter stock and the PO stays open.
+  const [rejections, setRejections] = useState<Record<number, { qty: string; reason: string }>>({});
+
+  // Cancel (reverse) a posted GRN
+  const canCancelGRN = usePermission("grn", "delete");
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   // Print Dialog State
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -396,6 +428,10 @@ export default function GoodReceivedNotesPage() {
       setLineItems(items.map((item: GoodReceivedItem) => ({
         ...item,
         _id: `existing-${item.id}`,
+        barcode: item.barcode ?? "",
+        batch_no: item.batch_no ?? undefined,
+        expiry_date: item.expiry_date ?? undefined,
+        tracking_type: (item.batch_no ? "batch" : item.barcode ? "serial" : "none") as TrackingType,
         // Map API response to local state
         saveToSalesStock: item.saved_to_sales_stock || false,
         saveToCompanyAssets: item.saved_to_company_assets || false,
@@ -606,111 +642,63 @@ export default function GoodReceivedNotesPage() {
         throw new Error(`Cannot save: ${itemsWithErrors.length} item(s) have barcode errors - ${errorDetails}`);
       }
 
-      // Get items with barcodes to save
-      const itemsToSave = lineItems.filter(item => item.barcode);
+      // Serial units need a barcode; batch/none lots need a qty (+ batch no).
+      const itemsToSave = lineItems.filter(item => (isLotItem(item) ? isLotReady(item) : !!item.barcode));
+      const rejectedEntries = Object.entries(rejections).filter(([, r]) => Math.floor(Number(r.qty)) > 0);
 
-      if (itemsToSave.length === 0) {
-        throw new Error("No items with barcodes to save. Please scan barcodes for items.");
+      if (itemsToSave.length === 0 && rejectedEntries.length === 0) {
+        throw new Error("Nothing to save. Scan barcodes for serial items, enter quantity / batch details for lots, or record a rejected quantity.");
+      }
+      const incompleteLots = lineItems.filter(item => isLotItem(item) && !isLotReady(item) && item.tracking_type === "batch" && (item.quantity ?? 0) >= 1);
+      if (incompleteLots.length > 0) {
+        throw new Error(`Enter a batch number for: ${incompleteLots.map(i => i.product_name).join(", ")}`);
+      }
+      if (rejectedEntries.some(([, r]) => r.reason.trim().length < 3)) {
+        throw new Error("Enter a reason for every rejected quantity.");
       }
 
-      // Final validation: Check ALL barcodes one more time before saving (critical safety check)
-      // Check against ALL three tables: good_received_items, sales_stock, company_assets
-      const barcodeValidationPromises = itemsToSave.map(async (item) => {
-        try {
-          // Check good_received_items first
-          const grnResult = await goodReceivedItemsApi.checkBarcodeExists(item.barcode);
-          if (grnResult.exists) {
-            return { barcode: item.barcode, error: "already exists in GRN Items" };
-          }
-          // Check sales_stock
-          const salesResult = await salesStockApi.checkBarcodeExists(item.barcode);
-          if (salesResult.exists) {
-            return { barcode: item.barcode, error: "already exists in Sales Stock" };
-          }
-          // Check company_assets
-          const assetsResult = await companyAssetsApi.checkBarcodeExists(item.barcode);
-          if (assetsResult.exists) {
-            return { barcode: item.barcode, error: "already exists in Company Assets" };
-          }
-          return null;
-        } catch {
-          // On API error, treat as potential duplicate (fail-safe)
-          return { barcode: item.barcode, error: "validation failed - cannot verify" };
+      // One receipt, one transaction: the server validates every line (barcodes, batch, quantities,
+      // over-receipt) and saves header + items + stock + rejections together, or nothing at all.
+      const byPoItem = new Map<number, GRNReceiveLine>();
+      const lineFor = (poItemId: number) => {
+        let line = byPoItem.get(poItemId);
+        if (!line) {
+          line = { purchasing_order_items_id: poItemId };
+          byPoItem.set(poItemId, line);
         }
-      });
-
-      const validationResults = await Promise.all(barcodeValidationPromises);
-      const duplicates = validationResults.filter(r => r !== null);
-
-      if (duplicates.length > 0) {
-        const errorMsg = duplicates.map(d => `${d!.barcode} ${d!.error}`).join(", ");
-        throw new Error(`Cannot save GRN: Duplicate barcodes found - ${errorMsg}`);
-      }
-
-      // First create the GRN (with credit override if authorized)
-      const newGRN = await goodReceivedNotesApi.create(data, allowCreditOverride);
-
-      let grnItemCount = 0;
-      let salesStockCount = 0;
-      let companyAssetCount = 0;
-
+        return line;
+      };
       for (const item of itemsToSave) {
-        // Step 1: Always save to good_received_items table first
-        await goodReceivedItemsApi.create({
-          good_received_note: newGRN.good_received_no,
-          barcode: item.barcode,
-          branch_code: item.branch_code,
-          active: true,
-          purchasing_order_items_id: item.purchasing_order_items_id,
-        });
-        grnItemCount++;
-
-        // Step 2: Then distribute to sales_stock and/or company_assets based on selection
-
-        // Save to sales_stock if selected
-        if (item.saveToSalesStock && item.product_id) {
-          await salesStockApi.create({
-            product_id: item.product_id,
-            barcode: item.barcode,
-            branch_code: item.branch_code,
-            location_id: formData.good_received_locations_id,  // Link to GRN receiving location
-            good_received_note_id: newGRN.id,
-            purchasing_order_items_id: item.purchasing_order_items_id,
-            warranty_month: item.warranty_month || undefined,  // Include warranty from PO or GRN
-            status: "available",
-          });
-          salesStockCount++;
-        }
-
-        // Save to company_assets if selected
-        if (item.saveToCompanyAssets && item.product_id) {
-          await companyAssetsApi.create({
-            product_id: item.product_id,
-            inventory_no: `INV-${newGRN.good_received_no}-${item.barcode}`,
-            item: item.product_name || `Product ${item.product_id}`,
-            description: `Received from GRN ${newGRN.good_received_no}`,
-            branch_code: item.branch_code,
-            barcode: item.barcode,
-            warranty_month: item.warranty_month || undefined,  // Include warranty from PO or GRN
-            good_received_note_id: newGRN.id,
-            purchasing_order_items_id: item.purchasing_order_items_id,
-            status: "available",
-          });
-          companyAssetCount++;
+        const line = lineFor(item.purchasing_order_items_id);
+        if (isLotItem(item)) {
+          line.quantity = (line.quantity ?? 0) + (item.quantity ?? 0);
+          if (item.tracking_type === "batch") {
+            line.batch_no = item.batch_no?.trim();
+            line.expiry_date = item.expiry_date || undefined;
+          }
+          line.warranty_month = item.warranty_month || undefined;
+        } else {
+          line.units = [...(line.units ?? []), { barcode: item.barcode, warranty_month: item.warranty_month || undefined }];
         }
       }
+      for (const [poItemId, rej] of rejectedEntries) {
+        const line = lineFor(Number(poItemId));
+        line.rejected_quantity = Math.floor(Number(rej.qty));
+        line.rejection_reason = rej.reason.trim();
+      }
 
-      return { grn: newGRN, grnItemCount, salesStockCount, companyAssetCount };
+      const result = await goodReceivedNotesApi.receive({ ...data, lines: [...byPoItem.values()] }, allowCreditOverride);
+      return { grn: result.grn, grnItemCount: result.units_received, rejectedCount: result.units_rejected };
     },
     invalidateQueryKeys: [["goodReceivedNotes"], ["purchaseOrders"], ["purchase-orders"]],
     errorMessage: "Failed to create GRN",
     showSuccess: false,
     showError: false,
-    onSuccess: async ({ grn: newGRN, grnItemCount, salesStockCount, companyAssetCount }) => {
-      const messages = [`${grnItemCount} items received`];
-      if (salesStockCount > 0) messages.push(`${salesStockCount} to Sales Stock`);
-      if (companyAssetCount > 0) messages.push(`${companyAssetCount} to Company Assets`);
+    onSuccess: async ({ grn: newGRN, grnItemCount, rejectedCount }) => {
+      const messages = [`${grnItemCount} units received into Sales Stock`];
+      if (rejectedCount > 0) messages.push(`${rejectedCount} rejected`);
       showSuccessToast(`GRN created successfully! ${messages.join(", ")}`);
+      setRejections({});
       setIsCreating(false);
       setIsEditing(false);
       setLineItems([]);
@@ -766,6 +754,7 @@ export default function GoodReceivedNotesPage() {
       _id: `new-${Date.now()}`,
       good_received_note: formData.good_received_no,
       barcode: "",
+      tracking_type: "serial",
       branch_code: formData.branch_code,
       active: true,
       purchasing_order_items_id: 0,
@@ -786,9 +775,14 @@ export default function GoodReceivedNotesPage() {
     ));
   };
 
+  // Blocks a second Save (or override) click before the first create has settled.
+  const savingRef = useRef(false);
+
   const handleSave = useCallback((allowCreditOverride = false) => {
+    if (savingRef.current) return;
     if (isCreating) {
-      createMutation.mutate({ data: formData, allowCreditOverride });
+      savingRef.current = true;
+      createMutation.mutate({ data: formData, allowCreditOverride }, { onSettled: () => { savingRef.current = false; } });
     }
     // Update removed - GRNs are not editable after creation
   }, [isCreating, formData, createMutation]);
@@ -800,8 +794,12 @@ export default function GoodReceivedNotesPage() {
 
   // Handle credit limit override confirmation
   const handleCreditOverrideConfirm = useCallback(() => {
-    if (creditLimitDialog.pendingData) {
-      createMutation.mutate({ data: creditLimitDialog.pendingData, allowCreditOverride: true });
+    if (creditLimitDialog.pendingData && !savingRef.current) {
+      savingRef.current = true;
+      createMutation.mutate(
+        { data: creditLimitDialog.pendingData, allowCreditOverride: true },
+        { onSettled: () => { savingRef.current = false; } }
+      );
     }
   }, [creditLimitDialog.pendingData, createMutation]);
 
@@ -832,6 +830,50 @@ export default function GoodReceivedNotesPage() {
     return branch ? `${branch.branch_code} - ${branch.branch_name}` : branchCode;
   };
 
+  // Serial products: add one more unit line while the over-receipt tolerance allows it.
+  const handleAddExtraUnit = (productId: number) => {
+    const first = lineItems.find((i) => i.product_id === productId && !isLotItem(i));
+    if (!first) return;
+    const extra: GRNLineItem = {
+      ...first,
+      _id: `po-${first.purchasing_order_items_id}-x${Date.now()}`,
+      barcode: "",
+      scanned: false,
+      barcodeError: undefined,
+    };
+    setLineItems((prev) => [...prev, extra]);
+    setProductGroups((groups) =>
+      groups.map((g) => (g.product_id === productId ? { ...g, items: [...g.items, extra], total_quantity: g.total_quantity + 1 } : g))
+    );
+  };
+
+  const handleCancelGRN = async (reason: string) => {
+    if (!selectedGRN) return;
+    setCancelBusy(true);
+    setCancelError(null);
+    try {
+      const cancelled = await goodReceivedNotesApi.cancel(selectedGRN.id, reason);
+      showSuccessToast(`${cancelled.good_received_no} cancelled`);
+      setCancelOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
+      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
+      queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["salesStock"] });
+      await refetch();
+      handleSelectGRNWithItems(cancelled);
+    } catch (error) {
+      setCancelError(handleApiError(error, "Could not cancel this GRN"));
+    } finally {
+      setCancelBusy(false);
+    }
+  };
+
+  const { data: grnRejections = [] } = useQuery({
+    queryKey: ["grn-rejections", selectedGRN?.id],
+    queryFn: () => goodReceivedNotesApi.getRejections(selectedGRN!.id),
+    enabled: !!selectedGRN && !isCreating,
+  });
+
   const handlePOChange = async (poId: number) => {
     const selectedPO = purchaseOrders?.find((o: PurchasingOrder) => o.id === poId);
     if (selectedPO) {
@@ -855,6 +897,7 @@ export default function GoodReceivedNotesPage() {
       });
 
       // Load PO items when PO is selected
+      setRejections({});
       if (poId > 0 && isCreating) {
         setLoadingPOItems(true);
         try {
@@ -877,7 +920,7 @@ export default function GoodReceivedNotesPage() {
               receivedItems.forEach((grnItem) => {
                 if (grnItem.purchasing_order_items_id && grnItem.active) {
                   const count = receivedCountMap.get(grnItem.purchasing_order_items_id) || 0;
-                  receivedCountMap.set(grnItem.purchasing_order_items_id, count + 1);
+                  receivedCountMap.set(grnItem.purchasing_order_items_id, count + (grnItem.quantity ?? 1));
                 }
               });
             } catch {
@@ -887,10 +930,44 @@ export default function GoodReceivedNotesPage() {
 
           // Create line items from PO items - one for each quantity (excluding received items)
           const newLineItems: GRNLineItem[] = [];
+          const caps: Record<number, number> = {};
           poWithItems.items?.forEach((poItem: PurchasingOrderItem) => {
             const product = allProducts.find((p: Product) => p.id === poItem.product_id);
             const receivedCount = receivedCountMap.get(poItem.id) || 0;
             const remainingQty = poItem.quantity - receivedCount;
+            const overPct = Number((product as Product | undefined)?.over_receipt_tolerance_pct ?? 0);
+            const receivableCap = Math.max(Math.floor(poItem.quantity * (1 + overPct / 100)) - receivedCount, 0);
+            caps[poItem.id] = receivableCap;
+
+            const trackingType = ((product as Product | undefined)?.tracking_type ?? "serial") as TrackingType;
+
+            // Batch/none products: ONE lot line for the whole remaining qty.
+            if (trackingType !== "serial") {
+              if (remainingQty > 0) {
+                newLineItems.push({
+                  _id: `po-${poItem.id}-lot`,
+                  good_received_note: formData.good_received_no,
+                  barcode: "",
+                  tracking_type: trackingType,
+                  quantity: remainingQty,
+                  max_quantity: receivableCap,
+                  batch_no: "",
+                  branch_code: selectedPO.branch_code,
+                  active: true,
+                  purchasing_order_items_id: poItem.id,
+                  product_id: poItem.product_id,
+                  product_name: product?.name || `Product ${poItem.product_id}`,
+                  unit_price: poItem.unit_price,
+                  po_item_id: poItem.id,
+                  warranty_month: poItem.warrenty_month || "",
+                  // "none" lots need nothing more; batch lots need a batch no.
+                  scanned: trackingType === "none",
+                  saveToSalesStock: defaultSaveToSalesStock,
+                  saveToCompanyAssets: false, // company assets are serial-only
+                });
+              }
+              return;
+            }
 
             // Only create line items for unreceived quantities
             for (let i = 0; i < remainingQty; i++) {
@@ -898,6 +975,7 @@ export default function GoodReceivedNotesPage() {
                 _id: `po-${poItem.id}-${i}`,
                 good_received_note: formData.good_received_no,
                 barcode: "",
+                tracking_type: "serial",
                 branch_code: selectedPO.branch_code,
                 active: true,
                 purchasing_order_items_id: poItem.id,
@@ -913,6 +991,7 @@ export default function GoodReceivedNotesPage() {
             }
           });
 
+          setReceiptCaps(caps);
           setLineItems(newLineItems);
 
           // Group items by product for display
@@ -949,14 +1028,14 @@ export default function GoodReceivedNotesPage() {
       if (groupMap.has(productId)) {
         const group = groupMap.get(productId)!;
         group.items.push(item);
-        group.total_quantity++;
+        group.total_quantity += lineUnits(item);
       } else {
         const product = productList.find((p: Product) => p.id === productId);
         groupMap.set(productId, {
           product_id: productId,
           product_name: item.product_name || product?.name || `Product ${productId}`,
           unit_price: item.unit_price || 0,
-          total_quantity: 1,
+          total_quantity: lineUnits(item),
           items: [item],
           expanded: true,
         });
@@ -973,6 +1052,44 @@ export default function GoodReceivedNotesPage() {
         g.product_id === productId ? { ...g, expanded: !g.expanded } : g
       )
     );
+  };
+
+  // Edit a batch/none lot line (qty / batch no / expiry). `scanned` doubles as
+  // "ready to save" so the existing progress + save gating keep working.
+  const handleLotChange = (itemId: string, patch: Partial<GRNLineItem>) => {
+    const apply = (item: GRNLineItem): GRNLineItem => {
+      if (item._id !== itemId) return item;
+      const next = { ...item, ...patch };
+      return { ...next, scanned: isLotReady(next) };
+    };
+    setLineItems(items => items.map(apply));
+    setProductGroups(groups =>
+      groups.map(g => {
+        const items = g.items.map(apply);
+        return { ...g, items, total_quantity: items.reduce((n, i) => n + lineUnits(i), 0) };
+      })
+    );
+  };
+
+  // Fill every still-empty serial unit of a product with a generated barcode
+  // (for goods that arrived without a manufacturer serial/barcode).
+  const handleGenerateBarcodes = async (productId: number) => {
+    const targets = lineItems.filter(
+      i => i.product_id === productId && !isLotItem(i) && !i.barcode
+    );
+    if (targets.length === 0) return;
+    try {
+      const codes = await goodReceivedItemsApi.generateBarcodes(targets.length);
+      const byId = new Map(targets.map((t, idx) => [t._id, codes[idx]]));
+      const apply = (item: GRNLineItem): GRNLineItem =>
+        byId.has(item._id)
+          ? { ...item, barcode: byId.get(item._id)!, scanned: true, barcodeError: undefined }
+          : item;
+      setLineItems(items => items.map(apply));
+      setProductGroups(groups => groups.map(g => ({ ...g, items: g.items.map(apply) })));
+    } catch {
+      showErrorToast("Failed to generate barcodes");
+    }
   };
 
   // Validate barcode against database - extracted for reuse
@@ -1219,41 +1336,6 @@ export default function GoodReceivedNotesPage() {
     );
   };
 
-  // Handle save destination change for individual item
-  const handleSaveDestinationChange = (itemId: string, field: "saveToSalesStock" | "saveToCompanyAssets", value: boolean) => {
-    setLineItems(items =>
-      items.map(item =>
-        item._id === itemId ? { ...item, [field]: value } : item
-      )
-    );
-    setProductGroups(groups =>
-      groups.map(g => ({
-        ...g,
-        items: g.items.map(item =>
-          item._id === itemId ? { ...item, [field]: value } : item
-        ),
-      }))
-    );
-  };
-
-  // Handle default save destination change - updates all items
-  const handleDefaultSaveDestinationChange = (field: "saveToSalesStock" | "saveToCompanyAssets", value: boolean) => {
-    if (field === "saveToSalesStock") {
-      setDefaultSaveToSalesStock(value);
-    } else {
-      setDefaultSaveToCompanyAssets(value);
-    }
-    setLineItems(items =>
-      items.map(item => ({ ...item, [field]: value }))
-    );
-    setProductGroups(groups =>
-      groups.map(g => ({
-        ...g,
-        items: g.items.map(item => ({ ...item, [field]: value })),
-      }))
-    );
-  };
-
   // Start scanning for a specific item
   const startScanning = (itemId: string) => {
     setActiveScanItem(itemId);
@@ -1295,7 +1377,11 @@ export default function GoodReceivedNotesPage() {
 
   // Count scanned items
   const scannedCount = useMemo(() => {
-    return lineItems.filter(item => item.scanned).length;
+    return lineItems.filter(item => item.scanned).reduce((n, item) => n + lineUnits(item), 0);
+  }, [lineItems]);
+
+  const totalUnits = useMemo(() => {
+    return lineItems.reduce((n, item) => n + lineUnits(item), 0);
   }, [lineItems]);
 
   const poIdsWithGrn = useMemo(() => {
@@ -1404,9 +1490,12 @@ export default function GoodReceivedNotesPage() {
         align: "center",
         headerAlign: "center",
         sortable: false,
-        renderCell: () => (
-          <TChip label="Received" size="small" color="success" sx={{ height: 20, fontSize: "0.65rem" }} />
-        ),
+        renderCell: (params: GridRenderCellParams<GRNRow>) =>
+          params.row.status === "cancelled" ? (
+            <TChip label="Cancelled" size="small" color="error" sx={{ height: 20, fontSize: "0.65rem" }} />
+          ) : (
+            <TChip label="Received" size="small" color="success" sx={{ height: 20, fontSize: "0.65rem" }} />
+          ),
       },
       {
         field: "view",
@@ -1484,6 +1573,18 @@ export default function GoodReceivedNotesPage() {
         onNew={handleNewGRN}
         onSave={handleSaveClick}
         onCancel={() => handleCancel(filteredGRNs)}
+        startActions={
+          isCreating && formStep === 1 ? (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={handlePreviousStep}
+              startIcon={<ArrowBackIcon />}
+            >
+              Back
+            </Button>
+          ) : undefined
+        }
         // onEdit disabled - GRNs are not editable after creation
         // onEdit={handleStartEdit}
         endActions={
@@ -1515,6 +1616,19 @@ export default function GoodReceivedNotesPage() {
               >
                 Make Payment
               </Button>
+              {canCancelGRN && selectedGRN.status !== "cancelled" && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  onClick={() => {
+                    setCancelError(null);
+                    setCancelOpen(true);
+                  }}
+                >
+                  Cancel GRN
+                </Button>
+              )}
               <TPrintButton
                 documentType="grn"
                 documentId={selectedGRN.id}
@@ -1631,6 +1745,32 @@ export default function GoodReceivedNotesPage() {
                     disabled
                     helperText="Auto-filled from Purchase Order"
                   />
+                  <TextField
+                    label="Delivery Note No"
+                    size="small"
+                    value={formData.delivery_note_no || ""}
+                    onChange={(e) => setFormData({ ...formData, delivery_note_no: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    inputProps={{ maxLength: 200 }}
+                    helperText={isCreating ? "Supplier's delivery note reference (optional)" : undefined}
+                  />
+                  <TextField
+                    label="Vehicle No"
+                    size="small"
+                    value={formData.vehicle_no || ""}
+                    onChange={(e) => setFormData({ ...formData, vehicle_no: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    inputProps={{ maxLength: 50 }}
+                  />
+                  <TextField
+                    label="Received By"
+                    size="small"
+                    value={formData.received_by || ""}
+                    onChange={(e) => setFormData({ ...formData, received_by: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    inputProps={{ maxLength: 200 }}
+                    helperText={isCreating ? "Leave blank to record yourself" : undefined}
+                  />
                 </FormSection>
 
                 <FormSection title="Remarks" columns={1}>
@@ -1651,17 +1791,6 @@ export default function GoodReceivedNotesPage() {
             {/* Step 2: Received Items (always show in view/edit mode, step 2 in create mode) */}
             {(formStep === 1 || !isCreating) && (
               <>
-                {/* Back button in create mode only */}
-                {isCreating && (
-                  <Button
-                    variant="text"
-                    onClick={handlePreviousStep}
-                    startIcon={<ArrowBackIcon />}
-                    sx={{ mb: 2 }}
-                  >
-                    Back to GRN Information
-                  </Button>
-                )}
 
                 {/* Loading PO items indicator */}
                 {loadingPOItems && (
@@ -1673,54 +1802,6 @@ export default function GoodReceivedNotesPage() {
                   </Box>
                 )}
 
-                {/* Save Destination Checkboxes - Sales Stock / Company Assets */}
-                {isCreating && lineItems.length > 0 && (
-                  <Box sx={{ mb: 3 }}>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Save Items To (applies to all items - you can select both)
-                    </Typography>
-                    <Paper variant="outlined" sx={{ p: 2 }}>
-                      <FormGroup row>
-                        <FormControlLabel
-                          control={
-                            <Checkbox
-                              checked={defaultSaveToSalesStock}
-                              onChange={(e) => handleDefaultSaveDestinationChange("saveToSalesStock", e.target.checked)}
-                              color="success"
-                            />
-                          }
-                          label={
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                              <InventoryIcon color="success" />
-                              <Typography>Sales Stock</Typography>
-                            </Box>
-                          }
-                        />
-                        <FormControlLabel
-                          control={
-                            <Checkbox
-                              checked={defaultSaveToCompanyAssets}
-                              onChange={(e) => handleDefaultSaveDestinationChange("saveToCompanyAssets", e.target.checked)}
-                              color="info"
-                            />
-                          }
-                          label={
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                              <BusinessIcon color="info" />
-                              <Typography>Company Assets</Typography>
-                            </Box>
-                          }
-                        />
-                      </FormGroup>
-                      {!defaultSaveToSalesStock && !defaultSaveToCompanyAssets && (
-                        <Alert severity="warning" sx={{ mt: 1 }}>
-                          Please select at least one destination for the items
-                        </Alert>
-                      )}
-                    </Paper>
-                  </Box>
-                )}
-
                 {/* Progress indicator */}
                 {isCreating && lineItems.length > 0 && (
                   <Box sx={{ mb: 2 }}>
@@ -1729,12 +1810,12 @@ export default function GoodReceivedNotesPage() {
                         Scanning Progress
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        {scannedCount} / {lineItems.length} items scanned
+                        {scannedCount} / {totalUnits} units ready
                       </Typography>
                     </Box>
                     <LinearProgress
                       variant="determinate"
-                      value={(scannedCount / lineItems.length) * 100}
+                      value={totalUnits > 0 ? (scannedCount / totalUnits) * 100 : 0}
                       sx={{
                         height: 8,
                         borderRadius: 4,
@@ -1750,6 +1831,28 @@ export default function GoodReceivedNotesPage() {
                       </Alert>
                     )}
                   </Box>
+                )}
+
+                {!isCreating && selectedGRN?.status === "cancelled" && (
+                  <Alert severity="error" sx={{ mt: 2 }}>
+                    This GRN was cancelled{selectedGRN.cancelled_at ? ` on ${new Date(selectedGRN.cancelled_at).toLocaleDateString()}` : ""}:{" "}
+                    {selectedGRN.cancel_reason || "no reason recorded"}. Its stock was withdrawn and the purchase order line reopened.
+                  </Alert>
+                )}
+                {!isCreating && selectedGRN && (
+                  <LandedCostPanel grnId={selectedGRN.id} grnStatus={selectedGRN.status} />
+                )}
+                {!isCreating && grnRejections.length > 0 && (
+                  <Paper variant="outlined" sx={{ mt: 2, p: 1.5 }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      Rejected at receipt (not stocked)
+                    </Typography>
+                    {grnRejections.map((r) => (
+                      <Typography key={r.id} variant="body2">
+                        {r.product_name || `PO line ${r.purchasing_order_items_id}`}: {r.quantity} rejected, {r.reason}
+                      </Typography>
+                    ))}
+                  </Paper>
                 )}
 
                 <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, mt: isCreating ? 0 : 2 }}>
@@ -1801,7 +1904,7 @@ export default function GoodReceivedNotesPage() {
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                             <TChip
-                              label={`${group.items.filter(i => i.scanned).length}/${group.total_quantity} scanned`}
+                              label={`${group.items.filter(i => i.scanned).reduce((n, i) => n + lineUnits(i), 0)}/${group.total_quantity} ready`}
                               size="small"
                               color={group.items.every(i => i.scanned) ? "success" : "default"}
                             />
@@ -1815,6 +1918,59 @@ export default function GoodReceivedNotesPage() {
                         <Collapse in={group.expanded}>
                           <Divider />
                           <CardContent sx={{ p: 1 }}>
+                            {(() => {
+                              const poItemId = group.items[0]?.purchasing_order_items_id;
+                              const rej = rejections[poItemId] ?? { qty: "", reason: "" };
+                              const setRej = (patch: Partial<{ qty: string; reason: string }>) =>
+                                setRejections((prev) => ({ ...prev, [poItemId]: { ...rej, ...patch } }));
+                              return (
+                                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "flex-start", mb: 1 }}>
+                                  <TextField
+                                    size="small"
+                                    type="number"
+                                    label="Rejected qty"
+                                    value={rej.qty}
+                                    onChange={(e) => setRej({ qty: e.target.value })}
+                                    inputProps={{ min: 0 }}
+                                    sx={{ width: 130 }}
+                                    helperText="Not accepted: not stocked, PO stays open"
+                                  />
+                                  {Number(rej.qty) > 0 && (
+                                    <TextField
+                                      size="small"
+                                      label="Rejection reason"
+                                      required
+                                      value={rej.reason}
+                                      onChange={(e) => setRej({ reason: e.target.value })}
+                                      error={rej.reason.trim().length < 3}
+                                      inputProps={{ maxLength: 500 }}
+                                      sx={{ flex: 1, minWidth: 240 }}
+                                    />
+                                  )}
+                                </Box>
+                              );
+                            })()}
+                            {!isLotItem(group.items[0]) && (receiptCaps[group.items[0].purchasing_order_items_id] ?? 0) > group.items.length && (
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => handleAddExtraUnit(group.product_id)}
+                                sx={{ mb: 1, mr: 1 }}
+                              >
+                                + Add unit (over-receipt tolerance allows {(receiptCaps[group.items[0].purchasing_order_items_id] ?? 0) - group.items.length} more)
+                              </Button>
+                            )}
+                            {!isLotItem(group.items[0]) && group.items.some(i => !i.barcode) && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<QrCodeScannerIcon />}
+                                onClick={() => handleGenerateBarcodes(group.product_id)}
+                                sx={{ mb: 1 }}
+                              >
+                                Generate barcodes for unscanned units
+                              </Button>
+                            )}
                             {group.items.map((item, index) => (
                               <Box
                                 key={item._id}
@@ -1834,14 +1990,62 @@ export default function GoodReceivedNotesPage() {
                                 <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
                                   {/* Item number */}
                                   <TChip
-                                    label={`#${index + 1}`}
+                                    label={isLotItem(item) ? (item.tracking_type === "batch" ? "Batch lot" : "Qty") : `#${index + 1}`}
                                     size="small"
                                     sx={{ minWidth: 40 }}
                                     color={item.scanned ? "success" : "default"}
                                   />
                                 </Box>
 
-                                {/* Barcode and Actions Row */}
+                                {isLotItem(item) ? (
+                                  /* Batch / none lot: quantity (+ batch no / expiry), no barcode */
+                                  <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, flexWrap: "wrap" }}>
+                                    <TextField
+                                      size="small"
+                                      type="number"
+                                      label="Received Qty"
+                                      value={item.quantity ?? ""}
+                                      onChange={(e) =>
+                                        handleLotChange(item._id, { quantity: e.target.value === "" ? undefined : Math.floor(Number(e.target.value)) })
+                                      }
+                                      inputProps={{ min: 1, max: item.max_quantity }}
+                                      error={(item.quantity ?? 0) < 1 || (item.max_quantity !== undefined && (item.quantity ?? 0) > item.max_quantity)}
+                                      helperText={item.max_quantity !== undefined ? `of ${item.max_quantity} remaining` : undefined}
+                                      sx={{ width: 150 }}
+                                    />
+                                    {item.tracking_type === "batch" && (
+                                      <>
+                                        <TextField
+                                          size="small"
+                                          label="Batch No"
+                                          value={item.batch_no || ""}
+                                          onChange={(e) => handleLotChange(item._id, { batch_no: e.target.value })}
+                                          error={!item.batch_no?.trim()}
+                                          helperText={!item.batch_no?.trim() ? "Required" : undefined}
+                                          inputProps={{ maxLength: 100 }}
+                                          sx={{ width: 170 }}
+                                        />
+                                        <TextField
+                                          size="small"
+                                          type="date"
+                                          label="Expiry (optional)"
+                                          value={item.expiry_date || ""}
+                                          onChange={(e) => handleLotChange(item._id, { expiry_date: e.target.value || undefined })}
+                                          InputLabelProps={{ shrink: true }}
+                                          sx={{ width: 170 }}
+                                        />
+                                      </>
+                                    )}
+                                    <TextField
+                                      size="small"
+                                      label="Warranty (months)"
+                                      value={item.warranty_month || ""}
+                                      onChange={(e) => handleWarrantyChange(item._id, e.target.value)}
+                                      sx={{ width: 150 }}
+                                    />
+                                  </Box>
+                                ) : (
+                                /* Barcode and Actions Row */
                                 <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                                   {/* Barcode Input */}
                                   <TextField
@@ -1898,35 +2102,6 @@ export default function GoodReceivedNotesPage() {
                                     }}
                                   />
 
-                                  {/* Save Destination Checkboxes */}
-                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                    <Checkbox
-                                      checked={item.saveToSalesStock}
-                                      onChange={(e) => handleSaveDestinationChange(item._id, "saveToSalesStock", e.target.checked)}
-                                      size="small"
-                                      color="success"
-                                      title="Sales Stock"
-                                      icon={<InventoryIcon fontSize="small" />}
-                                      checkedIcon={<InventoryIcon fontSize="small" />}
-                                      sx={{
-                                        p: 0.5,
-                                        '&.Mui-checked': { color: 'success.main' }
-                                      }}
-                                    />
-                                    <Checkbox
-                                      checked={item.saveToCompanyAssets}
-                                      onChange={(e) => handleSaveDestinationChange(item._id, "saveToCompanyAssets", e.target.checked)}
-                                      size="small"
-                                      color="info"
-                                      title="Company Assets"
-                                      icon={<BusinessIcon fontSize="small" />}
-                                      checkedIcon={<BusinessIcon fontSize="small" />}
-                                      sx={{
-                                        p: 0.5,
-                                        '&.Mui-checked': { color: 'info.main' }
-                                      }}
-                                    />
-                                  </Box>
 
                                   {/* Scan button */}
                                   {!item.scanned && (
@@ -1941,6 +2116,7 @@ export default function GoodReceivedNotesPage() {
                                     </Button>
                                   )}
                                 </Box>
+                                )}
                               </Box>
                             ))}
                           </CardContent>
@@ -2046,9 +2222,9 @@ export default function GoodReceivedNotesPage() {
                           ) : (
                             // View mode - grouped by product
                             groupedViewItems.map((group) => (
-                              <>
+                              <Fragment key={`group-${group.product_name}`}>
                                 {/* Product group header */}
-                                <TableRow key={`group-${group.product_name}`} sx={{ bgcolor: "action.hover" }}>
+                                <TableRow sx={{ bgcolor: "action.hover" }}>
                                   <TableCell colSpan={6}>
                                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                                       <InventoryIcon fontSize="small" color="primary" />
@@ -2062,7 +2238,12 @@ export default function GoodReceivedNotesPage() {
                                 {/* Items in this group */}
                                 {group.items.map((item) => (
                                   <TableRow key={item._id} sx={{ "&:last-child td": { borderBottom: 0 } }}>
-                                    <TableCell sx={{ pl: 4 }}>{item.barcode}</TableCell>
+                                    <TableCell sx={{ pl: 4 }}>
+                                      {item.barcode ||
+                                        (item.batch_no
+                                          ? `Batch ${item.batch_no} \u00d7 ${item.quantity ?? 1}`
+                                          : `Qty ${item.quantity ?? 1}`)}
+                                    </TableCell>
                                     <TableCell>
                                       <Typography variant="body2" color="text.secondary">
                                         {item.product_name}
@@ -2088,7 +2269,7 @@ export default function GoodReceivedNotesPage() {
                                     </TableCell>
                                   </TableRow>
                                 ))}
-                              </>
+                              </Fragment>
                             ))
                           )}
                         </TableBody>
@@ -2126,6 +2307,16 @@ export default function GoodReceivedNotesPage() {
 
   return (
     <>
+      <ReclassifyDialog
+        open={cancelOpen}
+        title="Cancel GRN"
+        description="Cancelling withdraws the received stock and reopens the purchase order line. It is refused if any unit has been sold, moved or returned."
+        confirmLabel="Cancel GRN"
+        isSubmitting={cancelBusy}
+        error={cancelError}
+        onClose={() => setCancelOpen(false)}
+        onSubmit={(reason) => handleCancelGRN(reason)}
+      />
       <MasterDetailLayout
         title="Good Received Notes"
         titleSlot={
@@ -2268,7 +2459,7 @@ export default function GoodReceivedNotesPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCreditDialogClose} color="inherit">
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCreditDialogClose}>
             Cancel
           </Button>
           {canOverrideCredit && (

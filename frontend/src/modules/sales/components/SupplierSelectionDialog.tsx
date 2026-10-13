@@ -33,6 +33,7 @@ import { suppliersApi } from "@/modules/purchasing/api";
 import type { Supplier, SupplierProduct } from "@/modules/purchasing/types";
 import { useCurrencyStore } from "@/state/currencyStore";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 export interface ProcurementCandidate {
   quote_item_id: number;
   product_id: number;
@@ -249,7 +250,7 @@ export default function SupplierSelectionDialog({
         )}
       </DialogContent>
       <DialogActions>
-        <TButton variant="secondary" onClick={onClose}>Cancel</TButton>
+        <TButton variant="danger" startIcon={<CancelIcon />} onClick={onClose}>Cancel</TButton>
         <TButton onClick={handleContinue} disabled={!isValid}>Continue</TButton>
       </DialogActions>
     </Dialog>

@@ -147,9 +147,6 @@ export interface InvoiceCreate {
 
 export interface InvoiceUpdate {
   remarks?: string;
-  status?: boolean;
-  approval?: boolean;
-  approval_status?: string;
   items?: InvoiceItemCreate[];
 }
 

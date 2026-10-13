@@ -346,6 +346,34 @@ class ApprovalService:
                     detail="You cannot approve a quotation you created. Ask another approver.",
                 )
             return
+        if approval_type == ApprovalType.SALES_ORDER.value:
+            from app.modules.sales.models import Invoice
+
+            inv = db.query(Invoice.branch_code, Invoice.created_by).filter(Invoice.id == reference_id).first()
+            if not inv:
+                return
+            if not validate_branch_access(user, inv.branch_code):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {inv.branch_code}")
+            if approve and not getattr(user, "is_superuser", False) and inv.created_by and inv.created_by == user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You cannot approve a sales order you created. Ask another approver.",
+                )
+            return
+        if approval_type == ApprovalType.SALE_RETURN.value:
+            from app.modules.sales.models import SaleReturn
+
+            ret = db.query(SaleReturn.branch_code, SaleReturn.created_by).filter(SaleReturn.id == reference_id).first()
+            if not ret:
+                return
+            if not validate_branch_access(user, ret.branch_code):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {ret.branch_code}")
+            if approve and not getattr(user, "is_superuser", False) and ret.created_by and ret.created_by == user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You cannot approve a sale return you created. Ask another approver.",
+                )
+            return
         if approval_type != ApprovalType.PURCHASE_ORDER.value:
             return
         from app.modules.purchasing.models import PurchasingOrder
@@ -376,6 +404,11 @@ class ApprovalService:
 
             quote = db.query(SalesQuote.branch_code).filter(SalesQuote.id == reference_id).first()
             return True if not quote else validate_branch_access(user, quote.branch_code)
+        if approval_type == ApprovalType.SALES_ORDER.value:
+            from app.modules.sales.models import Invoice
+
+            inv = db.query(Invoice.branch_code).filter(Invoice.id == reference_id).first()
+            return True if not inv else validate_branch_access(user, inv.branch_code)
         if approval_type != ApprovalType.PURCHASE_ORDER.value:
             return True
         from app.modules.purchasing.models import PurchasingOrder
@@ -581,11 +614,18 @@ class ApprovalService:
         elif approval_type == ApprovalType.SALES_ORDER.value:
             from app.modules.sales.service import sales_service
 
-            sales_service.cancel_invoice(db, reference_id, user.id)
+            # Stage the approval row first: cancel_invoice commits, so the order
+            # cancellation and the approval decision land in ONE transaction and
+            # a failure can never leave the order cancelled with a pending approval.
             approval.status = ApprovalStatus.REJECTED.value
             approval.status_changed_by = user.id
             approval.remark = remarks
-            db.commit()
+            try:
+                sales_service.cancel_invoice(db, reference_id, user.id)
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
         else:
             approval.status = ApprovalStatus.REJECTED.value
             approval.status_changed_by = user.id
@@ -631,8 +671,23 @@ class ApprovalService:
             .first()
         )
 
-    def get_approval_statistics(self, db: Session) -> Dict[str, Any]:
-        """Get approval statistics for dashboard."""
+    def get_approval_statistics(self, db: Session, user=None) -> Dict[str, Any]:
+        """Get approval statistics for dashboard. A non-superuser only counts the
+        approvals they may see (same branch rule as the approvals list)."""
+        if user is not None and not getattr(user, "is_superuser", False):
+            pending = (
+                db.query(Approvals)
+                .filter(Approvals.status == ApprovalStatus.PENDING.value)
+                .all()
+            )
+            visible = self.filter_visible_approvals(db, pending, user)
+            known_types = {t.value for t in ApprovalType}
+            by_type: Dict[str, int] = {}
+            for approval in visible:
+                kind_name, _ref, _extra = self._parse_approval_for(approval.approval_for)
+                if kind_name in known_types:
+                    by_type[kind_name] = by_type.get(kind_name, 0) + 1
+            return {"total_pending": len(visible), "pending_by_type": by_type}
         kind = func.split_part(Approvals.approval_for, ":", 1)
         rows = (
             db.query(kind, func.count(Approvals.id))

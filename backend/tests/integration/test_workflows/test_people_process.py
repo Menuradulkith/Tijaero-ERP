@@ -153,7 +153,7 @@ def _reimb_payload(*, employee, branch, amount="1000"):
         reimbursement_type="general",
         items=[
             hr_schemas.ReimbursementItemCreate(
-                expense_type="travel",
+                expense_type="transport",
                 item_description="Taxi",
                 amount=Decimal(amount),
             )
@@ -163,31 +163,27 @@ def _reimb_payload(*, employee, branch, amount="1000"):
 
 @_skip_stale_reimbursements
 class TestReimbursementWorkflow:
-    def test_create_happy_path(self, db, make_employee, make_branch):
+    @pytest.fixture
+    def actor(self, make_user):
+        """An administrator: the services take the acting user (branch scope, maker-checker)."""
+        return make_user(is_superuser=True)[0]
+
+    def test_create_happy_path(self, db, make_employee, make_branch, actor):
         emp, branch = make_employee(), make_branch()
         svc = ReimbursementService(db)
-        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch, amount="2500"))
+        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch, amount="2500"), actor)
         assert r.status == "pending"
         assert r.total_amount == Decimal("2500")
         assert r.approval_id is not None
         assert r.reimbursement_no.startswith("RMB-")
 
-    def test_create_no_items_rejected(self, db, make_employee, make_branch):
-        from fastapi import HTTPException
+    def test_create_no_items_rejected(self):
+        from pydantic import ValidationError
 
-        emp, branch = make_employee(), make_branch()
-        svc = ReimbursementService(db)
-        payload = hr_schemas.ReimbursementCreate(
-            employee_id=emp.employee_id,
-            branch_code=branch.branch_code,
-            claim_date=date.today(),
-            items=[],
-        )
-        with pytest.raises(HTTPException) as exc:
-            svc.create_reimbursement(payload)
-        assert exc.value.status_code == 400
+        with pytest.raises(ValidationError):
+            hr_schemas.ReimbursementCreate(employee_id="E1", branch_code="B1", claim_date=date.today(), items=[])
 
-    def test_create_unknown_employee_404(self, db, make_branch):
+    def test_create_unknown_employee_404(self, db, make_branch, actor):
         from fastapi import HTTPException
 
         branch = make_branch()
@@ -196,107 +192,89 @@ class TestReimbursementWorkflow:
             employee_id="EMP-NOPE",
             branch_code=branch.branch_code,
             claim_date=date.today(),
-            items=[hr_schemas.ReimbursementItemCreate(expense_type="x", amount=Decimal("10"))],
+            items=[hr_schemas.ReimbursementItemCreate(expense_type="other", amount=Decimal("10"))],
         )
         with pytest.raises(HTTPException) as exc:
-            svc.create_reimbursement(payload)
+            svc.create_reimbursement(payload, actor)
         assert exc.value.status_code == 404
 
-    def test_approve_full(self, db, make_employee, make_branch):
+    def test_approve_full(self, db, make_employee, make_branch, actor):
         emp, branch = make_employee(), make_branch()
         svc = ReimbursementService(db)
-        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch, amount="1000"))
-        approved = svc.approve_reimbursement(
-            r.id, hr_schemas.ReimbursementApprove(), user_id=1
-        )
+        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch, amount="1000"), actor)
+        approved = svc.approve_reimbursement(r.id, hr_schemas.ReimbursementApprove(), actor)
         assert approved.status == "approved"
         assert approved.approved_amount == Decimal("1000")
 
-    def test_partial_approve(self, db, make_employee, make_branch):
+    def test_partial_approve(self, db, make_employee, make_branch, actor):
         emp, branch = make_employee(), make_branch()
         svc = ReimbursementService(db)
-        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch, amount="1000"))
-        approved = svc.approve_reimbursement(
-            r.id, hr_schemas.ReimbursementApprove(approved_amount=Decimal("600")), user_id=1
-        )
+        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch, amount="1000"), actor)
+        approved = svc.approve_reimbursement(r.id, hr_schemas.ReimbursementApprove(approved_amount=Decimal("600")), actor)
         assert approved.status == "partial_approved"
         assert approved.approved_amount == Decimal("600")
 
-    def test_reject_from_pending(self, db, make_employee, make_branch):
+    def test_reject_from_pending(self, db, make_employee, make_branch, actor):
         emp, branch = make_employee(), make_branch()
         svc = ReimbursementService(db)
-        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch))
-        rejected = svc.reject_reimbursement(
-            r.id, hr_schemas.ReimbursementReject(rejection_reason="No receipt"), user_id=1
-        )
+        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch), actor)
+        rejected = svc.reject_reimbursement(r.id, hr_schemas.ReimbursementReject(rejection_reason="No receipt"), actor)
         assert rejected.status == "rejected"
         assert rejected.rejection_reason == "No receipt"
 
-    def test_verify_requires_approved(self, db, make_employee, make_branch):
+    def test_verify_requires_approved(self, db, make_employee, make_branch, actor):
         from fastapi import HTTPException
 
         emp, branch = make_employee(), make_branch()
         svc = ReimbursementService(db)
-        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch))
+        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch), actor)
         with pytest.raises(HTTPException) as exc:
-            svc.verify_reimbursement(r.id, hr_schemas.ReimbursementVerify(), user_id=1)
+            svc.verify_reimbursement(r.id, hr_schemas.ReimbursementVerify(), actor)
         assert exc.value.status_code == 400
 
-    def test_full_flow_to_paid(self, db, make_employee, make_branch):
+    def test_full_flow_to_paid(self, db, make_employee, make_branch, actor):
         emp, branch = make_employee(), make_branch()
         svc = ReimbursementService(db)
-        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch, amount="800"))
-        svc.approve_reimbursement(r.id, hr_schemas.ReimbursementApprove(), user_id=1)
-        svc.verify_reimbursement(r.id, hr_schemas.ReimbursementVerify(), user_id=1)
-        paid = svc.process_payment(
-            r.id,
-            hr_schemas.ReimbursementPayment(
-                payment_method="cash", paid_amount=Decimal("800")
-            ),
-            user_id=1,
-        )
+        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch, amount="800"), actor)
+        svc.approve_reimbursement(r.id, hr_schemas.ReimbursementApprove(), actor)
+        svc.verify_reimbursement(r.id, hr_schemas.ReimbursementVerify(), actor)
+        paid = svc.process_payment(r.id, hr_schemas.ReimbursementPayment(payment_method="cash", paid_amount=Decimal("800")), actor)
         assert paid.status == "completed"
         assert paid.payment_status == "paid"
         assert paid.paid_amount == Decimal("800")
 
-    def test_cannot_edit_after_approval(self, db, make_employee, make_branch):
+    def test_cannot_edit_after_approval(self, db, make_employee, make_branch, actor):
         from fastapi import HTTPException
 
         emp, branch = make_employee(), make_branch()
         svc = ReimbursementService(db)
-        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch))
-        svc.approve_reimbursement(r.id, hr_schemas.ReimbursementApprove(), user_id=1)
+        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch), actor)
+        svc.approve_reimbursement(r.id, hr_schemas.ReimbursementApprove(), actor)
         with pytest.raises(HTTPException) as exc:
-            svc.update_reimbursement(
-                r.id, hr_schemas.ReimbursementUpdate(description="changed")
-            )
+            svc.update_reimbursement(r.id, hr_schemas.ReimbursementUpdate(description="changed"), actor)
         assert exc.value.status_code == 400
 
-    def test_delete_pending_allowed(self, db, make_employee, make_branch):
+    def test_delete_pending_allowed(self, db, make_employee, make_branch, actor):
         from fastapi import HTTPException
 
         emp, branch = make_employee(), make_branch()
         svc = ReimbursementService(db)
-        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch))
-        svc.delete_reimbursement(r.id)
+        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch), actor)
+        svc.delete_reimbursement(r.id, actor)
         with pytest.raises(HTTPException):
-            svc.get_reimbursement(r.id)
+            svc.get_reimbursement(r.id, actor)
 
-    def test_cannot_delete_completed(self, db, make_employee, make_branch):
+    def test_cannot_delete_completed(self, db, make_employee, make_branch, actor):
         from fastapi import HTTPException
 
         emp, branch = make_employee(), make_branch()
         svc = ReimbursementService(db)
-        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch, amount="500"))
-        svc.approve_reimbursement(r.id, hr_schemas.ReimbursementApprove(), user_id=1)
-        svc.verify_reimbursement(r.id, hr_schemas.ReimbursementVerify(), user_id=1)
-        svc.process_payment(
-            r.id,
-            hr_schemas.ReimbursementPayment(payment_method="cash", paid_amount=Decimal("500")),
-            user_id=1,
-        )
+        r = svc.create_reimbursement(_reimb_payload(employee=emp, branch=branch, amount="500"), actor)
+        svc.approve_reimbursement(r.id, hr_schemas.ReimbursementApprove(), actor)
+        svc.verify_reimbursement(r.id, hr_schemas.ReimbursementVerify(), actor)
+        svc.process_payment(r.id, hr_schemas.ReimbursementPayment(payment_method="cash", paid_amount=Decimal("500")), actor)
         with pytest.raises(HTTPException) as exc:
-            svc.delete_reimbursement(r.id)
+            svc.delete_reimbursement(r.id, actor)
         assert exc.value.status_code == 400
 
 

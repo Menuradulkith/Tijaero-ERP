@@ -4,7 +4,7 @@
  * Refactored to use common purchasing components for better code reuse
  */
 
-import { useMemo, useCallback, useState, useEffect } from "react";
+import { useMemo, useCallback, useRef, useState, useEffect } from "react";
 import type { GridPaginationModel } from "@mui/x-data-grid";
 import { fetchAllPages } from "@/utils/fetchAllPages";
 import { formatDateTimeReadable } from "@/utils/formatters";
@@ -311,10 +311,16 @@ export default function POApprovalsPage() {
     setAuthDialogOpen(true);
   };
 
+  // A double-click must not send the approve/reject twice (the second call
+  // would only come back as a "current status" error toast).
+  const actionInFlightRef = useRef(false);
+
   const handleAuthSubmit = async (username: string, password: string) => {
     const credentials = { approver_username: username, approver_password: password };
 
     if (!selectedOrder || !selectedOrder.approval_id) return;
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
     approveMutation.mutate(
       {
         approvalId: selectedOrder.approval_id,
@@ -323,23 +329,26 @@ export default function POApprovalsPage() {
       },
       {
         onSuccess: () => setAuthDialogOpen(false),
+        onSettled: () => { actionInFlightRef.current = false; },
       }
     );
   };
 
   const handleReject = () => {
     if (!rejectReason.trim()) return;
+    if (actionInFlightRef.current) return;
 
     if (selectedOrder) {
       if (!selectedOrder.approval_id) {
         showErrorToast("This order has no approval record.");
         return;
       }
+      actionInFlightRef.current = true;
       rejectMutation.mutate({
         approvalId: selectedOrder.approval_id,
         poId: selectedOrder.id,
         remarks: rejectReason
-      });
+      }, { onSettled: () => { actionInFlightRef.current = false; } });
     }
   };
 
@@ -712,7 +721,7 @@ export default function POApprovalsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="error"
@@ -740,7 +749,7 @@ export default function POApprovalsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRemarksDialogOpen(false)}>OK</Button>
-          <Button onClick={() => setRemarksDialogOpen(false)} variant="outlined">
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRemarksDialogOpen(false)}>
             Cancel
           </Button>
         </DialogActions>

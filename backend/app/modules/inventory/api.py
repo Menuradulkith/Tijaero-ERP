@@ -24,6 +24,57 @@ from sqlalchemy.orm import Session
 router = APIRouter()
 
 
+# Reclassification: serial unit stock <-> company asset (audited, reason required)
+@router.post(
+    "/sales-stock/{stock_id}/move-to-company-assets",
+    response_model=schemas.ReclassifyResponse,
+    dependencies=[
+        Depends(require_permission(*Permissions.SALES_STOCK_UPDATE)),
+        Depends(require_permission(*Permissions.COMPANY_ASSET_CREATE)),
+    ],
+)
+def move_stock_to_company_asset(
+    stock_id: int,
+    request: schemas.ReclassifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Capitalise an available serial unit as a company asset."""
+    from app.modules.inventory.models import SalesStock
+    from app.modules.inventory.reclassification import ReclassificationService
+
+    unit = db.query(SalesStock).filter(SalesStock.id == stock_id).first()
+    if unit and not validate_branch_access(current_user, unit.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {unit.branch_code}")
+    return ReclassificationService(db).move_stock_to_company_asset(stock_id, request.reason.strip(), current_user.id)
+
+
+@router.post(
+    "/company-assets/{asset_id}/return-to-sales-stock",
+    response_model=schemas.ReclassifyResponse,
+    dependencies=[
+        Depends(require_permission(*Permissions.COMPANY_ASSET_UPDATE)),
+        Depends(require_permission(*Permissions.SALES_STOCK_CREATE)),
+    ],
+)
+def return_company_asset_to_stock(
+    asset_id: int,
+    request: schemas.ReclassifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return an available (unassigned) serial asset to sales stock."""
+    from app.modules.inventory.models import CompanyAssets
+    from app.modules.inventory.reclassification import ReclassificationService
+
+    asset = db.query(CompanyAssets).filter(CompanyAssets.id == asset_id).first()
+    if asset and not validate_branch_access(current_user, asset.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {asset.branch_code}")
+    return ReclassificationService(db).return_asset_to_stock(
+        asset_id, request.reason.strip(), current_user.id, request.location_id
+    )
+
+
 # Sales Stock Endpoints
 @router.get("/sales-stock/export-csv", summary="Export Sales Stock to CSV", dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))])
 def export_sales_stock_csv(

@@ -23,6 +23,61 @@ class Employee(Base, AuditMixin):
     )
     employee_id = Column(Text, unique=True, nullable=False)
 
+    # ── Personal ──
+    name_with_initials = Column(String(200), nullable=True)
+    nic = Column(String(20), nullable=True)
+    passport_no = Column(String(30), nullable=True)
+    marital_status = Column(String(15), nullable=True)  # single | married | divorced | widowed
+    nationality = Column(String(60), nullable=True)
+    religion = Column(String(60), nullable=True)
+    blood_group = Column(String(5), nullable=True)
+    # ── Contact ──
+    personal_email = Column(String(255), nullable=True)
+    mobile_phone = Column(String(30), nullable=True)
+    home_phone = Column(String(30), nullable=True)
+    address_line1 = Column(String(200), nullable=True)
+    address_line2 = Column(String(200), nullable=True)
+    city = Column(String(100), nullable=True)
+    district = Column(String(100), nullable=True)
+    postal_code = Column(String(20), nullable=True)
+    permanent_address = Column(Text, nullable=True)
+    # ── Job ──
+    department_id = Column(Integer, ForeignKey("hr_departments.id"), nullable=True, index=True)
+    designation_id = Column(Integer, ForeignKey("hr_designations.id"), nullable=True)
+    employment_type_id = Column(Integer, ForeignKey("hr_employment_types.id"), nullable=True)
+    branch_code = Column(String(20), nullable=True, index=True)
+    reports_to_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    grade = Column(String(30), nullable=True)
+    work_location = Column(String(150), nullable=True)
+    shift_id = Column(Integer, ForeignKey("hr_shifts.id"), nullable=True)
+    holiday_list_id = Column(Integer, ForeignKey("hr_holiday_lists.id"), nullable=True)
+    # active | probation | notice_period | resigned | terminated | retired | inactive
+    status = Column(String(20), nullable=False, default="active", server_default="active", index=True)
+    date_of_joining = Column(Date, nullable=True)
+    probation_end_date = Column(Date, nullable=True)
+    confirmation_date = Column(Date, nullable=True)
+    contract_end_date = Column(Date, nullable=True)
+    notice_period_days = Column(Integer, nullable=True)
+    retirement_date = Column(Date, nullable=True)
+    # ── Separation ──
+    resignation_date = Column(Date, nullable=True)
+    last_working_date = Column(Date, nullable=True)
+    exit_type = Column(String(20), nullable=True)  # resignation | termination | retirement | end_of_contract | death | other
+    exit_reason = Column(Text, nullable=True)
+    # ── Bank (sensitive) ──
+    bank_name = Column(String(100), nullable=True)
+    bank_branch = Column(String(100), nullable=True)
+    bank_account_no = Column(String(40), nullable=True)
+    bank_account_name = Column(String(150), nullable=True)
+    # ── Statutory (sensitive) ──
+    epf_no = Column(String(30), nullable=True)
+    etf_no = Column(String(30), nullable=True)
+    tin_no = Column(String(30), nullable=True)
+
+    department = relationship("HRDepartment", foreign_keys=[department_id], lazy="select", viewonly=True)
+    designation_ref = relationship("HRDesignation", foreign_keys=[designation_id], lazy="select", viewonly=True)
+    employment_type = relationship("HREmploymentType", foreign_keys=[employment_type_id], lazy="select", viewonly=True)
+
     user = relationship("User", foreign_keys=[user_id], lazy="select", viewonly=True)
     payrolls = relationship("EmployeePayroll", back_populates="employee", lazy="select")
     salary_profile = relationship(

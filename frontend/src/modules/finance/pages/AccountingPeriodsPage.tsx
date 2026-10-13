@@ -57,6 +57,7 @@ import {
 import { accountingPeriodsApi } from "@/modules/finance/api";
 import type { AccountingPeriod, PeriodStatus } from "@/modules/finance/types";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const STATUS_FILTER_OPTIONS = [
@@ -632,7 +633,7 @@ export default function AccountingPeriodsPage() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setGenerateDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setGenerateDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             onClick={() =>

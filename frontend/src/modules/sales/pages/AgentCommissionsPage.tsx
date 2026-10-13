@@ -35,6 +35,7 @@ import { commissionsApi, commissionPaymentsApi } from "@/modules/sales/commissio
 import type { CustomerAgentCommissionWithDetails } from "@/modules/sales/commission-types";
 import { useCurrencyStore } from "@/state/currencyStore";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 const STATUS_COLOR: Record<string, "default" | "warning" | "success" | "error"> = {
   pending: "warning",
   paid: "success",
@@ -513,7 +514,7 @@ export default function AgentCommissionsPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPayDialogOpen(false)} disabled={paying}>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setPayDialogOpen(false)} disabled={paying}>
             Cancel
           </Button>
           <Button variant="contained" color="success" onClick={handlePay} disabled={paying}>

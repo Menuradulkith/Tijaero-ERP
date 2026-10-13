@@ -7,6 +7,14 @@ from typing import Optional
 MIN_LENGTH = 8
 # bcrypt only uses the first 72 bytes; longer passwords would be silently truncated.
 MAX_BYTES = 72
+# Passwords that satisfy the character-class rules but are in every attacker's
+# first guesses (compared case-insensitively).
+COMMON_PASSWORDS = frozenset(p.lower() for p in (
+    "Password1!", "Password123!", "Password@123", "Passw0rd!", "P@ssw0rd", "P@ssword1",
+    "Admin123!", "Admin@123", "Welcome1!", "Welcome123!", "Qwerty123!", "Qwerty@123",
+    "Letmein123!", "Changeme1!", "Abc12345!", "Abcd1234!", "Test1234!", "Tijaero123!",
+))
+MIN_USERNAME_LEN = 3
 
 
 def validate_password_strength(password: str, username: Optional[str] = None) -> str:
@@ -27,4 +35,8 @@ def validate_password_strength(password: str, username: Optional[str] = None) ->
         raise ValueError("Password must contain at least one special character")
     if username and password.strip().lower() == username.strip().lower():
         raise ValueError("Password must not be the same as the username")
+    if username and len(username.strip()) >= MIN_USERNAME_LEN and username.strip().lower() in password.lower():
+        raise ValueError("Password must not contain the username")
+    if password.strip().lower() in COMMON_PASSWORDS:
+        raise ValueError("Password is too common; choose a less predictable one")
     return password

@@ -81,6 +81,7 @@ import { formatDateTimeReadable } from "@/utils/formatters";
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { saleReturnsApi, salesApi } from "../api";
+import { locationsApi, type Location } from "@/modules/common/api";
 import {
     Invoice,
     InvoiceWithItems,
@@ -123,7 +124,8 @@ const INITIAL_FORM_DATA: SaleReturnCreate = {
     sale_return_no: "",
     branch_code: "MAIN",
     invoice_id: 0,
-    good_received_locations_id: 1,
+    // Set from the invoice branch's locations once an invoice is chosen.
+    good_received_locations_id: 0,
     payment_method: "credit_note",
     remark: "",
     return_reason: "",
@@ -359,6 +361,27 @@ export default function SaleReturnsPage() {
         enabled: formData.invoice_id > 0,
     });
 
+    // Returned stock goes back into a location of the return's (= invoice's) branch.
+    const { data: branchLocationsRaw, isFetched: branchLocationsFetched } = useQuery({
+        queryKey: ["locations", formData.branch_code],
+        queryFn: () => locationsApi.getAll(formData.branch_code),
+        enabled: (isCreating || isEditing) && formData.invoice_id > 0 && !!formData.branch_code,
+    });
+    const branchLocations = useMemo<Location[]>(
+        () => (branchLocationsRaw || []).filter((l) => l.branch_code === formData.branch_code),
+        [branchLocationsRaw, formData.branch_code]
+    );
+
+    // Default to the branch's first location; drop a location that doesn't belong to the branch.
+    useEffect(() => {
+        if (!(isCreating || isEditing) || !formData.invoice_id || !branchLocationsFetched) return;
+        if (branchLocations.some((l) => l.id === formData.good_received_locations_id)) return;
+        const nextId = branchLocations[0]?.id ?? 0;
+        if (nextId !== formData.good_received_locations_id) {
+            setFormData((prev) => ({ ...prev, good_received_locations_id: nextId }));
+        }
+    }, [branchLocations, branchLocationsFetched, formData.invoice_id, formData.good_received_locations_id, isCreating, isEditing, setFormData]);
+
     useEffect(() => {
         if (selectedInvoice?.items) {
             setInvoiceItems(selectedInvoice.items);
@@ -532,6 +555,9 @@ export default function SaleReturnsPage() {
         }
     }, [isCreating, handleSelectReturn, setIsCreating, setIsEditing]);
 
+    // Blocks a second Save click before the first create has settled.
+    const savingRef = useRef(false);
+
     const createMutation = useCrudMutation({
         mutationFn: saleReturnsApi.create,
         invalidateQueryKeys: [["sale-returns"], ["sales"]],
@@ -644,6 +670,15 @@ export default function SaleReturnsPage() {
     }, [invoiceItems, selectedCandidates, lineItems, formData.branch_code]);
 
     const handleSave = useCallback(() => {
+        if (savingRef.current) return;
+        if (!formData.good_received_locations_id) {
+            showErrorToast(
+                branchLocationsFetched && branchLocations.length === 0
+                    ? `Branch ${formData.branch_code} has no stock location to receive the returned items. Add a location for this branch first.`
+                    : "Select the location that receives the returned items."
+            );
+            return;
+        }
         const dataToSave: SaleReturnCreate = {
             ...formData,
             payment_method: "credit_note",
@@ -651,9 +686,10 @@ export default function SaleReturnsPage() {
         };
 
         if (isCreating) {
-            createMutation.mutate(dataToSave);
+            savingRef.current = true;
+            createMutation.mutate(dataToSave, { onSettled: () => { savingRef.current = false; } });
         }
-    }, [isCreating, formData, lineItems, createMutation]);
+    }, [isCreating, formData, lineItems, createMutation, branchLocations, branchLocationsFetched]);
 
     // Validation
     const getFieldError = (fieldName: string): string | undefined => {
@@ -746,6 +782,18 @@ export default function SaleReturnsPage() {
                 onNew={handleNewReturn}
                 onSave={handleSave}
                 onCancel={handleCancel}
+                startActions={
+                  isCreating && formStep === 1 ? (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={handlePreviousStep}
+                      startIcon={<ArrowBackIcon />}
+                    >
+                      Back
+                    </Button>
+                  ) : undefined
+                }
                 onEdit={handleStartEdit}
                 onDelete={() => {
                     if (selectedReturn) {
@@ -858,6 +906,26 @@ export default function SaleReturnsPage() {
                                         disabled
                                         helperText="Auto-filled from Invoice"
                                     />
+                                    {(isCreating || isEditing) && formData.invoice_id > 0 && (
+                                        <TextField
+                                            select
+                                            label="Return Location"
+                                            size="small"
+                                            required
+                                            value={branchLocations.some((l) => l.id === formData.good_received_locations_id) ? formData.good_received_locations_id : ""}
+                                            onChange={(e) => setFormData({ ...formData, good_received_locations_id: Number(e.target.value) || 0 })}
+                                            error={branchLocationsFetched && !formData.good_received_locations_id}
+                                            helperText={
+                                                branchLocationsFetched && branchLocations.length === 0
+                                                    ? "This branch has no stock location"
+                                                    : "Where the returned stock is received"
+                                            }
+                                        >
+                                            {branchLocations.map((loc) => (
+                                                <MenuItem key={loc.id} value={loc.id}>{loc.name}</MenuItem>
+                                            ))}
+                                        </TextField>
+                                    )}
                                 </FormSection>
 
                                 <FormSection title="Payment & Remarks" columns={2}>
@@ -1003,18 +1071,6 @@ export default function SaleReturnsPage() {
                         {/* Step 2: Return Items */}
                         {(formStep === 1 || !isCreating) && (
                             <>
-                                {/* Back button in create mode only */}
-                                {isCreating && (
-                                    <Button
-                                        variant="text"
-                                        onClick={handlePreviousStep}
-                                        startIcon={<ArrowBackIcon />}
-                                        sx={{ mb: 2 }}
-                                    >
-                                        Back to Return Information
-                                    </Button>
-                                )}
-
                                 {/* Load Invoice Items Panel */}
                                 {(isEditing || isCreating) && invoiceItems && invoiceItems.length > 0 && (
                                     <Paper

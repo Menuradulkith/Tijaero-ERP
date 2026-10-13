@@ -148,6 +148,32 @@ class CustomerService:
         merged = {c.name: getattr(before, c.name) for c in Customer.__table__.columns}
         merged.update(submitted_fields)
         self._check_references(db, submitted_fields)
+        if "customer_type" in submitted_fields:
+            new_type = str(getattr(submitted_fields["customer_type"], "value", submitted_fields["customer_type"]) or "")
+            if new_type != "business" and before.customer_type == "business" and db.query(CustomerContactPerson.id).filter(
+                CustomerContactPerson.customer_id == customer_id
+            ).first():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Remove the contact persons first: only business customers can have contact persons.",
+                )
+        if {"mobile_contact_number", "home_contact_number"} & set(submitted_fields):
+            # Compare against the stored value of the field that was not sent.
+            from app.common.validators import normalize_phone_number
+
+            def _norm(value):
+                try:
+                    return normalize_phone_number(value)
+                except ValueError:  # legacy value in an old format: compare as typed
+                    return str(value).strip() or None
+
+            first = _norm(merged.get("mobile_contact_number"))
+            second = _norm(merged.get("home_contact_number"))
+            if first and second and first == second:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Contact No 1 and Contact No 2 must be different",
+                )
         if set(submitted_fields) & ({"customer_type", "company_name", "mobile_contact_number"} | set(schemas._INDIVIDUAL_REQUIRED)):
             # (legacy rows missing unrelated person fields can still be edited)
             self._rules_for_type(merged)
@@ -633,7 +659,7 @@ class VoucherService:
             CustomerGiftVoucher.barcode_no == barcode_no
         ).first()
     
-    def create_voucher(self, db: Session, voucher_data: schemas.GiftVoucherCreate) -> CustomerGiftVoucher:
+    def create_voucher(self, db: Session, voucher_data: schemas.GiftVoucherCreate, user_id: Optional[int] = None) -> CustomerGiftVoucher:
         """Create a new gift voucher"""
         # Advisory lock to serialise concurrent voucher creation with same barcode
         from sqlalchemy import text
@@ -664,18 +690,36 @@ class VoucherService:
         )
         
         db.add(voucher)
-        db.commit()
-        db.refresh(voucher)
+        db.flush()  # need voucher.id for the GL reference
 
-        # ── GL Hook: Post gift voucher sale to GL ──
+        # ── GL Hook: Dr cash/bank / Cr 2510 in the SAME transaction as the voucher ──
+        # (previously the voucher was committed first and the JE was only added to
+        # the session afterwards, never committed). A failed posting is recorded in
+        # gl_posting_failures by GLPostingService; the voucher sale itself stands.
         try:
             from app.modules.sales.accounting_integration import SalesAccountingIntegration
             gl_svc = SalesAccountingIntegration(db)
-            gl_svc.post_gift_voucher_sale_to_gl(voucher, user_id=0)
+            gl_svc.post_gift_voucher_sale_to_gl(voucher, user_id=user_id or 0)
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(f"Gift voucher sale GL posting failed: {e}")
+            logging.getLogger(__name__).error(f"Gift voucher sale GL posting failed: {e}")
+            try:
+                from app.modules.finance.gl_posting_service import record_gl_commit_failure
+                record_gl_commit_failure(
+                    db,
+                    reference_type="GiftVoucherSale",
+                    reference_id=voucher.id,
+                    reference_no=voucher.barcode_no,
+                    error=e,
+                    branch_code=voucher.branch_code,
+                    transaction_type="Sale",
+                    user_id=user_id,
+                )
+            except Exception:
+                pass
 
+        db.commit()
+        db.refresh(voucher)
         return voucher
     
     def _get_expiry_date(self, voucher: CustomerGiftVoucher) -> date:
@@ -732,13 +776,32 @@ class VoucherService:
             db.commit()
 
             # ── GL Hook: Post gift voucher expiry/breakage to GL ──
+            # GLPostingService.post() only flushes and get_db never commits, so the
+            # breakage JE must be committed here or it is silently discarded.
+            _v_id, _v_no = voucher.id, voucher.barcode_no
+            _v_branch = getattr(voucher, "branch_code", None)
             try:
                 from app.modules.sales.accounting_integration import SalesAccountingIntegration
                 gl_svc = SalesAccountingIntegration(db)
                 gl_svc.post_gift_voucher_expiry_to_gl(voucher, user_id=0)
+                db.commit()
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).warning(f"Gift voucher expiry GL posting failed: {e}")
+                logging.getLogger(__name__).error(f"Gift voucher expiry GL posting failed: {e}")
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                from app.modules.finance.gl_posting_service import record_gl_commit_failure
+                record_gl_commit_failure(
+                    db,
+                    reference_type="GiftVoucherExpiry",
+                    reference_id=_v_id,
+                    reference_no=_v_no,
+                    error=e,
+                    branch_code=_v_branch,
+                    marker=f"GiftVoucherExpiry ID: {_v_id}",
+                )
 
             return schemas.VoucherValidationResponse(
                 valid=False,
