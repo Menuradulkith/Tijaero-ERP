@@ -427,7 +427,7 @@ def get_approval_statistics(
     current_user: User = Depends(require_permission(*Permissions.COMMON_VIEW)),
 ):
     """Get statistics on pending approvals across all modules."""
-    return centralized_approval_service.get_approval_statistics(db)
+    return centralized_approval_service.get_approval_statistics(db, current_user)
 
 
 @router.get(
@@ -470,10 +470,44 @@ def create_approval(approval: schemas.ApprovalCreate, db: Session = Depends(get_
     dependencies=[Depends(require_permission(*Permissions.COMMON_UPDATE))],
 )
 def update_approval(
-    approval_id: RowId, approval: schemas.ApprovalUpdate, db: Session = Depends(get_db)
+    approval_id: RowId,
+    approval: schemas.ApprovalUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
-    approval_service = service.ApprovalService(db)
-    return approval_service.update(approval_id, approval)
+    """Edit the remark of a PENDING approval. Decisions (status, decider, routing) are only
+    ever recorded through the approve/reject endpoints so the approval and its document
+    cannot drift apart; the caller needs the same permission and branch scope as approve."""
+    changes = approval.model_dump(exclude_unset=True)
+    forbidden = sorted(set(changes) - {"remark"})
+    if forbidden:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Field(s) {', '.join(forbidden)} cannot be edited here; use the approve/reject "
+                "endpoints to change an approval's status."
+            ),
+        )
+    from .models import Approvals
+
+    row = (
+        db.query(Approvals).filter(Approvals.id == approval_id).with_for_update().first()
+    )
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval record not found")
+    if not centralized_approval_service.can_user_resolve(current_user, row.approval_for):
+        required_perm = centralized_approval_service.required_permission_for(row.approval_for)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied. Required: {required_perm[0]}:{required_perm[1]} or common:update",
+        )
+    centralized_approval_service._check_scope(db, row, current_user, False)
+    if row.status != ApprovalStatus.PENDING.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Only pending approvals can be edited. Current status: {row.status}",
+        )
+    return service.ApprovalService(db).update(approval_id, approval)
 
 
 # ============================================================================

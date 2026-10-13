@@ -9,6 +9,8 @@ from typing import Optional, List
 from datetime import date, datetime
 from decimal import Decimal
 
+from app.core.money import MoneyIn, PositiveMoneyIn
+
 
 # ============================================================================
 # PAYMENT SCHEMAS
@@ -16,7 +18,7 @@ from decimal import Decimal
 
 class InvoicePaymentCreate(BaseModel):
     """Schema for creating a new invoice payment"""
-    amount: Decimal = Field(..., gt=0, description="Payment amount")
+    amount: PositiveMoneyIn = Field(..., description="Payment amount")
     payment_date: date = Field(..., description="Date of payment")
     payment_method: str = Field(..., description="Payment method (bank_transfer, cheque, cash, etc.)")
     reference_no: Optional[str] = Field(None, description="Reference number (cheque #, transaction ID, etc.)")
@@ -36,6 +38,7 @@ class InvoicePaymentCreate(BaseModel):
 
 class InvoicePaymentResponse(InvoicePaymentCreate):
     """Schema for invoice payment response"""
+    amount: Decimal  # lenient on read (input caps live on InvoicePaymentCreate)
     id: int
     invoice_id: int
     customer_id: int
@@ -55,7 +58,7 @@ class FollowupCreate(BaseModel):
     followup_date: date = Field(..., description="Date of follow-up")
     followup_type: str = Field(..., description="Type: call, email, sms, visit, reminder")
     notes: str = Field(..., min_length=1, description="Follow-up notes")
-    amount_promised: Optional[Decimal] = Field(None, ge=0, description="Amount customer promised to pay")
+    amount_promised: Optional[MoneyIn] = Field(None, description="Amount customer promised to pay")
     promised_payment_date: Optional[date] = Field(None, description="When customer promised to pay")
 
     class Config:
@@ -72,6 +75,9 @@ class FollowupCreate(BaseModel):
 
 class FollowupResponse(FollowupCreate):
     """Schema for follow-up response"""
+    # lenient on read (input constraints live on FollowupCreate)
+    notes: str
+    amount_promised: Optional[Decimal] = None
     id: int
     customer_id: int
     created_at: datetime
@@ -240,7 +246,7 @@ class DebtorStatement(BaseModel):
 class PaymentRecordRequest(BaseModel):
     """Schema for recording a payment"""
     invoice_id: int = Field(..., description="Invoice ID to apply payment to")
-    amount: Decimal = Field(..., gt=0, description="Payment amount")
+    amount: PositiveMoneyIn = Field(..., description="Payment amount")
     payment_date: date = Field(..., description="Payment date")
     payment_method: str = Field(..., description="Payment method")
     reference_no: Optional[str] = Field(None, description="Reference number")

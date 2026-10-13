@@ -10,6 +10,7 @@ import {
   Box,
 } from "@mui/material";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 interface ApproverAuthDialogProps {
   open: boolean;
   title?: string;
@@ -78,7 +79,7 @@ export default function ApproverAuthDialog({
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={onClose} disabled={loading} color="inherit">
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={onClose} disabled={loading}>
             Cancel
           </Button>
           <Button

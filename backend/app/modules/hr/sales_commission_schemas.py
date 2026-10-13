@@ -2,7 +2,7 @@
 Sales Commission Schemas - Scenario 28A
 Pydantic schemas for Monthly Branch Sales Summary and Sales Officer Commission
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List
 from decimal import Decimal
 from datetime import date
@@ -25,9 +25,18 @@ class MonthlyBranchSalesSummaryBase(BaseModel):
 
 class MonthlyBranchSalesSummaryCreate(BaseModel):
     """Request to generate monthly sales summary"""
-    fiscal_year: int
-    fiscal_month: int
-    branch_code: Optional[str] = None  # If None, generate for all branches
+    fiscal_year: int = Field(..., ge=2000, le=2100)
+    fiscal_month: int = Field(..., ge=1, le=12)
+    branch_code: Optional[str] = Field(default=None, max_length=20)  # If None, generate for all branches
+
+    @model_validator(mode="after")
+    def _not_future(self):
+        today = date.today()
+        if (self.fiscal_year, self.fiscal_month) > (today.year, today.month):
+            raise ValueError("A sales summary cannot be generated for a future month")
+        if self.branch_code is not None:
+            self.branch_code = self.branch_code.strip() or None
+        return self
 
 
 class MonthlyBranchSalesSummaryResponse(TijaeroBaseSchema, MonthlyBranchSalesSummaryBase):
@@ -57,7 +66,7 @@ class MonthlyBranchSalesSummaryWithCommissions(MonthlyBranchSalesSummaryResponse
 
 class FinalizeSummaryRequest(BaseModel):
     """Request to finalize a sales summary"""
-    remarks: Optional[str] = None
+    remarks: Optional[str] = Field(default=None, max_length=1000)
 
 
 # ============================================================================
@@ -99,18 +108,33 @@ class SalesOfficerCommissionResponse(TijaeroBaseSchema):
 
 class ApproveCommissionRequest(BaseModel):
     """Request to approve commissions"""
-    remarks: Optional[str] = None
+    remarks: Optional[str] = Field(default=None, max_length=1000)
 
 
 class RejectCommissionRequest(BaseModel):
     """Request to reject commissions"""
-    rejection_reason: str
+    rejection_reason: str = Field(..., min_length=1, max_length=1000)
+
+    @field_validator("rejection_reason")
+    @classmethod
+    def _reason(cls, v):
+        v = v.strip()
+        if not v:
+            raise ValueError("A reason is required")
+        return v
 
 
 class BulkApproveCommissionsRequest(BaseModel):
     """Request to bulk approve multiple commissions"""
-    commission_ids: List[int]
-    remarks: Optional[str] = None
+    commission_ids: List[int] = Field(..., min_length=1, max_length=200)
+    remarks: Optional[str] = Field(default=None, max_length=1000)
+
+    @field_validator("commission_ids")
+    @classmethod
+    def _ids(cls, v):
+        if any(i < 1 or i > 2_147_483_647 for i in v) or len(set(v)) != len(v):
+            raise ValueError("Commission ids must be positive and unique")
+        return v
 
 
 # ============================================================================

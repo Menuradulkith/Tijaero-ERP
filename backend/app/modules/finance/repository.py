@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
 from typing import List, Optional, Tuple
 from datetime import date, datetime
+from decimal import Decimal
 from app.core import timezone as tz
 from app.common.audit import log_audit
 from . import models, schemas
@@ -72,6 +73,21 @@ class BankDepositRepository:
             return None, False
         if deposit.verified:
             return deposit, False
+        # H10: a voided deposit, or the deposit of a cancelled / rejected sales order, can never be verified
+        from fastapi import HTTPException
+        from app.modules.sales.models import Invoice
+
+        if deposit.status == "rejected":
+            raise HTTPException(status_code=400, detail="This bank deposit was rejected/voided and cannot be verified.")
+        if deposit.invoice_no and (deposit.payment_for or "") != "Credit Settlement":
+            order = self.db.query(Invoice).filter(Invoice.invoice_no == deposit.invoice_no).first()
+            if order is not None and (
+                order.status is False or order.approval_status in ("cancelled", "rejected")
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Sales order {order.invoice_no} is cancelled/rejected; its deposit cannot be verified.",
+                )
         deposit.verified = True
         deposit.status = "confirmed"
         deposit.confirmed_by = user_id
@@ -289,6 +305,11 @@ class CustomerAdvancePaymentRepository:
             created_date=tz.today(),
             active=True,
             created_by=created_by,
+            # A fresh advance is wholly unapplied (the column defaults to 0,
+            # which showed every new advance as already used up).
+            applied_amount=Decimal("0"),
+            remaining_amount=advance.payment_amount,
+            is_fully_applied=False,
         )
         self.db.add(db_advance)
         self.db.flush()

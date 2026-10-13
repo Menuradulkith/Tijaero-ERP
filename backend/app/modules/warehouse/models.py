@@ -75,6 +75,10 @@ class ItemTransferNoteItems(Base, AuditMixin):
     created_date = Column(TIMESTAMP, nullable=False)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     barcode = Column(Text)
+    # Batch/none-tracked lines carry a quantity instead of a barcode; approval
+    # allocates them to (and splits off) a concrete sales_stock row.
+    quantity = Column(Integer, nullable=False, default=1, server_default="1")
+    sales_stock_id = Column(Integer, ForeignKey("sales_stock.id"), nullable=True)
     branch_code = Column(String(200), nullable=False)
     itemtransfernote_id = Column(
         Integer, ForeignKey("item_transfer_note.id"), nullable=False

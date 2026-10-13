@@ -41,7 +41,28 @@ class LocationService:
             )
         return location
     
+    def _ensure_branch_has_no_location(self, branch_code: str, exclude_id: Optional[int] = None) -> None:
+        """Each branch has exactly one location. The branch row is locked first
+        so two concurrent creates cannot both pass the check."""
+        from app.auth.models import Branch
+
+        branch = self.db.query(Branch).filter(Branch.branch_code == branch_code).with_for_update().first()
+        if not branch:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Branch {branch_code} not found",
+            )
+        query = self.db.query(Locations.id).filter(Locations.branch_code == branch_code)
+        if exclude_id is not None:
+            query = query.filter(Locations.id != exclude_id)
+        if query.first():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This branch already has a location. Edit the existing location instead.",
+            )
+
     def create(self, data: schemas.LocationCreate) -> Locations:
+        self._ensure_branch_has_no_location(data.branch_code)
         location = Locations(
             name=data.name,
             branch_code=data.branch_code,
@@ -54,6 +75,8 @@ class LocationService:
     
     def update(self, location_id: int, data: schemas.LocationCreate) -> Locations:
         location = self.get_by_id(location_id)
+        if data.branch_code != location.branch_code:
+            self._ensure_branch_has_no_location(data.branch_code, exclude_id=location_id)
         location.name = data.name
         location.branch_code = data.branch_code
         self.db.commit()

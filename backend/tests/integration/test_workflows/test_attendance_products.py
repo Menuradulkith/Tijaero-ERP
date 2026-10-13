@@ -82,6 +82,14 @@ class TestAttendanceCalc:
 # Attendance — check-in / check-out flow
 # --------------------------------------------------------------------------- #
 class TestCheckInOut:
+    @pytest.fixture(autouse=True)
+    def _evening(self, monkeypatch):
+        """These cases check in at 09:00 and out at 17:30, so pin the clock to 18:00 (a check-in later than now is refused)."""
+        from datetime import datetime
+        from app.core import timezone as tz
+
+        monkeypatch.setattr(tz, "now", lambda: datetime.combine(tz.today(), time(18, 0)))
+
     def test_check_in_then_out(self, db, make_employee, make_branch):
         emp = make_employee()
         branch = make_branch()
@@ -259,8 +267,8 @@ class TestLeaveBalance:
             att_schemas.LeaveCreate(
                 employee_id=emp.employee_id,
                 leave_type="annual",
-                from_date=date(2026, 3, 1),
-                to_date=date(2026, 3, 3),
+                from_date=date(2026, 3, 2),
+                to_date=date(2026, 3, 4),
                 leave_reason="Trip",
                 leave_duration=3,
             ),

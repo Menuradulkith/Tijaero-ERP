@@ -58,6 +58,7 @@ import { GridRenderCellParams } from "@mui/x-data-grid";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { useTimezoneStore } from "@/state/timezoneStore";
 
+import SaveIcon from "@mui/icons-material/Save";
 const INITIAL_CARD_FORM: PaymentCardCreate = {
   card_name: "",
   card_type: "credit",
@@ -788,7 +789,7 @@ export default function CompanySettingsPage() {
 
             <Grid container spacing={3} sx={{ mt: 2 }}>
               <Grid item xs={12}>
-                <Button type="submit" variant="contained" disabled={saving || !isDirty}>
+                <Button variant="contained" color="success" startIcon={<SaveIcon />} type="submit" disabled={saving || !isDirty}>
                   {saving ? "Saving..." : "Save Changes"}
                 </Button>
               </Grid>

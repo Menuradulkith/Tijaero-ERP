@@ -41,7 +41,7 @@ class Approvals(Base, AuditMixin):
     status_changed_by = Column(Integer)
     next_approval_group = Column(String(255))
     next_user_to_approve = Column(Integer)
-    remark = Column(String(255))
+    remark = Column(Text)
     
     approver = relationship(
         "User",

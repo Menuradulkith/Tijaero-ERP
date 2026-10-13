@@ -24,6 +24,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 interface CustomerDialogProps {
   open: boolean;
   customer: Customer | null;
@@ -403,7 +404,7 @@ export default function CustomerDialog({
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={onClose}>Cancel</Button>
           <Button
             type="submit"
             variant="contained"

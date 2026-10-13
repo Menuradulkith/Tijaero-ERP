@@ -1,8 +1,8 @@
 """FastAPI routes for Attendance and Leaves."""
 from datetime import date
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
@@ -11,6 +11,9 @@ from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
 
 from . import schemas, service
+
+RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
+EmpCode = Annotated[Optional[str], Query(max_length=50)]
 
 router = APIRouter(
     prefix="/hr",
@@ -25,15 +28,16 @@ router = APIRouter(
     dependencies=[Depends(require_permission(*Permissions.ATTENDANCE_VIEW))],
 )
 def list_attendance(
-    employee_id: Optional[str] = None,
-    branch_code: Optional[str] = None,
+    employee_id: EmpCode = None,
+    branch_code: Optional[str] = Query(None, max_length=20),
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(200, ge=1, le=100000),
+    skip: int = Query(0, ge=0, le=10_000_000),
+    limit: int = Query(200, ge=1, le=5000),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """List attendance records with optional filters."""
+    """List attendance records with optional filters (limited to the user's branches)."""
     svc = service.AttendanceService(db)
     return svc.list(
         schemas.AttendanceFilter(
@@ -43,7 +47,8 @@ def list_attendance(
             date_to=date_to,
             skip=skip,
             limit=limit,
-        )
+        ),
+        current_user,
     )
 
 
@@ -55,12 +60,13 @@ def list_attendance(
 def attendance_summary(
     date_from: date,
     date_to: date,
-    employee_id: Optional[str] = None,
-    branch_code: Optional[str] = None,
+    employee_id: EmpCode = None,
+    branch_code: Optional[str] = Query(None, max_length=20),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     svc = service.AttendanceService(db)
-    return svc.summary(date_from, date_to, employee_id, branch_code)
+    return svc.summary(date_from, date_to, employee_id, branch_code, current_user)
 
 
 @router.get(
@@ -68,8 +74,8 @@ def attendance_summary(
     response_model=schemas.Attendance,
     dependencies=[Depends(require_permission(*Permissions.ATTENDANCE_VIEW))],
 )
-def get_attendance(attendance_id: int, db: Session = Depends(get_db)):
-    return service.AttendanceService(db).get(attendance_id)
+def get_attendance(attendance_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return service.AttendanceService(db).get(attendance_id, current_user)
 
 
 @router.post(
@@ -78,8 +84,8 @@ def get_attendance(attendance_id: int, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission(*Permissions.ATTENDANCE_CREATE))],
 )
-def create_attendance(data: schemas.AttendanceCreate, db: Session = Depends(get_db)):
-    return service.AttendanceService(db).create(data)
+def create_attendance(data: schemas.AttendanceCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return service.AttendanceService(db).create(data, current_user)
 
 
 @router.post(
@@ -92,7 +98,7 @@ def attendance_check_in(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return service.AttendanceService(db).check_in(data, current_user.id)
+    return service.AttendanceService(db).check_in(data, current_user.id, current_user)
 
 
 @router.post(
@@ -105,7 +111,7 @@ def attendance_check_out(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return service.AttendanceService(db).check_out(data, current_user.id)
+    return service.AttendanceService(db).check_out(data, current_user.id, current_user)
 
 
 @router.put(
@@ -114,11 +120,12 @@ def attendance_check_out(
     dependencies=[Depends(require_permission(*Permissions.ATTENDANCE_UPDATE))],
 )
 def update_attendance(
-    attendance_id: int,
+    attendance_id: RowId,
     data: schemas.AttendanceUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    return service.AttendanceService(db).update(attendance_id, data)
+    return service.AttendanceService(db).update(attendance_id, data, current_user)
 
 
 @router.delete(
@@ -126,8 +133,8 @@ def update_attendance(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission(*Permissions.ATTENDANCE_DELETE))],
 )
-def delete_attendance(attendance_id: int, db: Session = Depends(get_db)):
-    service.AttendanceService(db).delete(attendance_id)
+def delete_attendance(attendance_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    service.AttendanceService(db).delete(attendance_id, current_user)
 
 
 # ─── Leaves ────────────────────────────────────────────────────────────────────
@@ -137,14 +144,15 @@ def delete_attendance(attendance_id: int, db: Session = Depends(get_db)):
     dependencies=[Depends(require_permission(*Permissions.LEAVE_VIEW))],
 )
 def list_leaves(
-    employee_id: Optional[str] = None,
-    leave_type: Optional[str] = None,
-    status_filter: Optional[str] = Query(None, alias="status"),
+    employee_id: EmpCode = None,
+    leave_type: Optional[str] = Query(None, max_length=30),
+    status_filter: Optional[str] = Query(None, alias="status", max_length=20),
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100000),
+    skip: int = Query(0, ge=0, le=10_000_000),
+    limit: int = Query(100, ge=1, le=5000),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     svc = service.LeaveService(db)
     return svc.list(
@@ -156,7 +164,8 @@ def list_leaves(
             date_to=date_to,
             skip=skip,
             limit=limit,
-        )
+        ),
+        current_user,
     )
 
 
@@ -166,10 +175,16 @@ def list_leaves(
     dependencies=[Depends(require_permission(*Permissions.LEAVE_VIEW))],
 )
 def leave_balance(
-    employee_id: str,
-    year: Optional[int] = None,
+    employee_id: Annotated[str, Path(min_length=1, max_length=50)],
+    year: Optional[int] = Query(None, ge=2000, le=2100),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    from app.modules.employees.models import Employee
+
+    emp = db.query(Employee).filter(Employee.employee_id == employee_id).first()
+    if emp:
+        service._need_branch(current_user, emp.branch_code)
     return service.LeaveService(db).balance(employee_id, year)
 
 
@@ -178,8 +193,8 @@ def leave_balance(
     response_model=schemas.Leave,
     dependencies=[Depends(require_permission(*Permissions.LEAVE_VIEW))],
 )
-def get_leave(leave_id: int, db: Session = Depends(get_db)):
-    return service.LeaveService(db).get(leave_id)
+def get_leave(leave_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return service.LeaveService(db).get(leave_id, current_user)
 
 
 @router.post(
@@ -193,7 +208,7 @@ def create_leave(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return service.LeaveService(db).create(data, current_user.id)
+    return service.LeaveService(db).create(data, current_user.id, current_user)
 
 
 @router.put(
@@ -202,11 +217,12 @@ def create_leave(
     dependencies=[Depends(require_permission(*Permissions.LEAVE_UPDATE))],
 )
 def update_leave(
-    leave_id: int,
+    leave_id: RowId,
     data: schemas.LeaveUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    return service.LeaveService(db).update(leave_id, data)
+    return service.LeaveService(db).update(leave_id, data, current_user)
 
 
 @router.post(
@@ -215,12 +231,12 @@ def update_leave(
     dependencies=[Depends(require_permission(*Permissions.LEAVE_APPROVAL_APPROVE))],
 )
 def approve_leave(
-    leave_id: int,
+    leave_id: RowId,
     data: schemas.LeaveApprove,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return service.LeaveService(db).approve(leave_id, data, current_user.id)
+    return service.LeaveService(db).approve(leave_id, data, current_user.id, current_user)
 
 
 @router.post(
@@ -229,12 +245,12 @@ def approve_leave(
     dependencies=[Depends(require_permission(*Permissions.LEAVE_APPROVAL_APPROVE))],
 )
 def reject_leave(
-    leave_id: int,
+    leave_id: RowId,
     data: schemas.LeaveReject,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return service.LeaveService(db).reject(leave_id, data, current_user.id)
+    return service.LeaveService(db).reject(leave_id, data, current_user.id, current_user)
 
 
 @router.delete(
@@ -242,5 +258,5 @@ def reject_leave(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission(*Permissions.LEAVE_DELETE))],
 )
-def delete_leave(leave_id: int, db: Session = Depends(get_db)):
-    service.LeaveService(db).delete(leave_id)
+def delete_leave(leave_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    service.LeaveService(db).delete(leave_id, current_user)

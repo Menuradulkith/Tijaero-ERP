@@ -234,11 +234,9 @@ export default function SalesOrderApprovalsPage() {
 
     // Reject mutation (Delete/Cancel)
     const rejectMutation = useCrudMutation({
-        mutationFn: ({ id }: { id: number }) =>
-            // Using delete for rejection as per discussion/assumption
-            salesApi.delete(id),
+        mutationFn: ({ id, reason }: { id: number; reason: string }) => salesApi.reject(id, reason),
         invalidateQueryKeys: [["sales-orders-pending"], ["sales"], ["sales-track-list"]],
-        successMessage: "Sales order rejected (deleted)",
+        successMessage: "Sales order rejected",
         errorMessage: "Failed to reject order",
         onSuccess: (_data, variables) => {
             queryClient.setQueryData<Invoice[]>(["sales-orders-pending"], (prev) =>
@@ -273,12 +271,8 @@ export default function SalesOrderApprovalsPage() {
     };
 
     const handleReject = () => {
-        if (!selectedOrder) return;
-        rejectDialog.open(
-            "Reject Sales Order",
-            `Are you sure you want to reject sales order ${selectedOrder.invoice_no}? This action cannot be undone.`,
-            () => rejectMutation.mutate({ id: selectedOrder.id })
-        );
+        if (!selectedOrder || !rejectReason.trim()) return;
+        rejectMutation.mutate({ id: selectedOrder.id, reason: rejectReason.trim() });
     };
 
     const customer = selectedOrder ? customerMap.get(selectedOrder.customer_id) : null;
@@ -342,7 +336,7 @@ export default function SalesOrderApprovalsPage() {
                                         </Box>
                                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                             <Typography component="span" variant="caption">
-                                                {currencySymbol} {fmtLKR((order as any).total_amount || 0)}
+                                                {currencySymbol} {fmtLKR(order.grand_total || 0)}
                                             </Typography>
                                             <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                                                 (Amount)
@@ -414,7 +408,7 @@ export default function SalesOrderApprovalsPage() {
                         onClick={() => setRejectDialogOpen(true)}
                         disabled={rejectMutation.isPending}
                     >
-                        Reject / Delete
+                        Reject
                     </Button>
                 </Box>
             )}
@@ -973,30 +967,32 @@ export default function SalesOrderApprovalsPage() {
 
             {/* Reject Dialog */}
             <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>Reject/Delete Sales Order</DialogTitle>
+                <DialogTitle>Reject Sales Order</DialogTitle>
                 <DialogContent>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        This will permanently delete the pending sales order. Use this action to reject the order.
+                        The order is cancelled and its stock goes back on the shelf. The reason is kept on the order's record.
                     </Typography>
                     <TextField
                         autoFocus
-                        label="Rejection Reason (Optional - currently strictly deletes)"
+                        required
+                        label="Rejection reason"
                         multiline
                         rows={4}
                         fullWidth
+                        inputProps={{ maxLength: 500 }}
                         value={rejectReason}
                         onChange={(e) => setRejectReason(e.target.value)}
                     />
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+                    <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
                     <Button
                         variant="contained"
                         color="error"
                         onClick={handleReject}
-                        disabled={rejectMutation.isPending}
+                        disabled={rejectMutation.isPending || !rejectReason.trim()}
                     >
-                        Reject (Delete)
+                        Reject
                     </Button>
                 </DialogActions>
             </Dialog>
@@ -1017,7 +1013,7 @@ export default function SalesOrderApprovalsPage() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setRemarksDialogOpen(false)}>OK</Button>
-                    <Button onClick={() => setRemarksDialogOpen(false)} variant="outlined">
+                    <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRemarksDialogOpen(false)}>
                         Cancel
                     </Button>
                 </DialogActions>

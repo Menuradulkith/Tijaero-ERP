@@ -15,6 +15,7 @@ from typing import Optional, List
 from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema
+from app.core.money import MoneyIn, SignedMoneyIn
 
 
 # =============================================================================
@@ -135,6 +136,24 @@ class JournalEntryUpdate(BaseModel):
         if total_debit != total_credit:
             raise ValueError(f"Total debits ({total_debit}) must equal total credits ({total_credit})")
         return v
+
+
+# Public-API input variants. JournalEntryLineCreate / JournalEntryCreate stay
+# lenient because internal integrations (year-end close, corrections) build
+# them from ledger balances, which can be negative (contra accounts) or larger
+# than a single user-entered amount. User input is capped: 0 <= x <= MAX_MONEY,
+# no NaN/Infinity.
+class JournalEntryLineInput(JournalEntryLineCreate):
+    debit_amount: MoneyIn = Decimal("0")
+    credit_amount: MoneyIn = Decimal("0")
+
+
+class JournalEntryCreateInput(JournalEntryCreate):
+    lines: List[JournalEntryLineInput]
+
+
+class JournalEntryUpdateInput(JournalEntryUpdate):
+    lines: Optional[List[JournalEntryLineInput]] = None
 
 
 class JournalEntryResponse(TijaeroBaseSchema):
@@ -442,14 +461,14 @@ class CashFlowManualLineCreate(BaseModel):
     """Create a manual (non-calculated) line on a cash flow statement."""
     category_id: int
     line_description: str
-    amount: Decimal
+    amount: SignedMoneyIn
     notes: Optional[str] = None
 
 
 class CashFlowManualLineUpdate(BaseModel):
     """Update a manual line on a cash flow statement."""
     line_description: Optional[str] = None
-    amount: Optional[Decimal] = None
+    amount: Optional[SignedMoneyIn] = None
     notes: Optional[str] = None
 
 
@@ -674,7 +693,7 @@ class CorrectionRequest(BaseModel):
     """
     reason: str
     correction_date: Optional[date] = None
-    corrected_lines: List[JournalEntryLineCreate]
+    corrected_lines: List[JournalEntryLineInput]
     description: Optional[str] = None
 
     @field_validator("corrected_lines")

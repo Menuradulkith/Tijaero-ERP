@@ -1,0 +1,13 @@
+Total messages: 15 (Errors: 10, Warnings: 2)
+Returning 10 messages for level "error"
+
+[ERROR] Network error - please check your internet connection @ http://localhost:3000/src/api/client.ts:95
+[ERROR] Failed to load resource: net::ERR_CONNECTION_RESET @ http://localhost:8020/api/v1/notifications/stats:0
+[ERROR] Network error - please check your internet connection @ http://localhost:3000/src/api/client.ts:95
+[ERROR] Failed to load resource: net::ERR_CONNECTION_RESET @ http://localhost:8020/api/v1/notifications?unread_only=false&skip=0&limit=50:0
+[ERROR] Network error - please check your internet connection @ http://localhost:3000/src/api/client.ts:95
+[ERROR] Failed to load resource: net::ERR_CONNECTION_RESET @ http://localhost:8020/api/v1/notifications/stats:0
+[ERROR] Network error - please check your internet connection @ http://localhost:3000/src/api/client.ts:95
+[ERROR] Failed to load resource: net::ERR_CONNECTION_RESET @ http://localhost:8020/api/v1/notifications?unread_only=false&skip=0&limit=50:0
+[ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8020/api/v1/notifications/stats:0
+[ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8020/api/v1/notifications?unread_only=false&skip=0&limit=50:0

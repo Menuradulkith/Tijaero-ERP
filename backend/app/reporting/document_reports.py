@@ -426,8 +426,14 @@ class DocumentReportService:
 
         for item in purchase_return.items:
             unit_price = item.purchasing_price or 0
+            qty = item.quantity or 1
             product_name = (
                 item.product.name if item.product else f"Product #{item.product_id}"
+            )
+            # Batch/none lots have no barcode: show the batch and quantity instead.
+            batch_no = item.sales_stock.batch_no if item.sales_stock else None
+            barcode_label = item.barcode or (
+                f"{'Batch ' + batch_no if batch_no else 'Lot'} x {qty}"
             )
             stock_status = item.sales_stock.status if item.sales_stock else "unknown"
             branch_code = (
@@ -445,15 +451,15 @@ class DocumentReportService:
                 {
                     "product_id": item.product_id,
                     "product_name": product_name,
-                    "barcode": item.barcode,
+                    "barcode": barcode_label,
                     "branch_code": branch_code,
                     "purchasing_price": unit_price,
                     "status": stock_status,
                     "added_date": added_date,
                 }
             )
-            total_quantity += 1
-            total_value += unit_price
+            total_quantity += qty
+            total_value += unit_price * qty
 
         template = self.env.get_template("purchase_return.html")
         return template.render(
@@ -670,6 +676,42 @@ class DocumentReportService:
         if invoice.credit_amount > 0:
             payments.append({"method": "Credit", "amount": invoice.credit_amount})
 
+        # M9: make the printed lines foot. Lines (already net of each line's own discount) -> less tax included in
+        # the prices -> coupon -> header discount -> tax -> service charge -> voucher / credit note / advance = grand total.
+        from decimal import Decimal as _D
+        from app.core.money import money as _money
+
+        lines_total = _money(sum((_D(str(i.line_total if i.line_total is not None else (i.quantity or 0) * (i.selling_price or 0))) for i in invoice.items), _D("0")))
+        tax_rate = _D(str(invoice.tax_rate or 0))
+        tax_amount = _money(invoice.tax_amount or 0)
+        coupon_amount = _money(invoice.cupon_amount or 0)
+        header_discount = _money(invoice.discount_amount or 0)
+        service_charge = _money(invoice.service_charge_amount or 0)
+        voucher_amount = _money(invoice.gift_voucher_amount or 0)
+        credit_note_amount = _money(invoice.credit_note_amount or 0)
+        grand_total = _money(invoice.grand_total or 0)
+        item_discount_total = _money(sum((_D(str(i.discount_amount or 0)) for i in invoice.items), _D("0")))
+        tax_included = _D("0.00")
+        if invoice.is_tax_invoice and tax_rate > 0:
+            tax_included = _money(lines_total - _money(lines_total / (_D("1") + tax_rate / _D("100"))))
+        after_tax = _money(lines_total - tax_included - coupon_amount - header_discount + tax_amount)
+        advance_amount = _money(after_tax + service_charge - voucher_amount - credit_note_amount - grand_total)
+        if advance_amount < _D("0.01"):
+            advance_amount = _D("0.00")
+
+        adjustments = []
+
+        def _adj(label, value, sign):
+            if value and value > 0:
+                adjustments.append({"label": label, "amount": f"{'-' if sign < 0 else '+'}{value:,.2f}"})
+
+        _adj("Tax included in prices", tax_included, -1)
+        _adj("Coupon", coupon_amount, -1)
+        _adj("Discount", header_discount, -1)
+        _adj("Gift voucher", voucher_amount, -1)
+        _adj("Credit note", credit_note_amount, -1)
+        _adj("Advance", advance_amount, -1)
+
         template = self.env.get_template("printable_invoice.html")
         return template.render(
             company=company,
@@ -691,7 +733,15 @@ class DocumentReportService:
                 "chequeBankName": '', #TODO
                 "chequeAmount":   invoice.cheque_amount or '',
                 "chequeDate":     invoice.cheque_date.strftime("%d %b %Y") if invoice.cheque_date else '',
-                "subTotal":       invoice.subtotal,
+                "subTotal":       lines_total,  # gross: the sum of the printed lines
+                "subTotalNet":    _money(invoice.subtotal or 0),  # stored subtotal, net of header discount / coupon
+                "itemDiscountTotal": item_discount_total,  # already inside the printed line totals
+                "headerDiscountAmount": header_discount,
+                "couponAmountPrinted": coupon_amount,
+                "creditNoteAmount": credit_note_amount,
+                "advanceAmount":  advance_amount,
+                "taxIncludedAmount": tax_included,
+                "adjustments":    adjustments,
                 "vat":            invoice.tax_amount,
                 "btt":            invoice.service_charge_amount,
                 "netTotal":       invoice.grand_total,

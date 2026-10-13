@@ -1,7 +1,7 @@
 /**
  * PayrollPage — Browse table + single-record detail toggle for employee payroll records.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Avatar, Box, Button, IconButton, InputAdornment, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
@@ -39,6 +39,8 @@ import type { EmployeePayroll, EmployeePayrollCreate } from "@/modules/hr/types"
 
 const INITIAL_FORM: EmployeePayrollCreate = {
   employee_id: "",
+  payroll_month: new Date().getMonth() + 1,
+  payroll_year: new Date().getFullYear(),
   basic_salary: 0,
   add_1_name: "",
   add_1_value: 0,
@@ -69,6 +71,8 @@ export default function PayrollPage() {
     initialFormData: INITIAL_FORM,
     resetFormFromItem: (p) => ({
       employee_id: p.employee_id,
+      payroll_month: p.payroll_month || new Date().getMonth() + 1,
+      payroll_year: p.payroll_year || new Date().getFullYear(),
       basic_salary: p.basic_salary,
       add_1_name: p.add_1_name || "",
       add_1_value: p.add_1_value || 0,
@@ -135,9 +139,12 @@ export default function PayrollPage() {
 
   const confirmDialog = useTConfirmDialog();
 
+  const savingRef = useRef(false);   // blocks a second click before the first save has settled
   const handleSave = useCallback(() => {
-    if (isCreating) createMut.mutate(formData);
-    else if (selectedItem) updateMut.mutate({ id: selectedItem.id, data: formData });
+    if (savingRef.current) return;
+    const done = { onSettled: () => { savingRef.current = false; } };
+    if (isCreating) { savingRef.current = true; createMut.mutate(formData, done); }
+    else if (selectedItem) { savingRef.current = true; updateMut.mutate({ id: selectedItem.id, data: formData }, done); }
   }, [isCreating, selectedItem, formData, createMut, updateMut]);
 
   const handleDelete = useCallback(async () => {
@@ -323,6 +330,8 @@ export default function PayrollPage() {
           <>
             <FormSection title="Employee & Earnings" columns={2}>
               <TextField label="Employee ID" size="small" value={formData.employee_id} onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })} disabled={isDisabled} required />
+              <TextField label="Payroll Month" size="small" type="number" value={formData.payroll_month ?? ""} onChange={(e) => setFormData({ ...formData, payroll_month: parseInt(e.target.value, 10) || undefined })} disabled={isDisabled} required inputProps={{ min: 1, max: 12 }} />
+              <TextField label="Payroll Year" size="small" type="number" value={formData.payroll_year ?? ""} onChange={(e) => setFormData({ ...formData, payroll_year: parseInt(e.target.value, 10) || undefined })} disabled={isDisabled} required inputProps={{ min: 2000, max: 2100 }} />
               <TextField label="Basic Salary" size="small" type="number" value={Number(formData.basic_salary) || ""} onChange={(e) => setFormData({ ...formData, basic_salary: parseFloat(e.target.value) || 0 })} disabled={isDisabled} required inputProps={{ step: "0.01" }} />
               <TextField label="Sales Commission" size="small" type="number" value={formData.add_sales_commision || ""} onChange={(e) => setFormData({ ...formData, add_sales_commision: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
               <Box />

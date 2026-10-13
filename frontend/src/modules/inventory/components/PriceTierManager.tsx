@@ -28,6 +28,7 @@ import { priceTiersApi } from "../api";
 import { PriceTier, PriceTierCreate } from "../types";
 
 import { TChip, TRemarkField } from "@/components/tijaero";
+import CancelIcon from "@mui/icons-material/Cancel";
 interface PriceTierManagerProps {
   productId: number;
   canEdit?: boolean;
@@ -349,7 +350,7 @@ const PriceTierManager: React.FC<PriceTierManagerProps> = ({
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeDialog} disabled={isBusy}>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={closeDialog} disabled={isBusy}>
             Cancel
           </Button>
           <Button
@@ -384,7 +385,7 @@ const PriceTierManager: React.FC<PriceTierManagerProps> = ({
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setDeleteConfirmId(null); setError(""); }}>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => { setDeleteConfirmId(null); setError(""); }}>
             Cancel
           </Button>
           <Button

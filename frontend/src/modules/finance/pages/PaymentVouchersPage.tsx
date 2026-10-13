@@ -41,6 +41,7 @@ import {
 import { format } from "date-fns";
 import { useMemo, useState } from "react";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 export default function PaymentVouchersPage() {
   const canCreate = usePermission("payment_voucher", "create");
   const { filteredBranches } = useReferenceData();
@@ -266,7 +267,7 @@ export default function PaymentVouchersPage() {
             />
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setShowCreateDialog(false)}>Cancel</Button>
+            <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowCreateDialog(false)}>Cancel</Button>
             <Button
               onClick={handleCreateVoucher}
               variant="contained"
@@ -621,7 +622,7 @@ export default function PaymentVouchersPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowCreateDialog(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowCreateDialog(false)}>Cancel</Button>
           <Button
             onClick={handleCreateVoucher}
             variant="contained"
@@ -652,7 +653,7 @@ export default function PaymentVouchersPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowApproveDialog(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowApproveDialog(false)}>Cancel</Button>
           <Button
             onClick={handleApproveVoucher}
             variant="contained"
@@ -685,7 +686,7 @@ export default function PaymentVouchersPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowRejectDialog(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowRejectDialog(false)}>Cancel</Button>
           <Button
             onClick={handleRejectVoucher}
             variant="contained"
@@ -721,7 +722,7 @@ export default function PaymentVouchersPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowPayDialog(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowPayDialog(false)}>Cancel</Button>
           <Button
             onClick={handlePayVoucher}
             variant="contained"

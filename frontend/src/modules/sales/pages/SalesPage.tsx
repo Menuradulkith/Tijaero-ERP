@@ -14,6 +14,7 @@ import {
     modernTableStyles,
     showErrorToast,
     showSuccessToast,
+    showWarningToast,
     TBranchFilter,
     TConfirmDialog,
     TDataGrid,
@@ -157,8 +158,10 @@ export const getPaymentMethodsDisplay = (invoice: any) => {
 // Status filter options
 const INVOICE_STATUS_OPTIONS = [
   { value: "pending_approval", label: "Pending Approval" },
+  { value: "pending_bank_verification", label: "Awaiting Bank Verification" },
   { value: "approved", label: "Approved" },
   { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 // Form steps for stepper workflow
@@ -202,6 +205,7 @@ interface ItemFormData {
   discount_percent?: number; // Individual item discount percentage
   discount_amount?: number; // Calculated discount amount
   price_tier_id?: number; // Price tier id from stock item
+  is_lot?: boolean; // Added from a batch/none lot: sold by quantity (no barcode)
 }
 
 // Initial form data
@@ -261,6 +265,8 @@ export default function SalesPage() {
   const [manualBranchCode, setManualBranchCode] = useState<string | null>(null);
   const [manualStockItems, setManualStockItems] = useState<SalesStock[]>([]);
   const [isLoadingManualStock, setIsLoadingManualStock] = useState(false);
+  // Batch/none lots are sold by quantity: per-lot "qty to add" inputs, keyed by stock id.
+  const [lotQtyInputs, setLotQtyInputs] = useState<Record<number, string>>({});
 
   // Validated items tracking (for visual feedback on scanned items)
   const [validatedBarcodes, setValidatedBarcodes] = useState<string[]>([]);
@@ -570,31 +576,28 @@ export default function SalesPage() {
     );
   };
 
-  // Calculate line items total (after individual item discounts)
-  const calculateLineItemsTotal = () => {
-    return lineItems.reduce((sum, item) => {
-      const lineTotal = item.quantity * item.selling_price;
-      const itemDiscount = lineTotal * ((item.discount_percent || 0) / 100);
-      return sum + (lineTotal - itemDiscount);
-    }, 0);
+  // Money rounding mirrors the server (half-up, per unit then x quantity) so the screen
+  // foots with the saved document: unit price to cents, discounted unit to cents, x qty.
+  const roundHalfUp = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const lineGrossAmount = (item: { quantity: number; selling_price: number }) =>
+    roundHalfUp(item.quantity * roundHalfUp(item.selling_price));
+  const lineNetAmount = (item: { quantity: number; selling_price: number; discount_percent?: number }) => {
+    const unit = roundHalfUp(item.selling_price);
+    const discountedUnit = roundHalfUp(unit * (1 - (item.discount_percent || 0) / 100));
+    return roundHalfUp(item.quantity * discountedUnit);
   };
+
+  // Calculate line items total (after individual item discounts)
+  const calculateLineItemsTotal = () =>
+    lineItems.reduce((sum, item) => sum + lineNetAmount(item), 0);
 
   // Calculate total item discounts
-  const calculateTotalItemDiscounts = () => {
-    return lineItems.reduce((sum, item) => {
-      const lineTotal = item.quantity * item.selling_price;
-      const itemDiscount = lineTotal * ((item.discount_percent || 0) / 100);
-      return sum + itemDiscount;
-    }, 0);
-  };
+  const calculateTotalItemDiscounts = () =>
+    lineItems.reduce((sum, item) => sum + (lineGrossAmount(item) - lineNetAmount(item)), 0);
 
   // Calculate gross total (before any discounts)
-  const calculateGrossTotal = () => {
-    return lineItems.reduce(
-      (sum, item) => sum + item.quantity * item.selling_price,
-      0,
-    );
-  };
+  const calculateGrossTotal = () =>
+    lineItems.reduce((sum, item) => sum + lineGrossAmount(item), 0);
 
   /**
    * Centralized order totals calculation.
@@ -740,7 +743,7 @@ export default function SalesPage() {
         branch_name:
           branches.find((b) => b.branch_code === invoice.branch_code)?.branch_name ||
           invoice.branch_code,
-        total_amount: calculateTotal(invoice),
+        total_amount: invoice.grand_total ?? calculateTotal(invoice),
       })),
     [filteredInvoices, customers, branches] // eslint-disable-line react-hooks/exhaustive-deps
   );
@@ -994,8 +997,11 @@ export default function SalesPage() {
       const paymentMethod = pendingPaymentMethod.toLowerCase();
       const isCreditPayment = paymentMethod === "credit";
 
-      if (isCreditPayment) {
+      const awaiting = (createdInvoice as Invoice | undefined)?.approval_status;
+      if (isCreditPayment || awaiting === "pending_approval") {
         showSuccessToast("Sales order created. Credit payment requires approval.");
+      } else if (awaiting === "pending_bank_verification") {
+        showSuccessToast("Sales order created. It will be completed once the bank transfer is verified.");
       } else {
         showSuccessToast("Sales order created and payment completed successfully.");
       }
@@ -1170,8 +1176,8 @@ export default function SalesPage() {
     });
     state.setFormData({
       invoice_no: "",
-      branch_code: defaultBranchCode || "MAIN",
-      customer_id: customers?.[0]?.id || 0,
+      branch_code: defaultBranchCode || "",
+      customer_id: 0,
       customer_agent_id: undefined,
       sale_rep_id: 1,
       payment_method: "cash",
@@ -1192,11 +1198,8 @@ export default function SalesPage() {
   const handleEdit = () => {
     if (!state.selectedItem || !fullInvoice) return;
 
-    // Prevent editing completed or cancelled orders
-    if (
-      state.selectedItem.approval_status === "completed" ||
-      state.selectedItem.approval_status === "cancelled"
-    ) {
+    // Only an order that is still waiting for approval can be changed
+    if (state.selectedItem.approval_status !== "pending_approval") {
       return;
     }
 
@@ -1256,6 +1259,9 @@ export default function SalesPage() {
     // Load existing line items
     const existingItems = fullInvoice.items.map((item: any) => ({
       product_id: item.product_id,
+      product_name: (products as any[] | undefined)?.find((p: any) => p.id === item.product_id)?.name ?? item.product_name ?? "",
+      barcode: item.barcode || undefined,
+      discount_percent: item.discount_percent || 0,
       quantity: item.quantity,
       selling_price: item.selling_price,
       minimum_selling_price: item.minimum_selling_price,
@@ -1291,9 +1297,24 @@ export default function SalesPage() {
     const remaining = checkGrandTotal - entered;
     const isBalanced = Math.abs(remaining) < 0.01;
 
-    if (!isBalanced) {
+    if (!state.isEditing && !isBalanced) {
       showErrorToast(
         `Cannot save: Total payments entered (${currencySymbol} ${fmtLKR(entered)}) must equal the grand total (${currencySymbol} ${fmtLKR(checkGrandTotal)}). Remaining: ${currencySymbol} ${fmtLKR(remaining)}`
+      );
+      return;
+    }
+
+    // The details marked required on a payment row must be filled in
+    const incompleteRow = state.isEditing ? undefined : splitPayments.find((p) =>
+      (p.amount || 0) > 0 &&
+      ((p.method === "bank_transfer" && (!p.bank_name?.trim() || !p.bank_transfer_ref?.trim())) ||
+        (p.method === "cheque" && (!p.cheque_number?.trim() || !p.cheque_bank?.trim()))),
+    );
+    if (incompleteRow) {
+      showErrorToast(
+        incompleteRow.method === "bank_transfer"
+          ? "Cannot save: enter the bank name and the reference number for the bank transfer"
+          : "Cannot save: enter the cheque number and the bank for the cheque",
       );
       return;
     }
@@ -1370,7 +1391,7 @@ export default function SalesPage() {
     let creditValidationOverridden = false;
 
     // Comprehensive credit sale validation (blocking)
-    if (hasCreditPayment && state.formData.customer_id) {
+    if (!state.isEditing && hasCreditPayment && state.formData.customer_id) {
       try {
         // Use comprehensive validation with blocking by default
         const validation = await customersApi.validateCreditSale(
@@ -1739,11 +1760,24 @@ export default function SalesPage() {
 
   // Manual picker: add a specific stock item to the line
   const handleAddManualStockItem = useCallback(
-    (stockItem: SalesStock) => {
-      const alreadyAdded = lineItems.some(
-        (item) => item.barcode === stockItem.barcode,
-      );
-      if (alreadyAdded) {
+    (stockItem: SalesStock, lotQuantity: number = 1) => {
+      // A batch/none lot has no barcode: it is sold by quantity (several
+      // lots of the same product are pooled; the server allocates FEFO).
+      const isLot = !stockItem.barcode;
+      const addQty = isLot ? Math.max(1, Math.floor(lotQuantity) || 1) : 1;
+      if (isLot) {
+        const lotsOfProduct = manualStockItems.filter(
+          (s) => !s.barcode && s.product_id === stockItem.product_id,
+        );
+        const availableUnits = lotsOfProduct.reduce((n, s) => n + (s.quantity ?? 1), 0);
+        const inOrder = lineItems
+          .filter((li) => !li.barcode && li.product_id === stockItem.product_id)
+          .reduce((n, li) => n + li.quantity, 0);
+        if (inOrder + addQty > availableUnits) {
+          showErrorToast(`Only ${Math.max(availableUnits - inOrder, 0)} unit(s) left to add`);
+          return;
+        }
+      } else if (lineItems.some((item) => item.barcode === stockItem.barcode)) {
         showErrorToast("This barcode is already in the order");
         return;
       }
@@ -1756,26 +1790,41 @@ export default function SalesPage() {
         stockItem.minimum_selling_price ??
         (productObj as any)?.minimum_price ??
         sellingPrice;
+      if (isLot) {
+        const existingIndex = lineItems.findIndex(
+          (li) => !li.barcode && li.product_id === stockItem.product_id,
+        );
+        if (existingIndex >= 0) {
+          setLineItems((prev) =>
+            prev.map((li, i) => (i === existingIndex ? { ...li, quantity: li.quantity + addQty } : li)),
+          );
+          showSuccessToast(`Added ${addQty} × ${stockItem.product_name || productObj?.name || "item"}`);
+          return;
+        }
+      }
       const newItem: ItemFormData = {
         product_id: stockItem.product_id,
-        quantity: 1,
+        quantity: addQty,
+        is_lot: isLot,
         selling_price: sellingPrice,
         minimum_selling_price: minimumPrice,
         warrenty_month: stockItem.warranty_month ?? "0",
-        barcode: stockItem.barcode,
+        barcode: stockItem.barcode ?? undefined,
         product_name: stockItem.product_name ?? productObj?.name ?? "",
         branch_code: stockItem.branch_code,
         price_tier_id: (stockItem as any).price_tier_id,
       };
       setLineItems((prev) => [...prev, newItem]);
-      setValidatedBarcodes((prev) => [...prev, stockItem.barcode]);
-      // Remove from manual list so it can't be added twice
-      setManualStockItems((prev) =>
-        prev.filter((s) => s.barcode !== stockItem.barcode),
-      );
+      setValidatedBarcodes((prev) => (stockItem.barcode ? [...prev, stockItem.barcode] : prev));
+      // Serial units leave the list so they can't be added twice; lots stay (sold by quantity).
+      if (!isLot) {
+        setManualStockItems((prev) =>
+          prev.filter((s) => s.barcode !== stockItem.barcode),
+        );
+      }
       showSuccessToast(`Added: ${newItem.product_name || "Item"}`);
     },
-    [lineItems, products],
+    [lineItems, products, manualStockItems],
   );
 
   // Step navigation functions
@@ -1802,8 +1851,12 @@ export default function SalesPage() {
     : state.formData.invoice_no;
   const isStep1Valid =
     effectiveInvoiceNo &&
+    state.formData.branch_code &&
     state.formData.customer_id &&
     state.formData.customer_id > 0;
+
+  // Batch/none-tracked lines have no barcode and are sold by quantity.
+  const isLotLine = (item: ItemFormData) => !item.barcode && !!item.is_lot;
 
   const updateLineItem = (
     index: number,
@@ -2160,10 +2213,7 @@ export default function SalesPage() {
           variant="outlined"
           startIcon={<EditIcon />}
           onClick={handleEdit}
-          disabled={
-            state.selectedItem.approval_status === "completed" ||
-            state.selectedItem.approval_status === "cancelled"
-          }
+          disabled={state.selectedItem.approval_status !== "pending_approval"}
         >
           Edit
         </Button>
@@ -2292,9 +2342,9 @@ export default function SalesPage() {
             </Typography>
             <TStatusChip
               status={
-                state.selectedItem?.approval ? "approved" : "pending_approval"
+                state.selectedItem?.approval_status || (state.selectedItem?.approval ? "approved" : "pending_approval")
               }
-              statusMap="salesOrder"
+              statusMap="invoice"
             />
           </Box>
         </FormSection>
@@ -2433,7 +2483,7 @@ export default function SalesPage() {
                         <TableCell align="right">
                           {(item.discount_percent || 0) > 0 ? (
                             <Typography variant="body2" color="warning.main" fontWeight="medium">
-                              {Number(item.discount_percent).toFixed(1)}%
+                              {parseFloat(Number(item.discount_percent).toFixed(3))}%
                             </Typography>
                           ) : (
                             <Typography variant="body2" color="text.disabled">—</Typography>
@@ -2797,6 +2847,7 @@ export default function SalesPage() {
               size="small"
               options={customers || []}
               getOptionLabel={(option) => customerDisplayName(option) || ""}
+              getOptionKey={(option) => option.id}
               value={
                 customers?.find((c) => c.id === state.formData.customer_id) ||
                 null
@@ -2819,6 +2870,7 @@ export default function SalesPage() {
               getOptionLabel={(option) =>
                 `${option.customer_name}${option.commission_rate ? ` (${option.commission_rate}%)` : ""}`
               }
+              getOptionKey={(option) => option.id}
               value={
                 customers?.find(
                   (c) => c.id === state.formData.customer_agent_id,
@@ -3357,7 +3409,8 @@ export default function SalesPage() {
                       </TableHead>
                       <TableBody>
                         {manualStockItems.map((s) => {
-                          const alreadyInOrder = lineItems.some(
+                          const isLotRow = !s.barcode;
+                          const alreadyInOrder = !isLotRow && lineItems.some(
                             (li) => li.barcode === s.barcode,
                           );
                           return (
@@ -3379,18 +3432,34 @@ export default function SalesPage() {
                                   fontSize: "0.8rem",
                                 }}
                               >
-                                {s.barcode}
+                                {s.barcode ||
+                                  `${s.batch_no ? `Batch ${s.batch_no}` : "Lot"} \u00d7 ${s.quantity}`}
                               </TableCell>
                               <TableCell sx={{ py: 0.5, fontSize: "0.75rem", color: "text.secondary" }}>
                                 {s.branch_code}
                               </TableCell>
                               <TableCell sx={{ py: 0.5 }}>
+                                {isLotRow && (
+                                  <TextField
+                                    size="small"
+                                    type="number"
+                                    placeholder="Qty"
+                                    value={lotQtyInputs[s.id] ?? ""}
+                                    onChange={(e) =>
+                                      setLotQtyInputs((prev) => ({ ...prev, [s.id]: e.target.value }))
+                                    }
+                                    inputProps={{ min: 1, max: s.quantity, "aria-label": "Quantity to add" }}
+                                    sx={{ width: 76, mr: 0.5 }}
+                                  />
+                                )}
                                 <Button
                                   size="small"
                                   variant="contained"
                                   color="primary"
                                   disabled={alreadyInOrder}
-                                  onClick={() => handleAddManualStockItem(s)}
+                                  onClick={() =>
+                                    handleAddManualStockItem(s, isLotRow ? Number(lotQtyInputs[s.id]) || 1 : 1)
+                                  }
                                   sx={{
                                     minWidth: 0,
                                     px: 1,
@@ -3524,8 +3593,21 @@ export default function SalesPage() {
                               }
                               fontWeight={item.barcode ? 500 : 400}
                             >
-                              {item.barcode || "-"}
+                              {item.barcode || (isLotLine(item) ? "" : "-")}
                             </Typography>
+                            {!item.barcode && isLotLine(item) && (
+                              <TextField
+                                size="small"
+                                type="number"
+                                label="Qty"
+                                value={item.quantity}
+                                onChange={(e) =>
+                                  updateLineItem(index, "quantity", Math.max(1, Math.floor(Number(e.target.value)) || 1))
+                                }
+                                inputProps={{ min: 1 }}
+                                sx={{ width: 90 }}
+                              />
+                            )}
                           </Box>
                         </TableCell>
 
@@ -3634,6 +3716,10 @@ export default function SalesPage() {
                                   "discount_percent",
                                   Math.max(0, maxDiscountPct),
                                 );
+                                // Say why the typed discount was not kept instead of silently resetting it.
+                                showWarningToast(
+                                  `Discount limited to ${Math.max(0, maxDiscountPct).toFixed(2)}% so the price stays at or above the minimum price (${fmtLKR(item.minimum_selling_price)}).`,
+                                );
                               } else {
                                 updateLineItem(
                                   index,
@@ -3684,12 +3770,8 @@ export default function SalesPage() {
                                 })()}
                               >
                                 {(() => {
-                                  const lineTotal =
-                                    item.quantity * item.selling_price;
-                                  const discountAmt =
-                                    lineTotal *
-                                    ((item.discount_percent || 0) / 100);
-                                  const gross = lineTotal - discountAmt;
+                                  // Same rounding as the order totals above, so the row foots with them.
+                                  const gross = lineNetAmount(item);
                                   return fmtLKR(taxMode === "inclusive" && effectiveTaxRate > 0 ? gross / (1 + effectiveTaxRate / 100) : gross);
                                 })()}
                               </Typography>
@@ -4835,7 +4917,7 @@ export default function SalesPage() {
                   <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                     <Typography variant="body2" color="text.secondary">Remaining:</Typography>
                     <Typography variant="body2" fontWeight="bold" color={isBalanced ? "success.main" : "error.main"}>
-                      {remaining > 0.01 ? `${currencySymbol} ${fmtLKR(remaining)}` : remaining < -0.01 ? `- ${currencySymbol} ${fmtLKR(Math.abs(remaining))} (overpaid)` : "✔ Fully paid"}
+                      {lineItems.length === 0 ? "—" : remaining > 0.01 ? `${currencySymbol} ${fmtLKR(remaining)}` : remaining < -0.01 ? `- ${currencySymbol} ${fmtLKR(Math.abs(remaining))} (overpaid)` : "✔ Fully paid"}
                     </Typography>
                   </Box>
                 </Box>
@@ -5260,7 +5342,7 @@ export default function SalesPage() {
         isSaving={createMutation.isPending || updateMutation.isPending}
         saveDisabled={lineItems.length === 0 || formStep !== 1}
         customActions={
-          state.isCreating && formStep === 0 ? (
+          (state.isCreating || state.isEditing) && formStep === 0 ? (
             <Button
               size="small"
               variant="contained"
@@ -5419,7 +5501,7 @@ export default function SalesPage() {
           </TextField>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setReturnInvoiceDialogOpen(false)}>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setReturnInvoiceDialogOpen(false)}>
             Cancel
           </Button>
           <Button
@@ -5465,9 +5547,8 @@ export default function SalesPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRemarksDialogOpen(false)}>OK</Button>
-          <Button
+          <Button variant="contained" color="error" startIcon={<CancelIcon />}
             onClick={() => setRemarksDialogOpen(false)}
-            variant="outlined"
           >
             Cancel
           </Button>

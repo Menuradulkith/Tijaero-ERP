@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, and_, or_, case, text
 from typing import List, Optional, Tuple
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, localcontext
+import functools
 from fastapi import HTTPException, status
 from app.core import timezone as tz
 from app.common.audit import log_audit, diff_changes
@@ -30,6 +31,40 @@ from .accounting_models import (
     CashFlowStatementLine,
 )
 from . import accounting_schemas as schemas
+
+
+# Report totals are summed in Python ``Decimal``. The default context keeps only
+# 28 significant digits, so a ledger with very large balances (e.g. 1e30 next to
+# cents) lost the cents in the totals and the balance sheet reported
+# ``is_balanced: false`` although the ledger balanced exactly. Reports therefore
+# sum in a local high-precision context and quantize their totals to cents.
+_REPORT_PRECISION = 80
+_CENTS = Decimal("0.01")
+
+
+def _high_precision(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with localcontext() as ctx:
+            ctx.prec = _REPORT_PRECISION
+            return fn(*args, **kwargs)
+    return wrapper
+
+
+def _cents(value) -> Decimal:
+    with localcontext() as ctx:
+        ctx.prec = _REPORT_PRECISION
+        return Decimal(value).quantize(_CENTS)
+
+
+def _branch_criteria(column, branch_code: Optional[str], branch_codes: Optional[List[str]]):
+    """Branch scope for a report: an explicit branch, else the user's branch list
+    (None = superuser, no restriction)."""
+    if branch_code:
+        return [column == branch_code]
+    if branch_codes is not None:
+        return [column.in_(branch_codes)]
+    return []
 
 
 # =============================================================================
@@ -1107,13 +1142,19 @@ class GeneralLedgerService:
 
         return results, total
 
+    @_high_precision
     def get_trial_balance(
         self,
         fiscal_year: int,
         fiscal_period: Optional[int] = None,
         as_of_date: Optional[date] = None,
+        branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> schemas.TrialBalanceResponse:
-        """Generate trial balance report."""
+        """Generate trial balance report (optionally for one branch / a branch scope).
+
+        The branch is the posting's branch (general_ledger.branch_code, copied
+        from journal_entries.branch_code when the JE posts)."""
         query = self.db.query(
             GeneralLedger.account_id,
             ChartOfAccounts.account_code,
@@ -1132,6 +1173,8 @@ class GeneralLedgerService:
             query = query.filter(GeneralLedger.fiscal_period <= fiscal_period)
         if as_of_date:
             query = query.filter(GeneralLedger.posting_date <= as_of_date)
+        for crit in _branch_criteria(GeneralLedger.branch_code, branch_code, branch_codes):
+            query = query.filter(crit)
 
         query = query.group_by(
             GeneralLedger.account_id,
@@ -1170,8 +1213,8 @@ class GeneralLedgerService:
             fiscal_year=fiscal_year,
             fiscal_period=fiscal_period,
             accounts=accounts,
-            total_debit=total_debit,
-            total_credit=total_credit,
+            total_debit=_cents(total_debit),
+            total_credit=_cents(total_credit),
         )
 
     def get_account_ledger(
@@ -1232,6 +1275,8 @@ class GeneralLedgerService:
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
         category_filter: Optional[str] = None,
+        branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> Tuple[List[schemas.IncomeStatementLineItem], Decimal]:
         """Sum GL entries for accounts of a given type, returning line items and total."""
         query = self.db.query(
@@ -1249,6 +1294,7 @@ class GeneralLedgerService:
                 *([GeneralLedger.fiscal_period <= fiscal_period] if fiscal_period else []),
                 *([GeneralLedger.posting_date >= date_from] if date_from else []),
                 *([GeneralLedger.posting_date <= date_to] if date_to else []),
+                *_branch_criteria(GeneralLedger.branch_code, branch_code, branch_codes),
             )
         ).filter(
             ChartOfAccounts.account_type == account_type,
@@ -1271,7 +1317,11 @@ class GeneralLedgerService:
         for row in rows:
             debit = Decimal(str(row.total_debit))
             credit = Decimal(str(row.total_credit))
-            if row.normal_balance == "Credit":
+            # Sign by the SECTION (account type), not the account's own normal
+            # balance: contra accounts (4030 Sales Returns, debit-normal
+            # Revenue) must reduce revenue and contra-expenses must reduce
+            # expenses, never add to them.
+            if account_type == "Revenue":
                 amount = credit - debit
             else:
                 amount = debit - credit
@@ -1286,12 +1336,15 @@ class GeneralLedgerService:
 
         return items, total
 
+    @_high_precision
     def get_income_statement(
         self,
         fiscal_year: int,
         fiscal_period: Optional[int] = None,
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
+        branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> schemas.IncomeStatementResponse:
         """
         Generate Income Statement (Profit & Loss).
@@ -1312,20 +1365,29 @@ class GeneralLedgerService:
                     period_start = period_rec.start_date
                     period_end = period_rec.end_date
 
+        # Every section uses the same branch scope.
+        _bs = {"branch_code": branch_code, "branch_codes": branch_codes}
+
         # Revenue accounts (type=Revenue)
         rev_items, rev_total = self._sum_accounts_by_type(
-            "Revenue", fiscal_year, fiscal_period, date_from, date_to
+            "Revenue", fiscal_year, fiscal_period, date_from, date_to, **_bs
         )
 
         # Cost of Sales (Expense accounts with category "Cost of Sales" or code starts with 510)
         cos_items, cos_total = self._sum_accounts_by_type(
             "Expense", fiscal_year, fiscal_period, date_from, date_to,
-            category_filter="Cost of Sales",
+            category_filter="Cost of Sales", **_bs,
         )
+        # The chart categorises COGS accounts as "COGS"
+        if not cos_items:
+            cos_items, cos_total = self._sum_accounts_by_type(
+                "Expense", fiscal_year, fiscal_period, date_from, date_to,
+                category_filter="COGS", **_bs,
+            )
         # If none found by category, try by account code pattern
         if not cos_items:
             all_exp_items, _ = self._sum_accounts_by_type(
-                "Expense", fiscal_year, fiscal_period, date_from, date_to
+                "Expense", fiscal_year, fiscal_period, date_from, date_to, **_bs
             )
             cos_items = [i for i in all_exp_items if i.account_code.startswith("510")]
             cos_total = sum(i.amount for i in cos_items)
@@ -1334,7 +1396,7 @@ class GeneralLedgerService:
 
         # Operating Expenses (all Expense minus Cost of Sales)
         all_exp_items, all_exp_total = self._sum_accounts_by_type(
-            "Expense", fiscal_year, fiscal_period, date_from, date_to
+            "Expense", fiscal_year, fiscal_period, date_from, date_to, **_bs
         )
         cos_ids = {i.account_id for i in cos_items}
         opex_items = [i for i in all_exp_items if i.account_id not in cos_ids]
@@ -1345,7 +1407,7 @@ class GeneralLedgerService:
         # Other Income: Revenue accounts with category "Other Income"
         other_inc_items, other_inc_total = self._sum_accounts_by_type(
             "Revenue", fiscal_year, fiscal_period, date_from, date_to,
-            category_filter="Other Income",
+            category_filter="Other Income", **_bs,
         )
         # If found, remove them from main revenue to avoid double-counting
         if other_inc_items:
@@ -1358,7 +1420,7 @@ class GeneralLedgerService:
         # Other Expenses: Expense accounts with category "Other Expense"
         other_exp_items, other_exp_total = self._sum_accounts_by_type(
             "Expense", fiscal_year, fiscal_period, date_from, date_to,
-            category_filter="Other Expense",
+            category_filter="Other Expense", **_bs,
         )
         # If found, remove them from operating expenses to avoid double-counting
         if other_exp_items:
@@ -1377,38 +1439,41 @@ class GeneralLedgerService:
             revenue=schemas.IncomeStatementSection(
                 section_name="Revenue",
                 items=rev_items,
-                total=rev_total,
+                total=_cents(rev_total),
             ),
             cost_of_sales=schemas.IncomeStatementSection(
                 section_name="Cost of Sales",
                 items=cos_items,
-                total=cos_total,
+                total=_cents(cos_total),
             ),
-            gross_profit=gross_profit,
+            gross_profit=_cents(gross_profit),
             operating_expenses=schemas.IncomeStatementSection(
                 section_name="Operating Expenses",
                 items=opex_items,
-                total=opex_total,
+                total=_cents(opex_total),
             ),
-            operating_income=operating_income,
+            operating_income=_cents(operating_income),
             other_income=schemas.IncomeStatementSection(
                 section_name="Other Income",
                 items=other_inc_items,
-                total=other_inc_total,
+                total=_cents(other_inc_total),
             ),
             other_expenses=schemas.IncomeStatementSection(
                 section_name="Other Expenses",
                 items=other_exp_items,
-                total=other_exp_total,
+                total=_cents(other_exp_total),
             ),
-            net_income=net_income,
+            net_income=_cents(net_income),
             generated_at=tz.now(),
         )
 
+    @_high_precision
     def get_balance_sheet(
         self,
         fiscal_year: int,
         as_of_date: Optional[date] = None,
+        branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> schemas.BalanceSheetResponse:
         """
         Generate Balance Sheet (Statement of Financial Position).
@@ -1422,6 +1487,7 @@ class GeneralLedgerService:
             account_type: str,
             category_filter: Optional[str] = None,
             exclude_categories: Optional[List[str]] = None,
+            include_categories: Optional[List[str]] = None,
         ) -> schemas.BalanceSheetSection:
             """Build a balance sheet section from GL data up to as_of_date."""
             query = self.db.query(
@@ -1430,6 +1496,7 @@ class GeneralLedgerService:
                 ChartOfAccounts.account_name,
                 ChartOfAccounts.normal_balance,
                 ChartOfAccounts.account_category,
+                ChartOfAccounts.is_active,
                 func.coalesce(func.sum(GeneralLedger.debit_amount), 0).label("total_debit"),
                 func.coalesce(func.sum(GeneralLedger.credit_amount), 0).label("total_credit"),
             ).outerjoin(
@@ -1437,14 +1504,16 @@ class GeneralLedgerService:
                 and_(
                     GeneralLedger.account_id == ChartOfAccounts.id,
                     GeneralLedger.posting_date <= report_date,
+                    *_branch_criteria(GeneralLedger.branch_code, branch_code, branch_codes),
                 )
             ).filter(
                 ChartOfAccounts.account_type == account_type,
-                ChartOfAccounts.is_active == True,
             )
 
             if category_filter:
                 query = query.filter(ChartOfAccounts.account_category == category_filter)
+            if include_categories:
+                query = query.filter(ChartOfAccounts.account_category.in_(include_categories))
             if exclude_categories:
                 query = query.filter(~ChartOfAccounts.account_category.in_(exclude_categories))
 
@@ -1454,6 +1523,7 @@ class GeneralLedgerService:
                 ChartOfAccounts.account_name,
                 ChartOfAccounts.normal_balance,
                 ChartOfAccounts.account_category,
+                ChartOfAccounts.is_active,
             ).order_by(ChartOfAccounts.account_code)
 
             rows = query.all()
@@ -1462,10 +1532,15 @@ class GeneralLedgerService:
             for row in rows:
                 d = Decimal(str(row.total_debit))
                 c = Decimal(str(row.total_credit))
-                if row.normal_balance == "Debit":
+                # Sign by account type (assets debit - credit, everything else
+                # credit - debit) so contra accounts (e.g. accumulated
+                # depreciation) reduce their section.
+                if account_type == "Asset":
                     amt = d - c
                 else:
                     amt = c - d
+                if amt == 0 and not row.is_active:
+                    continue
                 items.append(schemas.IncomeStatementLineItem(
                     account_id=row.id,
                     account_code=row.account_code,
@@ -1477,68 +1552,56 @@ class GeneralLedgerService:
             return schemas.BalanceSheetSection(
                 section_name=section_name,
                 items=items,
-                total=section_total,
+                total=_cents(section_total),
             )
 
-        # Build sections — support multiple category name conventions
-        current_assets = _build_section("Current Assets", "Asset", category_filter="Current Asset")
-        non_current_assets = _build_section("Non-Current Assets", "Asset", category_filter="Fixed Asset")
+        # Non-current categories; EVERY other Asset/Liability account (Cash,
+        # Bank, Receivable, Inventory, Payable, Tax, Customer ...) is current.
+        nc_asset_cats = ["Fixed Asset", "Non-Current Asset", "Intangible Asset", "Other Asset"]
+        nc_liab_cats = ["Long-term", "Long-term Liability", "Non-Current Liability", "Other Liability"]
 
-        # Also pick up accounts categorised with alternative names
-        for alt_cat in ["Non-Current Asset", "Intangible Asset", "Other Asset"]:
-            extra = _build_section("", "Asset", category_filter=alt_cat)
-            if extra.items:
-                non_current_assets.items.extend(extra.items)
-                non_current_assets.total += extra.total
-
-        # If categories don't match, include all assets
-        if not current_assets.items and not non_current_assets.items:
-            current_assets = _build_section("Assets", "Asset")
-
+        current_assets = _build_section("Current Assets", "Asset", exclude_categories=nc_asset_cats)
+        non_current_assets = _build_section("Non-Current Assets", "Asset", include_categories=nc_asset_cats)
         total_assets = current_assets.total + non_current_assets.total
 
-        current_liabilities = _build_section("Current Liabilities", "Liability", category_filter="Current Liability")
-        non_current_liabilities = _build_section("Non-Current Liabilities", "Liability", category_filter="Long-term Liability")
-
-        # Also pick up accounts categorised with alternative names
-        for alt_cat in ["Non-Current Liability", "Other Liability"]:
-            extra = _build_section("", "Liability", category_filter=alt_cat)
-            if extra.items:
-                non_current_liabilities.items.extend(extra.items)
-                non_current_liabilities.total += extra.total
-
-        if not current_liabilities.items and not non_current_liabilities.items:
-            current_liabilities = _build_section("Liabilities", "Liability")
-
+        current_liabilities = _build_section("Current Liabilities", "Liability", exclude_categories=nc_liab_cats)
+        non_current_liabilities = _build_section("Non-Current Liabilities", "Liability", include_categories=nc_liab_cats)
         total_liabilities = current_liabilities.total + non_current_liabilities.total
 
         equity_section = _build_section("Equity", "Equity")
 
-        # Add current-year net income to equity if not yet closed
-        # Check if year-end closing has been done
-        closing_exists = self.db.query(JournalEntry).filter(
-            JournalEntry.fiscal_year == fiscal_year,
-            JournalEntry.entry_type == "Closing",
-            JournalEntry.status == "posted",
-        ).first()
+        # Earnings not yet closed into equity: sum of every Revenue (credit -
+        # debit) and Expense (credit - debit, i.e. minus expense) account up to
+        # the report date, all years. Closing entries zero these accounts, so
+        # this is exact whether or not a year-end close was run.
+        pl = self.db.query(
+            ChartOfAccounts.account_type,
+            func.coalesce(func.sum(GeneralLedger.credit_amount), 0),
+            func.coalesce(func.sum(GeneralLedger.debit_amount), 0),
+        ).join(
+            GeneralLedger, GeneralLedger.account_id == ChartOfAccounts.id
+        ).filter(
+            ChartOfAccounts.account_type.in_(["Revenue", "Expense"]),
+            GeneralLedger.posting_date <= report_date,
+            *_branch_criteria(GeneralLedger.branch_code, branch_code, branch_codes),
+        ).group_by(ChartOfAccounts.account_type).all()
+        earnings = sum(
+            (Decimal(str(c)) - Decimal(str(d))) for _t, c, d in pl
+        ) if pl else Decimal("0")
+        if earnings != 0:
+            equity_section.items.append(schemas.IncomeStatementLineItem(
+                account_id=0,
+                account_code="----",
+                account_name="Current Year Net Income (unposted)",
+                amount=earnings,
+            ))
+            equity_section.total += earnings
 
-        if not closing_exists:
-            # Calculate current-year net income and add it as a virtual equity line
-            income_stmt = self.get_income_statement(
-                fiscal_year=fiscal_year,
-                date_to=report_date,
-            )
-            if income_stmt.net_income != 0:
-                equity_section.items.append(schemas.IncomeStatementLineItem(
-                    account_id=0,
-                    account_code="----",
-                    account_name="Current Year Net Income (unposted)",
-                    amount=income_stmt.net_income,
-                ))
-                equity_section.total += income_stmt.net_income
-
+        equity_section.total = _cents(equity_section.total)
+        total_assets = _cents(total_assets)
+        total_liabilities = _cents(total_liabilities)
         total_equity = equity_section.total
-        total_le = total_liabilities + total_equity
+        total_le = _cents(total_liabilities + total_equity)
         is_balanced = total_assets == total_le
 
         return schemas.BalanceSheetResponse(
@@ -1882,6 +1945,7 @@ class AccountingPeriodService:
     # Scenario 34: Reconciliation Check & Year-End Closing
     # ─────────────────────────────────────────────────────────────────────
 
+    @_high_precision
     def run_reconciliation_check(
         self, fiscal_year: int, fiscal_period: int
     ) -> schemas.ReconciliationCheckResponse:
@@ -1913,8 +1977,8 @@ class AccountingPeriodService:
             GeneralLedger.fiscal_period == fiscal_period,
         ).first()
 
-        total_debit = Decimal(str(gl_totals[0])) if gl_totals else Decimal("0")
-        total_credit = Decimal(str(gl_totals[1])) if gl_totals else Decimal("0")
+        total_debit = _cents(Decimal(str(gl_totals[0]))) if gl_totals else Decimal("0")
+        total_credit = _cents(Decimal(str(gl_totals[1]))) if gl_totals else Decimal("0")
         is_balanced = total_debit == total_credit
 
         if not is_balanced:
@@ -1938,9 +2002,35 @@ class AccountingPeriodService:
             AccountingPeriod.period_number == fiscal_period,
         ).first()
         if not period:
-            warnings.append(f"No accounting period record found for {fiscal_year}-{fiscal_period}")
+            # A period that does not exist cannot be closed.
+            errors.append(f"No accounting period record found for {fiscal_year}-{fiscal_period}")
         elif period.status != "open":
             warnings.append(f"Period is already '{period.status}'")
+
+        # 5. Automatic GL postings that failed in this period are missing from
+        #    the ledger: the period's books are incomplete until they are retried.
+        from .accounting_models import GLPostingFailure
+        from sqlalchemy import Date as _SADate, cast as _sa_cast, extract as _sa_extract
+
+        failure_date = func.coalesce(
+            GLPostingFailure.entry_date, _sa_cast(GLPostingFailure.last_attempt_at, _SADate)
+        )
+        pf_q = self.db.query(func.count(GLPostingFailure.id)).filter(
+            GLPostingFailure.status == "pending"
+        )
+        if period:
+            pf_q = pf_q.filter(failure_date >= period.start_date, failure_date <= period.end_date)
+        else:
+            pf_q = pf_q.filter(
+                _sa_extract("year", failure_date) == fiscal_year,
+                _sa_extract("month", failure_date) == fiscal_period,
+            )
+        pending_failures = int(pf_q.scalar() or 0)
+        if pending_failures:
+            errors.append(
+                f"{pending_failures} automatic GL posting(s) for this period failed and are "
+                f"pending retry (see GL posting failures)"
+            )
 
         return schemas.ReconciliationCheckResponse(
             fiscal_year=fiscal_year,

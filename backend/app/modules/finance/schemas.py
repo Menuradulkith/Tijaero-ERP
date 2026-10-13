@@ -4,6 +4,10 @@ from typing import Optional, List
 from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema
+from app.core.money import MoneyIn, PositiveMoneyIn
+
+# Create/update (input) models cap money at MAX_MONEY and reject NaN/Infinity;
+# the *Base and response models stay lenient so legacy rows still serialise.
 from app.common.enums import DocumentStatus, PaymentStatus, ExpenseStatus
 
 class BankDepositBase(BaseModel):
@@ -15,6 +19,7 @@ class BankDepositBase(BaseModel):
     invoice_no: Optional[str] = None
 
 class BankDepositCreate(BankDepositBase):
+    deposits_amount: PositiveMoneyIn
     user_id: Optional[int] = None
 
 class BankDeposit(BankDepositBase, TijaeroBaseSchema):
@@ -36,7 +41,7 @@ class CardPaymentBase(BaseModel):
     deposited: bool = False
 
 class CardPaymentCreate(CardPaymentBase):
-    pass
+    amount: PositiveMoneyIn
 
 class CardPayment(CardPaymentBase, TijaeroBaseSchema):
     id: int
@@ -55,7 +60,7 @@ class ChequePaymentBase(BaseModel):
     invoice_no: Optional[str] = None
 
 class ChequePaymentCreate(ChequePaymentBase):
-    pass
+    amount: PositiveMoneyIn
 
 class ChequePayment(ChequePaymentBase, TijaeroBaseSchema):
     id: int
@@ -70,7 +75,7 @@ class CustomerAdvancePaymentBase(BaseModel):
     quote_id: Optional[int] = None
 
 class CustomerAdvancePaymentCreate(CustomerAdvancePaymentBase):
-    pass
+    payment_amount: PositiveMoneyIn
 
 class CustomerAdvancePayment(CustomerAdvancePaymentBase, TijaeroBaseSchema):
     id: int
@@ -88,7 +93,7 @@ class CustomerCreditNoteBase(BaseModel):
     invoice_no: Optional[str] = None
 
 class CustomerCreditNoteCreate(CustomerCreditNoteBase):
-    pass
+    amount: PositiveMoneyIn
 
 class CustomerCreditNote(CustomerCreditNoteBase, TijaeroBaseSchema):
     id: int
@@ -113,13 +118,13 @@ class ExpenseBase(BaseModel):
     cost_center: Optional[str] = None
 
 class ExpenseCreate(ExpenseBase):
-    pass
+    expense_amount: PositiveMoneyIn
 
 class ExpenseUpdate(BaseModel):
     expense_type: Optional[str] = None
     expense_category: Optional[str] = None
     expenses_method: Optional[str] = None
-    expense_amount: Optional[Decimal] = None
+    expense_amount: Optional[PositiveMoneyIn] = None
     expense_date: Optional[date] = None
     vendor_name: Optional[str] = None
     description: Optional[str] = None
@@ -172,7 +177,7 @@ class CustomerCreditsSettleTransactionBase(BaseModel):
     invoice_id: int
 
 class CustomerCreditsSettleTransactionCreate(CustomerCreditsSettleTransactionBase):
-    pass
+    payment_amount: PositiveMoneyIn
 
 class CustomerCreditsSettleTransaction(CustomerCreditsSettleTransactionBase, TijaeroBaseSchema):
     id: int
@@ -203,7 +208,7 @@ class SupplierCreditsSettleTransactionBase(BaseModel):
     good_received_id: int
 
 class SupplierCreditsSettleTransactionCreate(SupplierCreditsSettleTransactionBase):
-    pass
+    payment_amount: PositiveMoneyIn
 
 class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase, TijaeroBaseSchema):
     id: int
@@ -322,7 +327,7 @@ class CashbookReport(BaseModel):
 
 class PettyCashFundCreate(BaseModel):
     """Open a new petty cash fund"""
-    opening_balance: Decimal
+    opening_balance: PositiveMoneyIn
     branch_code: str
     opened_by: Optional[int] = None
     remarks: Optional[str] = None
@@ -350,7 +355,7 @@ class PettyCashFundWithTransactions(PettyCashFundResponse):
 class PettyCashExpenseCreate(BaseModel):
     """Record a petty cash expense"""
     petty_cash_id: int
-    amount: Decimal
+    amount: PositiveMoneyIn
     expense_type: str
     recipient_name: Optional[str] = None
     purpose: Optional[str] = None
@@ -363,7 +368,7 @@ class PettyCashExpenseCreate(BaseModel):
 class PettyCashReplenishCreate(BaseModel):
     """Replenish a petty cash fund"""
     petty_cash_id: int
-    amount: Decimal
+    amount: PositiveMoneyIn
     approved_by: Optional[int] = None
     description: Optional[str] = None
     transaction_date: Optional[date] = None
@@ -392,7 +397,7 @@ class PettyCashTransactionResponse(TijaeroBaseSchema):
 
 class PettyCashReconcileRequest(BaseModel):
     """Close/Reconcile a petty cash fund"""
-    physical_cash_count: Decimal
+    physical_cash_count: MoneyIn
     closed_by: Optional[int] = None
     remarks: Optional[str] = None
 
@@ -442,13 +447,13 @@ class CreditPaymentBase(BaseModel):
     status: Optional[str] = "pending"
 
 class CreditPaymentCreate(CreditPaymentBase):
-    pass
+    amount: Optional[MoneyIn] = None
 
 class CreditPaymentUpdate(BaseModel):
     status: Optional[str] = None
     credit_terms: Optional[str] = None
     due_date: Optional[date] = None
-    amount: Optional[Decimal] = None
+    amount: Optional[MoneyIn] = None
 
 class CreditPaymentResponse(CreditPaymentBase, TijaeroBaseSchema):
     id: int

@@ -9,7 +9,7 @@ from app.auth.dependencies import get_current_active_user
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
-from fastapi import APIRouter, Depends, File, Path, Query, Security, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, Security, UploadFile, status
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -51,7 +51,7 @@ def list_users(
     current_user: User = Depends(require_permission(*Permissions.USER_VIEW)),
 ):
     """Get list of all users with pagination."""
-    return service.auth_service.get_users(db, skip, limit)
+    return service.auth_service.get_users(db, skip, limit, viewer=current_user)
 
 
 @router.get(
@@ -74,7 +74,7 @@ def list_users_paged(
 ):
     return service.auth_service.get_users_page(
         db, page=page, size=size, q=q, active=active, branch_id=branch_id, group_id=group_id,
-        sort_by=sort_by, order=order,
+        sort_by=sort_by, order=order, viewer=current_user,
     )
 
 
@@ -135,7 +135,11 @@ def get_user(
     current_user: User = Depends(require_permission(*Permissions.USER_VIEW)),
 ):
     """Get user information by user ID."""
-    return service.auth_service.get_user(db, user_id)
+    target = service.auth_service.get_user(db, user_id)
+    if not user_access.can_see_user(current_user, target):
+        # Same answer as a missing user, so other branches' accounts are not revealed.
+        raise HTTPException(status_code=404, detail="User not found")
+    return target
 
 
 @router.post(

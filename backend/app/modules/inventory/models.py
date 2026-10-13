@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, TIMESTAMP, Boolean
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, TIMESTAMP, Boolean, Date
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from app.common.base_models import AuditMixin
@@ -35,7 +35,14 @@ class SalesStock(Base, AuditMixin):
     
     id = Column(Integer, primary_key=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
-    barcode = Column(Text, nullable=False, unique=True)
+    # Unique per serial unit. NULL for batch/none-tracked lots (Postgres allows
+    # many NULLs under a unique constraint).
+    barcode = Column(Text, nullable=True, unique=True)
+    # Units this row represents: always 1 for serial stock, the lot size for
+    # batch/none stock.
+    quantity = Column(Integer, nullable=False, default=1, server_default="1")
+    batch_no = Column(String(100), nullable=True, index=True)
+    expiry_date = Column(Date, nullable=True)
     branch_code = Column(String(200), nullable=False, index=True)
     location_id = Column(Integer, ForeignKey("good_received_locations.id"), nullable=True)
     good_received_note_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False)

@@ -645,7 +645,7 @@ export default function ExpenseApprovalsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="error"

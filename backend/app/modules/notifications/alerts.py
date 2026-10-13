@@ -74,7 +74,7 @@ def run_low_stock_digest(
             db.query(
                 SalesStock.branch_code,
                 Product.name,
-                func.count(SalesStock.id).label("qty"),
+                func.coalesce(func.sum(SalesStock.quantity), 0).label("qty"),
             )
             .join(Product, Product.id == SalesStock.product_id)
             .filter(
@@ -82,7 +82,7 @@ def run_low_stock_digest(
                 SalesStock.is_active.is_(True),
             )
             .group_by(SalesStock.branch_code, Product.id, Product.name)
-            .having(func.count(SalesStock.id) <= threshold)
+            .having(func.coalesce(func.sum(SalesStock.quantity), 0) <= threshold)
             .all()
         )
 
@@ -159,7 +159,7 @@ def check_low_stock_after_invoice(
             if not product_id:
                 continue
             available = (
-                db.query(func.count(SalesStock.id))
+                db.query(func.coalesce(func.sum(SalesStock.quantity), 0))
                 .filter(
                     SalesStock.product_id == product_id,
                     SalesStock.branch_code == branch_code,

@@ -67,7 +67,8 @@ class TestCreditSettlementWorkflow:
         assert invoice.balance_due == 500.0
 
         # 2. Approve the invoice - it must become APPROVED, NOT COMPLETED
-        approved_invoice = svc.approve_invoice(db, invoice.id, user_id=user.id)
+        approver, _ = make_user(branches=[branch])   # maker-checker: not the creator
+        approved_invoice = svc.approve_invoice(db, invoice.id, user_id=approver.id)
         assert approved_invoice.approval_status == DocumentStatus.APPROVED.value
 
         # 3. Partially Settle the credit payment - status should remain APPROVED

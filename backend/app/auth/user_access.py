@@ -25,15 +25,42 @@ def _forbidden(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
+def can_see_user(actor: User, target: User) -> bool:
+    """Superusers see everyone. Everyone else sees themselves and the
+    non-superuser accounts that share at least one branch with them."""
+    if actor.is_superuser or target.id == actor.id:
+        return True
+    if target.is_superuser:
+        return False
+    own = {b.id for b in actor.branches}
+    return any(b.id in own for b in target.branches)
+
+
+def visible_users_clause(actor: User):
+    """SQLAlchemy filter limiting a User query to the accounts the actor may
+    see (None = no restriction)."""
+    if actor.is_superuser:
+        return None
+    from sqlalchemy import or_
+
+    return or_(
+        User.id == actor.id,
+        (User.is_superuser.is_(False)) & User.branches.any(Branch.id.in_([b.id for b in actor.branches] or [-1])),
+    )
+
+
 def assert_can_manage_user(actor: User, target: User) -> None:
-    """Superusers may manage anyone. Everyone else may not touch a superuser
-    or a user holding permissions they do not hold themselves."""
+    """Superusers may manage anyone. Everyone else may not touch a superuser,
+    a user outside their branches, or a user holding permissions they do not
+    hold themselves."""
     if actor.is_superuser:
         return
     if target.is_superuser:
         raise _forbidden("Only a superuser can modify a superuser account")
     if target.id == actor.id:
         return
+    if not can_see_user(actor, target):
+        raise _forbidden("You can only manage users in your own branches")
     if not effective_permissions(target) <= effective_permissions(actor):
         raise _forbidden("You cannot modify a user who has more privileges than you")
 

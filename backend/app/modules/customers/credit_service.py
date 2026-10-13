@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, text
 from fastapi import HTTPException, status
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional, Dict, Any
 from app.core import timezone as tz
 
@@ -234,7 +234,7 @@ class CustomerCreditService:
             "credit_days": customer.credit_days,
             "max_credit_limit": customer.max_credit_limit,
             "initial_credit_amount": customer.initial_credit_amount or customer.max_credit_limit,
-            "left_credit_amount": customer.left_credit_amount or (customer.max_credit_limit - outstanding),
+            "left_credit_amount": self.compute_left_credit(customer.max_credit_limit, outstanding),
             "outstanding_credit": outstanding,
             "available_credit": max(0, customer.max_credit_limit - outstanding),
             "overdue_count": len(overdue_invoices),
@@ -247,23 +247,19 @@ class CustomerCreditService:
         return self.get_customer_credit_status(db, customer_id)
     
     def _calculate_outstanding_credit(self, db: Session, customer_id: int) -> Decimal:
-        total_credit = db.query(func.coalesce(func.sum(Invoice.credit_amount), 0)).filter(
+        # Single source of truth: what the customer still owes on live credit
+        # invoices (invoice.balance_due). balance_due only moves when a
+        # settlement is actually applied (a bank-transfer settlement is applied on
+        # verification, never while pending and never when rejected), so pending /
+        # rejected settlements cannot free credit.
+        outstanding = db.query(func.coalesce(func.sum(Invoice.balance_due), 0)).filter(
             Invoice.customer_id == customer_id,
             Invoice.credit_amount > 0,
+            Invoice.balance_due > 0,
             Invoice.status == True,  # Exclude cancelled invoices
             Invoice.approval_status.notin_(['cancelled', 'rejected'])  # Exclude rejected
         ).scalar() or Decimal("0")
-
-        total_settled = db.query(
-            func.coalesce(func.sum(CustomerCreditsSettleTransaction.payment_amount), 0)
-        ).join(
-            CustomerCreditsSettle,
-            CustomerCreditsSettleTransaction.customer_credit_settle_id == CustomerCreditsSettle.id
-        ).filter(
-            CustomerCreditsSettle.customer_id == customer_id
-        ).scalar() or Decimal("0")
-        
-        return total_credit - total_settled
+        return Decimal(str(outstanding))
     
     def _get_overdue_invoices(self, db: Session, customer_id: int, credit_days: int) -> List[Dict]:
         cutoff_date = tz.today() - timedelta(days=credit_days)
@@ -297,7 +293,9 @@ class CustomerCreditService:
         paid = db.query(
             func.coalesce(func.sum(CustomerCreditsSettleTransaction.payment_amount), 0)
         ).filter(
-            CustomerCreditsSettleTransaction.invoice_id == invoice_id
+            CustomerCreditsSettleTransaction.invoice_id == invoice_id,
+            # only money actually received: not pending / rejected bank transfers
+            CustomerCreditsSettleTransaction.status.notin_(["pending_verification", "rejected"]),
         ).scalar() or Decimal("0")
         
         return credit_amount - paid
@@ -354,22 +352,43 @@ class CustomerCreditService:
             allow_over_limit=allow_over_limit
         )
     
-    def update_customer_credit_balance(self, db: Session, customer_id: int):
-        # Lock the customer row to prevent concurrent credit balance updates
+    @staticmethod
+    def compute_left_credit(max_credit_limit, outstanding) -> int:
+        """Stored/displayed 'left credit': never negative (real exposure lives in
+        outstanding), rounded half-up to a whole rupee (the column is an int)."""
+        left = Decimal(str(max_credit_limit or 0)) - Decimal(str(outstanding or 0))
+        return max(0, int(left.quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
+
+    def refresh_customer_left_credit(self, db: Session, customer_id: int):
+        """Recompute left_credit_amount (locks the customer row, no commit)."""
         customer = db.query(Customer).filter(Customer.id == customer_id).with_for_update().first()
         if not customer:
             return
-        
         outstanding = self._calculate_outstanding_credit(db, customer_id)
-        customer.left_credit_amount = int(customer.max_credit_limit - outstanding)
+        customer.left_credit_amount = self.compute_left_credit(customer.max_credit_limit, outstanding)
+
+    def update_customer_credit_balance(self, db: Session, customer_id: int):
+        # Lock the customer row to prevent concurrent credit balance updates
+        self.refresh_customer_left_credit(db, customer_id)
         db.commit()
 
     
     def create_credit_settlement(
-        self, 
-        db: Session, 
-        settlement_data: schemas.CustomerCreditsSettleCreate
+        self,
+        db: Session,
+        settlement_data: schemas.CustomerCreditsSettleCreate,
+        user_id: int = 0,
     ) -> CustomerCreditsSettle:
+        """M8: record payments received against a customer's credit invoices.
+
+        This is the same operation as ``POST /sales/{invoice_id}/settle-payment``, so every transaction is routed
+        through ``SalesService.settle_credit_payment`` (invoice lock, over-settlement refusal, paid / balance_due /
+        payment_status, customer credit refresh, balanced journal entry). Each transaction becomes its own settlement
+        record; the first record is returned. The whole request is validated before anything is written, and a
+        repeated request can never settle more than the invoice still owes.
+        """
+        from app.modules.sales.service import SalesService
+        from app.modules.sales import schemas as sales_schemas
 
         customer = db.query(Customer).filter(
             Customer.id == settlement_data.customer_id
@@ -379,10 +398,15 @@ class CustomerCreditService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Customer {settlement_data.customer_id} not found"
             )
+        if not settlement_data.transactions:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one payment is required")
 
+        # Pre-validate every transaction (customer match, amounts per invoice) before the first one is applied
+        requested_per_invoice: Dict[int, Decimal] = {}
         for trans in settlement_data.transactions:
-            # Lock the invoice row to prevent concurrent settlements from both passing the remaining-credit check
-            invoice = db.query(Invoice).filter(Invoice.id == trans.invoice_id).with_for_update().first()
+            if Decimal(str(trans.payment_amount)) <= 0:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment amount must be greater than zero")
+            invoice = db.query(Invoice).filter(Invoice.id == trans.invoice_id).first()
             if not invoice:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -393,81 +417,43 @@ class CustomerCreditService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invoice {trans.invoice_id} does not belong to customer {settlement_data.customer_id}"
                 )
-
-            remaining = self._get_invoice_remaining_credit(db, invoice.id, invoice.credit_amount)
-            if trans.payment_amount > remaining:
+            requested_per_invoice[invoice.id] = requested_per_invoice.get(invoice.id, Decimal("0")) + Decimal(str(trans.payment_amount))
+            if requested_per_invoice[invoice.id] > Decimal(str(invoice.balance_due or 0)):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Payment amount {trans.payment_amount} exceeds remaining credit {remaining} for invoice {invoice.invoice_no}"
+                    detail=(
+                        f"Payment amount {requested_per_invoice[invoice.id]} exceeds the balance "
+                        f"{Decimal(str(invoice.balance_due or 0))} of invoice {invoice.invoice_no}"
+                    ),
                 )
 
-        # ── Advisory lock to prevent duplicate settlement numbers ──
-        year = tz.year()
-        prefix = f"CCS-{year}"
-        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
-        last = (
-            db.query(CustomerCreditsSettle)
-            .filter(CustomerCreditsSettle.customer_credits_settle_no.like(f"{prefix}-%"))
-            .order_by(CustomerCreditsSettle.id.desc())
-            .first()
-        )
-        if last:
-            try:
-                last_seq = int(last.customer_credits_settle_no.split("-")[-1])
-                next_seq = last_seq + 1
-            except (ValueError, IndexError):
-                next_seq = 1
-        else:
-            next_seq = 1
-        settle_no = f"{prefix}-{next_seq:05d}"
-
-        settlement = CustomerCreditsSettle(
-            customer_credits_settle_no=settle_no,
-            branch_code=settlement_data.branch_code,
-            customer_id=settlement_data.customer_id,
-            created_date=tz.now()
-        )
-        db.add(settlement)
-        db.flush()
-
-        created_transactions = []
+        allowed_methods = ("cash", "cheque", "card", "card_visa", "card_mastercard", "card_amex", "bank_transfer")
+        sales_service = SalesService()
+        first_settlement_id = None
         for trans in settlement_data.transactions:
-            transaction = CustomerCreditsSettleTransaction(
-                payment_method=trans.payment_method,
-                cheque_date=trans.cheque_date,
-                payment_amount=trans.payment_amount,
-                payment_method_number=trans.payment_method_number,
-                remarks=trans.remarks,
-                customer_credit_settle_id=settlement.id,
+            method = (trans.payment_method or "").strip().lower()
+            if method == "bank":
+                method = "bank_transfer"
+            if method not in allowed_methods:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported payment method '{trans.payment_method}'")
+            payment = sales_schemas.CreditPaymentCreate(
                 invoice_id=trans.invoice_id,
-                created_date=tz.now()
+                payment_method=method,
+                payment_amount=float(trans.payment_amount),
+                payment_date=tz.today(),
+                cheque_number=trans.payment_method_number if method == "cheque" else None,
+                cheque_date=trans.cheque_date if method == "cheque" else None,
+                card_ref_number=trans.payment_method_number if method.startswith("card") else None,
+                bank_transfer_ref=trans.payment_method_number if method == "bank_transfer" else None,
+                remarks=trans.remarks,
             )
-            db.add(transaction)
-            created_transactions.append(transaction)
-        
-        db.commit()
+            result = sales_service.settle_credit_payment(db, payment, user_id)
+            if first_settlement_id is None:
+                first_settlement_id = result["settlement_record_id"]
 
-        self.update_customer_credit_balance(db, settlement_data.customer_id)
-        
-        # ── GL Auto-Posting: Customer Credit Settlement (Gap B3) ─────────
-        try:
-            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
-            gl_service = PurchaseExpensePayrollGL(db)
-            gl_service.post_customer_credit_settlement_to_gl(
-                settlement, created_transactions, user_id=0
-            )
-            db.commit()
-        except Exception as gl_err:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"GL posting for credit settlement {settlement.customer_credits_settle_no} "
-                f"failed (non-blocking): {gl_err}"
-            )
-        # ─────────────────────────────────────────────────────────────────
-        
-        db.refresh(settlement)
+        settlement = db.query(CustomerCreditsSettle).filter(CustomerCreditsSettle.id == first_settlement_id).first()
         return settlement
-    
+
     def get_settlement(self, db: Session, settlement_id: int) -> CustomerCreditsSettle:
 
         settlement = db.query(CustomerCreditsSettle).filter(
@@ -658,11 +644,22 @@ class CustomerCreditService:
             ]
         }
     
-    def get_aging_report(self, db: Session, customer_id: Optional[int] = None) -> Dict[str, Any]:
-
+    def get_aging_report(
+        self,
+        db: Session,
+        customer_id: Optional[int] = None,
+        branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """AR aging. ``branch_code`` limits it to one branch; ``branch_codes`` (the
+        caller's branch scope, None = all) limits it to those branches."""
         query = db.query(Invoice).filter(Invoice.credit_amount > 0)
         if customer_id:
             query = query.filter(Invoice.customer_id == customer_id)
+        if branch_code:
+            query = query.filter(Invoice.branch_code == branch_code)
+        elif branch_codes is not None:
+            query = query.filter(Invoice.branch_code.in_(branch_codes))
         
         invoices = query.all()
         
@@ -721,73 +718,115 @@ class CustomerCreditService:
                 detail=f"Customer {customer_id} not found"
             )
 
-        invoice_query = db.query(Invoice).filter(
+        from app.modules.sales.models import SaleReturn
+
+        # Only LIVE credit invoices belong on the statement: approved/completed
+        # and not cancelled/rejected/pending. Pending, cancelled and rejected
+        # orders never created a receivable.
+        invoices = db.query(Invoice).filter(
             Invoice.customer_id == customer_id,
-            Invoice.credit_amount > 0
-        )
-        if from_date:
-            invoice_query = invoice_query.filter(Invoice.created_date >= from_date)
-        if to_date:
-            invoice_query = invoice_query.filter(Invoice.created_date <= to_date)
-        
-        invoices = invoice_query.order_by(Invoice.created_date).all()
+            Invoice.credit_amount > 0,
+            Invoice.status == True,
+            Invoice.approval_status.in_(["approved", "completed"]),
+        ).order_by(Invoice.created_date, Invoice.id).all()
+        invoice_ids = [inv.id for inv in invoices]
 
-        settle_query = db.query(CustomerCreditsSettle).filter(
-            CustomerCreditsSettle.customer_id == customer_id
-        )
-        if from_date:
-            settle_query = settle_query.filter(CustomerCreditsSettle.created_date >= from_date)
-        if to_date:
-            settle_query = settle_query.filter(CustomerCreditsSettle.created_date <= to_date)
-        
-        settlements = settle_query.order_by(CustomerCreditsSettle.created_date).all()
+        def _d(value) -> date:
+            return value.date() if isinstance(value, datetime) else value
 
-        lines = []
-        running_balance = Decimal("0")
+        # (sort_date, order, line) - order keeps INVOICE before PAYMENT/RETURN on a day
+        entries = []
+        settled_by_invoice: Dict[int, Decimal] = {}
 
         for invoice in invoices:
             due_date = self.calculate_due_date(invoice.created_date, customer.credit_days)
-            running_balance += invoice.credit_amount
-            lines.append({
+            entries.append((invoice.created_date, 0, {
                 "date": invoice.created_date,
                 "type": "INVOICE",
                 "reference": invoice.invoice_no,
                 "description": f"Invoice {invoice.invoice_no}",
                 "debit": float(invoice.credit_amount),
                 "credit": 0,
-                "balance": float(running_balance),
-                "due_date": due_date
-            })
+                "due_date": due_date,
+            }))
 
-        for settlement in settlements:
-            transactions = db.query(CustomerCreditsSettleTransaction).filter(
-                CustomerCreditsSettleTransaction.customer_credit_settle_id == settlement.id
+        # Settlements count only when verified ("completed"); pending and
+        # rejected transfers/cheques have not reduced what the customer owes.
+        if invoice_ids:
+            txns = db.query(
+                CustomerCreditsSettleTransaction, CustomerCreditsSettle
+            ).join(
+                CustomerCreditsSettle,
+                CustomerCreditsSettleTransaction.customer_credit_settle_id == CustomerCreditsSettle.id,
+            ).filter(
+                CustomerCreditsSettle.customer_id == customer_id,
+                CustomerCreditsSettleTransaction.invoice_id.in_(invoice_ids),
+                CustomerCreditsSettleTransaction.status == "completed",
             ).all()
-            
-            total_payment = sum(t.payment_amount for t in transactions)
-            running_balance -= total_payment
-            
-            lines.append({
-                "date": settlement.created_date.date() if hasattr(settlement.created_date, 'date') else settlement.created_date,
-                "type": "PAYMENT",
-                "reference": settlement.customer_credits_settle_no,
-                "description": f"Payment received - {settlement.customer_credits_settle_no}",
-                "debit": 0,
-                "credit": float(total_payment),
-                "balance": float(running_balance),
-                "due_date": None
-            })
+            per_settlement: Dict[int, Dict[str, Any]] = {}
+            for txn, settlement in txns:
+                settled_by_invoice[txn.invoice_id] = (
+                    settled_by_invoice.get(txn.invoice_id, Decimal("0")) + txn.payment_amount
+                )
+                row = per_settlement.setdefault(
+                    settlement.id, {"settlement": settlement, "total": Decimal("0")}
+                )
+                row["total"] += txn.payment_amount
+            for row in per_settlement.values():
+                settlement = row["settlement"]
+                entries.append((_d(settlement.created_date), 1, {
+                    "date": _d(settlement.created_date),
+                    "type": "PAYMENT",
+                    "reference": settlement.customer_credits_settle_no,
+                    "description": f"Payment received - {settlement.customer_credits_settle_no}",
+                    "debit": 0,
+                    "credit": float(row["total"]),
+                    "due_date": None,
+                }))
 
-        lines.sort(key=lambda x: x["date"])
+        # Returns / credit notes that cleared receivable: whatever part of the
+        # invoice is neither settled nor still owed (balance_due is the ledger-
+        # reconciled figure for credit invoices).
+        for invoice in invoices:
+            adjustment = (
+                Decimal(str(invoice.credit_amount))
+                - settled_by_invoice.get(invoice.id, Decimal("0"))
+                - Decimal(str(invoice.balance_due or 0))
+            )
+            if adjustment <= 0:
+                continue
+            returns = db.query(SaleReturn).filter(
+                SaleReturn.invoice_id == invoice.id,
+                SaleReturn.status == "processed",
+            ).order_by(SaleReturn.added_date, SaleReturn.id).all()
+            ref = ", ".join(r.sale_return_no for r in returns) or invoice.invoice_no
+            when = _d(returns[-1].refund_date or returns[-1].added_date) if returns else invoice.created_date
+            when = max(when, invoice.created_date)
+            entries.append((when, 1, {
+                "date": when,
+                "type": "RETURN",
+                "reference": ref,
+                "description": f"Sales return / credit note against {invoice.invoice_no}",
+                "debit": 0,
+                "credit": float(adjustment),
+                "due_date": None,
+            }))
+
+        entries.sort(key=lambda e: (e[0], e[1]))
 
         running_balance = Decimal("0")
-        for line in lines:
-            if line["type"] == "INVOICE":
-                running_balance += Decimal(str(line["debit"]))
-            else:
-                running_balance -= Decimal(str(line["credit"]))
+        opening_balance = Decimal("0")
+        lines = []
+        for when, _order, line in entries:
+            if to_date and when > to_date:
+                continue
+            running_balance += Decimal(str(line["debit"])) - Decimal(str(line["credit"]))
+            if from_date and when < from_date:
+                opening_balance = running_balance
+                continue
             line["balance"] = float(running_balance)
-        
+            lines.append(line)
+
         return {
             "customer_id": customer_id,
             "customer_name": customer.customer_name,
@@ -795,6 +834,7 @@ class CustomerCreditService:
             "to_date": to_date,
             "credit_days": customer.credit_days,
             "max_credit_limit": customer.max_credit_limit,
+            "opening_balance": float(opening_balance),
             "current_balance": float(running_balance),
             "statement_lines": lines
         }

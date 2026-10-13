@@ -99,6 +99,7 @@ import { settingsApi } from "@/modules/settings/api";
 import { usePermission } from "@/auth/permissions";
 import { useCurrencyStore } from "@/state/currencyStore";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // Configuration
 interface SortOption {
   value: string;
@@ -251,6 +252,9 @@ export default function CustomerPaymentsPage() {
 
   // Permissions
   const canViewSalesSettings = usePermission("sales_settings", "view");
+  const canCreatePayment = usePermission("customer_payments", "create");
+  // Blocks a second Post click (or a re-entry while the confirm is open) before the first settles.
+  const postInFlightRef = useRef(false);
 
   // Fetch active payment cards from settings
   const { data: paymentCards = [] } = useQuery({
@@ -723,6 +727,8 @@ export default function CustomerPaymentsPage() {
 
   const handlePostPayment = useCallback(async () => {
     if (!selectedCustomer || paymentLines.length === 0) return;
+    if (postInFlightRef.current) return;
+    postInFlightRef.current = true;
 
     // Calculate total from split payments
     const totalFromSplit = splitPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
@@ -735,7 +741,10 @@ export default function CustomerPaymentsPage() {
       confirmText: "Confirm",
     });
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      postInFlightRef.current = false;
+      return;
+    }
 
     try {
       setSaving(true);
@@ -839,6 +848,7 @@ export default function CustomerPaymentsPage() {
       showErrorToast(msg);
     } finally {
       setSaving(false);
+      postInFlightRef.current = false;
     }
   }, [
     selectedCustomer,
@@ -1405,7 +1415,7 @@ export default function CustomerPaymentsPage() {
 
       {/* Actions */}
       <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
-        <Button variant="outlined" onClick={handleCancelPayment}>
+        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelPayment}>
           Cancel
         </Button>
         <Button
@@ -1837,7 +1847,7 @@ export default function CustomerPaymentsPage() {
 
       {/* Actions */}
       <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
-        <Button variant="outlined" onClick={handleCancelPayment}>
+        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelPayment}>
           Cancel
         </Button>
         <Button variant="contained" onClick={handleProceedToReview}>
@@ -2088,7 +2098,7 @@ export default function CustomerPaymentsPage() {
 
       {/* Actions */}
       <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
-        <Button variant="outlined" onClick={handleCancelPayment}>
+        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelPayment}>
           Cancel
         </Button>
         <Button
@@ -2158,9 +2168,25 @@ export default function CustomerPaymentsPage() {
           isEditing={false}
           isSaving={saving}
           isFormValid={false}
-          onNew={handleStartPayment}
           endActions={
             <Box sx={{ display: "flex", gap: 1 }}>
+              {/* ActionToolbar hides its Add button while an item (the customer) is
+                  selected, so the payment wizard gets its own explicit entry point. */}
+              {canCreatePayment && (
+                <Tooltip title={outstandingInvoices.length === 0 ? "This customer has no outstanding invoices" : ""}>
+                  <span>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<PaymentIcon />}
+                      onClick={handleStartPayment}
+                      disabled={saving || outstandingInvoices.length === 0}
+                    >
+                      Receive Payment
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
               <Button
                 size="small"
                 variant="outlined"

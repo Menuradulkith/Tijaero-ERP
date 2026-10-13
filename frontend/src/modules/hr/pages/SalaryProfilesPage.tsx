@@ -1,7 +1,7 @@
 /**
  * SalaryProfilesPage — Browse table + single-record detail toggle for employee salary profiles.
  */
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Avatar, Box, Button, IconButton, InputAdornment, TextField, Tooltip, Typography } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
@@ -126,9 +126,12 @@ export default function SalaryProfilesPage() {
 
   const confirmDialog = useTConfirmDialog();
 
+  const savingRef = useRef(false);   // blocks a second click before the first save has settled
   const handleSave = useCallback(() => {
-    if (isCreating) createMut.mutate(formData);
-    else if (selectedItem) updateMut.mutate({ id: selectedItem.id, data: formData });
+    if (savingRef.current) return;
+    const done = { onSettled: () => { savingRef.current = false; } };
+    if (isCreating) { savingRef.current = true; createMut.mutate(formData, done); }
+    else if (selectedItem) { savingRef.current = true; updateMut.mutate({ id: selectedItem.id, data: formData }, done); }
   }, [isCreating, selectedItem, formData, createMut, updateMut]);
 
   const handleDelete = useCallback(async () => {

@@ -4,7 +4,7 @@
  * with the same step-up-auth approve flow and generic Approvals dispatch.
  */
 
-import { useMemo, useCallback, useState, useEffect } from "react";
+import { useMemo, useCallback, useRef, useState, useEffect } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -212,29 +212,40 @@ export default function QuotationApprovalsPage() {
     setAuthDialogOpen(true);
   };
 
+  // A double-click must not send the approve/reject twice (the second call
+  // would only come back as a "current status" error toast).
+  const actionInFlightRef = useRef(false);
+
   const handleAuthSubmit = async (username: string, password: string) => {
     const credentials = { approver_username: username, approver_password: password };
 
     if (!selectedQuote || !selectedQuote.approval_id) return;
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
     approveMutation.mutate(
       { approvalId: selectedQuote.approval_id, quoteId: selectedQuote.id, credentials },
-      { onSuccess: () => setAuthDialogOpen(false) },
+      {
+        onSuccess: () => setAuthDialogOpen(false),
+        onSettled: () => { actionInFlightRef.current = false; },
+      },
     );
   };
 
   const handleReject = () => {
     if (!rejectReason.trim()) return;
+    if (actionInFlightRef.current) return;
 
     if (selectedQuote) {
       if (!selectedQuote.approval_id) {
         showErrorToast("This quotation has no approval record.");
         return;
       }
+      actionInFlightRef.current = true;
       rejectMutation.mutate({
         approvalId: selectedQuote.approval_id,
         quoteId: selectedQuote.id,
         remarks: rejectReason,
-      });
+      }, { onSettled: () => { actionInFlightRef.current = false; } });
     }
   };
 
@@ -514,6 +525,8 @@ export default function QuotationApprovalsPage() {
                                 : <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : itemStatus === "cancelled" ? (
                               <TChip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                            ) : ["rejected", "cancelled", "expired"].includes((selectedQuote?.status || "").toLowerCase()) ? (
+                              <TChip label="Closed" color="default" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : (
                               stockStatus === "needs_transfer"
                                 ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
@@ -615,7 +628,7 @@ export default function QuotationApprovalsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="error"
@@ -642,7 +655,7 @@ export default function QuotationApprovalsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRemarksDialogOpen(false)}>OK</Button>
-          <Button onClick={() => setRemarksDialogOpen(false)} variant="outlined">
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRemarksDialogOpen(false)}>
             Cancel
           </Button>
         </DialogActions>

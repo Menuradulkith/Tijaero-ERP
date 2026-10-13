@@ -4,7 +4,7 @@
  * Detail mode: the record's detail form (unchanged), full-width, with a
  * "Back to Attendance" link returning to the table.
  */
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Avatar, Box, Button, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
@@ -54,6 +54,8 @@ const STATUS_OPTIONS: TFilterStatusOption[] = [
 ];
 
 const todayISO = () => new Date().toISOString().split("T")[0];
+// The API sends times of day as "HH:MM:SS" - they are not dates, so they are cut, not parsed.
+const fmtTime = (t?: string | null) => (t ? String(t).slice(0, 5) : "—");
 
 const INITIAL_FORM: AttendanceCreate = {
   employee_id: "",
@@ -112,8 +114,8 @@ export default function AttendancePage() {
       employee_id: a.employee_id,
       branch_code: a.branch_code,
       date: a.date,
-      check_in: a.check_in || "",
-      check_out: a.check_out || "",
+      check_in: a.check_in ? String(a.check_in).slice(0, 5) : "",
+      check_out: a.check_out ? String(a.check_out).slice(0, 5) : "",
       work_mins: a.work_mins,
       ot_mins: a.ot_mins,
       late_mins: a.late_mins,
@@ -183,10 +185,11 @@ export default function AttendancePage() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<AttendanceCreate> }) =>
       attendanceApi.update(id, data),
-    onSuccess: () => {
+    onSuccess: (rec) => {
       qc.invalidateQueries({ queryKey: ["hr-attendance"] });
       showSuccessToast("Attendance updated");
       setIsEditing(false);
+      setTimeout(() => handleSelectItem(rec), 0);
     },
     onError: (e) => showErrorToast(handleApiError(e, "Failed to update attendance")),
   });
@@ -218,18 +221,22 @@ export default function AttendancePage() {
   const checkOutMutation = useMutation({
     mutationFn: () =>
       attendanceApi.checkOut({ employee_id: selectedAttendance?.employee_id || formData.employee_id }),
-    onSuccess: () => {
+    onSuccess: (rec) => {
       qc.invalidateQueries({ queryKey: ["hr-attendance"] });
       showSuccessToast("Checked out successfully");
+      setTimeout(() => handleSelectItem(rec), 0);
     },
     onError: (e) => showErrorToast(handleApiError(e, "Check-out failed")),
   });
 
   const confirmDialog = useTConfirmDialog();
 
+  const savingRef = useRef(false);   // blocks a second click before the first save has settled
   const handleSave = useCallback(() => {
-    if (isCreating) createMutation.mutate(formData);
-    else if (selectedAttendance) updateMutation.mutate({ id: selectedAttendance.id, data: formData });
+    if (savingRef.current) return;
+    const done = { onSettled: () => { savingRef.current = false; } };
+    if (isCreating) { savingRef.current = true; createMutation.mutate(formData, done); }
+    else if (selectedAttendance) { savingRef.current = true; updateMutation.mutate({ id: selectedAttendance.id, data: formData }, done); }
   }, [isCreating, selectedAttendance, formData, createMutation, updateMutation]);
 
   const handleDelete = useCallback(async () => {
@@ -300,14 +307,14 @@ export default function AttendancePage() {
         header: "Check-in",
         width: 110,
         renderCell: (params: GridRenderCellParams<Attendance>) =>
-          params.row.check_in ? format(new Date(params.row.check_in), "HH:mm") : "—",
+          fmtTime(params.row.check_in),
       },
       {
         field: "check_out",
         header: "Check-out",
         width: 110,
         renderCell: (params: GridRenderCellParams<Attendance>) =>
-          params.row.check_out ? format(new Date(params.row.check_out), "HH:mm") : "—",
+          fmtTime(params.row.check_out),
       },
       {
         field: "work_mins",
@@ -496,7 +503,7 @@ export default function AttendancePage() {
               <TextField
                 label="Check In"
                 size="small"
-                type="datetime-local"
+                type="time"
                 value={formData.check_in || ""}
                 onChange={(e) => setFormData({ ...formData, check_in: e.target.value })}
                 disabled={isDisabled}
@@ -505,7 +512,7 @@ export default function AttendancePage() {
               <TextField
                 label="Check Out"
                 size="small"
-                type="datetime-local"
+                type="time"
                 value={formData.check_out || ""}
                 onChange={(e) => setFormData({ ...formData, check_out: e.target.value })}
                 disabled={isDisabled}

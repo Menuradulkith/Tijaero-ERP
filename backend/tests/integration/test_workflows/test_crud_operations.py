@@ -612,7 +612,7 @@ class TestSalesInvoiceValidation:
         customer = make_customer(max_credit_limit=100000, left_credit_amount=100000)
         
         product = make_product()
-        user, _ = make_user()
+        user, _ = make_user(is_superuser=True)  # override_credit_validation is superuser-only
         svc = SalesService()
 
         # Create three SalesStock rows for the product at this branch

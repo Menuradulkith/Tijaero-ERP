@@ -22,6 +22,9 @@ from typing import Iterable, Union
 # Standard money precision for the whole ERP (LKR uses 2 decimals).
 MONEY_QUANTUM = Decimal("0.01")
 ZERO = Decimal("0.00")
+# Largest money amount accepted on any input (same cap as app.modules.hr.inputs.MAX_MONEY).
+# Keeps absurd values (1e30, NaN, Infinity) out of the ledger and the reports.
+MAX_MONEY = Decimal("999999999.99")
 
 Number = Union[int, float, str, Decimal, None]
 
@@ -75,3 +78,38 @@ def format_money(value: Number, currency: str | None = None) -> str:
     """
     s = f"{money(value):,.2f}"
     return f"{currency} {s}" if currency else s
+
+
+def line_amounts(quantity: Number, price: Number, discount_percent: Number = 0) -> tuple[Decimal, Decimal, Decimal]:
+    """Printed amounts of one document line: ``(gross, discount, line_total)``.
+
+    The unit price is rounded to cents before and after the line discount (half-up), then multiplied by the
+    quantity, so a document always foots: the sum of the rounded printed line totals equals the subtotal, and the
+    result does not depend on how a line is split into per-unit rows (1 row of 7 == 7 rows of 1).
+    """
+    qty = D(quantity)
+    unit_gross = money(price)
+    unit_net = money(unit_gross * (Decimal("1") - D(discount_percent) / Decimal("100")))
+    gross = money(qty * unit_gross)
+    net = money(qty * unit_net)
+    return gross, money(gross - net), net
+
+
+# ---------------------------------------------------------------------------
+# Pydantic input types for money fields on create/update schemas.
+# Use these ONLY on request (input) models; response models must stay lenient
+# so a legacy row never breaks a list endpoint. NaN/Infinity are rejected and
+# amounts are capped at MAX_MONEY.
+# ---------------------------------------------------------------------------
+from typing import Annotated  # noqa: E402
+
+from pydantic import Field  # noqa: E402
+
+MoneyIn = Annotated[Decimal, Field(ge=0, le=MAX_MONEY, allow_inf_nan=False)]
+"""A non-negative money input (0 .. MAX_MONEY)."""
+PositiveMoneyIn = Annotated[Decimal, Field(gt=0, le=MAX_MONEY, allow_inf_nan=False)]
+"""A strictly positive money input (0 < x <= MAX_MONEY)."""
+SignedMoneyIn = Annotated[Decimal, Field(ge=-MAX_MONEY, le=MAX_MONEY, allow_inf_nan=False)]
+"""A money input that may be negative (adjustments), |x| <= MAX_MONEY."""
+PercentIn = Annotated[Decimal, Field(ge=0, le=100, allow_inf_nan=False)]
+"""A percentage input 0..100."""

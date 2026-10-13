@@ -4,7 +4,7 @@
  * Detail mode: the record's detail form (unchanged), full-width, with a
  * "Back to Promotions" link returning to the table.
  */
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Avatar, Box, Button, IconButton, TextField, Tooltip, Typography } from "@mui/material";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
@@ -116,9 +116,12 @@ export default function PromotionsPage() {
 
   const confirmDialog = useTConfirmDialog();
 
+  const savingRef = useRef(false);   // blocks a second click before the first save has settled
   const handleSave = useCallback(() => {
-    if (isCreating) createMut.mutate(formData);
-    else if (selectedItem) updateMut.mutate({ id: selectedItem.id, data: formData });
+    if (savingRef.current) return;
+    const done = { onSettled: () => { savingRef.current = false; } };
+    if (isCreating) { savingRef.current = true; createMut.mutate(formData, done); }
+    else if (selectedItem) { savingRef.current = true; updateMut.mutate({ id: selectedItem.id, data: formData }, done); }
   }, [isCreating, selectedItem, formData, createMut, updateMut]);
 
   const handleDelete = useCallback(async () => {

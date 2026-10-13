@@ -427,6 +427,18 @@ const menuItems: MenuItem[] = [
         permission: PERMISSIONS.EMPLOYEES_VIEW,
       },
       {
+        text: "HR Setup",
+        icon: <SettingsIcon />,
+        path: "/hr/setup",
+        permission: PERMISSIONS.HR_SETUP_VIEW,
+      },
+      {
+        text: "HR Reports",
+        icon: <AssessmentIcon />,
+        path: "/hr/reports",
+        permission: PERMISSIONS.HR_REPORTS_VIEW,
+      },
+      {
         text: "Attendance",
         icon: <ReceiptLongIcon />,
         path: "/hr/attendance",
@@ -443,6 +455,12 @@ const menuItems: MenuItem[] = [
         icon: <FactCheckIcon />,
         path: "/hr/leave-approvals",
         permission: PERMISSIONS.LEAVE_APPROVALS_VIEW,
+      },
+      {
+        text: "Leave Balances",
+        icon: <ReceiptIcon />,
+        path: "/hr/leave-balances",
+        permission: PERMISSIONS.LEAVE_ALLOCATIONS_VIEW,
       },
       {
         text: "Salary Profiles",

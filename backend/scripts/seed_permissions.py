@@ -292,6 +292,16 @@ def seed_permissions():
         {"name": "create_hr_assets", "resource": "hr_assets", "action": "create", "description": "Create HR company assets"},
         {"name": "update_hr_assets", "resource": "hr_assets", "action": "update", "description": "Update HR company assets"},
         {"name": "delete_hr_assets", "resource": "hr_assets", "action": "delete", "description": "Delete HR company assets"},
+        # Core HR
+        {"name": "view_hr_setup", "resource": "hr_setup", "action": "view", "description": "View HR setup (departments, designations, shifts, holidays, leave types)"},
+        {"name": "create_hr_setup", "resource": "hr_setup", "action": "create", "description": "Create HR setup records"},
+        {"name": "update_hr_setup", "resource": "hr_setup", "action": "update", "description": "Update HR setup records"},
+        {"name": "view_hr_reports", "resource": "hr_reports", "action": "view", "description": "View HR reports"},
+        {"name": "view_leave_allocations", "resource": "leave_allocations", "action": "view", "description": "View leave balances and allocations"},
+        {"name": "create_leave_allocations", "resource": "leave_allocations", "action": "create", "description": "Allocate leave"},
+        {"name": "update_leave_allocations", "resource": "leave_allocations", "action": "update", "description": "Adjust leave allocations"},
+        {"name": "view_employee_sensitive", "resource": "employee_sensitive", "action": "view", "description": "View employee bank, statutory and ID details"},
+        {"name": "update_employee_sensitive", "resource": "employee_sensitive", "action": "update", "description": "Update employee bank, statutory and ID details"},
         # Attendance
         {"name": "view_attendance", "resource": "attendance", "action": "view", "description": "View attendance"},
         {"name": "create_attendance", "resource": "attendance", "action": "create", "description": "Mark / create attendance"},
@@ -620,6 +630,9 @@ def seed_permissions():
                 "view_leaves", "create_leaves", "update_leaves", "delete_leaves",
                 "view_leave_approvals", "approve_leave_approvals",
                 "view_employees", "create_employees", "update_employees", "delete_employees",
+                "view_hr_setup", "create_hr_setup", "update_hr_setup", "view_hr_reports",
+                "view_leave_allocations", "create_leave_allocations", "update_leave_allocations",
+                "view_employee_sensitive", "update_employee_sensitive",
                 # Cross-module
                 "view_users",
                 "view_reporting_dashboard", "view_reporting_hr", "generate_reporting_hr",

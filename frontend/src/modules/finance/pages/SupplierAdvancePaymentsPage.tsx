@@ -5,7 +5,7 @@
  * Follows the Purchasing/Sales UI pattern with Tijaero components.
  */
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Autocomplete,
@@ -72,6 +72,7 @@ import {
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // Types
 interface Branch {
   branch_code: string;
@@ -440,8 +441,11 @@ export default function SupplierAdvancePaymentsPage() {
 
   const isSaving = createMutation.isPending;
 
+  // Blocks a second Save click before the first create has settled.
+  const savingRef = useRef(false);
+
   const handleSave = useCallback(() => {
-    if (isCreating) {
+    if (isCreating && !savingRef.current) {
       const selectedPO = eligibleAdvancePOs.find((po) => po.po_id === formData.purchasing_order_id);
       if (!selectedPO) {
         showErrorToast("Please select an approved non-credit PO without GRN");
@@ -453,7 +457,8 @@ export default function SupplierAdvancePaymentsPage() {
         return;
       }
 
-      createMutation.mutate(formData as SupplierAdvancePaymentCreate);
+      savingRef.current = true;
+      createMutation.mutate(formData as SupplierAdvancePaymentCreate, { onSettled: () => { savingRef.current = false; } });
     }
   }, [isCreating, formData, createMutation, eligibleAdvancePOs]);
 
@@ -1079,7 +1084,7 @@ export default function SupplierAdvancePaymentsPage() {
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setReturnDialogOpen(false)} disabled={returningAdvance}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setReturnDialogOpen(false)} disabled={returningAdvance}>Cancel</Button>
           <Button
             variant="contained"
             color="warning"

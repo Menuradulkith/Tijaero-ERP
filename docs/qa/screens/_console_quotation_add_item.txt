@@ -1,0 +1,1826 @@
+Total messages: 31 (Errors: 26, Warnings: 2)
+Returning 26 messages for level "error"
+
+[ERROR] Warning: validateDOMNesting(...): %s cannot appear as a descendant of <%s>.%s <p> p 
+    at p
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2683:22)
+    at TCurrency (http://localhost:3000/src/components/tijaero/data/TCurrency.tsx:21:3)
+    at p
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2683:22)
+    at td
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at TableCell2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:9061:17)
+    at tr
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at TableRow2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:17365:17)
+    at tbody
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at TableBody2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:16970:17)
+    at table
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Table2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:16847:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] MUI: A component is changing the uncontrolled value state of Autocomplete to be controlled.
+Elements should not switch from uncontrolled to controlled (or vice versa).
+Decide between using a controlled or uncontrolled Autocomplete element for the lifetime of the component.
+The nature of the state is determined during the first render. It's considered controlled if the value is not `undefined`.
+More info: https://fb.me/react-controlled-components @ http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:1588
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Biz Co 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust base 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust base 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust cur 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust cur 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust cur 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust cur 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust cur 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust uq3 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust uq3 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust uq3 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust uq3 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Biz Co 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust base 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust base 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust cur 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust cur 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust cur 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust cur 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust cur 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust uq3 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust uq3 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust uq3 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520
+[ERROR] Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s QA-Cust uq3 
+    at ul
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at PopperTooltip2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2632:5)
+    at Portal2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:2809:15)
+    at Popper2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2746:5)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Popper4 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:2948:59)
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Autocomplete2 (http://localhost:3000/node_modules/.vite/deps/chunk-VJLIDSK5.js?v=e5469798:4199:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:408:30)
+    at Collapse2 (http://localhost:3000/node_modules/.vite/deps/@mui_material.js?v=e5469798:488:17)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-SZ7GYPA4.js?v=e5469798:185:17)
+    at FormSection (http://localhost:3000/src/components/tijaero/forms/FormSection.tsx:29:3)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MasterDetailLayout (http://localhost:3000/src/components/tijaero/layouts/MasterDetailLayout.tsx:31:3)
+    at QuotationsPage (http://localhost:3000/src/modules/sales/pages/QuotationsPage.tsx:128:26)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at SalesRoutes
+    at Suspense
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4514:26)
+    at main
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at MainLayout (http://localhost:3000/src/app/layout/MainLayout.tsx:31:17)
+    at ProtectedRoute (http://localhost:3000/src/auth/components/ProtectedRoute.tsx:23:3)
+    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4108:5)
+    at Routes (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4578:5)
+    at div
+    at http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:4108:49
+    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:705:19)
+    at App
+    at DefaultPropsProvider (http://localhost:3000/node_modules/.vite/deps/chunk-ZB3LZUWW.js?v=e5469798:7705:3)
+    at RtlProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1089:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1039:5)
+    at ThemeProvider2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6YIDZ4A.js?v=e5469798:1179:5)
+    at ThemeProvider (http://localhost:3000/node_modules/.vite/deps/chunk-DFIAWUYH.js?v=e5469798:325:12)
+    at ThemedApp (http://localhost:3000/src/main.tsx:102:20)
+    at Router (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:4521:15)
+    at BrowserRouter (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=e5469798:5267:5)
+    at QueryClientProvider (http://localhost:3000/node_modules/.vite/deps/chunk-FMAE3KC6.js?v=e5469798:3121:3)
+    at ErrorBoundary (http://localhost:3000/src/components/tijaero/ErrorBoundary.tsx:7:8) @ http://localhost:3000/node_modules/.vite/deps/chunk-276SZO74.js?v=e5469798:520

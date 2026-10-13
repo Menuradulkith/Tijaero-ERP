@@ -7,8 +7,9 @@
  */
 
 import { useState, useEffect, useMemo } from "react";
+import { usePermission } from "@/auth/permissions";
 import { exportToCSV as exportRowsToCSV } from "@/utils/csvExport";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Autocomplete,
   Box,
@@ -42,7 +43,9 @@ import {
   ExpandLess as CollapseIcon,
   CheckCircle as AvailableIcon,
 } from "@mui/icons-material";
-import { companyAssetsApi } from "@/modules/inventory/api";
+import { companyAssetsApi, reclassifyApi } from "@/modules/inventory/api";
+import ReclassifyDialog from "@/modules/inventory/components/ReclassifyDialog";
+import { handleApiError, showSuccessToast } from "@/components/tijaero";
 import { TChip, fmtLKR } from "@/components/tijaero";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { KpiSparkCard } from "@/components/dashboard";
@@ -58,6 +61,7 @@ const AssetStatusChip = ({ status }: { status: string }) => {
     retired: { label: "Retired", color: "warning" },
     disposed: { label: "Disposed", color: "error" },
     returned: { label: "Returned (Non-Restockable)", color: "warning" },
+    transferred: { label: "Moved to Sales Stock", color: "default" },
   };
 
   const config = statusConfig[status?.toLowerCase()] || { label: status || "Unknown", color: "default" as const };
@@ -105,6 +109,33 @@ interface AssetDetailsPanelProps {
 
 const AssetDetailsPanel = ({ asset, isOpen, onClose }: AssetDetailsPanelProps) => {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
+  const queryClient = useQueryClient();
+  const canReturnToStock =
+    usePermission("company_assets", "update") && usePermission("sales_stock", "create");
+  const { filteredBranches: _unusedBranches, data: panelRefData } = useReferenceData(["locations"]);
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnBusy, setReturnBusy] = useState(false);
+  const [returnError, setReturnError] = useState<string | null>(null);
+  const branchLocations = ((panelRefData?.locations || []) as { id: number; name: string; branch_code?: string }[])
+    .filter((l) => (l.name || "").trim() && (!asset || l.branch_code === asset.branch_code));
+
+  const handleReturnToStock = async (reason: string, locationId?: number) => {
+    if (!asset) return;
+    setReturnBusy(true);
+    setReturnError(null);
+    try {
+      await reclassifyApi.returnAssetToStock(asset.id, reason, locationId);
+      showSuccessToast("Returned to sales stock");
+      setReturnOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["companyAssets"] });
+      queryClient.invalidateQueries({ queryKey: ["salesStock"] });
+      onClose();
+    } catch (error) {
+      setReturnError(handleApiError(error, "Could not return this asset to sales stock"));
+    } finally {
+      setReturnBusy(false);
+    }
+  };
   return (
     <Drawer
       anchor="right"
@@ -123,6 +154,32 @@ const AssetDetailsPanel = ({ asset, isOpen, onClose }: AssetDetailsPanelProps) =
 
       {asset && (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {canReturnToStock && asset.status === "available" && !!asset.barcode && !asset.asigned_to && (
+            <Box>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => {
+                  setReturnError(null);
+                  setReturnOpen(true);
+                }}
+              >
+                Return to Sales Stock
+              </Button>
+              <ReclassifyDialog
+                open={returnOpen}
+                title="Return to Sales Stock"
+                description="This unit leaves company assets and becomes available in sales stock again."
+                confirmLabel="Return to stock"
+                locations={branchLocations}
+                isSubmitting={returnBusy}
+                error={returnError}
+                onClose={() => setReturnOpen(false)}
+                onSubmit={(reason, locationId) => handleReturnToStock(reason, locationId)}
+              />
+            </Box>
+          )}
+
           {/* Asset Info */}
           <Box>
             <Typography variant="subtitle2" color="text.secondary" gutterBottom>

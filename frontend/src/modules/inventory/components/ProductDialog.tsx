@@ -17,6 +17,7 @@ import { productsApi, categoriesApi, brandsApi } from "../api";
 import { Product, ProductCreate, ProductUpdate } from "../types";
 import { showSuccessToast, showErrorToast } from "@/components/tijaero";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 interface ProductDialogProps {
   open: boolean;
   product: Product | null;
@@ -415,7 +416,7 @@ export default function ProductDialog({
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose} color="inherit">
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={onClose}>
             Cancel
           </Button>
           <Button

@@ -744,3 +744,148 @@ class TestConcurrencyAndRaceConditions:
         print(f"GRN Item Barcode: Succeeded count={len(results)}, Error count={len(errors)}")
         assert len(results) == 1, f"Should only allow 1 GRN Item barcode, but got {len(results)}"
         assert len(errors) == 1, f"Should have 1 error, but got {len(errors)}"
+
+    def test_parallel_credit_note_redemption_never_exceeds_issued(self):
+        """C2: 5 parallel orders each redeeming a 40 credit note against 40 remaining: exactly one succeeds and
+        the redeemed total never exceeds the issued amount (the balance check runs under a row lock)."""
+        from app.modules.customers.models import CustomerCreditNotes
+
+        setup = SessionLocal()
+        try:
+            for i in range(4):  # the fixture made one unit; 5 orders need 5
+                st = SalesStock(
+                    product_id=self.product.id, barcode=_uid("BC_CN"), branch_code=self.branch.branch_code,
+                    location_id=self.location.id, good_received_note_id=self.grn.id,
+                    purchasing_order_items_id=self.po_item.id, warranty_month="12", status="available",
+                    is_active=True, added_date=datetime.utcnow(),
+                )
+                setup.add(st)
+                setup.flush()
+                self.cleanup_ids["sales_stock"].append(st.id)
+            note = CustomerCreditNotes(customer_id=self.customer.id, date=datetime.utcnow(), amount=Decimal("40.00"), remark="QA race")
+            setup.add(note)
+            setup.commit()
+            note_id = note.id
+        finally:
+            setup.close()
+
+        results, errors = [], []
+        branch_code, customer_id, user_id, product_id = (
+            self.branch.branch_code, self.customer.id, self.user.id, self.product.id)
+
+        def worker():
+            db = SessionLocal()
+            try:
+                payload = sales_schemas.InvoiceCreate(
+                    branch_code=branch_code, customer_id=customer_id, sale_rep_id=user_id, payment_method="cash",
+                    cash_amount=60.0, credit_note_amount=40.0,
+                    items=[sales_schemas.InvoiceItemCreate(
+                        product_id=product_id, quantity=1, selling_price=100.0, minimum_selling_price=50.0,
+                        warrenty_month="12", barcode=None)],
+                )
+                invoice = SalesService().create_invoice(db, payload, user_id=user_id)
+                results.append(invoice.id)
+                self.cleanup_ids["invoice"].append(invoice.id)
+            except Exception as e:  # noqa: BLE001
+                db.rollback()
+                errors.append(e)
+            finally:
+                db.close()
+
+        threads = [threading.Thread(target=worker) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        check = SessionLocal()
+        try:
+            redeemed = sum(
+                Decimal(str(i.credit_note_amount))
+                for i in check.query(Invoice).filter(Invoice.customer_id == customer_id, Invoice.status == True).all()  # noqa: E712
+            )
+            check.query(CustomerCreditNotes).filter(CustomerCreditNotes.id == note_id).delete(synchronize_session=False)
+            check.commit()
+        finally:
+            check.close()
+        assert len(results) == 1, f"expected exactly one redemption, got {len(results)} (errors={[str(e)[:80] for e in errors]})"
+        assert len(errors) == 4 and all(getattr(e, "status_code", None) == 400 for e in errors), errors
+        assert redeemed == Decimal("40.00")
+
+    def test_parallel_superuser_credit_overrides_are_serialised(self):
+        """M6: the override path takes the customer row lock, so 5 parallel 600 overrides on a 1,000 limit are
+        processed one at a time: exactly one is within the limit, four are flagged for the approver, and the stored
+        left_credit_amount is clamped at 0 while outstanding keeps the real exposure (3,000)."""
+        from app.modules.common.models import Approvals
+        from app.modules.customers.credit_service import customer_credit_service
+
+        setup = SessionLocal()
+        try:
+            for i in range(4):
+                st = SalesStock(
+                    product_id=self.product.id, barcode=_uid("BC_OV"), branch_code=self.branch.branch_code,
+                    location_id=self.location.id, good_received_note_id=self.grn.id,
+                    purchasing_order_items_id=self.po_item.id, warranty_month="12", status="available",
+                    is_active=True, added_date=datetime.utcnow(),
+                )
+                setup.add(st)
+                setup.flush()
+                self.cleanup_ids["sales_stock"].append(st.id)
+            cust = setup.query(Customer).filter(Customer.id == self.customer.id).one()
+            cust.max_credit_limit = 1000
+            setup.commit()
+        finally:
+            setup.close()
+
+        results, errors = [], []
+        branch_code, customer_id, user_id, product_id = (
+            self.branch.branch_code, self.customer.id, self.user.id, self.product.id)
+
+        def worker():
+            db = SessionLocal()
+            try:
+                payload = sales_schemas.InvoiceCreate(
+                    branch_code=branch_code, customer_id=customer_id, sale_rep_id=user_id, payment_method="credit",
+                    override_credit_validation=True,
+                    items=[sales_schemas.InvoiceItemCreate(
+                        product_id=product_id, quantity=1, selling_price=600.0, minimum_selling_price=50.0,
+                        warrenty_month="12", barcode=None)],
+                )
+                invoice = SalesService().create_invoice(db, payload, user_id=user_id)
+                results.append((invoice.id, invoice.invoice_no))
+                self.cleanup_ids["invoice"].append(invoice.id)
+            except Exception as e:  # noqa: BLE001
+                db.rollback()
+                errors.append(e)
+            finally:
+                db.close()
+
+        threads = [threading.Thread(target=worker) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        check = SessionLocal()
+        try:
+            assert not errors, [str(e)[:120] for e in errors]
+            assert len(results) == 5
+            remarks = [
+                check.query(Approvals.remark).filter(
+                    Approvals.id == check.query(Invoice.approval_id).filter(Invoice.id == iid).scalar()).scalar() or ""
+                for iid, _ in results
+            ]
+            flagged = [r for r in remarks if "CREDIT LIMIT OVERRIDDEN" in r and "exceeds limit" in r]
+            outstanding = customer_credit_service._calculate_outstanding_credit(check, customer_id)
+            cust = check.query(Customer).filter(Customer.id == customer_id).one()
+            left = cust.left_credit_amount
+            approval_ids = [check.query(Invoice.approval_id).filter(Invoice.id == iid).scalar() for iid, _ in results]
+            check.query(Invoice).filter(Invoice.id.in_([i for i, _ in results])).update(
+                {Invoice.approval_id: None}, synchronize_session=False)
+            check.query(Approvals).filter(Approvals.id.in_([a for a in approval_ids if a])).delete(synchronize_session=False)
+            check.commit()
+        finally:
+            check.close()
+        assert len(flagged) == 4, remarks  # serialised: only the first one fits the 1,000 limit
+        assert outstanding == Decimal("3000.00")
+        assert left == 0

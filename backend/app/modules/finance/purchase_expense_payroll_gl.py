@@ -121,6 +121,32 @@ EXPENSE_CATEGORY_MAP = {
 }
 
 
+def normalize_po_payment_method(method: Optional[str]) -> str:
+    """Canonical lower-case PO payment method ("Bank transfer" -> "bank-transfer")."""
+    return (method or "").strip().lower().replace("_", "-").replace(" ", "-")
+
+
+def po_settlement_account(method: Optional[str]) -> str:
+    """GL account a PO's goods are settled through (QA F14).
+
+    credit  -> 2010 Trade Creditors (owed)
+    advance -> 2020 Supplier Advances (prepaid)
+    cash    -> 1010 Cash on Hand
+    anything else (bank / bank-transfer / cheque / card / online / non-credit)
+            -> 1020 Bank Account
+    Used by the GRN receipt, the purchase-return refund and the purchase-return
+    cashbook hook so all three agree.
+    """
+    m = normalize_po_payment_method(method)
+    if m == "credit":
+        return ACCT_TRADE_CREDITORS
+    if m == "advance":
+        return ACCT_SUPPLIER_ADVANCES
+    if m == "cash":
+        return ACCT_CASH_ON_HAND
+    return ACCT_BANK_ACCOUNT
+
+
 class PurchaseExpensePayrollGL:
     """
     Service that creates automatic journal entries and GL postings
@@ -267,7 +293,9 @@ class PurchaseExpensePayrollGL:
         """
         Post GRN (Goods Received Note) to GL.
         
-        For cash/bank/cheque PO:
+        For cash PO:
+            Dr 1210 Inventory / Cr 1010 Cash on Hand
+        For bank/cheque (other paid) PO:
             Dr 1210 Inventory / Cr 1020 Bank Account
         For credit PO:
             Dr 1210 Inventory / Cr 2010 Trade Creditors
@@ -306,7 +334,7 @@ class PurchaseExpensePayrollGL:
             if po_item:
                 # Count received items for this PO item in this GRN
                 received_count = sum(
-                    1 for gi in grn_items
+                    gi.quantity for gi in grn_items
                     if gi.purchasing_order_items_id == po_item_id
                 )
                 purchase_amount += Decimal(str(po_item.unit_price)) * Decimal(str(received_count))
@@ -314,20 +342,14 @@ class PurchaseExpensePayrollGL:
         if purchase_amount <= 0:
             return None
 
-        payment_method = (po.payment_method or "").lower()
-        is_credit = payment_method == "credit"
-        is_advance = payment_method == "advance"
-
-        # Determine credit account based on PO payment method
-        if is_credit:
-            credit_account = ACCT_TRADE_CREDITORS
-            credit_desc = "Trade creditor"
-        elif is_advance:
-            credit_account = ACCT_SUPPLIER_ADVANCES
-            credit_desc = "Advance applied to purchase"
-        else:
-            credit_account = ACCT_BANK_ACCOUNT
-            credit_desc = "Payment to supplier"
+        # Determine credit account based on PO payment method (cash -> 1010,
+        # bank/cheque/other paid methods -> 1020, credit -> 2010, advance -> 2020).
+        credit_account = po_settlement_account(po.payment_method)
+        credit_desc = {
+            ACCT_TRADE_CREDITORS: "Trade creditor",
+            ACCT_SUPPLIER_ADVANCES: "Advance applied to purchase",
+            ACCT_CASH_ON_HAND: "Cash paid to supplier",
+        }.get(credit_account, "Payment to supplier")
 
         lines = [
             {
@@ -369,6 +391,119 @@ class PurchaseExpensePayrollGL:
                 f"(Dr {ACCT_FINISHED_GOODS} / Cr {credit_account} = {purchase_amount})"
             )
         return je
+
+    def post_grn_cancel_to_gl(self, grn, user_id: int) -> Optional[JournalEntry]:
+        """Reverse the GRN receipt entry (mirror image: swap Dr/Cr of every line of the
+        original GRN JE). No-op when the GRN never posted (e.g. legacy GRNs)."""
+        if self._gl.already_posted("GRN", grn.id, "Cancel") is not None:
+            return None
+        rows = (
+            self.db.query(JournalEntryLine, ChartOfAccounts.account_code, JournalEntry)
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .join(ChartOfAccounts, ChartOfAccounts.id == JournalEntryLine.account_id)
+            .filter(
+                JournalEntryLine.reference_type == "GRN",
+                JournalEntryLine.reference_id == grn.id,
+                JournalEntry.entry_type == "Auto",
+                ~JournalEntry.description.ilike("%GRN Cancel ID%"),
+            )
+            .all()
+        )
+        if not rows:
+            return None
+        lines = [
+            {
+                "account_code": code,
+                "debit": Decimal(str(line.credit_amount or 0)),
+                "credit": Decimal(str(line.debit_amount or 0)),
+                "description": f"Reversal of GRN {grn.good_received_no}",
+            }
+            for line, code, _je in rows
+        ]
+        return self._create_je_and_post(
+            entry_date=tz.today(),
+            description=f"Auto GL - GRN Cancelled | GRN: {grn.good_received_no} | GRN Cancel ID: {grn.id}",
+            lines=lines,
+            branch_code=grn.branch_code,
+            user_id=user_id,
+            je_prefix="JE-PUR",
+            transaction_type="Purchase",
+            reference_type="GRN",
+            reference_id=grn.id,
+            reference_no=grn.good_received_no,
+            marker="Cancel",
+        )
+
+    def post_landed_cost_to_gl(self, voucher, user_id: int) -> Optional[JournalEntry]:
+        """Landed cost (freight / duty / insurance...) capitalised into inventory:
+        Dr 1210 Inventory / Cr 2010 Trade Creditors (owed), 1010 Cash or 1020 Bank (paid)."""
+        amount = Decimal(str(voucher.amount or 0))
+        if amount <= 0:
+            return None
+        method = (voucher.payment_method or "credit").lower()
+        credit_account, credit_desc = {
+            "cash": (ACCT_CASH_ON_HAND, "Paid in cash"),
+            "bank": (ACCT_BANK_ACCOUNT, "Paid from bank"),
+            "bank-transfer": (ACCT_BANK_ACCOUNT, "Paid from bank"),
+            "cheque": (ACCT_BANK_ACCOUNT, "Paid by cheque"),
+        }.get(normalize_po_payment_method(method), (ACCT_TRADE_CREDITORS, "Owed to supplier / forwarder"))
+        label = f"{voucher.charge_type} {voucher.voucher_no}"
+        lines = [
+            {"account_code": ACCT_FINISHED_GOODS, "debit": amount, "credit": Decimal("0"),
+             "description": f"Landed cost capitalised - {label}"},
+            {"account_code": credit_account, "debit": Decimal("0"), "credit": amount,
+             "description": f"{credit_desc} - {label}"},
+        ]
+        return self._create_je_and_post(
+            entry_date=voucher.voucher_date or tz.today(),
+            description=f"Auto GL - Landed Cost | {label} | Amount: {amount} | LCV ID: {voucher.id}",
+            lines=lines,
+            branch_code=voucher.branch_code,
+            user_id=user_id,
+            je_prefix="JE-PUR",
+            transaction_type="Purchase",
+            reference_type="LandedCost",
+            reference_id=voucher.id,
+            reference_no=voucher.voucher_no,
+        )
+
+    def post_landed_cost_cancel_to_gl(self, voucher, user_id: int) -> Optional[JournalEntry]:
+        """Mirror image of the landed cost entry. No-op when it never posted."""
+        if self._gl.already_posted("LandedCost", voucher.id, "Cancel") is not None:
+            return None
+        rows = (
+            self.db.query(JournalEntryLine, ChartOfAccounts.account_code, JournalEntry)
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .join(ChartOfAccounts, ChartOfAccounts.id == JournalEntryLine.account_id)
+            .filter(
+                JournalEntryLine.reference_type == "LandedCost",
+                JournalEntryLine.reference_id == voucher.id,
+                JournalEntry.entry_type == "Auto",
+                ~JournalEntry.description.ilike("%LCV Cancel ID%"),
+            )
+            .all()
+        )
+        if not rows:
+            return None
+        lines = [
+            {"account_code": code, "debit": Decimal(str(line.credit_amount or 0)),
+             "credit": Decimal(str(line.debit_amount or 0)),
+             "description": f"Reversal of landed cost {voucher.voucher_no}"}
+            for line, code, _je in rows
+        ]
+        return self._create_je_and_post(
+            entry_date=tz.today(),
+            description=f"Auto GL - Landed Cost Cancelled | {voucher.voucher_no} | LCV Cancel ID: {voucher.id}",
+            lines=lines,
+            branch_code=voucher.branch_code,
+            user_id=user_id,
+            je_prefix="JE-PUR",
+            transaction_type="Purchase",
+            reference_type="LandedCost",
+            reference_id=voucher.id,
+            reference_no=voucher.voucher_no,
+            marker="Cancel",
+        )
 
     def post_supplier_advance_to_gl(self, advance, user_id: int) -> Optional[JournalEntry]:
         """
@@ -773,6 +908,8 @@ class PurchaseExpensePayrollGL:
         Dr  5210  EPF Employer Expense ...... total_employer_epf
         Dr  5220  ETF Employer Expense ...... total_employer_etf
         Cr  2110  Salaries Payable .......... total_net_salary
+        Dr  2110  Salaries Payable .......... total_net_salary (paid)
+        Cr  1010/1020 Cash / Bank ........... total_net_salary
         Cr  2120  EPF Payable ............... employee_epf + employer_epf
         Cr  2130  ETF Payable ............... employee_etf + employer_etf
         Cr  2140  Other Payroll Deductions .. stamp + late + advance + loan + other
@@ -866,6 +1003,33 @@ class PurchaseExpensePayrollGL:
                 "debit": Decimal("0"),
                 "credit": total_net,
                 "description": f"Net salary payable - {period_str}",
+            })
+
+        # The net pay leaves the business in this same step: clear Salaries Payable against cash / bank
+        # (otherwise the liability is never settled and cash/bank stays overstated).
+        cash_net = sum((Decimal(str(p.net_salary or 0)) for p in payrolls
+                        if (p.payment_method or "").lower() in ("cash", "petty_cash")), Decimal("0"))
+        bank_net = total_net - cash_net
+        if total_net > 0:
+            lines.append({
+                "account_code": ACCT_SALARIES_PAYABLE,
+                "debit": total_net,
+                "credit": Decimal("0"),
+                "description": f"Net salary paid - {period_str}",
+            })
+        if cash_net > 0:
+            lines.append({
+                "account_code": ACCT_CASH_ON_HAND,
+                "debit": Decimal("0"),
+                "credit": cash_net,
+                "description": f"Net salary paid in cash - {period_str}",
+            })
+        if bank_net > 0:
+            lines.append({
+                "account_code": ACCT_BANK_ACCOUNT,
+                "debit": Decimal("0"),
+                "credit": bank_net,
+                "description": f"Net salary paid from bank - {period_str}",
             })
 
         if total_epf > 0:
@@ -995,8 +1159,8 @@ class PurchaseExpensePayrollGL:
         Dr  2010  Trade Creditors (AP) ....... return_total
         Cr  1210  Finished Goods Inventory ... return_total
 
-        For cash purchases (GRN was cash/bank):
-        Dr  1020  Bank Account ............... return_total
+        For paid purchases (GRN was cash/bank/cheque):
+        Dr  1010 Cash (cash PO) / 1020 Bank .. return_total
         Cr  1210  Finished Goods Inventory ... return_total
         """
         marker = f"PurchaseReturn ID: {purchase_return.id}"
@@ -1006,7 +1170,7 @@ class PurchaseExpensePayrollGL:
         # Calculate total return amount from items
         total_return = Decimal("0")
         for item in (purchase_return.items or []):
-            total_return += Decimal(str(item.return_price or item.purchasing_price or 0))
+            total_return += Decimal(str(item.return_price or item.purchasing_price or 0)) * (item.quantity or 1)
 
         if total_return <= 0:
             return None
@@ -1020,11 +1184,9 @@ class PurchaseExpensePayrollGL:
                 PurchasingOrder.id == grn.purchasingorders_id
             ).first()
             if po:
-                payment_method = (getattr(po, "payment_method", "") or "").lower()
-                if payment_method in ("cash", "bank", "cheque"):
-                    debit_account = ACCT_BANK_ACCOUNT
-                elif payment_method == "advance":
-                    debit_account = ACCT_SUPPLIER_ADVANCES
+                # Mirror post_grn_to_gl: the refund goes back to the account the
+                # GRN was settled through (1010 cash, 1020 bank, 2020 advance, 2010 credit).
+                debit_account = po_settlement_account(getattr(po, "payment_method", None))
 
         return_no = purchase_return.purchasing_return_no or f"PR-{purchase_return.id}"
 
@@ -1093,6 +1255,13 @@ class PurchaseExpensePayrollGL:
         if amount <= 0:
             return None
 
+        # L2: a cheque taken on a sale sits in 1040 Cheques in Hand until the deposit is confirmed, so it
+        # moves 1040 -> 1020 (not out of cash on hand, which it never entered).
+        source_account = (
+            "1040"
+            if getattr(deposit, "payment_for", None) == "Cheque Deposit - Sales Invoice"
+            else ACCT_CASH_ON_HAND
+        )
         lines = [
             {
                 "account_code": ACCT_BANK_ACCOUNT,
@@ -1101,10 +1270,14 @@ class PurchaseExpensePayrollGL:
                 "description": f"Bank deposit verified - {getattr(deposit, 'invoice_no', '')}",
             },
             {
-                "account_code": ACCT_CASH_ON_HAND,
+                "account_code": source_account,
                 "debit": Decimal("0"),
                 "credit": amount,
-                "description": f"Cash deposited to bank - {getattr(deposit, 'invoice_no', '')}",
+                "description": (
+                    f"Cheque deposited to bank - {getattr(deposit, 'invoice_no', '')}"
+                    if source_account == "1040"
+                    else f"Cash deposited to bank - {getattr(deposit, 'invoice_no', '')}"
+                ),
             },
         ]
 
@@ -1300,7 +1473,7 @@ class PurchaseExpensePayrollGL:
         Post customer credit settlement to GL.
         Dr  1010 Cash / 1020 Bank (cheque/card/transfer) .. total_payment
         Cr  1110 Trade Debtors (A/R) ..................... total_payment
-        Cr  4110 Other Income ........................... card surcharge (if any)
+        Cr  4100 Other Income ........................... card surcharge (if any)
 
         Called when a customer pays for credit invoices.
 
@@ -1362,7 +1535,7 @@ class PurchaseExpensePayrollGL:
         # Credit Card Payment Surcharge to Other Income
         if total_service_charge > 0:
             lines.append({
-                "account_code": "4110",  # Other Income
+                "account_code": "4100",  # Other Income (4110 is "Discount Received")
                 "debit": Decimal("0"),
                 "credit": total_service_charge,
                 "description": f"Card payment surcharge - {settlement.customer_credits_settle_no}",

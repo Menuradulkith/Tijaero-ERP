@@ -105,6 +105,8 @@ import { productsApi } from "@/modules/inventory/api";
 import { useAuthStore } from "@/state/authStore";
 import { hasPermission } from "@/auth/permissions";
 
+import CancelIcon from "@mui/icons-material/Cancel";
+import SaveIcon from "@mui/icons-material/Save";
 // Status options are now imported from common components (PO_STATUS_OPTIONS)
 
 /** Preview the next sequential number using the same format as the backend */
@@ -166,6 +168,10 @@ const resetFormFromOrder = (
   payment_method: normalizePurchaseOrderPaymentMethod(order.payment_method),
   purchasing_order_date: order.purchasing_order_date?.split("T")[0] || "",
   good_received_note_date: order.good_received_note_date?.split("T")[0] || "",
+  // The Expected Delivery Date field is bound to required_date; fall back to
+  // the GRN date for orders created before that field was filled in.
+  required_date:
+    order.required_date?.split("T")[0] || order.good_received_note_date?.split("T")[0] || "",
   remarks: order.remarks || "",
   credit_date: order.credit_date || 0,
   first_suppliers_id: order.first_suppliers_id,
@@ -844,7 +850,7 @@ export default function PurchaseOrdersPage() {
   // Check if order can be edited (no GRN created)
   const canEdit = !!(
     selectedOrder && 
-    !["completed", "partially_completed"].includes(selectedOrder.status?.toLowerCase() || "")
+    !["completed", "partially_completed", "cancelled", "short_closed"].includes(selectedOrder.status?.toLowerCase() || "")
   );
 
   // Cancel is only offered before anything has been received — once any GRN
@@ -976,6 +982,7 @@ export default function PurchaseOrdersPage() {
         payment_method: formData.payment_method,
         purchasing_order_date: formData.purchasing_order_date || null,
         good_received_note_date: formData.good_received_note_date || null,
+        required_date: formData.required_date || null,
         remarks: formData.remarks,
         credit_date: formData.credit_date,
         first_suppliers_id: formData.first_suppliers_id,
@@ -1283,10 +1290,8 @@ export default function PurchaseOrdersPage() {
         endActions={
           isCreating ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Button
+              <Button variant="contained" color="error" startIcon={<CancelIcon />}
                 size="small"
-                variant="contained"
-                color="error"
                 onClick={() => handleCancel(filteredOrders)}
                 disabled={wizardState?.isSubmitting}
               >
@@ -2211,7 +2216,7 @@ export default function PurchaseOrdersPage() {
             {isEditing || isCreating ? "Cancel" : "Close"}
           </Button>
           {(isEditing || isCreating) && (
-            <Button variant="contained" onClick={handleSaveItemRemark}>
+            <Button variant="contained" color="success" startIcon={<SaveIcon />} onClick={handleSaveItemRemark}>
               Save
             </Button>
           )}

@@ -30,6 +30,7 @@ from .models import CashbookEntryRecord
 
 CASH_ACCOUNT_CODE = "1010"
 BANK_ACCOUNT_CODE = "1020"
+CHEQUES_IN_HAND_ACCOUNT_CODE = "1040"
 TOLERANCE = Decimal("0.01")
 
 
@@ -63,7 +64,9 @@ class ReconciliationService:
         # 2. Cash / bank reconciliation ------------------------------------------------
         gl_cash_movement = self._gl_account_movement(CASH_ACCOUNT_CODE, reconciliation_date, branch_code)
         gl_bank_movement = self._gl_account_movement(BANK_ACCOUNT_CODE, reconciliation_date, branch_code)
-        gl_cash_bank_net = gl_cash_movement + gl_bank_movement
+        # cheques taken on sales sit in 1040 until deposited; the cashbook counts them as money in on the day
+        gl_cheque_movement = self._gl_account_movement(CHEQUES_IN_HAND_ACCOUNT_CODE, reconciliation_date, branch_code)
+        gl_cash_bank_net = gl_cash_movement + gl_bank_movement + gl_cheque_movement
 
         cb_in, cb_out, cb_deposits = self._cashbook_movement(reconciliation_date, branch_code)
         cashbook_net = cb_in - cb_out
@@ -73,11 +76,21 @@ class ReconciliationService:
         cash_difference = gl_cash_bank_net - expected
         cash_reconciled = abs(cash_difference) <= TOLERANCE
         if not cash_reconciled:
+            # Direction-aware hint: say which side is missing the movement.
+            if cash_difference > 0:
+                hint = (
+                    "This usually means a transaction posted to the GL but is missing "
+                    "from the cashbook (check cashbook triggers/migrations)."
+                )
+            else:
+                hint = (
+                    "This usually means a transaction posted to the cashbook but did "
+                    "not post to the GL (check gl_posting_failures)."
+                )
             discrepancies.append(
                 f"Cash/bank movement does not reconcile with the cashbook: "
                 f"GL net {gl_cash_bank_net} vs expected {expected} "
-                f"(difference {cash_difference}). This usually means a transaction "
-                f"posted to the cashbook did not post to the GL."
+                f"(difference {cash_difference}). {hint}"
             )
 
         # 3. Posting health ------------------------------------------------------------

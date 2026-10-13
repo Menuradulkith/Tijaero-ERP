@@ -29,7 +29,10 @@ export function revealRequiredFields(): void {
     if (first.offsetParent !== null) first.focus({ preventScroll: true });
     showWarningToast("Please fill in the highlighted mandatory fields before saving.");
   } else {
-    showWarningToast("Please complete all required information before saving.");
+    const fieldError = Array.from(document.querySelectorAll<HTMLElement>(".MuiFormHelperText-root.Mui-error"))
+      .map((el) => el.textContent?.trim())
+      .find(Boolean);
+    showWarningToast(fieldError || "Please complete all required information before saving.");
   }
 }
 

@@ -164,7 +164,15 @@ export default function BranchesPage() {
   // Data fetching
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["branches"],
-    queryFn: () => branchApi.getAll(1, 100),
+    // Fetch every page so branches beyond the first 100 are not silently dropped.
+    queryFn: async () => {
+      const first = await branchApi.getAll(1, 100);
+      const items = [...first.items];
+      for (let page = 2; page <= (first.pages || 1) && items.length < first.total; page++) {
+        items.push(...(await branchApi.getAll(page, 100)).items);
+      }
+      return { ...first, items };
+    },
   });
 
   // Locations data fetching - fetch locations for the selected branch

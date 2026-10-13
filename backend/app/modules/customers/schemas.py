@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema, VersionedSchema
 from app.modules.customers.enums import CustomerType
+from app.core.money import MoneyIn, PositiveMoneyIn
 
 
 # ---- input hygiene ----------------------------------------------------------
@@ -92,53 +93,55 @@ def _check_distinct_phones(first, second):
 
 
 class CustomerBase(BaseModel):
+    # Response-side fields only (Customer): no input constraints here, so a legacy
+    # row never 500s a list. Input rules live in _CustomerInput/CustomerCreate/Update.
     customer_type: CustomerType = Field(default=CustomerType.INDIVIDUAL, description="individual or business")
-    customer_name: str = Field(..., min_length=1, max_length=255, description="Customer name (primary contact for a business)")
-    title: Optional[str] = Field(None, max_length=30, description="Title (Mr/Ms/Mrs); required for individuals")
-    email: Optional[str] = Field(None, max_length=75, description="Customer email address")
-    mobile_contact_number: Optional[str] = Field(None, max_length=20, description="Mobile contact number; required for individuals")
-    home_contact_number: Optional[str] = Field(None, max_length=20, description="Home contact number")
-    company_name: Optional[str] = Field(None, max_length=255, description="Company name; required for businesses")
-    tax_registration_number: Optional[str] = Field(None, max_length=50, description="Tax registration number")
-    company_registration_number: Optional[str] = Field(None, max_length=50, description="Company registration number")
-    occupation: Optional[str] = Field(None, max_length=255, description="Occupation")
-    gender: Optional[str] = Field(None, max_length=30, description="Gender; required for individuals")
-    civil_status: Optional[str] = Field(None, max_length=30, description="Civil status; required for individuals")
-    no_of_kids: Optional[str] = Field(None, max_length=30, description="Number of kids; required for individuals")
+    customer_name: str = Field(..., description="Customer name (primary contact for a business)")
+    title: Optional[str] = Field(None, description="Title (Mr/Ms/Mrs); required for individuals")
+    email: Optional[str] = Field(None, description="Customer email address")
+    mobile_contact_number: Optional[str] = Field(None, description="Mobile contact number; required for individuals")
+    home_contact_number: Optional[str] = Field(None, description="Home contact number")
+    company_name: Optional[str] = Field(None, description="Company name; required for businesses")
+    tax_registration_number: Optional[str] = Field(None, description="Tax registration number")
+    company_registration_number: Optional[str] = Field(None, description="Company registration number")
+    occupation: Optional[str] = Field(None, description="Occupation")
+    gender: Optional[str] = Field(None, description="Gender; required for individuals")
+    civil_status: Optional[str] = Field(None, description="Civil status; required for individuals")
+    no_of_kids: Optional[str] = Field(None, description="Number of kids; required for individuals")
     birthdate: Optional[date] = Field(None, description="Birth date")
-    id_card_number: Optional[str] = Field(None, max_length=20, description="ID card number")
-    passport_no: Optional[str] = Field(None, max_length=50, description="Passport number")
-    billing_address_line1: Optional[str] = Field(None, max_length=255, description="Payment address line 1")
-    billing_address_line2: Optional[str] = Field(None, max_length=255)
-    billing_city: Optional[str] = Field(None, max_length=200)
-    billing_state: Optional[str] = Field(None, max_length=200)
-    billing_postal_code: Optional[str] = Field(None, max_length=20)
-    billing_country_id: Optional[int] = Field(None, ge=1)
-    shipping_address_line1: Optional[str] = Field(None, max_length=255, description="Delivery address line 1; empty = same as payment address")
-    shipping_address_line2: Optional[str] = Field(None, max_length=255)
-    shipping_city: Optional[str] = Field(None, max_length=200)
-    shipping_state: Optional[str] = Field(None, max_length=200)
-    shipping_postal_code: Optional[str] = Field(None, max_length=20)
-    shipping_country_id: Optional[int] = Field(None, ge=1)
+    id_card_number: Optional[str] = Field(None, description="ID card number")
+    passport_no: Optional[str] = Field(None, description="Passport number")
+    billing_address_line1: Optional[str] = Field(None, description="Payment address line 1")
+    billing_address_line2: Optional[str] = Field(None)
+    billing_city: Optional[str] = Field(None)
+    billing_state: Optional[str] = Field(None)
+    billing_postal_code: Optional[str] = Field(None)
+    billing_country_id: Optional[int] = Field(None)
+    shipping_address_line1: Optional[str] = Field(None, description="Delivery address line 1; empty = same as payment address")
+    shipping_address_line2: Optional[str] = Field(None)
+    shipping_city: Optional[str] = Field(None)
+    shipping_state: Optional[str] = Field(None)
+    shipping_postal_code: Optional[str] = Field(None)
+    shipping_country_id: Optional[int] = Field(None)
     payment_address: Optional[str] = Field(None, description="Payment address")
     delivery_address: Optional[str] = Field(None, description="Delivery address")
     bank_details: Optional[str] = Field(None, description="Bank details")
-    bank_account_name: Optional[str] = Field(None, max_length=255, description="Bank account name; required on create")
-    bank_name: Optional[str] = Field(None, max_length=255, description="Bank name; required on create")
-    bank_account_no: Optional[str] = Field(None, max_length=50, description="Bank account number; required on create")
-    bank_branch: Optional[str] = Field(None, max_length=255)
-    bank_branch_code: Optional[str] = Field(None, max_length=30)
-    bank_swift_code: Optional[str] = Field(None, max_length=20)
-    name_in_cheque_card: Optional[str] = Field(None, max_length=255, description="Name in cheque/card")
+    bank_account_name: Optional[str] = Field(None, description="Bank account name; required on create")
+    bank_name: Optional[str] = Field(None, description="Bank name; required on create")
+    bank_account_no: Optional[str] = Field(None, description="Bank account number; required on create")
+    bank_branch: Optional[str] = Field(None)
+    bank_branch_code: Optional[str] = Field(None)
+    bank_swift_code: Optional[str] = Field(None)
+    name_in_cheque_card: Optional[str] = Field(None, description="Name in cheque/card")
     credit_days: int = Field(default=0, description="Credit days")
     max_credit_limit: int = Field(default=0, description="Maximum credit limit")
     left_credit_amount: Optional[int] = Field(None, description="Left credit amount")
     initial_credit_amount: Optional[int] = Field(None, description="Initial credit amount")
     active: bool = Field(default=True, description="Is active")
     is_customer_agent: bool = Field(default=False, description="Is customer agent")
-    commission_rate: Optional[float] = Field(None, ge=0, le=100, description="Default commission rate (%)")
+    commission_rate: Optional[float] = Field(None, description="Default commission rate (%)")
     country_id: Optional[int] = Field(None, description="Country ID")
-    default_currency: Optional[str] = Field(None, max_length=3, description="Currency code (ISO 4217)")
+    default_currency: Optional[str] = Field(None, description="Currency code (ISO 4217)")
 
 class _CustomerInput(BaseModel):
     """Fields shared by create and update (all optional here; create adds the required ones).
@@ -265,11 +268,11 @@ class Customer(CustomerBase, TijaeroBaseSchema, VersionedSchema):
     updated_by_name: Optional[str] = None
 
 class CustomerContactPersonBase(BaseModel):
-    title: Optional[str] = Field(None, max_length=30)
-    full_name: str = Field(..., min_length=1, max_length=255)
-    designation: Optional[str] = Field(None, max_length=255)
-    email: Optional[EmailStr] = None
-    phone: Optional[str] = Field(None, max_length=20)
+    title: Optional[str] = Field(None)
+    full_name: str = Field(...)
+    designation: Optional[str] = Field(None)
+    email: Optional[str] = None  # lenient on read; validated on create/update
+    phone: Optional[str] = Field(None)
     is_primary: bool = False
 
 class CustomerContactPersonCreate(BaseModel):
@@ -338,12 +341,12 @@ class CustomerAdvancePaymentsBase(BaseModel):
     active: bool = True
 
 class CustomerAdvancePaymentsCreate(CustomerAdvancePaymentsBase):
-    pass
+    payment_amount: PositiveMoneyIn
 
 class CustomerAdvancePaymentsUpdate(BaseModel):
     payment_method: Optional[str] = None
     branch_code: Optional[str] = None
-    payment_amount: Optional[Decimal] = None
+    payment_amount: Optional[PositiveMoneyIn] = None
     remarks: Optional[str] = None
     cheque_date: Optional[date] = None
     active: Optional[bool] = None
@@ -359,7 +362,7 @@ class CustomerCreditNotesBase(BaseModel):
     invoice_no: Optional[str] = None
 
 class CustomerCreditNotesCreate(CustomerCreditNotesBase):
-    pass
+    amount: PositiveMoneyIn
 
 class CustomerCreditNotes(CustomerCreditNotesBase, TijaeroBaseSchema):
     id: int
@@ -376,7 +379,7 @@ class CustomerCreditsSettleTransactionBase(BaseModel):
     invoice_id: int
 
 class CustomerCreditsSettleTransactionCreate(CustomerCreditsSettleTransactionBase):
-    pass
+    payment_amount: PositiveMoneyIn
 
 class CustomerCreditsSettleTransaction(CustomerCreditsSettleTransactionBase, TijaeroBaseSchema):
     id: int
@@ -461,13 +464,14 @@ class OutstandingDocumentsReport(BaseModel):
 
 # Customer Coupon Codes Schemas
 class CustomerCuponCodesBase(BaseModel):
-    cupon_code: str = Field(..., min_length=1, max_length=50, description="Coupon barcode/code")
-    description: Optional[str] = Field(None, max_length=255, description="Coupon description")
+    # Lenient: shared with the CustomerCuponCodes response. Input rules are on Create/Update.
+    cupon_code: str = Field(..., description="Coupon barcode/code")
+    description: Optional[str] = Field(None, description="Coupon description")
     discount_type: str = Field(default="PERCENT", description="PERCENT or AMOUNT")
-    discount_value: Decimal = Field(default=0, ge=0, description="Discount value")
-    minimum_invoice_amount: Decimal = Field(default=0, ge=0, description="Minimum invoice amount required")
-    limit_by_usage: int = Field(default=1000, ge=1, description="Total global usage limit")
-    limit_for_customer: int = Field(default=10, ge=1, description="Per customer usage limit")
+    discount_value: Decimal = Field(default=0, description="Discount value")
+    minimum_invoice_amount: Decimal = Field(default=0, description="Minimum invoice amount required")
+    limit_by_usage: int = Field(default=1000, description="Total global usage limit")
+    limit_for_customer: int = Field(default=10, description="Per customer usage limit")
     valid_until_date: date
     active: bool = Field(default=True, description="Is coupon active")
     limit_validity_product_id: Optional[int] = Field(None, description="Legacy single product ID (deprecated)")
@@ -475,17 +479,32 @@ class CustomerCuponCodesBase(BaseModel):
     category_ids: Optional[List[int]] = Field(default=[], description="List of category IDs for validity restriction")
     brand_ids: Optional[List[int]] = Field(default=[], description="List of brand IDs for validity restriction")
 
+def _check_coupon_percent(discount_type, discount_value):
+    if discount_type and str(discount_type).upper() == "PERCENT" and discount_value is not None and discount_value > 100:
+        raise ValueError("A percentage discount must be between 0 and 100")
+
+
 class CustomerCuponCodesCreate(CustomerCuponCodesBase):
-    pass
+    cupon_code: str = Field(..., min_length=1, max_length=50, description="Coupon barcode/code")
+    description: Optional[str] = Field(None, max_length=255, description="Coupon description")
+    discount_value: MoneyIn = Field(default=Decimal("0"), description="Discount value")
+    minimum_invoice_amount: MoneyIn = Field(default=Decimal("0"), description="Minimum invoice amount required")
+    limit_by_usage: int = Field(default=1000, ge=1, le=INT4_MAX, description="Total global usage limit")
+    limit_for_customer: int = Field(default=10, ge=1, le=INT4_MAX, description="Per customer usage limit")
+
+    @model_validator(mode="after")
+    def _percent_range(self):
+        _check_coupon_percent(self.discount_type, self.discount_value)
+        return self
 
 class CustomerCuponCodesUpdate(BaseModel):
     cupon_code: Optional[str] = Field(None, min_length=1, max_length=50)
     description: Optional[str] = Field(None, max_length=255)
     discount_type: Optional[str] = None
-    discount_value: Optional[Decimal] = None
-    minimum_invoice_amount: Optional[Decimal] = None
-    limit_by_usage: Optional[int] = None
-    limit_for_customer: Optional[int] = None
+    discount_value: Optional[MoneyIn] = None
+    minimum_invoice_amount: Optional[MoneyIn] = None
+    limit_by_usage: Optional[int] = Field(None, ge=1, le=INT4_MAX)
+    limit_for_customer: Optional[int] = Field(None, ge=1, le=INT4_MAX)
     valid_until_date: Optional[date] = None
     active: Optional[bool] = None
     limit_validity_product_id: Optional[int] = None
@@ -523,14 +542,14 @@ class CouponUsage(CouponUsageBase, TijaeroBaseSchema):
 class LineItemForCoupon(BaseModel):
     product_id: int
     quantity: int
-    selling_price: Decimal
+    selling_price: MoneyIn
 
 class CouponValidationRequest(BaseModel):
     coupon_code: str
     customer_id: int
-    invoice_subtotal: Decimal
+    invoice_subtotal: MoneyIn
     invoice_discount_type: Optional[str] = Field(default=None, description="'percent' or 'amount'")
-    invoice_discount_value: Optional[Decimal] = Field(default=0, description="Invoice discount percentage or amount")
+    invoice_discount_value: Optional[MoneyIn] = Field(default=Decimal("0"), description="Invoice discount percentage or amount")
     product_ids: Optional[List[int]] = Field(default=[], description="List of product IDs in invoice")
     category_ids: Optional[List[int]] = Field(default=[], description="List of category IDs in invoice")
     line_items: Optional[List[LineItemForCoupon]] = Field(default=[], description="Line items with quantities and prices")
@@ -553,7 +572,7 @@ class CustomerGiftVoucherBase(BaseModel):
     purchased_invoice_no: Optional[str] = None
 
 class CustomerGiftVoucherCreate(CustomerGiftVoucherBase):
-    pass
+    amount: PositiveMoneyIn
 
 class CustomerGiftVoucherUpdate(BaseModel):
     claimed_date: Optional[datetime] = None
@@ -614,11 +633,15 @@ class CustomerSupportWithCallLogs(CustomerSupport):
 # =============================================================================
 
 class GiftVoucherBase(BaseModel):
-    barcode_no: str = Field(..., min_length=1, max_length=50, description="Voucher barcode/code")
-    amount: Decimal = Field(..., gt=0, description="Voucher amount")
-    valid_period_in_months: int = Field(default=12, ge=1, le=60, description="Validity period in months")
+    # Lenient: shared with the GiftVoucher response (a legacy 0.00 voucher must not 500 the list).
+    barcode_no: str = Field(..., description="Voucher barcode/code")
+    amount: Decimal = Field(..., description="Voucher amount")
+    valid_period_in_months: int = Field(default=12, description="Validity period in months")
 
 class GiftVoucherCreate(GiftVoucherBase):
+    barcode_no: str = Field(..., min_length=1, max_length=50, description="Voucher barcode/code")
+    amount: PositiveMoneyIn = Field(..., description="Voucher amount")
+    valid_period_in_months: int = Field(default=12, ge=1, le=60, description="Validity period in months")
     purchased_invoice_no: Optional[str] = Field(None, description="Invoice number where voucher was purchased")
     # Payment details for cashbook entry
     payment_method: str = Field(default="cash", description="Payment method used to purchase voucher (cash, card, bank_transfer, cheque)")
@@ -626,8 +649,8 @@ class GiftVoucherCreate(GiftVoucherBase):
     customer_name: Optional[str] = Field(None, description="Customer who purchased the voucher (optional for walk-in)")
 
 class GiftVoucherUpdate(BaseModel):
-    amount: Optional[Decimal] = None
-    valid_period_in_months: Optional[int] = None
+    amount: Optional[PositiveMoneyIn] = None
+    valid_period_in_months: Optional[int] = Field(None, ge=1, le=60)
     status: Optional[str] = None
 
 class GiftVoucher(GiftVoucherBase, TijaeroBaseSchema):
@@ -655,7 +678,7 @@ class VoucherUsage(VoucherUsageBase, TijaeroBaseSchema):
 
 class VoucherValidationRequest(BaseModel):
     barcode_no: str = Field(..., description="Voucher barcode/code to validate")
-    invoice_amount_due: Decimal = Field(..., ge=0, description="Invoice amount due")
+    invoice_amount_due: MoneyIn = Field(..., description="Invoice amount due")
 
 class VoucherValidationResponse(BaseModel):
     valid: bool
@@ -670,7 +693,7 @@ class VoucherValidationResponse(BaseModel):
 class VoucherRedeemRequest(BaseModel):
     barcode_no: str = Field(..., description="Voucher barcode/code")
     invoice_id: int = Field(..., description="Invoice to apply voucher to")
-    amount_to_redeem: Decimal = Field(..., gt=0, description="Amount to redeem")
+    amount_to_redeem: PositiveMoneyIn = Field(..., description="Amount to redeem")
 
 class VoucherRedeemResponse(BaseModel):
     success: bool

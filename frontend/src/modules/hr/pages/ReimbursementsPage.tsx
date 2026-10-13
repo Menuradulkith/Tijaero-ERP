@@ -79,6 +79,7 @@ import type {
 } from "@/modules/hr/types";
 import { useCurrencyStore } from "@/state/currencyStore";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -425,7 +426,9 @@ export default function ReimbursementsPage() {
   );
 
   // Submit handler
+  const savingRef = useRef(false);
   const handleSave = () => {
+    if (createMutation.isPending || savingRef.current) return;
     if (!formData.employee_id || !formData.branch_code) {
       showErrorToast("Employee and Branch are required");
       return;
@@ -443,7 +446,8 @@ export default function ReimbursementsPage() {
         receipt_number: rest.receipt_number || undefined,
       })),
     };
-    createMutation.mutate(payload);
+    savingRef.current = true;
+    createMutation.mutate(payload, { onSettled: () => { savingRef.current = false; } });
   };
 
   const handleDelete = () => {
@@ -1266,8 +1270,7 @@ export default function ReimbursementsPage() {
 
       {/* Form Actions */}
       <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mt: 2 }}>
-        <Button
-          variant="outlined"
+        <Button variant="contained" color="error" startIcon={<CancelIcon />}
           onClick={handleCancel}
         >
           Cancel
@@ -1410,7 +1413,7 @@ export default function ReimbursementsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setApproveDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setApproveDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="success"
@@ -1457,7 +1460,7 @@ export default function ReimbursementsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="error"
@@ -1499,7 +1502,7 @@ export default function ReimbursementsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setVerifyDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setVerifyDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="info"
@@ -1582,7 +1585,7 @@ export default function ReimbursementsPage() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="primary"

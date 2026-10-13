@@ -1,4 +1,22 @@
 import apiClient from "@/api/client";
+
+// HR forms leave optional fields as "" (e.g. an empty date). The server expects "no value" as null, so blank strings
+// in JSON bodies sent to the HR / employee endpoints are turned into null here.
+const blankToNull = (v: unknown): unknown => {
+  if (v === "") return null;
+  if (Array.isArray(v)) return v.map(blankToNull);
+  if (v && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype) {
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, blankToNull(x)]));
+  }
+  return v;
+};
+apiClient.interceptors.request.use((config) => {
+  const url = config.url ?? "";
+  if ((url.startsWith("/hr/") || url.startsWith("/employees")) && config.data && typeof config.data === "object" && !(config.data instanceof FormData)) {
+    config.data = blankToNull(config.data);
+  }
+  return config;
+});
 import {
   SalaryDeduction,
   SalaryDeductionCreate,
@@ -678,9 +696,6 @@ export const employeesApi = {
     return response.data;
   },
 
-  delete: async (id: number) => {
-    await apiClient.delete(`/employees/${id}`);
-  },
 };
 
 // HR Dashboard Statistics API — server-side aggregated KPI counts

@@ -546,7 +546,7 @@ export default function ReimbursementApprovalsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="error"
@@ -590,7 +590,7 @@ export default function ReimbursementApprovalsPage() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="primary"

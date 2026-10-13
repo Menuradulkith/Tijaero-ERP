@@ -1,11 +1,11 @@
 from typing import Annotated, List
 
-from app.auth.dependencies import get_current_active_user
+from app.auth.dependencies import get_current_active_user, validate_branch_access
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
 from app.modules.branches import schemas, service
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 
 # Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
@@ -130,5 +130,7 @@ def update_branch(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-
+    existing = service.branch_service.get_branch(db, branch_id)
+    if not validate_branch_access(current_user, existing.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {existing.branch_code}")
     return service.branch_service.update_branch(db, branch_id, branch, updated_by=current_user.id)

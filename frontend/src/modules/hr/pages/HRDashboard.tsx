@@ -41,6 +41,63 @@ import {
   hrStatisticsApi,
 } from "@/modules/hr/api";
 import type { Reimbursement } from "@/modules/hr/types";
+import { usePermission } from "@/auth/permissions";
+import { hrReportsApi } from "@/modules/hr/core-api";
+
+// ─── People panel: headcount, birthdays, things that are about to expire ──────
+
+function PeoplePanel() {
+  const navigate = useNavigate();
+  const { data: head } = useQuery({ queryKey: ["hr", "report", "headcount"], queryFn: hrReportsApi.headcount });
+  const { data: bdays } = useQuery({ queryKey: ["hr", "report", "birthdays", 14], queryFn: () => hrReportsApi.birthdays(14) });
+  const { data: exp } = useQuery({ queryKey: ["hr", "report", "expiring", 30], queryFn: () => hrReportsApi.expiring(30) });
+  const fmt = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const due = [
+    ...(exp?.contracts ?? []).map((r) => ({ ...r, what: "Contract ends" })),
+    ...(exp?.probation ?? []).map((r) => ({ ...r, what: "Probation ends" })),
+    ...(exp?.documents ?? []).map((r) => ({ ...r, what: r.title ?? "Document expires" })),
+  ].sort((a, b) => a.days_left - b.days_left).slice(0, 6);
+  return (
+    <Grid container spacing={2} sx={{ mt: 0.5 }}>
+      <Grid item xs={12} md={4}>
+        <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
+          <Typography variant="subtitle1" fontWeight="bold" gutterBottom>Headcount{head ? ` — ${head.total}` : ""}</Typography>
+          {(head?.by_department ?? []).slice(0, 6).map((r) => (
+            <Box key={String(r.key)} sx={{ display: "flex", justifyContent: "space-between" }}>
+              <Typography variant="body2">{r.label}</Typography><Typography variant="body2" fontWeight={600}>{r.count}</Typography>
+            </Box>
+          ))}
+          {head && head.by_department.length === 0 && <Typography variant="body2" color="text.secondary">Assign departments to employees to see the split.</Typography>}
+          <Typography variant="caption" color="primary" sx={{ cursor: "pointer" }} onClick={() => navigate("/hr/reports")}>All reports →</Typography>
+        </Paper>
+      </Grid>
+      <Grid item xs={12} md={4}>
+        <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
+          <Typography variant="subtitle1" fontWeight="bold" gutterBottom>Birthdays — next 14 days</Typography>
+          {(bdays ?? []).slice(0, 6).map((r) => (
+            <Box key={r.employee_pk} sx={{ display: "flex", justifyContent: "space-between" }}>
+              <Typography variant="body2">{r.name}</Typography>
+              <Typography variant="body2" color={r.days_to_go === 0 ? "primary" : "text.secondary"}>{r.days_to_go === 0 ? "Today" : fmt(r.date)}</Typography>
+            </Box>
+          ))}
+          {bdays && bdays.length === 0 && <Typography variant="body2" color="text.secondary">No birthdays coming up.</Typography>}
+        </Paper>
+      </Grid>
+      <Grid item xs={12} md={4}>
+        <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
+          <Typography variant="subtitle1" fontWeight="bold" gutterBottom>Needs attention — next 30 days</Typography>
+          {due.map((r, i) => (
+            <Box key={i} sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
+              <Typography variant="body2" noWrap>{r.name} · {r.what}</Typography>
+              <Typography variant="body2" color={r.days_left < 0 ? "error" : "text.secondary"} sx={{ flexShrink: 0 }}>{r.days_left < 0 ? "overdue" : `${r.days_left} d`}</Typography>
+            </Box>
+          ))}
+          {exp && due.length === 0 && <Typography variant="body2" color="text.secondary">No contracts, probations or documents are due.</Typography>}
+        </Paper>
+      </Grid>
+    </Grid>
+  );
+}
 
 // ─── Recent Item Component ──────────────────────────────────────────────────
 
@@ -73,6 +130,7 @@ function RecentItem({ primary, secondary, status, icon, onClick }: RecentItemPro
 
 export default function HRDashboard() {
   const navigate = useNavigate();
+  const canSeePeople = usePermission("hr_reports", "view");
 
   // Server-side aggregated KPI counts — accurate regardless of table size.
   const { data: statsData } = useQuery({
@@ -314,6 +372,8 @@ export default function HRDashboard() {
           </Paper>
         </Grid>
       </Grid>
+
+      {canSeePeople && <PeoplePanel />}
 
       {/* Quick Actions */}
       <Box mt={4}>

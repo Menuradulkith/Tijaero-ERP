@@ -75,7 +75,7 @@ import {
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
-import { goodReceivedNotesApi, purchaseOrdersApi, purchaseReturnsApi, suppliersApi } from "@/modules/purchasing/api";
+import { goodReceivedItemsApi, goodReceivedNotesApi, purchaseOrdersApi, purchaseReturnsApi, suppliersApi } from "@/modules/purchasing/api";
 // OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import {
   GoodReceivedNote,
@@ -118,6 +118,7 @@ const INITIAL_FORM_DATA: PurchasingReturnCreate = {
 
 interface ReturnLineItem extends PurchasingReturnItemCreate {
   _id: string;
+  lot_label?: string;  // display only: "Batch B1" for batch/none lot lines
   branch_code?: string;
   added_date?: string;
   product_name?: string;
@@ -133,7 +134,8 @@ const resetFormFromReturn = (ret: PurchasingReturn | PurchasingReturnWithItems):
     product_id: item.product_id,
     purchasing_price: item.purchasing_price,
     return_price: item.return_price,
-    barcode: item.barcode,
+    barcode: item.barcode ?? undefined,
+    quantity: item.quantity ?? 1,
     sales_stock_id: item.sales_stock_id,
   })) : [],
   require_approval: true,
@@ -344,7 +346,8 @@ export default function PurchaseReturnsPage() {
           product_id: item.product_id,
           purchasing_price: item.purchasing_price,
           return_price: item.return_price,
-          barcode: item.barcode,
+          barcode: item.barcode ?? undefined,
+          quantity: item.quantity ?? 1,
           sales_stock_id: item.sales_stock_id,
           branch_code: item.branch_code,
           added_date: item.added_date,
@@ -471,6 +474,75 @@ export default function PurchaseReturnsPage() {
   }, [grns, purchaseOrders, suppliers]);
 
   // getStatusColor is now imported from common components and uses RETURN_STATUS_OPTIONS
+
+  // Batch/none lots received on the selected GRN (returned by quantity, no barcode).
+  const [lotStockId, setLotStockId] = useState<number | null>(null);
+  const [lotQuantity, setLotQuantity] = useState("");
+  const [lotError, setLotError] = useState<string | null>(null);
+  const [isValidatingLot, setIsValidatingLot] = useState(false);
+  const { data: grnLots = [] } = useQuery({
+    queryKey: ["purchase-return-grn-lots", formData.goodreceivednote_id],
+    queryFn: async () =>
+      (await goodReceivedItemsApi.getByGRN(formData.goodreceivednote_id)).filter(
+        (i) => !i.barcode && i.active && i.quantity > 0
+      ),
+    enabled: formData.goodreceivednote_id > 0,
+  });
+
+  const handleAddLot = useCallback(async () => {
+    const quantity = Math.floor(Number(lotQuantity));
+    if (!lotStockId) {
+      setLotError("Select a lot");
+      return;
+    }
+    if (!quantity || quantity < 1) {
+      setLotError("Enter a quantity of at least 1");
+      return;
+    }
+    // Units of this lot already in the return count against what is available.
+    const alreadyAdded = lineItems
+      .filter((i) => i.sales_stock_id === lotStockId && !i.barcode)
+      .reduce((n, i) => n + (i.quantity ?? 0), 0);
+    setIsValidatingLot(true);
+    setLotError(null);
+    try {
+      const response = await purchaseReturnsApi.validateLot({
+        grn_id: formData.goodreceivednote_id,
+        sales_stock_id: lotStockId,
+        quantity: quantity + alreadyAdded,
+      });
+      if (!response.valid) {
+        setLotError(response.message);
+        return;
+      }
+      const unitPrice = response.purchasing_price || 0;
+      setLineItems((prev) => {
+        const existing = prev.find((i) => i.sales_stock_id === lotStockId && !i.barcode);
+        if (existing) {
+          return prev.map((i) => (i._id === existing._id ? { ...i, quantity: (i.quantity ?? 0) + quantity } : i));
+        }
+        return [
+          ...prev,
+          {
+            _id: `lot-${lotStockId}-${Date.now()}`,
+            product_id: response.product_id || 0,
+            product_name: response.product_name,
+            purchasing_price: unitPrice,
+            return_price: unitPrice, // per unit; defaults to the purchase price
+            quantity,
+            sales_stock_id: lotStockId,
+            lot_label: response.batch_no ? `Batch ${response.batch_no}` : "Lot",
+          },
+        ];
+      });
+      setLotQuantity("");
+      showSuccessToast(`Added ${quantity} × ${response.product_name || "item"}`);
+    } catch (error) {
+      setLotError(handleApiError(error, "Could not validate quantity"));
+    } finally {
+      setIsValidatingLot(false);
+    }
+  }, [lotStockId, lotQuantity, formData.goodreceivednote_id, lineItems]);
 
   // Barcode validation handler
   const handleValidateBarcode = useCallback(async (barcode: string) => {
@@ -603,15 +675,20 @@ export default function PurchaseReturnsPage() {
     ));
   };
 
+  // Blocks a second Save click before the first create has settled.
+  const savingRef = useRef(false);
+
   const handleSave = useCallback(() => {
+    if (savingRef.current) return;
     const dataToSave: PurchasingReturnCreate = {
       ...formData,
-      items: lineItems.map(({ _id, branch_code, added_date, product_name, ...item }) => item),
+      items: lineItems.map(({ _id, branch_code, added_date, product_name, lot_label, ...item }) => ({ ...item, barcode: item.barcode || undefined })),
       require_approval: true, // Approval is always required for purchase returns
     };
 
     if (isCreating) {
-      createMutation.mutate(dataToSave);
+      savingRef.current = true;
+      createMutation.mutate(dataToSave, { onSettled: () => { savingRef.current = false; } });
     }
     // Note: Update not supported by current API
   }, [isCreating, formData, lineItems, createMutation]);
@@ -656,7 +733,7 @@ export default function PurchaseReturnsPage() {
   }, [selectedReturn, setFormData, handleNewReturnBase]);
 
   const calculateTotal = () => {
-    return lineItems.reduce((sum, item) => sum + (Number(item.return_price) || 0), 0);
+    return lineItems.reduce((sum, item) => sum + (Number(item.return_price) || 0) * (item.quantity ?? 1), 0);
   };
 
   const getBranchDisplay = (branchCode: string) => {
@@ -849,6 +926,18 @@ export default function PurchaseReturnsPage() {
         onDelete={handleDelete}
         onSave={handleSave}
         onCancel={() => handleCancel(filteredReturns)}
+        startActions={
+          isCreating && formStep === 1 ? (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={handlePreviousStep}
+              startIcon={<ArrowBackIcon />}
+            >
+              Back
+            </Button>
+          ) : undefined
+        }
         onEdit={handleStartEdit}
         endActions={
           isCreating && formStep === 0 ? (
@@ -973,18 +1062,6 @@ export default function PurchaseReturnsPage() {
             {/* Step 2: Return Items (always show in view/edit mode, step 2 in create mode) */}
             {(formStep === 1 || !isCreating) && (
               <>
-                {/* Back button in create mode only */}
-                {isCreating && (
-                  <Button
-                    variant="text"
-                    onClick={handlePreviousStep}
-                    startIcon={<ArrowBackIcon />}
-                    sx={{ mb: 2 }}
-                  >
-                    Back to Return Information
-                  </Button>
-                )}
-
                 {/* Barcode Scanner Section */}
                 {(isEditing || isCreating) && (
                   <Paper
@@ -1039,6 +1116,53 @@ export default function PurchaseReturnsPage() {
                         {isValidating ? <CircularProgress size={20} /> : "Add"}
                       </Button>
                     </Box>
+
+                    {/* Batch / none-tracked lots: return by quantity */}
+                    {grnLots.length > 0 && (
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
+                          Or return a quantity from a batch / non-serial lot on this GRN:
+                        </Typography>
+                        <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", flexWrap: "wrap" }}>
+                          <Autocomplete
+                            size="small"
+                            sx={{ minWidth: 280, flex: 1 }}
+                            options={grnLots}
+                            getOptionLabel={(l) =>
+                              `${l.product_name || `Product ${l.product_id}`}${l.batch_no ? ` - Batch ${l.batch_no}` : ""} (${l.quantity} available)`
+                            }
+                            value={grnLots.find((l) => l.id === lotStockId) || null}
+                            onChange={(_, l) => {
+                              setLotStockId(l ? l.id : null);
+                              setLotError(null);
+                            }}
+                            renderInput={(params) => (
+                              <TextField {...params} placeholder="Lot" error={!!lotError} helperText={lotError || undefined} />
+                            )}
+                          />
+                          <TextField
+                            size="small"
+                            type="number"
+                            label="Quantity"
+                            value={lotQuantity}
+                            onChange={(e) => {
+                              setLotQuantity(e.target.value);
+                              if (lotError) setLotError(null);
+                            }}
+                            inputProps={{ min: 1 }}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            variant="contained"
+                            onClick={handleAddLot}
+                            disabled={isValidatingLot || !lotStockId || !lotQuantity}
+                            sx={{ minWidth: 100 }}
+                          >
+                            {isValidatingLot ? <CircularProgress size={20} /> : "Add"}
+                          </Button>
+                        </Box>
+                      </Box>
+                    )}
 
                     {/* Note: Approval is always required for purchase returns */}
                     <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: "divider" }}>
@@ -1129,7 +1253,7 @@ export default function PurchaseReturnsPage() {
                                     {validatedItem && (
                                       <CheckCircleIcon fontSize="small" color="success" />
                                     )}
-                                    {(isEditing || isCreating) && !validatedItem ? (
+                                    {(isEditing || isCreating) && !validatedItem && !(item.sales_stock_id && !item.barcode) ? (
                                       <TextField
                                         size="small"
                                         fullWidth
@@ -1138,7 +1262,9 @@ export default function PurchaseReturnsPage() {
                                         placeholder="Barcode"
                                       />
                                     ) : (
-                                      <Typography variant="body2">{item.barcode}</Typography>
+                                      <Typography variant="body2">
+                                        {item.barcode || `${item.lot_label || "Lot"} \u00d7 ${item.quantity ?? 1}`}
+                                      </Typography>
                                     )}
                                   </Box>
                                 </TableCell>

@@ -13,62 +13,115 @@ from app.modules.employees.models import EmployeePayroll, EmployeeSalaryProfile,
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.common.enums import DocumentStatus, PaymentStatus
 from app.modules.finance.gl_posting_service import record_gl_commit_failure
+from app.common.audit import log_audit
+from app.auth.models import Branch, User
+from app.modules.hr_core.service import LIVE_STATUSES
+
+LEFT_STATUSES = ("resigned", "terminated", "retired", "inactive")
+
+
+def _live_employee(db: Session, employee_code: str) -> Employee:
+    """The employee must exist and still be in service (not resigned, terminated, retired or inactive)."""
+    emp = db.query(Employee).filter(Employee.employee_id == employee_code).first()
+    if not emp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{employee_code}' not found")
+    if (emp.status or "active") not in LIVE_STATUSES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Employee '{employee_code}' is no longer in service")
+    return emp
+
+
+def _branch_access(actor: User, branch_code: Optional[str]) -> None:
+    if actor.is_superuser or not branch_code:
+        return
+    if branch_code not in [b.branch_code for b in actor.branches]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
+
+
+def _audit(db: Session, user_id: int, action: str, entity: str, entity_id: int, **changes) -> None:
+    log_audit(db, user_id=user_id, action=action, entity_type=entity, entity_id=entity_id, changes=changes or None)
+
+
+def _batch_for_period(db: Session, period: str) -> Optional[PayrollBatch]:
+    """A non-cancelled payroll batch for 'YYYY-MM', if any."""
+    year, month = int(period[:4]), int(period[5:7])
+    return db.query(PayrollBatch).filter(
+        PayrollBatch.payroll_year == year, PayrollBatch.payroll_month == month, PayrollBatch.status != "cancelled"
+    ).first()
 
 # Salary Deductions Service
 class SalaryDeductionService:
     def __init__(self, db: Session):
         self.db = db
 
-    def _validate_employee(self, employee_pk: int) -> None:
-        exists = self.db.query(Employee.id).filter(Employee.id == employee_pk).first()
-        if not exists:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Employee with id {employee_pk} not found",
-            )
+    def _employee(self, employee_pk: int) -> Employee:
+        emp = self.db.query(Employee).filter(Employee.id == employee_pk).first()
+        if not emp:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee with id {employee_pk} not found")
+        if (emp.status or "active") not in LIVE_STATUSES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This employee is no longer in service")
+        return emp
 
-    def create_deduction(self, deduction: schemas.SalaryDeductionCreate) -> SalaryDeductions:
-        self._validate_employee(deduction.employee_id)
-        db_deduction = SalaryDeductions(**deduction.model_dump())
+    def _check_open(self, period: Optional[str]) -> None:
+        if period:
+            batch = _batch_for_period(self.db, period)
+            if batch:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail=f"Payroll {batch.batch_no} already exists for {period}; cancel it before changing deductions for that month")
+
+    def create_deduction(self, deduction: schemas.SalaryDeductionCreate, user_id: int = 0) -> SalaryDeductions:
+        self._employee(deduction.employee_id)
+        self._check_open(deduction.deduction_period)
+        db_deduction = SalaryDeductions(**deduction.model_dump(), created_by=user_id)
         db_deduction.created_date = tz.now()
         self.db.add(db_deduction)
+        self.db.flush()
+        _audit(self.db, user_id, "create", "salary_deduction", db_deduction.id, employee=deduction.employee_id, amount=str(deduction.amount))
         self.db.commit()
         self.db.refresh(db_deduction)
         return db_deduction
-    
+
     def get_deduction(self, deduction_id: int) -> SalaryDeductions:
         deduction = self.db.query(SalaryDeductions).filter(SalaryDeductions.id == deduction_id).first()
         if not deduction:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deduction not found")
         return deduction
-    
+
     def list_deductions(self, filters: schemas.HRListFilter) -> List[SalaryDeductions]:
         query = self.db.query(SalaryDeductions)
-        
         if filters.employee_id:
-            # SalaryDeductions.employee_id is an Integer FK (employees.id) while the
-            # shared HRListFilter carries it as a string - coerce before comparing.
             try:
                 employee_pk = int(filters.employee_id)
             except (TypeError, ValueError):
                 return []
             query = query.filter(SalaryDeductions.employee_id == employee_pk)
-        
         return query.order_by(SalaryDeductions.id.desc()).offset(filters.skip).limit(filters.limit).all()
-    
-    def update_deduction(self, deduction_id: int, deduction: schemas.SalaryDeductionCreate) -> SalaryDeductions:
-        db_deduction = self.get_deduction(deduction_id)
-        self._validate_employee(deduction.employee_id)
+
+    def _locked(self, deduction_id: int) -> SalaryDeductions:
+        row = self.db.query(SalaryDeductions).filter(SalaryDeductions.id == deduction_id).with_for_update().first()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deduction not found")
+        self._check_open(row.deduction_period)   # already used by a payroll run -> read-only
+        return row
+
+    def update_deduction(self, deduction_id: int, deduction: schemas.SalaryDeductionCreate, user_id: int = 0) -> SalaryDeductions:
+        db_deduction = self._locked(deduction_id)
+        if deduction.employee_id != db_deduction.employee_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A deduction cannot be moved to another employee; delete it and add a new one")
+        self._check_open(deduction.deduction_period)
         for key, value in deduction.model_dump().items():
             setattr(db_deduction, key, value)
+        db_deduction.updated_by = user_id
+        _audit(self.db, user_id, "update", "salary_deduction", db_deduction.id, amount=str(deduction.amount))
         self.db.commit()
         self.db.refresh(db_deduction)
         return db_deduction
-    
-    def delete_deduction(self, deduction_id: int):
-        db_deduction = self.get_deduction(deduction_id)
+
+    def delete_deduction(self, deduction_id: int, user_id: int = 0):
+        db_deduction = self._locked(deduction_id)
+        _audit(self.db, user_id, "delete", "salary_deduction", db_deduction.id, employee=db_deduction.employee_id)
         self.db.delete(db_deduction)
         self.db.commit()
+
 
 # Reimbursements Service
 class ReimbursementService:
@@ -143,78 +196,70 @@ class ReimbursementService:
             updated_at=str(r.updated_at) if r.updated_at else None,
         )
 
-    def create_reimbursement(self, data: schemas.ReimbursementCreate, created_by: int = 1) -> schemas.Reimbursement:
-        """Create a reimbursement with line items and auto-create approval request."""
-        # Validate employee exists
-        employee = self.db.query(Employee).filter(Employee.employee_id == data.employee_id).first()
-        if not employee:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{data.employee_id}' not found")
+    def _locked(self, reimbursement_id: int, actor: User) -> Reimbursements:
+        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).with_for_update().first()
+        if not r:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
+        _branch_access(actor, r.branch_code)
+        return r
 
-        # Calculate total from items
-        total_amount = sum(item.amount for item in data.items) if data.items else Decimal("0")
-        if total_amount <= 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Total amount must be greater than zero. Add at least one line item.")
+    def _claimant_user_id(self, r: Reimbursements) -> Optional[int]:
+        emp = self.db.query(Employee).filter(Employee.employee_id == r.employee_id).first()
+        return emp.user_id if emp else None
 
+    def create_reimbursement(self, data: schemas.ReimbursementCreate, actor: User) -> schemas.Reimbursement:
+        """Create a reimbursement with line items and auto-create the approval request."""
+        employee = _live_employee(self.db, data.employee_id)
+        branch = self.db.query(Branch).filter(Branch.branch_code == data.branch_code).first()
+        if not branch:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Branch '{data.branch_code}' not found")
+        if not branch.active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Branch '{data.branch_code}' is inactive")
+        _branch_access(actor, data.branch_code)
+        if employee.date_of_joining and data.claim_date < employee.date_of_joining:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The claim date is before the employee joined")
+
+        total_amount = sum((item.amount for item in data.items), Decimal("0"))
         reimbursement_no = self._generate_reimbursement_no()
 
         db_reimbursement = Reimbursements(
-            reimbursement_no=reimbursement_no,
-            employee_id=data.employee_id,
-            branch_code=data.branch_code,
-            claim_date=data.claim_date,
-            description=data.description,
-            reimbursement_type=data.reimbursement_type,
-            total_amount=total_amount,
-            status=DocumentStatus.PENDING,
-            remark=data.remark,
+            reimbursement_no=reimbursement_no, employee_id=data.employee_id, branch_code=data.branch_code, claim_date=data.claim_date,
+            description=data.description, reimbursement_type=data.reimbursement_type, total_amount=total_amount,
+            status=DocumentStatus.PENDING, remark=data.remark,
         )
         self.db.add(db_reimbursement)
         self.db.flush()
-
-        # Create line items
         for item_data in data.items:
-            db_item = ReimbursementItem(
-                reimbursement_id=db_reimbursement.id,
-                expense_type=item_data.expense_type,
-                item_description=item_data.item_description,
-                amount=item_data.amount,
-                receipt_date=item_data.receipt_date,
-                receipt_number=item_data.receipt_number,
-            )
-            self.db.add(db_item)
-
-        # Create approval request
+            self.db.add(ReimbursementItem(
+                reimbursement_id=db_reimbursement.id, expense_type=item_data.expense_type, item_description=item_data.item_description,
+                amount=item_data.amount, receipt_date=item_data.receipt_date, receipt_number=item_data.receipt_number,
+            ))
         approval_record = approval_service.create_approval_request(
-            db=self.db,
-            approval_type=ApprovalType.REIMBURSEMENT,
-            reference_id=db_reimbursement.id,
-            reference_no=reimbursement_no,
-            branch_code=data.branch_code,
-            requested_by=created_by,
-            remarks=f"Reimbursement claim pending approval - {reimbursement_no}",
+            db=self.db, approval_type=ApprovalType.REIMBURSEMENT, reference_id=db_reimbursement.id, reference_no=reimbursement_no,
+            branch_code=data.branch_code, requested_by=actor.id, remarks=f"Reimbursement claim pending approval - {reimbursement_no}",
             approval_group="reimbursement_approvers",
         )
         db_reimbursement.approval_id = approval_record.id
-
+        _audit(self.db, actor.id, "create", "reimbursement", db_reimbursement.id, no=reimbursement_no, total=str(total_amount))
         self.db.commit()
         self.db.refresh(db_reimbursement)
         return self._to_response(db_reimbursement)
 
-    def get_reimbursement(self, reimbursement_id: int) -> schemas.Reimbursement:
+    def get_reimbursement(self, reimbursement_id: int, actor: User) -> schemas.Reimbursement:
         reimbursement = self.db.query(Reimbursements).options(
-            joinedload(Reimbursements.items),
-            joinedload(Reimbursements.branch),
+            joinedload(Reimbursements.items), joinedload(Reimbursements.branch),
         ).filter(Reimbursements.id == reimbursement_id).first()
         if not reimbursement:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
+        _branch_access(actor, reimbursement.branch_code)
         return self._to_response(reimbursement)
 
-    def list_reimbursements(self, filters: schemas.ReimbursementListFilter) -> List[schemas.Reimbursement]:
-        query = self.db.query(Reimbursements).options(
-            joinedload(Reimbursements.items),
-            joinedload(Reimbursements.branch),
-        )
-
+    def list_reimbursements(self, filters: schemas.ReimbursementListFilter, allowed_branches: Optional[List[str]] = None) -> List[schemas.Reimbursement]:
+        query = self.db.query(Reimbursements).options(joinedload(Reimbursements.items), joinedload(Reimbursements.branch))
+        if allowed_branches is not None:
+            if filters.branch_code and filters.branch_code not in allowed_branches:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {filters.branch_code}")
+            query = query.filter(Reimbursements.branch_code.in_(allowed_branches))
         if filters.employee_id:
             query = query.filter(Reimbursements.employee_id == filters.employee_id)
         if filters.branch_code:
@@ -225,109 +270,96 @@ class ReimbursementService:
             query = query.filter(Reimbursements.claim_date >= filters.date_from)
         if filters.date_to:
             query = query.filter(Reimbursements.claim_date <= filters.date_to)
-
         results = query.order_by(Reimbursements.id.desc()).offset(filters.skip).limit(filters.limit).all()
         return [self._to_response(r) for r in results]
 
-    def update_reimbursement(self, reimbursement_id: int, data: schemas.ReimbursementUpdate) -> schemas.Reimbursement:
-        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).first()
-        if not r:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
+    def update_reimbursement(self, reimbursement_id: int, data: schemas.ReimbursementUpdate, actor: User) -> schemas.Reimbursement:
+        r = self._locked(reimbursement_id, actor)
         if r.status not in ("pending",):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot edit reimbursement with status '{r.status}'")
-        update_data = data.model_dump(exclude_unset=True)
-        for key, value in update_data.items():
+        for key, value in data.model_dump(exclude_unset=True).items():
             setattr(r, key, value)
+        r.updated_by = actor.id
+        _audit(self.db, actor.id, "update", "reimbursement", r.id)
         self.db.commit()
         self.db.refresh(r)
         return self._to_response(r)
 
-    def approve_reimbursement(self, reimbursement_id: int, data: schemas.ReimbursementApprove, user_id: int) -> schemas.Reimbursement:
-        """Approve or partially approve a reimbursement."""
-        # Lock the reimbursement row to prevent concurrent approve/reject
-        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).with_for_update().first()
-        if not r:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
+    def _close_approval(self, r: Reimbursements, new_status, user_id: int, remark: str) -> None:
+        if r.approval_id:
+            from app.modules.common.models import Approvals
+            approval = self.db.query(Approvals).filter(Approvals.id == r.approval_id).with_for_update().first()
+            if approval and approval.status == ApprovalStatus.PENDING:
+                approval.status = new_status
+                approval.status_changed_by = user_id
+                approval.remark = remark
+
+    def approve_reimbursement(self, reimbursement_id: int, data: schemas.ReimbursementApprove, actor: User) -> schemas.Reimbursement:
+        """Approve or partially approve a reimbursement (never above the claimed amount)."""
+        r = self._locked(reimbursement_id, actor)
         if r.status != "pending":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot approve. Current status: {r.status}")
-
+        if not actor.is_superuser:
+            if r.created_by == actor.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot approve a claim you created")
+            if self._claimant_user_id(r) == actor.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot approve your own reimbursement claim")
         approved_amount = data.approved_amount if data.approved_amount is not None else r.total_amount
-        if approved_amount < r.total_amount:
-            r.status = "partial_approved"
-        else:
-            r.status = "approved"
-
+        if approved_amount > r.total_amount:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"The approved amount cannot be more than the claimed {r.total_amount}")
+        r.status = "partial_approved" if approved_amount < r.total_amount else "approved"
         r.approved_amount = approved_amount
         r.approved_date = tz.now()
         if data.remarks:
             r.remark = data.remarks
-
-        # Update approval record
-        if r.approval_id:
-            from app.modules.common.models import Approvals
-            approval = self.db.query(Approvals).filter(Approvals.id == r.approval_id).first()
-            if approval and approval.status == ApprovalStatus.PENDING:
-                approval.status = ApprovalStatus.APPROVED
-                approval.status_changed_by = user_id
-                approval.remark = data.remarks or f"Approved by user {user_id}"
-
+        self._close_approval(r, ApprovalStatus.APPROVED, actor.id, data.remarks or f"Approved by user {actor.id}")
+        _audit(self.db, actor.id, "approve", "reimbursement", r.id, approved=str(approved_amount))
         self.db.commit()
         self.db.refresh(r)
         return self._to_response(r)
 
-    def reject_reimbursement(self, reimbursement_id: int, data: schemas.ReimbursementReject, user_id: int) -> schemas.Reimbursement:
-        """Reject a reimbursement."""
-        # Lock the reimbursement row to prevent concurrent approve/reject
-        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).with_for_update().first()
-        if not r:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
+    def reject_reimbursement(self, reimbursement_id: int, data: schemas.ReimbursementReject, actor: User) -> schemas.Reimbursement:
+        r = self._locked(reimbursement_id, actor)
         if r.status != "pending":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot reject. Current status: {r.status}")
-
         r.status = DocumentStatus.REJECTED
         r.rejection_reason = data.rejection_reason
-
-        # Update approval record
-        if r.approval_id:
-            from app.modules.common.models import Approvals
-            approval = self.db.query(Approvals).filter(Approvals.id == r.approval_id).first()
-            if approval and approval.status == ApprovalStatus.PENDING:
-                approval.status = ApprovalStatus.REJECTED
-                approval.status_changed_by = user_id
-                approval.remark = data.rejection_reason
-
+        self._close_approval(r, ApprovalStatus.REJECTED, actor.id, data.rejection_reason)
+        _audit(self.db, actor.id, "reject", "reimbursement", r.id, reason=data.rejection_reason)
         self.db.commit()
         self.db.refresh(r)
         return self._to_response(r)
 
-    def verify_reimbursement(self, reimbursement_id: int, data: schemas.ReimbursementVerify, user_id: int) -> schemas.Reimbursement:
-        """Finance verification of an approved reimbursement."""
-        # Lock the reimbursement row to prevent concurrent verification
-        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).with_for_update().first()
-        if not r:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
+    def verify_reimbursement(self, reimbursement_id: int, data: schemas.ReimbursementVerify, actor: User) -> schemas.Reimbursement:
+        """Finance verification of an approved reimbursement (by someone other than the approver)."""
+        r = self._locked(reimbursement_id, actor)
         if r.status not in ("approved", "partial_approved"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot verify. Current status: {r.status}")
-
+        if not actor.is_superuser and r.approval_id:
+            from app.modules.common.models import Approvals
+            approver = self.db.query(Approvals.status_changed_by).filter(Approvals.id == r.approval_id).scalar()
+            if approver == actor.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="The approver cannot also verify the claim")
         r.status = "verified"
-        r.verified_by = user_id
+        r.verified_by = actor.id
         r.verified_date = tz.now()
         if data.remarks:
             r.remark = data.remarks
-
+        _audit(self.db, actor.id, "verify", "reimbursement", r.id)
         self.db.commit()
         self.db.refresh(r)
         return self._to_response(r)
 
-    def process_payment(self, reimbursement_id: int, data: schemas.ReimbursementPayment, user_id: int) -> schemas.Reimbursement:
-        """Process payment for a verified reimbursement."""
-        # Lock the reimbursement row to prevent concurrent double payment
-        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).with_for_update().first()
-        if not r:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
+    def process_payment(self, reimbursement_id: int, data: schemas.ReimbursementPayment, actor: User) -> schemas.Reimbursement:
+        """Pay a verified reimbursement: the amount must equal the approved amount."""
+        r = self._locked(reimbursement_id, actor)
         if r.status != "verified":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot process payment. Current status: {r.status}")
-
+        due = r.approved_amount if r.approved_amount is not None else r.total_amount
+        if data.paid_amount != due:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"The payment must be exactly the approved amount {due}")
+        if not actor.is_superuser and self._claimant_user_id(r) == actor.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot pay your own reimbursement claim")
         r.payment_method = data.payment_method
         r.payment_reference = data.payment_reference
         r.paid_amount = data.paid_amount
@@ -336,44 +368,35 @@ class ReimbursementService:
         r.status = DocumentStatus.COMPLETED
         if data.remarks:
             r.remark = data.remarks
-
+        _audit(self.db, actor.id, "pay", "reimbursement", r.id, amount=str(data.paid_amount), method=data.payment_method)
         self.db.commit()
         self.db.refresh(r)
-        
-        # ── GL Auto-Posting: Reimbursement Payment (Gap B1) ──────────────
+
+        # GL auto-posting for the payment (failure is recorded and retried, it does not undo the payment)
         try:
             from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
-            gl_service = PurchaseExpensePayrollGL(self.db)
-            gl_service.post_reimbursement_payment_to_gl(r, user_id=user_id)
+            PurchaseExpensePayrollGL(self.db).post_reimbursement_payment_to_gl(r, user_id=actor.id)
             self.db.commit()
         except Exception as gl_err:
             import logging
-            logging.getLogger(__name__).warning(
-                f"GL posting for reimbursement {r.reimbursement_no} failed (non-blocking): {gl_err}"
-            )
+            logging.getLogger(__name__).warning(f"GL posting for reimbursement {r.reimbursement_no} failed (non-blocking): {gl_err}")
             self.db.rollback()
             record_gl_commit_failure(
-                self.db,
-                reference_type="Reimbursement",
-                reference_id=r.id,
-                reference_no=r.reimbursement_no,
-                transaction_type="Payment",
-                description=f"Reimbursement GL commit failed ({r.reimbursement_no})",
-                error=gl_err,
-                user_id=user_id,
+                self.db, reference_type="Reimbursement", reference_id=r.id, reference_no=r.reimbursement_no, transaction_type="Payment",
+                description=f"Reimbursement GL commit failed ({r.reimbursement_no})", error=gl_err, user_id=actor.id,
             )
-        # ─────────────────────────────────────────────────────────────────
-        
         return self._to_response(r)
 
-    def delete_reimbursement(self, reimbursement_id: int):
-        r = self.db.query(Reimbursements).filter(Reimbursements.id == reimbursement_id).first()
-        if not r:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reimbursement not found")
+    def delete_reimbursement(self, reimbursement_id: int, actor: User):
+        r = self._locked(reimbursement_id, actor)
         if r.status not in ("pending", "rejected"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot delete reimbursement with status '{r.status}'")
+        if r.status == "pending":
+            self._close_approval(r, ApprovalStatus.CANCELLED, actor.id, "Claim deleted")
+        _audit(self.db, actor.id, "delete", "reimbursement", r.id, no=r.reimbursement_no)
         self.db.delete(r)
         self.db.commit()
+
 
 # Payroll Service
 class PayrollService:
@@ -524,32 +547,34 @@ class PayrollService:
         return f"{prefix}{seq:03d}"
 
     def _calculate_payroll(
-        self, 
-        profile: EmployeeSalaryProfile, 
+        self,
+        profile: EmployeeSalaryProfile,
         deductions: List[SalaryDeductions],
-        sales_commission: Decimal = Decimal("0")
+        sales_commission: Decimal = Decimal("0"),
+        factor: Decimal = Decimal("1"),
+        nopay_days: Decimal = Decimal("0"),
+        days_in_month: int = 30,
+        epf_applicable: bool = True,
     ) -> Dict[str, Decimal]:
-        """Calculate payroll for one employee based on salary profile, deductions, and commissions."""
-        basic = profile.basic_salary or Decimal("0")
-        add_1 = profile.add_1_value or Decimal("0")
-        add_2 = profile.add_2_value or Decimal("0")
+        """Payroll for one employee: salary profile (pro-rated when the employee joined or left during the
+        month), no-pay leave, statutory contributions (EPF/ETF only where the employment type has them),
+        APIT, and the month's deductions. Every amount is rounded to cents."""
+        q2 = lambda v: Decimal(v).quantize(Decimal("0.01"))
+        basic_full = profile.basic_salary or Decimal("0")
+        basic = q2(basic_full * factor)
+        add_1 = q2((profile.add_1_value or Decimal("0")) * factor)
+        add_2 = q2((profile.add_2_value or Decimal("0")) * factor)
+        sales_commission = q2(sales_commission)
 
         gross_salary = basic + add_1 + add_2 + sales_commission
 
-        # Statutory deductions based on basic salary
-        epf_employee = basic * self.EPF_EMPLOYEE_RATE
-        # ETF is employer-only in Sri Lanka - nothing is deducted from the employee.
-        etf_employee = Decimal("0")
-        stamp_duty = self.STAMP_DUTY if basic > Decimal("0") else Decimal("0")
-
-        # APIT (Advance Personal Income Tax) on gross salary
+        epf_employee = q2(basic * self.EPF_EMPLOYEE_RATE) if epf_applicable else Decimal("0.00")
+        etf_employee = Decimal("0.00")  # ETF is employer-only in Sri Lanka
+        stamp_duty = self.STAMP_DUTY if basic > Decimal("0") else Decimal("0.00")
         apit = self._calculate_apit(gross_salary)
+        epf_employer = q2(basic * self.EPF_EMPLOYER_RATE) if epf_applicable else Decimal("0.00")
+        etf_employer = q2(basic * self.ETF_EMPLOYER_RATE) if epf_applicable else Decimal("0.00")
 
-        # Employer contributions
-        epf_employer = basic * self.EPF_EMPLOYER_RATE
-        etf_employer = basic * self.ETF_EMPLOYER_RATE
-
-        # Sum up custom deductions from the deductions table
         late_deductions = Decimal("0")
         salary_advance_repayment = Decimal("0")
         loan_repayment = Decimal("0")
@@ -561,55 +586,87 @@ class PayrollService:
             if d.other_deductions is not None:
                 other_deductions += d.other_deductions
             elif not any([d.late_deductions, d.salary_advance_repayment, d.loan_repayment]):
-                # No component breakdown provided - treat the headline amount as a
-                # general deduction. (Never add `amount` on top of a breakdown,
-                # that would double-count the deduction.)
+                # No component breakdown: the headline amount is a general deduction.
                 other_deductions += d.amount or Decimal("0")
+        if nopay_days > 0:
+            other_deductions += q2(basic_full / Decimal(days_in_month) * nopay_days)   # loss of pay
 
-        total_deductions = (
-            epf_employee + etf_employee + stamp_duty + apit +
-            late_deductions + salary_advance_repayment +
-            loan_repayment + other_deductions
-        )
-
+        total_deductions = (epf_employee + etf_employee + stamp_duty + apit + late_deductions + salary_advance_repayment
+                            + loan_repayment + other_deductions)
         net_salary = gross_salary - total_deductions
         total_employer_cost = gross_salary + epf_employer + etf_employer
 
         return {
-            "basic_salary": basic,
-            "add_1_name": profile.add_1_name,
-            "add_1_value": add_1,
-            "add_2_name": profile.add_2_name,
-            "add_2_value": add_2,
-            "add_sales_commision": sales_commission,
-            "gross_salary": gross_salary,
-            "less_epf_employee": epf_employee,
-            "less_etf_employee": etf_employee,
-            "less_stamp_duty": stamp_duty,
-            "less_late_deductions": late_deductions,
-            "less_salary_advance_repayment": salary_advance_repayment,
-            "less_loan_repayment": loan_repayment,
-            "less_other_deductions": other_deductions,
-            "less_apit": apit,
-            "total_deductions": total_deductions,
-            "net_salary": net_salary,
-            "epf_employer": epf_employer,
-            "etf_employer": etf_employer,
+            "basic_salary": basic, "add_1_name": profile.add_1_name, "add_1_value": add_1,
+            "add_2_name": profile.add_2_name, "add_2_value": add_2, "add_sales_commision": sales_commission,
+            "gross_salary": gross_salary, "less_epf_employee": epf_employee, "less_etf_employee": etf_employee,
+            "less_stamp_duty": stamp_duty, "less_late_deductions": late_deductions,
+            "less_salary_advance_repayment": salary_advance_repayment, "less_loan_repayment": loan_repayment,
+            "less_other_deductions": other_deductions, "less_apit": apit, "total_deductions": total_deductions,
+            "net_salary": net_salary, "epf_employer": epf_employer, "etf_employer": etf_employer,
             "total_employer_cost": total_employer_cost,
         }
 
-    # --- CRUD (backward compatible) ---
-    def create_payroll(self, payroll: schemas.EmployeePayrollCreate) -> schemas.EmployeePayrollResponse:
-        employee = self.db.query(Employee).filter(Employee.employee_id == payroll.employee_id).first()
-        if not employee:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{payroll.employee_id}' not found")
-        db_payroll = EmployeePayroll(**payroll.model_dump())
+    def _nopay_days(self, emp: Employee, start: date, end: date) -> Decimal:
+        """Approved unpaid leave inside [start, end], in working days."""
+        from app.modules.attendance.models import Leaves
+        from app.modules.hr_core.models import HRLeaveType
+        from app.modules.hr_core.service import LeavePolicyService, is_half_day
+
+        unpaid = {t.code.lower(): t for t in self.db.query(HRLeaveType).filter(HRLeaveType.is_paid.is_(False)).all()}
+        if not unpaid:
+            return Decimal("0")
+        rows = self.db.query(Leaves).filter(
+            Leaves.employee_id == emp.employee_id, Leaves.status == "approved", Leaves.from_date <= end, Leaves.to_date >= start,
+            func.lower(Leaves.leave_type).in_(list(unpaid)),
+        ).all()
+        svc, total = LeavePolicyService(self.db), Decimal("0")
+        for lv in rows:
+            a, b = max(lv.from_date, start), min(lv.to_date, end)
+            half = is_half_day(lv.leave_time) and lv.from_date == lv.to_date
+            total += Decimal(str(svc.count_days(emp, unpaid[(lv.leave_type or "").lower()], a, b, half)))
+        return total
+
+    # --- Manual (ad-hoc) payroll records ---
+    @staticmethod
+    def _manual_values(payroll: schemas.EmployeePayrollCreate) -> Dict[str, Any]:
+        z = Decimal("0")
+        v = lambda x: x or z
+        gross = (payroll.basic_salary + v(payroll.add_1_value) + v(payroll.add_2_value) + v(payroll.add_sales_commision)
+                 + v(payroll.add_salary_advance) + v(payroll.add_reimbursements) + v(payroll.add_bonus))
+        less = (v(payroll.less_epf_employee) + v(payroll.less_etf_employee) + v(payroll.less_stamp_duty) + v(payroll.less_late_deductions)
+                + v(payroll.less_salary_advance_repayment) + v(payroll.less_loan_repayment) + v(payroll.less_other_deductions) + v(payroll.less_apit))
+        data = payroll.model_dump()
+        data.update(gross_salary=gross, total_deductions=less, net_salary=gross - less,
+                    total_employer_cost=gross + v(payroll.epf_employer) + v(payroll.etf_employer))
+        return data
+
+    def _check_manual_period(self, employee_id: str, month: int, year: int, exclude_id: Optional[int] = None) -> None:
+        today = tz.today()
+        if (year, month) > (today.year, today.month):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payroll cannot be created for a future month")
+        q = self.db.query(EmployeePayroll.id).filter(
+            EmployeePayroll.employee_id == employee_id, EmployeePayroll.payroll_month == month, EmployeePayroll.payroll_year == year,
+            func.coalesce(EmployeePayroll.status, "draft") != "cancelled",
+        )
+        if exclude_id:
+            q = q.filter(EmployeePayroll.id != exclude_id)
+        if q.first():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{employee_id} already has a payroll record for {year}-{month:02d}")
+
+    def create_payroll(self, payroll: schemas.EmployeePayrollCreate, user_id: int = 0) -> schemas.EmployeePayrollResponse:
+        _live_employee(self.db, payroll.employee_id)
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"payroll-{payroll.employee_id}-{payroll.payroll_year}-{payroll.payroll_month}"})
+        self._check_manual_period(payroll.employee_id, payroll.payroll_month, payroll.payroll_year)
+        db_payroll = EmployeePayroll(**self._manual_values(payroll), status="draft", created_by=user_id)
         db_payroll.created_at = tz.now()
         self.db.add(db_payroll)
+        self.db.flush()
+        _audit(self.db, user_id, "create", "payroll", db_payroll.id, employee=payroll.employee_id, net=str(db_payroll.net_salary))
         self.db.commit()
         self.db.refresh(db_payroll)
         return self._payroll_to_response(db_payroll)
-    
+
     def get_payroll(self, payroll_id: int) -> schemas.EmployeePayrollResponse:
         payroll = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).first()
         if not payroll:
@@ -623,20 +680,32 @@ class PayrollService:
         results = query.order_by(EmployeePayroll.id.desc()).offset(filters.skip).limit(filters.limit).all()
         return [self._payroll_to_response(p) for p in results]
     
-    def update_payroll(self, payroll_id: int, payroll: schemas.EmployeePayrollCreate) -> schemas.EmployeePayrollResponse:
-        db_payroll = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).first()
-        if not db_payroll:
+    def _editable_record(self, payroll_id: int) -> EmployeePayroll:
+        row = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).with_for_update().first()
+        if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll not found")
-        for key, value in payroll.model_dump().items():
+        if row.payroll_batch_no:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"This record belongs to payroll batch {row.payroll_batch_no}; change it through the batch")
+        if (row.status or "draft") != "draft":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"A {row.status} payroll record cannot be changed")
+        return row
+
+    def update_payroll(self, payroll_id: int, payroll: schemas.EmployeePayrollCreate, user_id: int = 0) -> schemas.EmployeePayrollResponse:
+        db_payroll = self._editable_record(payroll_id)
+        if payroll.employee_id != db_payroll.employee_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A payroll record cannot be moved to another employee")
+        self._check_manual_period(payroll.employee_id, payroll.payroll_month, payroll.payroll_year, exclude_id=payroll_id)
+        for key, value in self._manual_values(payroll).items():
             setattr(db_payroll, key, value)
+        db_payroll.updated_by = user_id
+        _audit(self.db, user_id, "update", "payroll", db_payroll.id, net=str(db_payroll.net_salary))
         self.db.commit()
         self.db.refresh(db_payroll)
         return self._payroll_to_response(db_payroll)
-    
-    def delete_payroll(self, payroll_id: int):
-        db_payroll = self.db.query(EmployeePayroll).filter(EmployeePayroll.id == payroll_id).first()
-        if not db_payroll:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll not found")
+
+    def delete_payroll(self, payroll_id: int, user_id: int = 0):
+        db_payroll = self._editable_record(payroll_id)
+        _audit(self.db, user_id, "delete", "payroll", db_payroll.id, employee=db_payroll.employee_id)
         self.db.delete(db_payroll)
         self.db.commit()
 
@@ -644,12 +713,11 @@ class PayrollService:
     def trigger_payroll_run(self, data: schemas.PayrollRunRequest, user_id: int) -> schemas.PayrollBatchResponse:
         """Step 3: Trigger payroll processing - generate payroll records for all employees with salary profiles."""
         month, year = data.payroll_month, data.payroll_year
-
-        if not 1 <= month <= 12:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="payroll_month must be between 1 and 12",
-            )
+        today = tz.today()
+        if (year, month) > (today.year, today.month):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payroll cannot be run for a future month")
+        if (today.year - year) * 12 + (today.month - month) > 24:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payroll can only be run for the last 24 months")
 
         # Serialise concurrent runs for the same period (lock is released at
         # transaction end) so the duplicate-batch check below is race-free.
@@ -670,6 +738,32 @@ class PayrollService:
                 detail=f"Payroll batch already exists for {year}-{month:02d}: {existing.batch_no} (status: {existing.status})"
             )
 
+        # Salary profiles of employees who are in service during this month (a joiner or leaver is pro-rated)
+        import calendar
+        period_start = date(year, month, 1)
+        days_in_month = calendar.monthrange(year, month)[1]
+        period_end = date(year, month, days_in_month)
+        eligible = []
+        for profile, emp in (
+            self.db.query(EmployeeSalaryProfile, Employee).join(Employee, Employee.employee_id == EmployeeSalaryProfile.employee_id).all()
+        ):
+            st = emp.status or "active"
+            first = max(period_start, emp.date_of_joining) if emp.date_of_joining else period_start
+            if st in LEFT_STATUSES:
+                last = emp.last_working_date
+                if not last:
+                    continue                     # left with no last working day: nothing to pay
+            else:
+                last = emp.last_working_date if (st == "notice_period" and emp.last_working_date) else None
+            last = min(period_end, last) if last else period_end
+            if last < first:
+                continue                         # not employed during this month
+            worked = (last - first).days + 1
+            eligible.append((profile, emp, Decimal(worked) / Decimal(days_in_month)))
+        if not eligible:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="No employee with a salary profile is in service for this month. Set up salary profiles first.")
+
         # Create the batch
         batch_no = self._generate_batch_no(month, year)
         batch = PayrollBatch(
@@ -684,13 +778,8 @@ class PayrollService:
         self.db.add(batch)
         self.db.flush()
 
-        # Get all salary profiles
-        profiles = self.db.query(EmployeeSalaryProfile).all()
-        if not profiles:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No salary profiles found. Set up employee salary profiles first."
-            )
+        profiles = [e[0] for e in eligible]
+        profile_ctx = {e[0].employee_id: (e[1], e[2]) for e in eligible}
 
         period_str = f"{year}-{month:02d}"
         total_gross = Decimal("0")
@@ -749,7 +838,12 @@ class PayrollService:
             # Get approved sales commission for this employee
             sales_commission = commission_map.get(emp_internal_id, Decimal("0"))
 
-            calc = self._calculate_payroll(profile, period_deductions, sales_commission)
+            emp_obj, factor = profile_ctx[profile.employee_id]
+            et = emp_obj.employment_type
+            calc = self._calculate_payroll(
+                profile, period_deductions, sales_commission, factor=factor, nopay_days=self._nopay_days(emp_obj, period_start, period_end),
+                days_in_month=days_in_month, epf_applicable=(et.epf_etf_applicable if et is not None else True),
+            )
 
             payroll_record = EmployeePayroll(
                 employee_id=profile.employee_id,
@@ -834,6 +928,7 @@ class PayrollService:
                 detail=f"Cannot submit. Current status: {batch.status}"
             )
         batch.status = "pending_approval"
+        _audit(self.db, user_id, "submit", "payroll_batch", batch.id, batch=batch.batch_no)
         # Update all payroll records
         self.db.query(EmployeePayroll).filter(
             EmployeePayroll.payroll_batch_no == batch.batch_no
@@ -842,8 +937,9 @@ class PayrollService:
         self.db.refresh(batch)
         return self._batch_to_response(batch, include_records=True)
 
-    def approve_batch(self, batch_id: int, data: schemas.PayrollBatchApprove, user_id: int) -> schemas.PayrollBatchResponse:
-        """Step 6: Approve payroll batch."""
+    def approve_batch(self, batch_id: int, data: schemas.PayrollBatchApprove, actor: User) -> schemas.PayrollBatchResponse:
+        """Step 6: Approve payroll batch (not by the person who generated it)."""
+        user_id = actor.id
         # Lock the batch row to prevent concurrent approve/reject
         batch = self.db.query(PayrollBatch).filter(PayrollBatch.id == batch_id).with_for_update().first()
         if not batch:
@@ -853,8 +949,11 @@ class PayrollService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot approve. Current status: {batch.status}"
             )
+        if batch.created_by == actor.id and not actor.is_superuser:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot approve a payroll batch you generated")
         batch.status = DocumentStatus.APPROVED
         batch.approved_by = user_id
+        _audit(self.db, user_id, "approve", "payroll_batch", batch.id, batch=batch.batch_no)
         batch.approved_date = tz.now()
         # Update all payroll records
         self.db.query(EmployeePayroll).filter(
@@ -876,7 +975,8 @@ class PayrollService:
                 detail=f"Cannot reject. Current status: {batch.status}"
             )
         batch.status = "draft"
-        batch.description = (batch.description or "") + f"\n[Rejected: {data.rejection_reason}]"
+        batch.description = ((batch.description or "") + f"\n[Rejected: {data.rejection_reason}]")[:2000]
+        _audit(self.db, user_id, "reject", "payroll_batch", batch.id, reason=data.rejection_reason)
         self.db.query(EmployeePayroll).filter(
             EmployeePayroll.payroll_batch_no == batch.batch_no
         ).update({"status": "draft"})
@@ -897,6 +997,7 @@ class PayrollService:
             )
         payment_date = data.payment_date or tz.today()
         batch.status = "salary_paid"
+        _audit(self.db, user_id, "pay_salary", "payroll_batch", batch.id, batch=batch.batch_no, method=data.payment_method)
         batch.salary_payment_date = payment_date
         batch.salary_payment_reference = data.payment_reference
         
@@ -914,24 +1015,18 @@ class PayrollService:
             pr.status = "salary_paid"
         
         # Mark approved sales commissions as paid for employees in this batch
-        employee_ids = [pr.employee_id for pr in payroll_records]
-        employee_internal_ids = self.db.query(Employee.id).filter(
-            Employee.employee_id.in_(employee_ids)
-        ).all()
-        employee_internal_ids = [e[0] for e in employee_internal_ids]
-        
-        # Update commissions to paid status
-        self.db.query(SalesOfficerMonthlyCommission).filter(
-            SalesOfficerMonthlyCommission.fiscal_year == batch.payroll_year,
-            SalesOfficerMonthlyCommission.fiscal_month == batch.payroll_month,
-            SalesOfficerMonthlyCommission.employee_id.in_(employee_internal_ids),
-            SalesOfficerMonthlyCommission.status == "approved",
-        ).update({
-            "status": "paid",
-            "paid_in_payroll_id": batch.id,
-            "updated_at": tz.now(),
-        }, synchronize_session=False)
-        
+        # paid_in_payroll_id points at the employee's own payroll record, not the batch
+        for pr in payroll_records:
+            internal_id = self.db.query(Employee.id).filter(Employee.employee_id == pr.employee_id).scalar()
+            if internal_id is None:
+                continue
+            self.db.query(SalesOfficerMonthlyCommission).filter(
+                SalesOfficerMonthlyCommission.fiscal_year == batch.payroll_year,
+                SalesOfficerMonthlyCommission.fiscal_month == batch.payroll_month,
+                SalesOfficerMonthlyCommission.employee_id == internal_id,
+                SalesOfficerMonthlyCommission.status == "approved",
+            ).update({"status": "paid", "paid_in_payroll_id": pr.id, "updated_at": tz.now()}, synchronize_session=False)
+
         self.db.commit()
         self.db.refresh(batch)
         
@@ -979,6 +1074,7 @@ class PayrollService:
         statutory_ref = "; ".join(refs) if refs else None
 
         batch.status = "statutory_paid"
+        _audit(self.db, user_id, "pay_statutory", "payroll_batch", batch.id, batch=batch.batch_no)
         batch.statutory_payment_date = payment_date
         batch.statutory_payment_reference = statutory_ref
         # Update all payroll records
@@ -1108,6 +1204,7 @@ class PayrollService:
                 detail=f"Cannot cancel batch with status '{batch.status}'"
             )
         batch.status = DocumentStatus.CANCELLED
+        _audit(self.db, user_id, "cancel", "payroll_batch", batch.id, batch=batch.batch_no)
         self.db.query(EmployeePayroll).filter(
             EmployeePayroll.payroll_batch_no == batch.batch_no
         ).update({"status": "cancelled"})
@@ -1142,24 +1239,19 @@ class SalaryProfileService:
             employee_name=self._resolve_employee_name(p.employee_id),
         )
 
-    def create_profile(self, profile: schemas.EmployeeSalaryProfileCreate) -> schemas.EmployeeSalaryProfile:
-        employee = self.db.query(Employee).filter(Employee.employee_id == profile.employee_id).first()
-        if not employee:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{profile.employee_id}' not found")
-        existing = self.db.query(EmployeeSalaryProfile).filter(
-            EmployeeSalaryProfile.employee_id == profile.employee_id
-        ).first()
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Salary profile already exists for employee '{profile.employee_id}'",
-            )
-        db_profile = EmployeeSalaryProfile(**profile.model_dump())
+    def create_profile(self, profile: schemas.EmployeeSalaryProfileCreate, user_id: int = 0) -> schemas.EmployeeSalaryProfile:
+        _live_employee(self.db, profile.employee_id)
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"salary-profile-{profile.employee_id}"})
+        if self.db.query(EmployeeSalaryProfile.id).filter(EmployeeSalaryProfile.employee_id == profile.employee_id).first():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Salary profile already exists for employee '{profile.employee_id}'")
+        db_profile = EmployeeSalaryProfile(**profile.model_dump(), created_by=user_id)
         self.db.add(db_profile)
+        self.db.flush()
+        _audit(self.db, user_id, "create", "salary_profile", db_profile.id, employee=profile.employee_id, basic=str(profile.basic_salary))
         self.db.commit()
         self.db.refresh(db_profile)
         return self._to_response(db_profile)
-    
+
     def get_profile(self, profile_id: int) -> schemas.EmployeeSalaryProfile:
         profile = self.db.query(EmployeeSalaryProfile).filter(EmployeeSalaryProfile.id == profile_id).first()
         if not profile:
@@ -1176,20 +1268,26 @@ class SalaryProfileService:
         profiles = self.db.query(EmployeeSalaryProfile).all()
         return [self._to_response(p) for p in profiles]
     
-    def update_profile(self, profile_id: int, profile: schemas.EmployeeSalaryProfileCreate) -> schemas.EmployeeSalaryProfile:
-        db_profile = self.db.query(EmployeeSalaryProfile).filter(EmployeeSalaryProfile.id == profile_id).first()
+    def update_profile(self, profile_id: int, profile: schemas.EmployeeSalaryProfileCreate, user_id: int = 0) -> schemas.EmployeeSalaryProfile:
+        db_profile = self.db.query(EmployeeSalaryProfile).filter(EmployeeSalaryProfile.id == profile_id).with_for_update().first()
         if not db_profile:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Salary profile not found")
+        if profile.employee_id != db_profile.employee_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A salary profile cannot be moved to another employee")
+        before = str(db_profile.basic_salary)
         for key, value in profile.model_dump().items():
             setattr(db_profile, key, value)
+        db_profile.updated_by = user_id
+        _audit(self.db, user_id, "update", "salary_profile", db_profile.id, basic=[before, str(profile.basic_salary)])
         self.db.commit()
         self.db.refresh(db_profile)
         return self._to_response(db_profile)
-    
-    def delete_profile(self, profile_id: int):
-        db_profile = self.db.query(EmployeeSalaryProfile).filter(EmployeeSalaryProfile.id == profile_id).first()
+
+    def delete_profile(self, profile_id: int, user_id: int = 0):
+        db_profile = self.db.query(EmployeeSalaryProfile).filter(EmployeeSalaryProfile.id == profile_id).with_for_update().first()
         if not db_profile:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Salary profile not found")
+        _audit(self.db, user_id, "delete", "salary_profile", db_profile.id, employee=db_profile.employee_id)
         self.db.delete(db_profile)
         self.db.commit()
 
@@ -1198,101 +1296,177 @@ class PromotionService:
     def __init__(self, db: Session):
         self.db = db
 
-    def _validate_employee(self, employee_id: str) -> None:
-        exists = self.db.query(Employee.id).filter(Employee.employee_id == employee_id).first()
-        if not exists:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{employee_id}' not found")
+    def _check(self, promotion: schemas.EmployeePromotionCreate) -> Employee:
+        emp = _live_employee(self.db, promotion.employee_id)
+        if emp.date_of_joining and promotion.appointed_date < emp.date_of_joining:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The appointed date is before the employee joined")
+        return emp
 
-    def create_promotion(self, promotion: schemas.EmployeePromotionCreate) -> EmployeePromotions:
-        self._validate_employee(promotion.employee_id)
-        db_promotion = EmployeePromotions(**promotion.model_dump())
+    def _sync_designation(self, emp: Employee) -> None:
+        """The employee's current designation follows the latest promotion that has taken effect."""
+        from app.modules.hr_core.models import HRDesignation
+
+        latest = (self.db.query(EmployeePromotions)
+                  .filter(EmployeePromotions.employee_id == emp.employee_id, EmployeePromotions.appointed_date <= tz.today())
+                  .order_by(EmployeePromotions.appointed_date.desc(), EmployeePromotions.id.desc()).first())
+        if not latest:
+            return
+        match = self.db.query(HRDesignation).filter(func.lower(func.btrim(HRDesignation.name)) == latest.designation.strip().lower(), HRDesignation.active.is_(True)).first()
+        if match:
+            emp.designation_id = match.id
+
+    def create_promotion(self, promotion: schemas.EmployeePromotionCreate, user_id: int = 0) -> EmployeePromotions:
+        emp = self._check(promotion)
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"promotion-{promotion.employee_id}"})
+        if self.db.query(EmployeePromotions.id).filter(
+            EmployeePromotions.employee_id == promotion.employee_id, EmployeePromotions.appointed_date == promotion.appointed_date,
+            func.lower(EmployeePromotions.designation) == promotion.designation.lower(),
+        ).first():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This promotion is already recorded")
+        db_promotion = EmployeePromotions(**promotion.model_dump(), created_by=user_id)
         self.db.add(db_promotion)
+        self.db.flush()
+        self._sync_designation(emp)
+        _audit(self.db, user_id, "create", "promotion", db_promotion.id, employee=promotion.employee_id, designation=promotion.designation)
         self.db.commit()
         self.db.refresh(db_promotion)
         return db_promotion
-    
+
     def get_promotion(self, promotion_id: int) -> EmployeePromotions:
         promotion = self.db.query(EmployeePromotions).filter(EmployeePromotions.id == promotion_id).first()
         if not promotion:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
         return promotion
-    
+
     def list_promotions(self, filters: schemas.HRListFilter) -> List[EmployeePromotions]:
         query = self.db.query(EmployeePromotions)
-        
         if filters.employee_id:
             query = query.filter(EmployeePromotions.employee_id == filters.employee_id)
-        
         if filters.date_from:
             query = query.filter(EmployeePromotions.appointed_date >= filters.date_from)
-        
         if filters.date_to:
             query = query.filter(EmployeePromotions.appointed_date <= filters.date_to)
-        
-        return query.offset(filters.skip).limit(filters.limit).all()
-    
-    def update_promotion(self, promotion_id: int, promotion: schemas.EmployeePromotionCreate) -> EmployeePromotions:
-        db_promotion = self.get_promotion(promotion_id)
-        self._validate_employee(promotion.employee_id)
+        return query.order_by(EmployeePromotions.appointed_date.desc(), EmployeePromotions.id.desc()).offset(filters.skip).limit(filters.limit).all()
+
+    def update_promotion(self, promotion_id: int, promotion: schemas.EmployeePromotionCreate, user_id: int = 0) -> EmployeePromotions:
+        db_promotion = self.db.query(EmployeePromotions).filter(EmployeePromotions.id == promotion_id).with_for_update().first()
+        if not db_promotion:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+        if promotion.employee_id != db_promotion.employee_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A promotion cannot be moved to another employee")
+        emp = self._check(promotion)
         for key, value in promotion.model_dump().items():
             setattr(db_promotion, key, value)
+        db_promotion.updated_by = user_id
+        self.db.flush()
+        self._sync_designation(emp)
+        _audit(self.db, user_id, "update", "promotion", db_promotion.id, designation=promotion.designation)
         self.db.commit()
         self.db.refresh(db_promotion)
         return db_promotion
-    
-    def delete_promotion(self, promotion_id: int):
-        db_promotion = self.get_promotion(promotion_id)
+
+    def delete_promotion(self, promotion_id: int, user_id: int = 0):
+        db_promotion = self.db.query(EmployeePromotions).filter(EmployeePromotions.id == promotion_id).with_for_update().first()
+        if not db_promotion:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+        _audit(self.db, user_id, "delete", "promotion", db_promotion.id, employee=db_promotion.employee_id)
         self.db.delete(db_promotion)
         self.db.commit()
+
 
 # Employee Assets Service
 class EmployeeAssetService:
     def __init__(self, db: Session):
         self.db = db
 
-    def _validate_refs(self, employee_id: str, asset_id: int) -> None:
-        emp = self.db.query(Employee.id).filter(Employee.employee_id == employee_id).first()
-        if not emp:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{employee_id}' not found")
+    def _validate_refs(self, asset: schemas.EmployeeAssetCreate, own_id: Optional[int] = None) -> None:
+        """Employee in service, asset exists and is not already assigned to someone else."""
         from app.modules.inventory.models import CompanyAssets
-        asset_exists = self.db.query(CompanyAssets.id).filter(CompanyAssets.id == asset_id).first()
-        if not asset_exists:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Asset with id {asset_id} not found")
 
-    def create_asset_assignment(self, asset: schemas.EmployeeAssetCreate) -> EmployeesAssets:
-        self._validate_refs(asset.employee_id, asset.asset_id)
-        db_asset = EmployeesAssets(**asset.model_dump())
+        if not asset.revoke_assignment:
+            _live_employee(self.db, asset.employee_id)
+        elif not self.db.query(Employee.id).filter(Employee.employee_id == asset.employee_id).first():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{asset.employee_id}' not found")
+        row = self.db.query(CompanyAssets).filter(CompanyAssets.id == asset.asset_id).with_for_update().first()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Asset with id {asset.asset_id} not found")
+        if not asset.revoke_assignment:
+            if (row.status or "").lower() in ("sold", "disposed", "retired", "written_off", "scrapped"):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"This asset is {row.status} and cannot be assigned")
+            q = self.db.query(EmployeesAssets).filter(EmployeesAssets.asset_id == asset.asset_id, EmployeesAssets.revoke_assignment == False)  # noqa: E712
+            if own_id:
+                q = q.filter(EmployeesAssets.id != own_id)
+            other = q.first()
+            if other:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"This asset is already assigned to employee '{other.employee_id}'; revoke that assignment first")
+
+    def _sync_asset(self, asset_id: int) -> None:
+        """The company asset follows its assignments: in use (with its holder) while one is active, available again after."""
+        from app.modules.inventory.models import CompanyAssets
+
+        row = self.db.query(CompanyAssets).filter(CompanyAssets.id == asset_id).first()
+        if not row:
+            return
+        active = self.db.query(EmployeesAssets).filter(EmployeesAssets.asset_id == asset_id, EmployeesAssets.revoke_assignment == False).order_by(EmployeesAssets.id.desc()).first()  # noqa: E712
+        if active:
+            holder = self.db.query(Employee.id).filter(Employee.employee_id == active.employee_id).scalar()
+            if (row.status or "").lower() in ("available", "returned", "in_use"):
+                row.status = "in_use"
+            row.asigned_to = holder
+        elif (row.status or "").lower() == "in_use":
+            row.status = "available"
+            row.asigned_to = None
+
+    def create_asset_assignment(self, asset: schemas.EmployeeAssetCreate, user_id: int = 0) -> EmployeesAssets:
+        self._validate_refs(asset)
+        db_asset = EmployeesAssets(**asset.model_dump(), created_by=user_id)
         self.db.add(db_asset)
+        self.db.flush()
+        self._sync_asset(asset.asset_id)
+        _audit(self.db, user_id, "create", "employee_asset", db_asset.id, employee=asset.employee_id, asset=asset.asset_id)
         self.db.commit()
         self.db.refresh(db_asset)
         return db_asset
-    
+
     def get_asset_assignment(self, assignment_id: int) -> EmployeesAssets:
         asset = self.db.query(EmployeesAssets).filter(EmployeesAssets.id == assignment_id).first()
         if not asset:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset assignment not found")
         return asset
-    
+
     def list_asset_assignments(self, filters: schemas.HRListFilter) -> List[EmployeesAssets]:
         query = self.db.query(EmployeesAssets)
-        
         if filters.employee_id:
             query = query.filter(EmployeesAssets.employee_id == filters.employee_id)
-        
-        return query.offset(filters.skip).limit(filters.limit).all()
-    
-    def update_asset_assignment(self, assignment_id: int, asset: schemas.EmployeeAssetCreate) -> EmployeesAssets:
-        db_asset = self.get_asset_assignment(assignment_id)
-        self._validate_refs(asset.employee_id, asset.asset_id)
+        return query.order_by(EmployeesAssets.id.desc()).offset(filters.skip).limit(filters.limit).all()
+
+    def update_asset_assignment(self, assignment_id: int, asset: schemas.EmployeeAssetCreate, user_id: int = 0) -> EmployeesAssets:
+        db_asset = self.db.query(EmployeesAssets).filter(EmployeesAssets.id == assignment_id).with_for_update().first()
+        if not db_asset:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset assignment not found")
+        if asset.employee_id != db_asset.employee_id or asset.asset_id != db_asset.asset_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only the reason and the revoked flag can change; create a new assignment for another employee or asset")
+        if db_asset.revoke_assignment and not asset.revoke_assignment:
+            self._validate_refs(asset, own_id=db_asset.id)    # re-activating needs the same checks as a new assignment
         for key, value in asset.model_dump().items():
             setattr(db_asset, key, value)
+        db_asset.updated_by = user_id
+        self.db.flush()
+        self._sync_asset(db_asset.asset_id)
+        _audit(self.db, user_id, "update", "employee_asset", db_asset.id, revoked=asset.revoke_assignment)
         self.db.commit()
         self.db.refresh(db_asset)
         return db_asset
-    
-    def delete_asset_assignment(self, assignment_id: int):
-        db_asset = self.get_asset_assignment(assignment_id)
+
+    def delete_asset_assignment(self, assignment_id: int, user_id: int = 0):
+        db_asset = self.db.query(EmployeesAssets).filter(EmployeesAssets.id == assignment_id).with_for_update().first()
+        if not db_asset:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset assignment not found")
+        _audit(self.db, user_id, "delete", "employee_asset", db_asset.id, employee=db_asset.employee_id)
+        asset_id = db_asset.asset_id
         self.db.delete(db_asset)
+        self.db.flush()
+        self._sync_asset(asset_id)
         self.db.commit()
 
 
@@ -1318,7 +1492,7 @@ class HRStatisticsService:
 
         today = tz.today()
 
-        total_employees = self.db.query(func.count(Employee.id)).scalar() or 0
+        total_employees = self.db.query(func.count(Employee.id)).filter(Employee.status.in_(LIVE_STATUSES)).scalar() or 0
 
         # "Present today" mirrors the attendance status derivation
         # (present or late): checked in, not on leave, and worked or was late.

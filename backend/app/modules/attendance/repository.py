@@ -33,8 +33,11 @@ class AttendanceRepository:
         date_to: Optional[date] = None,
         skip: int = 0,
         limit: int = 200,
+        allowed_branches: Optional[List[str]] = None,
     ) -> List[Attendance]:
         q = db.query(Attendance)
+        if allowed_branches is not None:
+            q = q.filter(Attendance.branch_code.in_(allowed_branches))
         if employee_id:
             q = q.filter(Attendance.employee_id == employee_id)
         if branch_code:
@@ -83,8 +86,16 @@ class LeaveRepository:
         date_to: Optional[date] = None,
         skip: int = 0,
         limit: int = 100,
+        status: Optional[str] = None,
+        allowed_branches: Optional[List[str]] = None,
     ) -> List[Leaves]:
         q = db.query(Leaves)
+        if status:
+            q = q.filter(Leaves.status == status)
+        if allowed_branches is not None:
+            from app.modules.employees.models import Employee
+            q = q.join(Employee, Employee.employee_id == Leaves.employee_id).filter(
+                (Employee.branch_code.in_(allowed_branches)) | (Employee.branch_code.is_(None)))
         if employee_id:
             q = q.filter(Leaves.employee_id == employee_id)
         if leave_type:

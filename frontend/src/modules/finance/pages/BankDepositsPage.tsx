@@ -3,7 +3,7 @@
  * Follows the Purchasing/Sales UI pattern with Tijaero components.
  */
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
@@ -21,6 +21,8 @@ import {
   Search as SearchIcon,
   ArrowBack as ArrowBackIcon,
   OpenInNew as OpenInNewIcon,
+  Add as AddIcon,
+  Verified as VerifiedIcon,
 } from "@mui/icons-material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 
@@ -39,7 +41,13 @@ import {
   fmtLKR,
   TActivityHistoryPanel,
   TRemarkField,
+  ActionToolbar,
+  TConfirmDialog,
+  useTConfirmDialog,
+  useCrudMutation,
+  showErrorToast,
 } from "@/components/tijaero";
+import { usePermission } from "@/auth/permissions";
 
 import { bankDepositsApi } from "@/modules/finance/api";
 import { BankDeposit, BankDepositCreate } from "@/modules/finance/types";
@@ -65,6 +73,9 @@ const INITIAL_FORM_DATA: Partial<BankDepositCreate> = {
   invoice_no: "",
 };
 
+// Cash taken from a branch to the bank (the only kind of deposit created from this page).
+const CASH_DEPOSIT = "cash_deposit";
+
 const resetFormFromItem = (item: BankDeposit): Partial<BankDepositCreate> => ({
   deposits_amount: Number(item.deposits_amount) || 0,
   branch_code: item.branch_code || "",
@@ -87,8 +98,12 @@ export default function BankDepositsPage() {
     selectedItem,
     setSelectedItem,
     isCreating,
+    setIsCreating,
+    setIsEditing,
     formData,
+    setFormData,
     handleSelectItem,
+    handleNew,
   } = useMasterDetailState<BankDeposit, Partial<BankDepositCreate>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem,
@@ -154,15 +169,105 @@ export default function BankDepositsPage() {
     [handleSelectItem]
   );
 
-  // Whether we're showing a single bank deposit's detail view instead of the
-  // browse table. This page is read-only, so there's no "creating" state to
-  // account for beyond what the hook exposes.
+  // Whether we're showing a single bank deposit's detail view (selected or
+  // being created) instead of the browse table.
   const isDepositDetailMode = !!selectedItem || isCreating;
 
-  // Returns to the browse table from the detail view.
+  // Returns to the browse table from the detail view (also leaves "New Deposit").
   const handleBackToDeposits = useCallback(() => {
     setSelectedItem(null);
-  }, [setSelectedItem]);
+    setIsCreating(false);
+    setIsEditing(false);
+  }, [setSelectedItem, setIsCreating, setIsEditing]);
+
+  // ---- Create / verify -------------------------------------------------------
+  // The backend gates create on bank_deposits:create and verify on
+  // bank_transfer_verify:approve, so the buttons follow the same permissions.
+  const canCreate = usePermission("bank_deposits", "create");
+  const canVerify = usePermission("bank_transfer_verify", "approve");
+  const verifyDialog = useTConfirmDialog();
+  const [showErrors, setShowErrors] = useState(false);
+  // Blocks a second Save / Verify click before the first request has settled.
+  const savingRef = useRef(false);
+
+  const fieldErrors = {
+    branch_code: !formData.branch_code ? "Branch is required" : undefined,
+    bank_name: !(formData.bank_name || "").trim() ? "Bank name is required" : undefined,
+    deposits_amount: !(Number(formData.deposits_amount) > 0) ? "Amount must be greater than 0" : undefined,
+  };
+  const isFormValid = !fieldErrors.branch_code && !fieldErrors.bank_name && !fieldErrors.deposits_amount;
+  const errorFor = (field: keyof typeof fieldErrors) => (isCreating && showErrors ? fieldErrors[field] : undefined);
+
+  const handleNewDeposit = useCallback(async () => {
+    const ok = await handleNew();
+    if (!ok) return;
+    setShowErrors(false);
+    setFormData({ ...INITIAL_FORM_DATA, branch_code: defaultBranchCode || "", payment_for: CASH_DEPOSIT });
+  }, [handleNew, setFormData, defaultBranchCode]);
+
+  const createMutation = useCrudMutation({
+    mutationFn: bankDepositsApi.create,
+    invalidateQueryKeys: [["bank-deposits"]],
+    successMessage: "Bank deposit recorded",
+    errorMessage: "Failed to record bank deposit",
+    onSuccess: (created: BankDeposit) => {
+      setIsCreating(false);
+      setIsEditing(false);
+      handleSelectItem(created);
+    },
+  });
+
+  const verifyMutation = useCrudMutation({
+    mutationFn: (id: number) => bankDepositsApi.verify(id),
+    invalidateQueryKeys: [["bank-deposits"]],
+    successMessage: "Bank deposit verified",
+    errorMessage: "Failed to verify bank deposit",
+    onSuccess: (verified: BankDeposit) => {
+      handleSelectItem(verified);
+    },
+  });
+
+  const isSaving = createMutation.isPending || verifyMutation.isPending;
+
+  const handleSave = useCallback(() => {
+    if (!isCreating || savingRef.current) return;
+    if (!isFormValid) {
+      setShowErrors(true);
+      showErrorToast("Enter the branch, bank name and an amount greater than 0");
+      return;
+    }
+    const payload: BankDepositCreate = {
+      deposits_amount: Number(formData.deposits_amount),
+      branch_code: formData.branch_code || "",
+      bank_name: (formData.bank_name || "").trim(),
+      invoice_no: (formData.invoice_no || "").trim() || undefined,
+      remarks: (formData.remarks || "").trim() || undefined,
+      payment_for: CASH_DEPOSIT,
+    };
+    savingRef.current = true;
+    createMutation.mutate(payload, { onSettled: () => { savingRef.current = false; } });
+  }, [isCreating, isFormValid, formData, createMutation]);
+
+  const handleCancelCreate = useCallback(() => {
+    setIsCreating(false);
+    setIsEditing(false);
+    setSelectedItem(null);
+    setShowErrors(false);
+  }, [setIsCreating, setIsEditing, setSelectedItem]);
+
+  const handleVerify = useCallback(() => {
+    if (!selectedItem || selectedItem.verified || savingRef.current) return;
+    const deposit = selectedItem;
+    verifyDialog.open(
+      "Verify Bank Deposit",
+      `Confirm that deposit #${deposit.id} of ${currencySymbol} ${fmtLKR(Number(deposit.deposits_amount || 0))} to ${deposit.bank_name || "the bank"} has reached the bank account?`,
+      () => {
+        if (savingRef.current) return;
+        savingRef.current = true;
+        verifyMutation.mutate(deposit.id, { onSettled: () => { savingRef.current = false; } });
+      }
+    );
+  }, [selectedItem, verifyDialog, verifyMutation, currencySymbol]);
 
   // The table sorts by whichever column the user clicks; the Branch column
   // displays a looked-up name rather than the raw branch_code, so it needs
@@ -283,7 +388,34 @@ export default function BankDepositsPage() {
         noSelectionTitle="Select a Deposit"
       />
 
-      {/* Actions disabled - read-only mode */}
+      {(isCreating || (selectedItem && !selectedItem.verified && canVerify)) && (
+        <ActionToolbar
+          hasSelectedItem={!!selectedItem}
+          isCreating={isCreating}
+          isEditing={isCreating}
+          isSaving={isSaving}
+          saveDisabled={isSaving}
+          canCreate={false}
+          canUpdate={false}
+          canDelete={false}
+          onSave={handleSave}
+          onCancel={handleCancelCreate}
+          endActions={
+            selectedItem && !isCreating && !selectedItem.verified && canVerify ? (
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                startIcon={<VerifiedIcon />}
+                onClick={handleVerify}
+                disabled={isSaving}
+              >
+                Verify
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!selectedItem && !isCreating ? (
@@ -297,27 +429,45 @@ export default function BankDepositsPage() {
                 label="Deposit Amount"
                 size="small"
                 type="number"
-                value={Number(formData.deposits_amount) || ""}
-                disabled
-                InputProps={{ readOnly: true }}
+                required={isCreating}
+                value={isCreating ? (formData.deposits_amount || "") : (Number(formData.deposits_amount) || "")}
+                onChange={(e) => setFormData((prev) => ({ ...prev, deposits_amount: e.target.value === "" ? 0 : Number(e.target.value) }))}
+                disabled={!isCreating}
+                inputProps={{ min: 0, step: "0.01" }}
+                InputProps={{ readOnly: !isCreating }}
+                error={!!errorFor("deposits_amount")}
+                helperText={errorFor("deposits_amount")}
               />
               <Autocomplete
                 size="small"
                 options={branches}
                 getOptionLabel={(option: Branch) => `${option.branch_code} - ${option.branch_name}`}
+                isOptionEqualToValue={(o: Branch, v: Branch) => o.branch_code === v.branch_code}
                 value={branches.find((b) => b.branch_code === formData.branch_code) || null}
-                disabled
-                readOnly
+                onChange={(_, v: Branch | null) => setFormData((prev) => ({ ...prev, branch_code: v?.branch_code || "" }))}
+                disabled={!isCreating}
+                readOnly={!isCreating}
                 renderInput={(params) => (
-                  <TextField {...params} label="Branch" InputProps={{ ...params.InputProps, readOnly: true }} />
+                  <TextField
+                    {...params}
+                    label="Branch"
+                    required={isCreating}
+                    error={!!errorFor("branch_code")}
+                    helperText={errorFor("branch_code")}
+                    InputProps={{ ...params.InputProps, readOnly: !isCreating }}
+                  />
                 )}
               />
               <TextField
                 label="Bank Name"
                 size="small"
+                required={isCreating}
                 value={formData.bank_name || ""}
-                disabled
-                InputProps={{ readOnly: true }}
+                onChange={(e) => setFormData((prev) => ({ ...prev, bank_name: e.target.value }))}
+                disabled={!isCreating}
+                InputProps={{ readOnly: !isCreating }}
+                error={!!errorFor("bank_name")}
+                helperText={errorFor("bank_name")}
               />
             </FormSection>
 
@@ -330,11 +480,13 @@ export default function BankDepositsPage() {
                 InputProps={{ readOnly: true }}
               />
               <TextField
-                label="Invoice Number"
+                label="Reference No"
                 size="small"
                 value={formData.invoice_no || ""}
-                disabled
-                InputProps={{ readOnly: true }}
+                onChange={(e) => setFormData((prev) => ({ ...prev, invoice_no: e.target.value }))}
+                disabled={!isCreating}
+                InputProps={{ readOnly: !isCreating }}
+                placeholder={isCreating ? "Bank slip / reference number" : undefined}
               />
             </FormSection>
 
@@ -375,9 +527,9 @@ export default function BankDepositsPage() {
                 label="Remarks"
                 size="small"
                 value={formData.remarks || ""}
-                onChange={() => {}}
-                disabled
-                InputProps={{ readOnly: true }}
+                onChange={(value) => setFormData((prev) => ({ ...prev, remarks: value }))}
+                disabled={!isCreating}
+                InputProps={{ readOnly: !isCreating }}
                 multiline
                 rows={2}
               />
@@ -443,6 +595,19 @@ export default function BankDepositsPage() {
           </Box>
         )
       }
+      headerActions={
+        isDepositDetailMode || !canCreate ? undefined : (
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<AddIcon />}
+            onClick={handleNewDeposit}
+            sx={{ mr: 1 }}
+          >
+            New Deposit
+          </Button>
+        )
+      }
       onRefresh={refetch}
       isLoading={isLoading}
       {...(isDepositDetailMode
@@ -460,6 +625,7 @@ export default function BankDepositsPage() {
         verify: "Deposit verified",
       }}
     />
+    <TConfirmDialog {...verifyDialog.dialogProps} />
     </>
   );
 }

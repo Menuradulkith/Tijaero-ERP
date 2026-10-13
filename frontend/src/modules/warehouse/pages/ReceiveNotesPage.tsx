@@ -64,6 +64,7 @@ interface ReceivedItem {
   productId: number;
   productName: string;
   barcode?: string;
+  isLot?: boolean;  // batch/none line: no barcode, received whole by item id
   expectedQuantity: number;
   receivedQuantity: number;
   scannedSerials: string[];
@@ -188,10 +189,12 @@ export default function ReceiveNotesPage() {
     mutationFn: async (data: {
       transferNoteId: number;
       barcodes: string[];
+      itemIds?: number[];
       notes: string;
     }) => {
       return receiveNotesApi.receiveItems(data.transferNoteId, {
         barcodes: data.barcodes,
+        item_ids: data.itemIds,
         received_note: data.notes,
       });
     },
@@ -261,8 +264,9 @@ export default function ReceiveNotesPage() {
       productId: item.product_id,
       productName: item.product_name || `Product #${item.product_id}`,
       barcode: item.barcode,
-      expectedQuantity: 1, // Each item represents 1 barcode
-      receivedQuantity: item.item_recieved ? 1 : 0,
+      isLot: !item.barcode && !!item.sales_stock_id,
+      expectedQuantity: item.quantity ?? 1, // 1 per barcode; the lot size for batch/none lines
+      receivedQuantity: item.item_recieved ? (item.quantity ?? 1) : 0,
       scannedSerials: item.item_recieved && item.barcode ? [item.barcode] : [],
       damageQuantity: 0,
       notes: "",
@@ -317,7 +321,13 @@ export default function ReceiveNotesPage() {
       setReceivedItems((prev) =>
         prev.map((item) =>
           item.transferItemId === transferItemId
-            ? { ...item, receivedQuantity: Math.max(0, Math.min(1, quantity)) }
+            ? {
+                ...item,
+                // Lots are received whole (all or nothing); barcode items are 0/1.
+                receivedQuantity: item.isLot
+                  ? (quantity > 0 ? item.expectedQuantity : 0)
+                  : Math.max(0, Math.min(1, quantity)),
+              }
             : item
         )
       );
@@ -364,10 +374,14 @@ export default function ReceiveNotesPage() {
     const receivedBarcodes = receivedItems
       .filter((item) => item.receivedQuantity > 0 && item.barcode)
       .map((item) => item.barcode as string);
+    const receivedLotIds = receivedItems
+      .filter((item) => item.isLot && item.receivedQuantity > 0)
+      .map((item) => item.transferItemId);
 
     receiveItemsMutation.mutate({
       transferNoteId: selectedITN.id,
       barcodes: receivedBarcodes,
+      itemIds: receivedLotIds,
       notes,
     });
   }, [selectedITN, receivedItems, notes, receiveItemsMutation]);

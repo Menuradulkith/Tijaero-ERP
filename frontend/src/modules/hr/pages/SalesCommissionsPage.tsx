@@ -78,6 +78,7 @@ import type {
   GenerateSalesSummaryRequest,
 } from "@/modules/hr/types";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -561,10 +562,10 @@ export default function SalesCommissionsPage() {
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
-                    {summary.gross_profit_margin?.toFixed(2)}%
+                    {summary.gross_profit_margin != null ? `${Number(summary.gross_profit_margin).toFixed(2)}%` : "—"}
                   </TableCell>
                   <TableCell>
-                    <TStatusChip status={summary.status} statusMap={statusConfig.statusMap} />
+                    <TStatusChip status={summary.status} statusMap={statusConfig.statusMap} fallbackLabel={statusConfig.label} />
                   </TableCell>
                   <TableCell align="center">
                     {summary.status === "draft" && (
@@ -693,7 +694,7 @@ export default function SalesCommissionsPage() {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <TStatusChip status={commission.status} statusMap={statusConfig.statusMap} />
+                    <TStatusChip status={commission.status} statusMap={statusConfig.statusMap} fallbackLabel={statusConfig.label} />
                   </TableCell>
                   <TableCell align="center">
                     {commission.status === "pending" && (
@@ -820,7 +821,7 @@ export default function SalesCommissionsPage() {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setGenerateDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setGenerateDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             onClick={handleGenerateSummary}
@@ -855,7 +856,7 @@ export default function SalesCommissionsPage() {
           </Alert>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCalcDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setCalcDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             onClick={handleCalculateCommissions}
@@ -883,7 +884,7 @@ export default function SalesCommissionsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setApproveDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setApproveDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="success"
@@ -917,7 +918,7 @@ export default function SalesCommissionsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             color="error"

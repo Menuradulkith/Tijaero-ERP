@@ -13,6 +13,7 @@ import {
   CircularProgress,
 } from '@mui/material';
 
+import CancelIcon from "@mui/icons-material/Cancel";
 interface TransferDialogProps {
   open: boolean;
   item: any;
@@ -184,7 +185,7 @@ export const TransferDialog: React.FC<TransferDialogProps> = ({
       </DialogContent>
 
       <DialogActions sx={{ p: 2 }}>
-        <Button onClick={handleClose} disabled={loading}>
+        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleClose} disabled={loading}>
           Cancel
         </Button>
         <Button

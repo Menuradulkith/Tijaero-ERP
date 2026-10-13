@@ -67,6 +67,7 @@ import type {
   CashFlowStatementStatus,
 } from "@/modules/finance/types";
 
+import CancelIcon from "@mui/icons-material/Cancel";
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const STATUS_FILTER_OPTIONS = [
@@ -688,7 +689,7 @@ export default function CashFlowStatementsPage() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setGenerateDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setGenerateDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
             onClick={() =>

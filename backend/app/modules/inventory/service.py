@@ -183,7 +183,7 @@ class SalesStockService:
         from app.modules.sales.models import Invoice, InvoiceItems
 
         status_q = self.db.query(
-            models.SalesStock.status, func.count(models.SalesStock.id)
+            models.SalesStock.status, func.coalesce(func.sum(models.SalesStock.quantity), 0)
         ).filter(models.SalesStock.status != StockStatus.RETURNED_NON_RESTOCKABLE)
         if branch_code:
             status_q = status_q.filter(models.SalesStock.branch_code == branch_code)
@@ -197,7 +197,7 @@ class SalesStockService:
         # "Sold today" is derived from invoices created today that reference a
         # stock item — SalesStock itself has no sold-date column.
         sold_q = (
-            self.db.query(func.count(func.distinct(InvoiceItems.sales_stock_id)))
+            self.db.query(func.coalesce(func.sum(InvoiceItems.quantity), 0))
             .join(Invoice, Invoice.id == InvoiceItems.invoice_id)
             .filter(
                 InvoiceItems.sales_stock_id.isnot(None),
@@ -283,6 +283,9 @@ class SalesStockService:
                 "id": item.id,
                 "product_id": item.product_id,
                 "barcode": item.barcode,
+                "quantity": item.quantity,
+                "batch_no": item.batch_no,
+                "expiry_date": item.expiry_date,
                 "branch_code": item.branch_code,
                 "location_id": item.location_id,
                 "good_received_note_id": item.good_received_note_id,
@@ -313,7 +316,7 @@ class SalesStockService:
         
         return result
     
-    def _resolve_reservation(self, purchasing_order_items_id: int) -> Optional[int]:
+    def _resolve_reservation(self, purchasing_order_items_id: int, quantity: int = 1) -> tuple:
         """
         If the given PO line traces back to a Sales Quotation item
         (PurchasingOrderItems.quote_item_id), and that quote item hasn't
@@ -324,6 +327,11 @@ class SalesStockService:
         (excess received units fall through to normal available stock —
         see business rule: a quotation only reserves what it actually
         requires).
+
+        Returns (quote_item_id, reservable_quantity): how many of the
+        `quantity` units being received are committed to the quotation
+        (always 0 or 1 for serial units; may be a partial lot for batch /
+        none stock). (None, 0) when nothing is reserved.
         """
         from app.modules.purchasing.models import PurchasingOrderItems
         from app.modules.sales.quotation_models import SalesQuoteItem
@@ -332,61 +340,182 @@ class SalesStockService:
             PurchasingOrderItems.id == purchasing_order_items_id
         ).first()
         if not po_item or not po_item.quote_item_id:
-            return None
+            return None, 0
 
         # Lock the quote item to serialise concurrent GRN postings against it.
         quote_item = self.db.query(SalesQuoteItem).filter(
             SalesQuoteItem.id == po_item.quote_item_id
         ).with_for_update().first()
         if not quote_item:
-            return None
+            return None, 0
 
-        already_reserved = self.db.query(func.count(models.SalesStock.id)).filter(
+        already_reserved = self.db.query(func.coalesce(func.sum(models.SalesStock.quantity), 0)).filter(
             models.SalesStock.reserved_for_quote_item_id == quote_item.id,
             models.SalesStock.status == StockStatus.RESERVED,
             models.SalesStock.is_active == True,
         ).scalar() or 0
 
-        if already_reserved >= quote_item.quantity:
-            return None  # Fully covered already — any more is excess/available
-        return quote_item.id
+        remaining = quote_item.quantity - already_reserved
+        if remaining <= 0:
+            return None, 0  # Fully covered already — any more is excess/available
+        return quote_item.id, min(quantity, remaining)
+
+    def _validate_receipt_consistency(self, item, tracking_type, barcode, batch_no) -> None:
+        """Stock may only be created for a unit that was actually received: the PO line
+        and GRN must exist and belong together, the product must match the PO line, the
+        unit must be in the GRN items and stocked units may not exceed the ordered qty."""
+        from app.modules.purchasing.models import (
+            GoodReceivedNote,
+            GoodReceivedItems,
+            PurchasingOrderItems,
+        )
+
+        po_item = self.db.query(PurchasingOrderItems).filter(
+            PurchasingOrderItems.id == item.purchasing_order_items_id
+        ).with_for_update().first()
+        if not po_item:
+            raise ValueError(f"Purchase order item {item.purchasing_order_items_id} not found")
+        if po_item.product_id != item.product_id:
+            raise ValueError(
+                f"Product {item.product_id} does not match the product of purchase order item "
+                f"{po_item.id} (product {po_item.product_id})."
+            )
+        grn = self.db.query(GoodReceivedNote).filter(
+            GoodReceivedNote.id == item.good_received_note_id
+        ).first()
+        if not grn:
+            raise ValueError(f"Goods received note {item.good_received_note_id} not found")
+        if grn.purchasingorders_id != po_item.purchasingorders_id:
+            raise ValueError(
+                f"Goods received note {grn.good_received_no} does not belong to the purchase order "
+                f"of purchase order item {po_item.id}."
+            )
+
+        grn_items = self.db.query(GoodReceivedItems).filter(
+            GoodReceivedItems.good_received_note == grn.good_received_no,
+            GoodReceivedItems.purchasing_order_items_id == po_item.id,
+            GoodReceivedItems.active.is_(True),
+        )
+        if tracking_type == "serial":
+            if not grn_items.filter(GoodReceivedItems.barcode == barcode).first():
+                raise ValueError(
+                    f"Barcode '{barcode}' is not a received unit of goods received note {grn.good_received_no} "
+                    f"for this purchase order item."
+                )
+        elif tracking_type == "batch":
+            if not grn_items.filter(GoodReceivedItems.batch_no == batch_no).first():
+                raise ValueError(
+                    f"Batch '{batch_no}' was not received on goods received note {grn.good_received_no} "
+                    f"for this purchase order item."
+                )
+        elif grn_items.first() is None:
+            raise ValueError(
+                f"Nothing was received on goods received note {grn.good_received_no} for this purchase order item."
+            )
+
+        already_stocked = self.db.query(func.coalesce(func.sum(models.SalesStock.quantity), 0)).filter(
+            models.SalesStock.purchasing_order_items_id == po_item.id,
+            models.SalesStock.is_active.is_(True),
+            models.SalesStock.status != StockStatus.RETURNED_NON_RESTOCKABLE,
+        ).scalar() or 0
+        from app.modules.products.models import Product
+        from app.modules.purchasing.receipt_rules import receipt_limits
+
+        over_pct = self.db.query(Product.over_receipt_tolerance_pct).filter(Product.id == po_item.product_id).scalar() or 0
+        max_receivable, _ = receipt_limits(po_item.quantity, over_pct, 0)
+        if already_stocked + item.quantity > max_receivable:
+            raise ValueError(
+                f"Cannot stock {item.quantity} more unit(s): {already_stocked} of {max_receivable} "
+                f"receivable units for this purchase order item are already in stock."
+            )
 
     def create(self, item: schemas.SalesStockCreate) -> models.SalesStock:
-        # Check if barcode already exists (prevent duplicates)
-        existing = self.get_by_barcode(item.barcode)
-        if existing:
-            raise ValueError(f"Barcode '{item.barcode}' already exists in sales stock")
+        try:
+            rows = self.create_in_txn(item)
+            self.db.commit()
+            self.db.refresh(rows[0])
+            return rows[0]
+        except IntegrityError:
+            self.db.rollback()
+            raise ValueError(f"Barcode '{(item.barcode or '').strip()}' already exists in sales stock")
 
-        resolved_status = item.status
-        reserved_for_quote_item_id = None
+    def create_in_txn(self, item: schemas.SalesStockCreate, check_duplicates: bool = True, trusted: bool = False) -> list:
+        """Validate and add the stock row(s) for a received unit/lot WITHOUT committing,
+        so a caller (e.g. an atomic GRN receipt) can commit or roll back as one unit.
+        Returns the rows (two when a lot is partly reserved for a quotation)."""
+        from app.modules.products.models import Product
+
+        tracking_type = self.db.query(Product.tracking_type).filter(
+            Product.id == item.product_id
+        ).scalar() or "serial"
+        barcode = (item.barcode or "").strip() or None
+        batch_no = (item.batch_no or "").strip() or None
+
+        # Shape rules per tracking type (see app.common.enums.TrackingType).
+        if tracking_type == "serial":
+            if not barcode:
+                raise ValueError("A barcode is required for serial-tracked products.")
+            if item.quantity != 1:
+                raise ValueError("Serial-tracked products are stocked one unit per barcode.")
+            if batch_no or item.expiry_date:
+                raise ValueError("Batch details are not allowed for serial-tracked products.")
+        else:
+            if barcode:
+                raise ValueError(f"Barcodes are not used for '{tracking_type}'-tracked products.")
+            if item.quantity < 1:
+                raise ValueError("Quantity must be at least 1.")
+            if tracking_type == "batch":
+                if not batch_no:
+                    raise ValueError("A batch number is required for batch-tracked products.")
+            elif batch_no or item.expiry_date:
+                raise ValueError("Batch details are not allowed for products without tracking.")
+
+        if not trusted:  # an atomic GRN receipt has already validated the line against its PO/GRN
+            self._validate_receipt_consistency(item, tracking_type, barcode, batch_no)
+
+        if barcode and check_duplicates:
+            # Check if barcode already exists (prevent duplicates)
+            existing = self.get_by_barcode(barcode)
+            if existing:
+                raise ValueError(f"Barcode '{barcode}' already exists in sales stock")
+
         # Only auto-reserve units that would otherwise land as plain
         # available stock — never override an explicit non-available status
         # (e.g. damaged) chosen for this unit.
+        reserved_quote_item_id, reserved_qty = None, 0
         if item.status == StockStatus.AVAILABLE:
-            reserved_for_quote_item_id = self._resolve_reservation(item.purchasing_order_items_id)
-            if reserved_for_quote_item_id is not None:
-                resolved_status = StockStatus.RESERVED
+            reserved_quote_item_id, reserved_qty = self._resolve_reservation(
+                item.purchasing_order_items_id, item.quantity
+            )
 
-        db_item = models.SalesStock(
-            product_id=item.product_id,
-            barcode=item.barcode,
-            branch_code=item.branch_code,
-            location_id=item.location_id,
-            good_received_note_id=item.good_received_note_id,
-            purchasing_order_items_id=item.purchasing_order_items_id,
-            warranty_month=item.warranty_month,
-            status=resolved_status,
-            reserved_for_quote_item_id=reserved_for_quote_item_id,
-            added_date=tz.now()
-        )
-        try:
-            self.db.add(db_item)
-            self.db.commit()
-            self.db.refresh(db_item)
-            return db_item
-        except IntegrityError:
-            self.db.rollback()
-            raise ValueError(f"Barcode '{item.barcode}' already exists in sales stock")
+        def _row(quantity: int, status, quote_item_id):
+            return models.SalesStock(
+                product_id=item.product_id,
+                barcode=barcode,
+                quantity=quantity,
+                batch_no=batch_no,
+                expiry_date=item.expiry_date,
+                branch_code=item.branch_code,
+                location_id=item.location_id,
+                good_received_note_id=item.good_received_note_id,
+                purchasing_order_items_id=item.purchasing_order_items_id,
+                warranty_month=item.warranty_month,
+                status=status,
+                reserved_for_quote_item_id=quote_item_id,
+                added_date=tz.now(),
+            )
+
+        rows = []
+        if reserved_qty > 0:
+            rows.append(_row(reserved_qty, StockStatus.RESERVED, reserved_quote_item_id))
+        if item.quantity - reserved_qty > 0:
+            # Lot partly (or not at all) covered by the quotation: the rest
+            # is plain available stock. Serial units never split (qty 1).
+            rows.append(_row(item.quantity - reserved_qty, item.status, None))
+
+        self.db.add_all(rows)
+        self.db.flush()
+        return rows
 
     def release_reservation_for_quote_item(
         self, quote_item_id: int, user_id: Optional[int] = None
@@ -412,13 +541,15 @@ class SalesStockService:
                 action="release_reservation",
                 entity_type="sales_stock",
                 entity_id=quote_item_id,
-                changes={"quote_item_id": quote_item_id, "units_released": len(rows)},
+                changes={"quote_item_id": quote_item_id, "units_released": sum(r.quantity for r in rows)},
             )
             self.db.commit()
-        return len(rows)
+        return sum(r.quantity for r in rows)
     
     def barcode_exists(self, barcode: str) -> bool:
         """Check if barcode already exists in sales_stock table"""
+        if not barcode:
+            return False
         return self.db.query(models.SalesStock).filter(
             models.SalesStock.barcode == barcode
         ).first() is not None
@@ -587,7 +718,7 @@ class SalesStockService:
             InvoiceItems.sales_stock_id == stock_id
         ).all()
         # Also match by barcode if sales_stock_id is not set
-        if not sold_invoice_items:
+        if not sold_invoice_items and item.barcode:
             sold_invoice_items = self.db.query(InvoiceItems).filter(
                 InvoiceItems.barcode == item.barcode
             ).all()
@@ -623,7 +754,7 @@ class SalesStockService:
         return_items = self.db.query(SaleReturnItems).filter(
             SaleReturnItems.sales_stock_id == stock_id
         ).all()
-        if not return_items:
+        if not return_items and item.barcode:
             return_items = self.db.query(SaleReturnItems).filter(
                 SaleReturnItems.barcode == item.barcode
             ).all()
@@ -661,7 +792,7 @@ class SalesStockService:
         pr_items = self.db.query(PurchasingReturnItems).filter(
             PurchasingReturnItems.sales_stock_id == stock_id
         ).all()
-        if not pr_items:
+        if not pr_items and item.barcode:
             pr_items = self.db.query(PurchasingReturnItems).filter(
                 PurchasingReturnItems.barcode == item.barcode
             ).all()
@@ -696,7 +827,7 @@ class SalesStockService:
         # 5. Transfers (ITN)
         itn_items = self.db.query(ItemTransferNoteItems).filter(
             ItemTransferNoteItems.barcode == item.barcode
-        ).all()
+        ).all() if item.barcode else []
 
         # Batch-load transfer notes and all referenced locations in one pass each
         itn_ids = {t.itemtransfernote_id for t in itn_items if t.itemtransfernote_id}

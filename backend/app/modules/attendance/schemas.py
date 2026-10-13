@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -24,35 +24,6 @@ class AttendanceBase(BaseModel):
     early_mins: int = 0
     absent_mins: int = 0
     leave_mins: int = 0
-
-
-class AttendanceCreate(AttendanceBase):
-    pass
-
-
-class AttendanceUpdate(BaseModel):
-    check_in: Optional[time] = None
-    check_out: Optional[time] = None
-    work_mins: Optional[int] = None
-    ot_mins: Optional[int] = None
-    full_attended_mins: Optional[int] = None
-    late_mins: Optional[int] = None
-    early_mins: Optional[int] = None
-    absent_mins: Optional[int] = None
-    leave_mins: Optional[int] = None
-
-
-class AttendanceCheckIn(BaseModel):
-    employee_id: str
-    branch_code: str
-    check_in: Optional[time] = None  # default = now
-    date: Optional[date] = None  # default = today
-
-
-class AttendanceCheckOut(BaseModel):
-    employee_id: str
-    check_out: Optional[time] = None  # default = now
-    date: Optional[date] = None  # default = today
 
 
 class Attendance(AttendanceBase, TijaeroBaseSchema):
@@ -86,7 +57,7 @@ class AttendanceSummary(BaseModel):
 # ─── Leaves ────────────────────────────────────────────────────────────────────
 class LeaveBase(BaseModel):
     employee_id: str
-    leave_type: str = Field(..., description="annual | casual | medical | unpaid | other")
+    leave_type: str = Field(..., min_length=1, max_length=30, description="a leave type code (see /hr/leave-types)")
     from_date: date
     to_date: date
     leave_reason: str
@@ -100,27 +71,6 @@ class LeaveBase(BaseModel):
         if from_d and v < from_d:
             raise ValueError("to_date must be on or after from_date")
         return v
-
-
-class LeaveCreate(LeaveBase):
-    pass
-
-
-class LeaveUpdate(BaseModel):
-    leave_type: Optional[str] = None
-    from_date: Optional[date] = None
-    to_date: Optional[date] = None
-    leave_reason: Optional[str] = None
-    leave_duration: Optional[float] = None
-    leave_time: Optional[str] = None
-
-
-class LeaveApprove(BaseModel):
-    remarks: Optional[str] = None
-
-
-class LeaveReject(BaseModel):
-    rejection_reason: str
 
 
 class Leave(LeaveBase, TijaeroBaseSchema):
@@ -157,3 +107,129 @@ class LeaveBalance(BaseModel):
     medical_used: float
     medical_remaining: float
     year: int
+    types: List[dict] = []
+
+
+# ─── Strict inputs ─────────────────────────────────────────────────────────────
+from datetime import timedelta  # noqa: E402
+from typing import Annotated, Literal  # noqa: E402
+
+from pydantic import StringConstraints, model_validator  # noqa: E402
+
+_Code = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
+_Branch = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
+_Mins = Annotated[int, Field(ge=0, le=1440)]
+LeaveTime = Literal["FULL DAY", "FULL_DAY", "full_day", "Full Day", "MORNING", "AFTERNOON", "first_half", "second_half", "FIRST HALF", "SECOND HALF"]
+
+
+def _att_date(v: date) -> date:
+    today = date.today()
+    if v > today:
+        raise ValueError("Attendance cannot be recorded for a future date")
+    if v < today - timedelta(days=400):
+        raise ValueError("Attendance older than 400 days cannot be recorded here")
+    return v
+
+
+def _times_ok(ci, co):
+    if ci and co and co <= ci:
+        raise ValueError("Check-out must be after check-in")
+
+
+class AttendanceCreate(BaseModel):
+    employee_id: _Code
+    branch_code: _Branch
+    date: date
+    check_in: Optional[time] = None
+    check_out: Optional[time] = None
+    leave_mins: _Mins = 0
+    absent_mins: _Mins = 0
+
+    _d = field_validator("date")(_att_date)
+
+    @model_validator(mode="after")
+    def _t(self):
+        _times_ok(self.check_in, self.check_out)
+        if self.check_out and not self.check_in:
+            raise ValueError("Check-out needs a check-in")
+        return self
+
+
+class AttendanceUpdate(BaseModel):
+    check_in: Optional[time] = None
+    check_out: Optional[time] = None
+    leave_mins: Optional[_Mins] = None
+    absent_mins: Optional[_Mins] = None
+
+    @model_validator(mode="after")
+    def _t(self):
+        _times_ok(self.check_in, self.check_out)
+        return self
+
+
+class AttendanceCheckIn(BaseModel):
+    employee_id: _Code
+    branch_code: _Branch
+    check_in: Optional[time] = None
+    date: Optional[date] = None
+
+    @field_validator("date")
+    @classmethod
+    def _d(cls, v):
+        return _att_date(v) if v else v
+
+
+class AttendanceCheckOut(BaseModel):
+    employee_id: _Code
+    check_out: Optional[time] = None
+    date: Optional[date] = None
+
+    @field_validator("date")
+    @classmethod
+    def _d(cls, v):
+        return _att_date(v) if v else v
+
+
+_Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+_LeaveCode = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30)]
+
+
+class LeaveCreate(BaseModel):
+    employee_id: _Code
+    leave_type: _LeaveCode
+    from_date: date
+    to_date: date
+    leave_reason: _Reason
+    leave_duration: float = Field(..., gt=0, le=366, description="Number of leave days, supports half day (0.5)")
+    leave_time: LeaveTime = "FULL DAY"
+
+    @field_validator("from_date", "to_date")
+    @classmethod
+    def _window(cls, v):
+        today = date.today()
+        if v < today - timedelta(days=400) or v > today + timedelta(days=800):
+            raise ValueError("Leave date is out of the allowed range")
+        return v
+
+    @model_validator(mode="after")
+    def _order(self):
+        if self.to_date < self.from_date:
+            raise ValueError("to_date must be on or after from_date")
+        return self
+
+
+class LeaveUpdate(BaseModel):
+    leave_type: Optional[_LeaveCode] = None
+    from_date: Optional[date] = None
+    to_date: Optional[date] = None
+    leave_reason: Optional[_Reason] = None
+    leave_duration: Optional[float] = Field(default=None, gt=0, le=366)
+    leave_time: Optional[LeaveTime] = None
+
+
+class LeaveApprove(BaseModel):
+    remarks: Optional[Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]] = None
+
+
+class LeaveReject(BaseModel):
+    rejection_reason: _Reason

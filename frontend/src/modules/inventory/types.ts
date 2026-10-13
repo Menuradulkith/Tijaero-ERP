@@ -81,6 +81,9 @@ export interface Product {
   model?: string;
   item_type: string;
   unit_of_measure: string;
+  tracking_type: "serial" | "batch" | "none";
+  over_receipt_tolerance_pct?: number;  // % a PO line may be over-received
+  under_receipt_tolerance_pct?: number;  // % short at which a PO line counts as fully received
   description?: string;
   website_active: boolean;
   website_price?: number;
@@ -159,6 +162,9 @@ export interface ProductCreate {
   model?: string;
   item_type: string;
   unit_of_measure?: string;
+  tracking_type?: string;
+  over_receipt_tolerance_pct?: number;
+  under_receipt_tolerance_pct?: number;
   description?: string;
   website_active?: boolean;
   website_price?: number;
@@ -177,6 +183,9 @@ export interface ProductUpdate {
   model?: string;
   item_type?: string;
   unit_of_measure?: string;
+  tracking_type?: string;
+  over_receipt_tolerance_pct?: number;
+  under_receipt_tolerance_pct?: number;
   description?: string;
   website_active?: boolean;
   website_price?: number;
@@ -230,12 +239,16 @@ export type SalesStockStatus =
   | "transferred"
   | "transfer_pending"
   | "in_transit"
-  | "damaged";
+  | "damaged"
+  | "cancelled";
 
 export interface SalesStock {
   id: number;
   product_id: number;
-  barcode: string;
+  barcode?: string | null;  // null for batch/none-tracked lots
+  quantity: number;  // units this row represents (1 for serial)
+  batch_no?: string | null;
+  expiry_date?: string | null;
   branch_code: string;
   location_id?: number;  // Current physical location (good_received_locations)
   good_received_note_id: number;
@@ -258,7 +271,10 @@ export interface SalesStock {
 
 export interface SalesStockCreate {
   product_id: number;
-  barcode: string;
+  barcode?: string;  // required for serial-tracked products only
+  quantity?: number;  // defaults to 1; the lot size for batch/none products
+  batch_no?: string;
+  expiry_date?: string;
   branch_code: string;
   location_id?: number;  // good_received_locations_id from GRN
   good_received_note_id: number;

@@ -7,7 +7,7 @@ from app.auth.dependencies import (
     validate_branch_access,
 )
 from app.auth.models import User
-from app.auth.rbac import Permissions, require_any_permission, require_permission
+from app.auth.rbac import Permissions, require_any_permission, require_permission, user_has_permission
 from app.common.audit import AuditLog
 from app.db.session import get_db
 from typing import Annotated, Literal
@@ -716,7 +716,7 @@ def create_purchase_order(
         action_url="/purchasing/orders",
         exclude_user_id=current_user.id,
     )
-    return created
+    return _enrich_single_purchase_order_with_user_fields(db, created)
 
 
 @router.post(
@@ -991,9 +991,9 @@ def check_po_credit(
     dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
 )
 def check_grn_credit(
-    supplier_id: int = Query(..., description="Supplier ID"),
-    grn_value: float = Query(..., description="Total GRN value"),
-    po_id: Optional[int] = Query(None, description="Purchase Order ID"),
+    supplier_id: int = Query(..., ge=1, le=2_147_483_647, description="Supplier ID"),
+    grn_value: float = Query(..., ge=0, le=1e12, allow_inf_nan=False, description="Total GRN value"),
+    po_id: Optional[int] = Query(None, ge=1, le=2_147_483_647, description="Purchase Order ID"),
     allow_override: bool = Query(False, description="Allow override if over limit"),
     db: Session = Depends(get_db),
 ):
@@ -1023,6 +1023,21 @@ def get_supplier_orders(
     )
     orders = order_service.list_orders(filters)
     return _enrich_purchase_orders_with_user_fields(db, orders)
+
+
+@router.post(
+    "/returns/validate-lot",
+    response_model=schemas.LotReturnValidationResponse,
+    dependencies=[Depends(require_permission(*Permissions.PURCHASE_RETURN_VIEW))],
+)
+def validate_lot_for_return(
+    request: schemas.LotReturnValidationRequest, db: Session = Depends(get_db)
+):
+    """Check that `quantity` units of a batch/none stock lot can go back to the supplier."""
+    response, _ = service.PurchasingReturnService(db).validate_lot_for_return(
+        request.grn_id, request.sales_stock_id, request.quantity
+    )
+    return response
 
 
 @router.post(
@@ -1092,6 +1107,7 @@ def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
             "purchasing_price": item.purchasing_price,
             "return_price": item.return_price,
             "barcode": item.barcode,
+            "quantity": item.quantity,
             "purchasingreturn_id": item.purchasingreturn_id,
             "branch_code": item.branch_code,
             "added_date": item.added_date,
@@ -1180,6 +1196,137 @@ def create_grn(
     return created
 
 
+@router.post(
+    "/grn/receive",
+    response_model=schemas.GoodReceivedNoteReceiveResult,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_CREATE))],
+)
+def receive_grn(
+    payload: schemas.GoodReceivedNoteReceive,
+    allow_credit_override: bool = Query(
+        False, description="Allow the receipt although the credit limit is exceeded (needs the override permission)"
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.GRN_CREATE)),
+):
+    """Post a whole receipt (header + accepted lines + rejected quantities) atomically."""
+    if not validate_branch_access(current_user, payload.branch_code):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {payload.branch_code}"
+        )
+    if allow_credit_override and not user_has_permission(current_user, "purchasing", "credit_override"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="You are not allowed to override the supplier credit limit."
+        )
+    result = service.GoodReceivedNoteService(db).receive(
+        payload, created_by=current_user.id, allow_credit_override=allow_credit_override
+    )
+    grn = result["grn"]
+
+    from app.modules.notifications import dispatcher as notify
+
+    notify.branch(
+        grn.branch_code,
+        title="Goods Received",
+        message=f"GRN {grn.good_received_no} was received into stock.",
+        notification_type=notify.INFO,
+        category=notify.PURCHASING,
+        action_url="/purchasing/grn",
+        exclude_user_id=current_user.id,
+    )
+    return {"grn": grn, "units_received": result["units_received"], "units_rejected": result["units_rejected"]}
+
+
+@router.post(
+    "/grn/{grn_id}/cancel",
+    response_model=schemas.GoodReceivedNote,
+    dependencies=[Depends(require_permission(*Permissions.GRN_DELETE))],
+)
+def cancel_grn(
+    grn_id: int,
+    request: schemas.GRNCancelRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Reverse a posted GRN (reason required). Refused when received stock has moved on."""
+    grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
+    if grn and not validate_branch_access(current_user, grn.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {grn.branch_code}")
+    return service.GoodReceivedNoteService(db).cancel(grn_id, request.reason.strip(), current_user.id)
+
+
+def _grn_for_branch_check(db: Session, current_user: User, grn_id: int) -> None:
+    grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
+    if grn and not validate_branch_access(current_user, grn.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {grn.branch_code}")
+
+
+@router.get(
+    "/grn/{grn_id}/landed-costs",
+    response_model=schemas.LandedCostSummary,
+    dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
+)
+def get_grn_landed_costs(grn_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Landed cost vouchers of a GRN and each line's landed unit cost."""
+    from .landed_cost_service import LandedCostService
+
+    _grn_for_branch_check(db, current_user, grn_id)
+    return LandedCostService(db).summary(grn_id)
+
+
+@router.post(
+    "/grn/{grn_id}/landed-costs",
+    response_model=schemas.LandedCostVoucherOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(*Permissions.GRN_UPDATE))],
+)
+def add_grn_landed_cost(
+    grn_id: int,
+    data: schemas.LandedCostCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Allocate freight / duty / insurance across the GRN's lines (and post it to the GL)."""
+    from .landed_cost_service import LandedCostService
+
+    _grn_for_branch_check(db, current_user, grn_id)
+    service_ = LandedCostService(db)
+    voucher = service_.create(grn_id, data, current_user.id)
+    return next(v for v in service_.summary(grn_id)["vouchers"] if v["id"] == voucher.id)
+
+
+@router.post(
+    "/landed-costs/{voucher_id}/cancel",
+    response_model=schemas.LandedCostVoucherOut,
+    dependencies=[Depends(require_permission(*Permissions.GRN_UPDATE))],
+)
+def cancel_landed_cost(
+    voucher_id: int,
+    request: schemas.GRNCancelRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from .landed_cost_service import LandedCostService
+    from .models import LandedCostVoucher
+
+    row = db.query(LandedCostVoucher).filter(LandedCostVoucher.id == voucher_id).first()
+    if row:
+        _grn_for_branch_check(db, current_user, row.good_received_note_id)
+    service_ = LandedCostService(db)
+    voucher = service_.cancel(voucher_id, request.reason.strip(), current_user.id)
+    return next(v for v in service_.summary(voucher.good_received_note_id)["vouchers"] if v["id"] == voucher.id)
+
+
+@router.get(
+    "/grn/{grn_id}/rejections",
+    response_model=List[schemas.GoodReceivedRejectionOut],
+    dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
+)
+def list_grn_rejections(grn_id: int, db: Session = Depends(get_db)):
+    return service.GoodReceivedNoteService(db).list_rejections(grn_id)
+
+
 @router.get(
     "/grn/{grn_id}",
     response_model=schemas.GoodReceivedNote,
@@ -1216,6 +1363,9 @@ def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
         results.append({
             "id": s.id,
             "barcode": s.barcode,
+            "quantity": s.quantity,
+            "batch_no": s.batch_no,
+            "expiry_date": s.expiry_date,
             "branch_code": s.branch_code,
             "active": s.status == "available",
             "good_received_note": grn.good_received_no,
@@ -1228,13 +1378,14 @@ def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
             "added_date": s.added_date,
             "created_date": s.added_date,
         })
-        seen_barcodes.add(s.barcode)
+        if s.barcode:
+            seen_barcodes.add(s.barcode)
 
     # Company asset items (skip barcodes already in sales stock)
     asset_items = db.query(CompanyAssets).filter(CompanyAssets.good_received_note_id == grn_id).all()
     for a in asset_items:
         product_name = a.product.name if a.product else a.item
-        if a.barcode in seen_barcodes:
+        if a.barcode and a.barcode in seen_barcodes:
             # Already listed under sales stock; add company-asset flag to existing entry
             for r in results:
                 if r["barcode"] == a.barcode:
@@ -1243,6 +1394,9 @@ def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
         results.append({
             "id": a.id,
             "barcode": a.barcode or "",
+            "quantity": 1,
+            "batch_no": None,
+            "expiry_date": None,
             "branch_code": a.branch_code,
             "active": a.status == "available",
             "good_received_note": grn.good_received_no,
@@ -1336,6 +1490,20 @@ def create_grn_item(
         return grn_service.create_item(item)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/grn-items/generate-barcodes",
+    response_model=schemas.GenerateBarcodesResponse,
+    dependencies=[Depends(require_permission(*Permissions.GRN_CREATE))],
+)
+def generate_grn_barcodes(
+    request: schemas.GenerateBarcodesRequest, db: Session = Depends(get_db)
+):
+    """Generate unique barcodes for serial-tracked units that arrived without
+    a manufacturer barcode/serial (print them as labels)."""
+    grn_service = service.GoodReceivedNoteService(db)
+    return {"barcodes": grn_service.generate_barcodes(request.count, request.prefix)}
 
 
 @router.get(
@@ -1556,16 +1724,35 @@ def get_outstanding_documents(
     "/suppliers/{supplier_id}/aging-report",
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
 )
-def get_supplier_aging_report(supplier_id: RowId, db: Session = Depends(get_db)):
-    return supplier_credit_service.get_aging_report(db, supplier_id)
+def get_supplier_aging_report(
+    supplier_id: RowId,
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    return supplier_credit_service.get_aging_report(db, supplier_id, branch_codes=user_branches)
+
+
+def _aging_branch_scope(branch_code: Optional[str], user_branches: Optional[List[str]]) -> Optional[List[str]]:
+    """Effective branch list for payables reports (None = all branches)."""
+    if branch_code:
+        if user_branches is not None and branch_code not in user_branches:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
+        return [branch_code]
+    return user_branches
 
 
 @router.get(
     "/reports/payables-aging",
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
 )
-def get_all_suppliers_aging_report(db: Session = Depends(get_db)):
-    return supplier_credit_service.get_aging_report(db)
+def get_all_suppliers_aging_report(
+    branch_code: Optional[str] = Query(None, max_length=200, description="Filter by branch"),
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    return supplier_credit_service.get_aging_report(
+        db, branch_codes=_aging_branch_scope(branch_code, user_branches)
+    )
 
 
 @router.get(
@@ -2030,18 +2217,20 @@ import io
 
 from fastapi.responses import StreamingResponse
 
+from app.utils.csv_export import csv_safe
+
 
 @router.get(
     "/export-csv",
     summary="Export Purchase Orders to CSV",
 )
 def export_po_csv(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100000),
+    skip: int = Query(0, ge=0, le=2_147_483_647),
+    limit: int = Query(100000, ge=1, le=100000),
     branch_codes: Optional[List[str]] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
-    supplier_id: Optional[int] = Query(None),
-    search: Optional[str] = Query(None),
+    supplier_id: Optional[int] = Query(None, ge=1, le=2_147_483_647),
+    search: Optional[str] = Query(None, max_length=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW)),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -2097,12 +2286,12 @@ def export_po_csv(
         )
         writer.writerow(
             [
-                order.purchasing_order_no or "",
+                csv_safe(order.purchasing_order_no or ""),
                 order.purchasing_order_date or "",
-                order.branch_code or "",
-                order.payment_method or "",
-                order.status or "",
-                order.remarks or "",
+                csv_safe(order.branch_code or ""),
+                csv_safe(order.payment_method or ""),
+                csv_safe(order.status or ""),
+                csv_safe(order.remarks or ""),
                 total_amount,
                 paid_amount,
                 (

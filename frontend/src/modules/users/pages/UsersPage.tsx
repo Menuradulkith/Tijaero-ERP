@@ -99,7 +99,7 @@ const INITIAL_FORM_DATA: Partial<UserCreate> = {
 
 const resetFormFromUser = (user: UserList): Partial<UserCreate> => ({
   username: user.username,
-  email: user.email,
+  email: user.email || "",
   first_name: user.first_name,
   middle_name: user.middle_name || "",
   last_name: user.last_name,
@@ -952,8 +952,8 @@ export default function UsersPage() {
                 renderInput={(params) => (
                   <TextField {...params} label="Branches" placeholder="Search branches..." size="small" required={!formData.branch_ids?.length} />
                 )}
-                renderOption={(props, option, { selected }) => (
-                  <li {...props}>
+                renderOption={({ key, ...props }, option, { selected }) => (
+                  <li key={key} {...props}>
                     <Checkbox checked={selected} sx={{ mr: 1 }} size="small" />
                     {option.branch_name}
                   </li>
@@ -982,8 +982,8 @@ export default function UsersPage() {
                 renderInput={(params) => (
                   <TextField {...params} label="Roles" placeholder="Search roles..." size="small" required={!formData.group_ids?.length} />
                 )}
-                renderOption={(props, option, { selected }) => (
-                  <li {...props}>
+                renderOption={({ key, ...props }, option, { selected }) => (
+                  <li key={key} {...props}>
                     <Checkbox checked={selected} sx={{ mr: 1 }} size="small" />
                     {option.name}
                   </li>

@@ -420,7 +420,7 @@ def _t_stock_summary(db: Session, user: User, args: Dict) -> Any:
             SalesStock.product_id,
             SalesStock.branch_code,
             SalesStock.status,
-            func.count(SalesStock.id),
+            func.coalesce(func.sum(SalesStock.quantity), 0),
         )
         .filter(SalesStock.status != StockStatus.RETURNED_NON_RESTOCKABLE)
     )

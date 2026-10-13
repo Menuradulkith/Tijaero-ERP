@@ -269,6 +269,13 @@ export const PRODUCT_ITEM_TYPE = [
   { value: 'service', label: 'Service' },
 ] as const;
 
+// How a product's stock is tracked (mirrors Odoo/ERPNext/SAP item tracking).
+export const PRODUCT_TRACKING_TYPE = [
+  { value: 'serial', label: 'Serial (unique barcode per unit)' },
+  { value: 'batch', label: 'Batch / Lot (batch no + expiry)' },
+  { value: 'none', label: 'None (quantity only)' },
+] as const;
+
 // Standard ERP units of measure (mirrors the common Odoo/SAP default set).
 export const PRODUCT_UOM = [
   { value: 'pcs', label: 'Piece(s)' },
@@ -400,6 +407,7 @@ export type CardType = typeof CARD_TYPE[number]['value'];
 export type ExpensesMethod = typeof EXPENSES_METHOD[number]['value'];
 export type ProductItemType = typeof PRODUCT_ITEM_TYPE[number]['value'];
 export type ProductUom = typeof PRODUCT_UOM[number]['value'];
+export type ProductTrackingType = typeof PRODUCT_TRACKING_TYPE[number]['value'];
 export type SupplierTaxArea = typeof SUPPLIER_TAX_AREA[number]['value'];
 export type SupplierPaymentTermDays = typeof SUPPLIER_PAYMENT_TERMS[number]['value'];
 export type SupplierSavedPaymentMethodType = typeof SUPPLIER_SAVED_PAYMENT_METHOD_TYPE[number]['value'];

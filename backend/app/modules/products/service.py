@@ -252,6 +252,20 @@ class ProductService:
                     detail=f"Product with name '{product.name}' already exists"
                 )
 
+        # Tracking type decides how stock rows are shaped (one row per serial
+        # unit vs. one row per lot), so it can't change once stock exists.
+        if product.tracking_type is not None and product.tracking_type != curr_product.tracking_type:
+            from app.modules.inventory.models import SalesStock, CompanyAssets
+            has_stock = (
+                db.query(SalesStock.id).filter(SalesStock.product_id == product_id).first()
+                or db.query(CompanyAssets.id).filter(CompanyAssets.product_id == product_id).first()
+            )
+            if has_stock:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Tracking type cannot be changed because this product already has stock records.",
+                )
+
         new_cost_price = product.cost_price if product.cost_price is not None else curr_product.cost_price
         new_selling_price = product.selling_price if product.selling_price is not None else curr_product.selling_price
         new_website_price = product.website_price if product.website_price is not None else curr_product.website_price

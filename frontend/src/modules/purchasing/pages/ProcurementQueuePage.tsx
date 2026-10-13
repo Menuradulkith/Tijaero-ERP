@@ -35,7 +35,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -87,6 +87,8 @@ interface SupplierSettings {
 
 const groupKey = (supplierId: number, quoteId: number) => `${supplierId}:${quoteId}`;
 const todayIso = () => new Date().toISOString().split("T")[0];
+import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
+import { addWorkingDays } from "@/modules/purchasing/utils/workingDays";
 
 export default function ProcurementQueuePage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
@@ -150,7 +152,13 @@ export default function ProcurementQueuePage() {
     }));
   }, [queue]);
 
+  // Expected delivery = order date + the supplier's lead time in working days
+  // (same estimate as the PO wizard); falls back to the computed average, then
+  // to the order date.
   const computeDefaultDeliveryDate = (supplier: Supplier | undefined, orderDate: string) => {
+    if (supplier?.lead_time_days && supplier.lead_time_days > 0) {
+      return addWorkingDays(orderDate, supplier.lead_time_days);
+    }
     if (supplier?.average_lead_time_days == null) return orderDate;
     const base = new Date(`${orderDate}T00:00:00`);
     base.setDate(base.getDate() + Math.round(supplier.average_lead_time_days));
@@ -242,6 +250,38 @@ export default function ProcurementQueuePage() {
     return true;
   };
 
+  // Ordering below a supplier's MOQ is allowed, but the user is told first.
+  const runMoqChecks = async (targets: { supplierId: number; group: QuoteSubGroup }[]): Promise<boolean> => {
+    try {
+      const messages: string[] = [];
+      for (const { supplierId, group } of targets) {
+        const items = group.lines
+          .filter((l) => effectiveQty(l) > 0)
+          .map((l) => ({ product_id: l.product_id, quantity: effectiveQty(l) }));
+        const shortfalls = await findMoqShortfalls(supplierId, items, (id) =>
+          queryClient.fetchQuery({ queryKey: ["supplier-products", id], queryFn: () => suppliersApi.getProducts(id) }),
+        );
+        if (shortfalls.length > 0) {
+          messages.push(`Quotation ${group.quoteNo}\n${formatMoqMessage(getSupplier(supplierId)?.company_name || "Unknown", shortfalls)}`);
+        }
+      }
+      if (messages.length === 0) return true;
+      return await creditWarningDialog.confirm({
+        title: "Below Minimum Order Quantity",
+        message: messages.join("\n\n"),
+        confirmText: "Continue Anyway",
+        cancelText: "Go Back",
+        confirmColor: "warning",
+      });
+    } catch {
+      // MOQ is advisory; never block the order because the lookup failed.
+      return true;
+    }
+  };
+
+  // One create burst at a time: a double-click must not create the PO twice.
+  const createInFlightRef = useRef(false);
+
   const afterCreate = (createdOrders: { purchasing_order_no: string }[], keysCreated: string[]) => {
     setSelectedKeys((prev) => {
       const next = new Set(prev);
@@ -275,15 +315,19 @@ export default function ProcurementQueuePage() {
       showErrorToast(`Set the Order Date, Expected Delivery Date and Payment Terms for ${getSupplier(supplierId)?.company_name || "this supplier"} before creating its PO.`);
       return;
     }
+    if (createInFlightRef.current) return;
+    createInFlightRef.current = true;
     const key = groupKey(supplierId, group.quoteId);
     setCreatingKey(key);
     try {
+      if (!(await runMoqChecks([{ supplierId, group }]))) return;
       if (!(await runCreditChecks([{ supplierId, group }]))) return;
       const result = await purchaseOrdersApi.createBatch({ groups: [buildOrderPayload(supplierId, group)] });
       afterCreate(result.orders, [key]);
     } catch (err: any) {
       showErrorToast(err?.response?.data?.detail || "Failed to create purchase order");
     } finally {
+      createInFlightRef.current = false;
       setCreatingKey(null);
     }
   };
@@ -296,8 +340,11 @@ export default function ProcurementQueuePage() {
       showErrorToast(`Set the Order Date, Expected Delivery Date and Payment Terms for: ${names}`);
       return;
     }
+    if (createInFlightRef.current) return;
+    createInFlightRef.current = true;
     setCreatingKey(mode);
     try {
+      if (!(await runMoqChecks(targets))) return;
       if (!(await runCreditChecks(targets))) return;
       const result = await purchaseOrdersApi.createBatch({
         groups: targets.map((t) => buildOrderPayload(t.supplierId, t.group)),
@@ -309,6 +356,7 @@ export default function ProcurementQueuePage() {
     } catch (err: any) {
       showErrorToast(err?.response?.data?.detail || "Failed to create purchase orders");
     } finally {
+      createInFlightRef.current = false;
       setCreatingKey(null);
     }
   };

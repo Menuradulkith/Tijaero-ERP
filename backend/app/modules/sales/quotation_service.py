@@ -2,6 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional, Tuple
 from app.core import timezone as tz
+from app.core.money import line_amounts, money
 
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.modules.sales.models import Invoice, InvoiceItems
@@ -103,7 +104,7 @@ class SalesQuoteService:
         received_by_po = {}
         if po_ids:
             rows = (
-                db.query(PurchasingOrderItems.purchasingorders_id, func.count(GoodReceivedItems.id))
+                db.query(PurchasingOrderItems.purchasingorders_id, func.coalesce(func.sum(GoodReceivedItems.quantity), 0))
                 .join(GoodReceivedItems, GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id)
                 .filter(
                     PurchasingOrderItems.purchasingorders_id.in_(po_ids),
@@ -834,6 +835,14 @@ class SalesQuoteService:
         for item in quote.items:
             if item.item_status not in ("so_created", "completed", "cancelled"):
                 item.item_status = "cancelled"
+        # Queued-but-not-ordered lines of this quote must not linger in the procurement queue.
+        from app.modules.purchasing.models import ProcurementQueueItem
+
+        item_ids = [i.id for i in quote.items]
+        if item_ids:
+            db.query(ProcurementQueueItem).filter(
+                ProcurementQueueItem.quote_item_id.in_(item_ids)
+            ).delete(synchronize_session=False)
         updated = self.repository.update(db, quote)
         # Business rule: a cancelled quotation must release any stock that
         # was reserved for it during procurement — it becomes available for
@@ -936,6 +945,70 @@ class SalesQuoteService:
             quote.status = QuoteStatus.APPROVED.value if quote.approval else quote.status
         # else: no work started yet — leave header as DRAFT / SENT
 
+    def _rep_user_id(self, db: Session, quote: SalesQuote) -> Optional[int]:
+        """quotes.sale_rep_id is an employees.id while invoices.sale_rep_id is an
+        accounts_user.id: map the employee to its user (None when there is no rep)."""
+        if not quote.sale_rep_id:
+            return None
+        from app.modules.employees.models import Employee
+        emp = db.query(Employee).filter(Employee.id == quote.sale_rep_id).first()
+        return emp.user_id if emp else None
+
+    def _allocate_quote_item_units(self, db: Session, quote: SalesQuote, qi, quantity: int, item_ref) -> list:
+        """Lock and return the physical stock units for `quantity` of a quote item:
+        units reserved for this quote item first, then the branch's available pool.
+        Raises 409 when real stock is short."""
+        from app.modules.inventory.models import SalesStock
+        from app.common.enums import StockStatus
+        from app.modules.inventory.lots import FEFO_ORDER, take_units, units_in
+
+        # Prefer units already reserved/committed to this quote item
+        # (received via a PO raised specifically for this quotation) over
+        # the general available pool — that stock was procured for this
+        # customer and must not be taken by someone else's sale first.
+
+        reserved_rows = (
+            db.query(SalesStock)
+            .filter(
+                SalesStock.reserved_for_quote_item_id == qi.id,
+                SalesStock.status == StockStatus.RESERVED,
+                SalesStock.is_active == True,
+            )
+            .order_by(*FEFO_ORDER)
+            .with_for_update(skip_locked=True)
+            .limit(quantity)
+            .all()
+        )
+        # Batch/none lots are split so only the needed units are consumed.
+        reserved_units = take_units(db, reserved_rows, quantity)
+        still_needed = quantity - units_in(reserved_units)
+        extra_units = []
+        if still_needed > 0:
+            extra_rows = (
+                db.query(SalesStock)
+                .filter(
+                    SalesStock.product_id == qi.product_id,
+                    SalesStock.branch_code == quote.branch_code,
+                    SalesStock.status == StockStatus.AVAILABLE,
+                    SalesStock.is_active == True,
+                )
+                .order_by(*FEFO_ORDER)
+                .with_for_update(skip_locked=True)
+                .limit(still_needed)
+                .all()
+            )
+            extra_units = take_units(db, extra_rows, still_needed)
+        allocated_units = reserved_units + extra_units
+        if units_in(allocated_units) < quantity:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Only {units_in(allocated_units)} unit(s) of item {item_ref} are actually in "
+                    f"stock at {quote.branch_code} right now ({quantity} requested)."
+                ),
+            )
+        return allocated_units
+
     def create_partial_so(
         self,
         db: Session,
@@ -1008,47 +1081,7 @@ class SalesQuoteService:
                     detail=f"Requested qty {req_item.quantity} exceeds remaining qty {remaining} for item {req_item.item_id}"
                 )
 
-            # Prefer units already reserved/committed to this quote item
-            # (received via a PO raised specifically for this quotation) over
-            # the general available pool — that stock was procured for this
-            # customer and must not be taken by someone else's sale first.
-            reserved_units = (
-                db.query(SalesStock)
-                .filter(
-                    SalesStock.reserved_for_quote_item_id == qi.id,
-                    SalesStock.status == StockStatus.RESERVED,
-                    SalesStock.is_active == True,
-                )
-                .order_by(SalesStock.id)
-                .with_for_update(skip_locked=True)
-                .limit(req_item.quantity)
-                .all()
-            )
-            still_needed = req_item.quantity - len(reserved_units)
-            extra_units = []
-            if still_needed > 0:
-                extra_units = (
-                    db.query(SalesStock)
-                    .filter(
-                        SalesStock.product_id == qi.product_id,
-                        SalesStock.branch_code == quote.branch_code,
-                        SalesStock.status == StockStatus.AVAILABLE,
-                        SalesStock.is_active == True,
-                    )
-                    .order_by(SalesStock.id)
-                    .with_for_update(skip_locked=True)
-                    .limit(still_needed)
-                    .all()
-                )
-            allocated_units = reserved_units + extra_units
-            if len(allocated_units) < req_item.quantity:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"Only {len(allocated_units)} unit(s) of item {req_item.item_id} are actually in "
-                        f"stock at {quote.branch_code} right now ({req_item.quantity} requested)."
-                    ),
-                )
+            allocated_units = self._allocate_quote_item_units(db, quote, qi, req_item.quantity, req_item.item_id)
             invoice_items_to_create.append((qi, allocated_units))
 
         # Generate invoice number with branch code: INV-BranchCode-YYYY-XXXXX
@@ -1074,7 +1107,7 @@ class SalesQuoteService:
             invoice_no=invoice_no,
             branch_code=quote.branch_code,
             customer_id=quote.customer_id,
-            sale_rep_id=quote.sale_rep_id,
+            sale_rep_id=self._rep_user_id(db, quote),
             customer_agent_id=quote.customer_agent_id,
             payment_method=request.payment_method or "cash",
             cash_amount=0,
@@ -1112,7 +1145,7 @@ class SalesQuoteService:
                 db.add(InvoiceItems(
                     invoice_id=invoice.id,
                     product_id=qi.product_id,
-                    quantity=1,
+                    quantity=unit.quantity,  # 1 per serial unit, the taken qty for a lot
                     selling_price=qi.selling_price,
                     minimum_selling_price=qi.minimum_selling_price,
                     warrenty_month=qi.warrenty_month,
@@ -1120,7 +1153,7 @@ class SalesQuoteService:
                     sales_stock_id=unit.id,
                     barcode=unit.barcode,
                 ))
-            qi.converted_qty = (qi.converted_qty or 0) + len(units)
+            qi.converted_qty = (qi.converted_qty or 0) + sum(u.quantity for u in units)
             # Mark item as so_created regardless of partial or full qty
             qi.item_status = "so_created"
 
@@ -1256,7 +1289,19 @@ class SalesQuoteService:
         if not quote:
             raise HTTPException(status_code=404, detail=f"Quote {quote_id} not found")
         db.refresh(quote, attribute_names=["items"])
+        if not quote.approval or quote.status in (
+            QuoteStatus.DRAFT.value, QuoteStatus.PENDING_APPROVAL.value,
+            QuoteStatus.REJECTED.value, QuoteStatus.EXPIRED.value,
+            QuoteStatus.CANCELLED.value, QuoteStatus.REVISED.value,
+            QuoteStatus.COMPLETED.value,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Only an approved quotation can be marked as SO created. Current status: '{quote.status}'",
+            )
         product_set = set(product_ids)
+        if not any(i.product_id in product_set for i in quote.items):
+            raise HTTPException(status_code=400, detail="None of the given products are on this quotation")
         for item in quote.items:
             if item.product_id in product_set and item.item_status not in ("so_created", "cancelled", "completed"):
                 item.item_status = "so_created"
@@ -1286,16 +1331,23 @@ class SalesQuoteService:
             )
         db.refresh(quote, attribute_names=["items"])
         
-        # Check if quote can be converted (must be in an active, non-terminal status)
-        terminal = {
+        # Only an approved quotation can become a sales order: the internal
+        # approval flag must be set and the status must be an approved /
+        # accepted (or already partly processed) one.
+        not_convertible = {
             QuoteStatus.COMPLETED.value,
             QuoteStatus.CANCELLED.value,
             QuoteStatus.REVISED.value,
+            QuoteStatus.REJECTED.value,
+            QuoteStatus.EXPIRED.value,
+            QuoteStatus.DRAFT.value,
+            QuoteStatus.PENDING_APPROVAL.value,
+            QuoteStatus.SO_CREATED.value,
         }
-        if quote.status in terminal:
+        if not quote.approval or quote.status in not_convertible:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Quote must be in an active status to convert. Current status: '{quote.status}'"
+                detail=f"Only an approved quotation can be converted to a sales order. Current status: '{quote.status}'"
             )
         
         # For quotations with estimates, verify all prices are exact
@@ -1365,12 +1417,51 @@ class SalesQuoteService:
         
         invoice_no = f"INV-{year}-{next_seq:05d}"
         
-        # Create invoice
+        # Allocate real stock units for every item that is still open, the same
+        # way the partial-SO path does (reserved-for-quote units first, then the
+        # branch's available pool).
+        plan = []
+        for quote_item in quote.items:
+            if quote_item.item_status in ("cancelled", "so_created"):
+                continue
+            if Decimal(str(quote_item.selling_price or 0)) < Decimal("0.01"):
+                # M2: a sales order never gives stock away; quotes may carry a zero / estimated price, orders may not
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Item '{quote_item.product_id}' has no selling price. Set a price before converting the quotation to an order.",
+                )
+            remaining = quote_item.quantity - (quote_item.converted_qty or 0)
+            if remaining <= 0:
+                continue
+            plan.append((quote_item, self._allocate_quote_item_units(db, quote, quote_item, remaining, quote_item.id)))
+        if not plan:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This quotation has no open items left to convert."
+            )
+
+        # quotes.sale_rep_id is an employees.id; invoices.sale_rep_id is an accounts_user.id
+        rep_user_id = self._rep_user_id(db, quote)
+
+        tax_mode = getattr(quote, "tax_mode", "none") or "none"
+        tax_rate = Decimal(str(quote.tax_rate or 0)) if tax_mode in ("inclusive", "exclusive") else Decimal("0")
+        disc_type = getattr(quote, "discount_type", "none") or "none"
+        disc_value = Decimal(str(quote.discount_percentage or 0))
+        immediate_paid = sum(
+            (Decimal(str(v or 0)) for v in (
+                conversion_data.cash_amount, conversion_data.card_visa_amount,
+                conversion_data.card_mastercard_amount, conversion_data.card_amex_amount,
+                conversion_data.cheque_amount, conversion_data.bank_transfer_amount,
+            )),
+            Decimal("0"),
+        )
+
+        # Create invoice (a sales order); the totals are filled in below
         invoice = Invoice(
             invoice_no=invoice_no,
             branch_code=quote.branch_code,
             customer_id=quote.customer_id,
-            sale_rep_id=quote.sale_rep_id,
+            sale_rep_id=rep_user_id,
             customer_agent_id=quote.customer_agent_id,
             payment_method=conversion_data.payment_method,
             cash_amount=conversion_data.cash_amount,
@@ -1388,32 +1479,72 @@ class SalesQuoteService:
             special=quote.special,
             status=True,
             approval=True,
+            approval_status="approved",
             cupon_amount=0,
+            is_tax_invoice=(tax_mode == "inclusive" and tax_rate > 0),
+            tax_rate=tax_rate,
+            discount_percent=disc_value if disc_type == "percentage" else 0,
+            discount_amount=disc_value if disc_type == "fixed" else 0,
+            paid_amount=immediate_paid,
             source_quote_id=quote.id,
-            source_quote_type=quote.quote_type
+            source_quote_type=quote.quote_type,
+            created_by=converted_by,
         )
-        
+
         db.add(invoice)
         db.flush()  # Get invoice ID
-        
-        # Create invoice items
-        for quote_item in quote.items:
-            invoice_item = InvoiceItems(
-                invoice_id=invoice.id,
-                product_id=quote_item.product_id,
-                quantity=quote_item.quantity,
-                selling_price=quote_item.selling_price,
-                minimum_selling_price=quote_item.minimum_selling_price,
-                warrenty_month=quote_item.warrenty_month,
-                created_date=now
-            )
-            db.add(invoice_item)
-            # Mark item as fully converted
-            quote_item.converted_qty = quote_item.quantity
+
+        # One invoice row per physical unit consumed (same convention as the SO path)
+        from app.common.enums import StockStatus
+        for quote_item, units in plan:
+            item_disc = Decimal(str(quote_item.discount_percentage or 0))
+            price = Decimal(str(quote_item.selling_price))
+            for unit in units:
+                unit.status = StockStatus.SOLD
+                unit.is_active = False
+                # M1: same rounded line amounts as a directly created order (the order foots)
+                gross, disc_amt, _net = line_amounts(unit.quantity, price, item_disc)
+                db.add(InvoiceItems(
+                    invoice_id=invoice.id,
+                    product_id=quote_item.product_id,
+                    quantity=unit.quantity,
+                    selling_price=quote_item.selling_price,
+                    minimum_selling_price=quote_item.minimum_selling_price,
+                    warrenty_month=quote_item.warrenty_month,
+                    created_date=now,
+                    sales_stock_id=unit.id,
+                    barcode=unit.barcode,
+                    price_tier_id=getattr(quote_item, "price_tier_id", None),
+                    discount_percent=item_disc,
+                    discount_amount=disc_amt,
+                    line_total=_net,
+                ))
+            quote_item.converted_qty = (quote_item.converted_qty or 0) + sum(u.quantity for u in units)
             quote_item.item_status = "so_created"
+        db.flush()
+
+        # Header subtotal / discount / tax / grand total / balance, via the
+        # normal sales-order pricing pipeline.
+        from app.modules.sales.service import SalesService
+        SalesService()._recompute_invoice_totals(db, invoice)
+        grand_total = Decimal(str(invoice.grand_total or 0))
+        if immediate_paid > grand_total + Decimal("0.01"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Payment amounts ({immediate_paid}) exceed the order total ({grand_total})."
+            )
+        balance = (grand_total - immediate_paid).quantize(Decimal("0.01"))
+        invoice.balance_due = float(max(balance, Decimal("0")))
+        if balance <= Decimal("0.01"):
+            invoice.payment_status = "paid"
+            invoice.approval_status = "completed"
+        elif immediate_paid > 0:
+            invoice.payment_status = "partial"
+        else:
+            invoice.payment_status = "unpaid"
         
-        # Update quote status — full conversion = COMPLETED
-        quote.status = QuoteStatus.COMPLETED.value
+        # Update quote status â€” full conversion = COMPLETED
+        self.recompute_quote_status(db, quote)
         quote.converted_to_invoice_id = invoice.id
         quote.converted_at = now
         quote.converted_by = converted_by
@@ -1466,7 +1597,8 @@ class SalesQuoteService:
         next_revision = self.repository.get_next_revision_number(db, parent_id)
         
         # Generate new quote number with revision
-        base_quote_no = original_quote.quote_no.split('-R')[0]  # Remove existing revision suffix
+        import re as _re
+        base_quote_no = _re.sub(r"-R\d+$", "", original_quote.quote_no)  # Remove existing revision suffix only
         new_quote_no = f"{base_quote_no}-R{next_revision}"
         
         now = tz.now()
@@ -1536,8 +1668,11 @@ class SalesQuoteService:
         """A fixed quote-level discount cannot exceed the value of the lines."""
         if (getattr(quote, "discount_type", "none") or "none") != "fixed":
             return
-        subtotal = sum(float(i.selling_price) * i.quantity for i in quote.items)
-        if (quote.discount_percentage or 0) > subtotal:
+        subtotal = sum(
+            float(i.selling_price) * i.quantity * (1 - float(i.discount_percentage or 0) / 100)
+            for i in quote.items
+        )
+        if (quote.discount_percentage or 0) > round(subtotal, 2):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="A fixed discount cannot be larger than the quotation total",
@@ -1600,7 +1735,22 @@ class SalesQuoteService:
                 )
 
             total += item_total
-        
+
+        # Header discount (percentage of, or fixed amount off, the line total),
+        # bounded so the total can never go negative.
+        disc_type = (getattr(quote, 'discount_type', 'none') or 'none')
+        disc_value = Decimal(str(getattr(quote, 'discount_percentage', 0) or 0))
+        if disc_value > 0 and total > 0:
+            if disc_type == 'percentage':
+                header_discount = total * min(disc_value, Decimal('100')) / 100
+            elif disc_type == 'fixed':
+                header_discount = min(disc_value, total)
+            else:
+                header_discount = Decimal('0')
+            total -= money(header_discount)
+            if total < 0:
+                total = Decimal('0')
+
         quote.total_amount = float(total)
 
         # Apply quote-level tax if exclusive (adds to total)
@@ -1699,7 +1849,7 @@ class SalesQuoteService:
             # Count available stock for this product grouped by branch
             branch_counts = db.query(
                 SalesStock.branch_code,
-                func.count(SalesStock.id)
+                func.coalesce(func.sum(SalesStock.quantity), 0)
             ).filter(
                 SalesStock.product_id == item.product_id,
                 SalesStock.status == 'available',
@@ -1786,7 +1936,7 @@ class SalesQuoteService:
             ).scalar() or 0
 
             received_qty = (
-                db.query(func.count(GoodReceivedItems.id))
+                db.query(func.coalesce(func.sum(GoodReceivedItems.quantity), 0))
                 .join(PurchasingOrderItems, GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id)
                 .filter(
                     PurchasingOrderItems.quote_item_id == item.id,
@@ -1795,20 +1945,20 @@ class SalesQuoteService:
                 .scalar() or 0
             )
 
-            reserved_qty = db.query(func.count(SalesStock.id)).filter(
+            reserved_qty = db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
                 SalesStock.reserved_for_quote_item_id == item.id,
                 SalesStock.status == StockStatus.RESERVED,
                 SalesStock.is_active == True,
             ).scalar() or 0
 
-            on_hand_qty = db.query(func.count(SalesStock.id)).filter(
+            on_hand_qty = db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
                 SalesStock.product_id == item.product_id,
                 SalesStock.branch_code == quote.branch_code,
                 SalesStock.status.in_([StockStatus.AVAILABLE, StockStatus.RESERVED]),
                 SalesStock.is_active == True,
             ).scalar() or 0
 
-            available_qty = db.query(func.count(SalesStock.id)).filter(
+            available_qty = db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
                 SalesStock.product_id == item.product_id,
                 SalesStock.branch_code == quote.branch_code,
                 SalesStock.status == StockStatus.AVAILABLE,

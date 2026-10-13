@@ -780,7 +780,9 @@ export const pettyCashApi = {
       "/finance/petty-cash/funds",
       { params }
     );
-    return response.data;
+    // The endpoint returns a bare array; the page works with { items, total }
+    const data = response.data;
+    return Array.isArray(data) ? { items: data, total: data.length } : data;
   },
 
   /**

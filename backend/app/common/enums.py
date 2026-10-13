@@ -37,6 +37,7 @@ class PaymentStatus(str, Enum):
     PARTIAL = "partial"
     PAID = "paid"
     REFUNDED = "refunded"
+    CANCELLED = "cancelled"
 
 
 class PaymentMethod(str, Enum):
@@ -48,6 +49,18 @@ class PaymentMethod(str, Enum):
     CARD_AMEX = "card_amex"
     BANK_TRANSFER = "bank_transfer"
     CREDIT_NOTE = "credit_note"
+
+
+class TrackingType(str, Enum):
+    """How a product's stock is tracked (mirrors Odoo/ERPNext/SAP item tracking).
+
+    SERIAL: one unique barcode/serial per unit (quantity is always 1).
+    BATCH:  units are grouped into a batch/lot with a batch number and optional expiry.
+    NONE:   quantity only, no barcode or batch.
+    """
+    SERIAL = "serial"
+    BATCH = "batch"
+    NONE = "none"
 
 
 class StockStatus(str, Enum):
@@ -62,6 +75,7 @@ class StockStatus(str, Enum):
     TRANSFER_PENDING = "transfer_pending"
     IN_TRANSIT = "in_transit"
     DAMAGED = "damaged"
+    CANCELLED = "cancelled"  # received on a GRN that was later cancelled
 
 
 class AssetStatus(str, Enum):
@@ -70,6 +84,7 @@ class AssetStatus(str, Enum):
     RETIRED = "retired"
     DISPOSED = "disposed"
     RETURNED = "returned"  # From sale return (non-restockable)
+    TRANSFERRED = "transferred"  # Moved back to sales stock (row kept for the unit's history)
 
 
 class ExpenseStatus(str, Enum):

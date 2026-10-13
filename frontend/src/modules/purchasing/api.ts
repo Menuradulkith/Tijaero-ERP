@@ -19,12 +19,20 @@ import {
   PurchasingReturnCreate,
   BarcodeValidationRequest,
   BarcodeValidationResponse,
+  LotReturnValidationRequest,
+  LotReturnValidationResponse,
   PurchaseReturnApprovalRequest,
 
   GoodReceivedNote,
   GoodReceivedNoteCreate,
   GoodReceivedItem,
   GoodReceivedItemCreate,
+  GoodReceivedNoteReceive,
+  GoodReceivedNoteReceiveResult,
+  GRNRejection,
+  LandedCostCreate,
+  LandedCostSummary,
+  LandedCostVoucher,
   SupplierCreditsSettle,
   SupplierCreditsSettleCreate,
   SupplierCreditsSettleWithTransactions,
@@ -488,6 +496,14 @@ export const purchaseReturnsApi = {
     return response.data;
   },
 
+  validateLot: async (data: LotReturnValidationRequest) => {
+    const response = await apiClient.post<LotReturnValidationResponse>(
+      "/purchasing/returns/validate-lot",
+      data
+    );
+    return response.data;
+  },
+
   validateBarcode: async (data: BarcodeValidationRequest) => {
     const response = await apiClient.post<BarcodeValidationResponse>(
       "/purchasing/returns/validate-barcode",
@@ -555,6 +571,44 @@ export const goodReceivedNotesApi = {
     return response.data;
   },
 
+  /** Post a whole receipt atomically (header + lines + stock + rejections in one transaction). */
+  receive: async (data: GoodReceivedNoteReceive, allowCreditOverride?: boolean) => {
+    const response = await apiClient.post<GoodReceivedNoteReceiveResult>(
+      "/purchasing/grn/receive",
+      data,
+      {
+        params: allowCreditOverride ? { allow_credit_override: true } : {},
+        headers: { "X-Hide-Error-Toast": "true" },
+      }
+    );
+    return response.data;
+  },
+
+  cancel: async (id: number, reason: string) => {
+    const response = await apiClient.post<GoodReceivedNote>(`/purchasing/grn/${id}/cancel`, { reason });
+    return response.data;
+  },
+
+  getLandedCosts: async (id: number) => {
+    const response = await apiClient.get<LandedCostSummary>(`/purchasing/grn/${id}/landed-costs`);
+    return response.data;
+  },
+
+  addLandedCost: async (id: number, data: LandedCostCreate) => {
+    const response = await apiClient.post<LandedCostVoucher>(`/purchasing/grn/${id}/landed-costs`, data);
+    return response.data;
+  },
+
+  cancelLandedCost: async (voucherId: number, reason: string) => {
+    const response = await apiClient.post<LandedCostVoucher>(`/purchasing/landed-costs/${voucherId}/cancel`, { reason });
+    return response.data;
+  },
+
+  getRejections: async (id: number) => {
+    const response = await apiClient.get<GRNRejection[]>(`/purchasing/grn/${id}/rejections`);
+    return response.data;
+  },
+
   // Update method disabled - GRNs are not editable after creation
   // update: async (id: number, data: Partial<GoodReceivedNoteCreate>) => {
   //   const response = await apiClient.patch<GoodReceivedNote>(
@@ -596,6 +650,14 @@ export const goodReceivedItemsApi = {
       data
     );
     return response.data;
+  },
+
+  generateBarcodes: async (count: number, prefix?: string): Promise<string[]> => {
+    const response = await apiClient.post<{ barcodes: string[] }>(
+      "/purchasing/grn-items/generate-barcodes",
+      { count, prefix }
+    );
+    return response.data.barcodes;
   },
 
   checkBarcodeExists: async (barcode: string): Promise<{ exists: boolean; barcode: string }> => {

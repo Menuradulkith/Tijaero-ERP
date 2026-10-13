@@ -467,15 +467,27 @@ class CustomerCreditNoteService:
             query = query.filter(CustomerCreditNotes.customer_id == customer_id)
         return query.order_by(CustomerCreditNotes.date.desc()).all()
     
-    def get_customer_credit_balance(self, customer_id: int) -> Decimal:
+    def get_customer_credit_balance(self, customer_id: int, lock: bool = False) -> Decimal:
         """
         Calculate customer's available credit note balance.
         Total credit issued minus credit already redeemed (money kept as Decimal, F1).
+
+        ``lock=True`` first takes SELECT ... FOR UPDATE on the customer's credit note rows (a fixed
+        order, so no deadlocks) and only then reads the balance. A concurrent redemption therefore waits
+        until the first one commits (its invoice, carrying credit_note_amount, is part of that commit) and
+        then re-reads the reduced balance: the check-and-redeem is atomic and the redeemed total can never
+        exceed what was issued. Callers redeeming must pass lock=True and keep the transaction open until the
+        invoice is stored.
         """
         from sqlalchemy import func
         from app.modules.sales.models import Invoice
 
         db = self.repo.db
+
+        if lock:
+            db.query(CustomerCreditNotes.id).filter(
+                CustomerCreditNotes.customer_id == customer_id
+            ).order_by(CustomerCreditNotes.id).with_for_update().all()
 
         # Sum of all credit notes issued to customer
         total_credit_issued = db.query(
