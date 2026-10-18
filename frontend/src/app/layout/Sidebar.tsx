@@ -848,7 +848,8 @@ export default function Sidebar({
                       {item.subItems!.map((subItem) => {
                         const isSubActive = subItem.subItems
                           ? false
-                          : location.pathname.startsWith(subItem.path) &&
+                          : (location.pathname === subItem.path ||
+                              location.pathname.startsWith(`${subItem.path}/`)) &&
                             (subItem.path === item.path
                               ? location.pathname === subItem.path
                               : true);
