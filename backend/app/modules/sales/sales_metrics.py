@@ -37,6 +37,25 @@ def net_sales_expr():
     return Invoice.grand_total - func.coalesce(returned_sq, 0)
 
 
+def net_sales_join():
+    """Processed returns summed once per invoice, for a LEFT JOIN on ``invoice_id``.
+
+    Set-based equivalent of the correlated subquery in ``net_sales_expr``: use it
+    for aggregates over many invoices so the returns table is scanned once rather
+    than once per invoice row. Net value is ``Invoice.grand_total -
+    coalesce(sq.c.refund, 0)``.
+    """
+    return (
+        select(
+            SaleReturn.invoice_id.label("invoice_id"),
+            func.sum(SaleReturn.total_refund).label("refund"),
+        )
+        .where(SaleReturn.status == "processed")
+        .group_by(SaleReturn.invoice_id)
+        .subquery("processed_returns")
+    )
+
+
 def gl_revenue_expr():
     """Revenue of one invoice exactly as ``post_sale_to_gl`` credits it (4010/4020).
 

@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import date, datetime
 from . import models, schemas
+from app.core.concurrency import next_document_number
 from app.core import timezone as tz
 from app.common.enums import PurchaseOrderStatus
 
@@ -101,7 +102,7 @@ class SupplierRepository:
         )
         # Stable order: without one, rows come back in arbitrary order and a
         # skip/limit window can repeat or miss rows.
-        return query.order_by(func.lower(models.Supplier.company_name), models.Supplier.id).offset(filters.skip).limit(filters.limit).all()
+        return query.order_by(models.Supplier.id.desc()).offset(filters.skip).limit(filters.limit).all()
 
     SORTS = {
         "supplier_no": (models.Supplier.supplier_no, False),
@@ -127,7 +128,9 @@ class SupplierRepository:
             col, text_sort = self.SORTS.get(sort_by or "company_name") or self.SORTS["company_name"]
         expr = func.lower(col) if text_sort else col
         expr = expr.desc() if order == "desc" else expr.asc()
-        rows = query.order_by(expr, models.Supplier.id).offset(page * size).limit(size).all()
+        # No explicit sort: newest first.
+        ordering = (expr, models.Supplier.id) if sort_by else (models.Supplier.id.desc(),)
+        rows = query.order_by(*ordering).offset(page * size).limit(size).all()
         return rows, total
 
     def find_by_field_value(
@@ -196,13 +199,13 @@ class SupplierPaymentMethodRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_supplier(self, supplier_id: int) -> List[models.SupplierPaymentMethod]:
-        return (
-            self.db.query(models.SupplierPaymentMethod)
-            .filter(models.SupplierPaymentMethod.supplier_id == supplier_id)
-            .order_by(models.SupplierPaymentMethod.is_default.desc(), models.SupplierPaymentMethod.id)
-            .all()
+    def get_by_supplier(self, supplier_id: int, active_only: bool = False) -> List[models.SupplierPaymentMethod]:
+        query = self.db.query(models.SupplierPaymentMethod).filter(
+            models.SupplierPaymentMethod.supplier_id == supplier_id
         )
+        if active_only:
+            query = query.filter(models.SupplierPaymentMethod.active.is_(True))
+        return query.order_by(models.SupplierPaymentMethod.is_default.desc(), models.SupplierPaymentMethod.id).all()
 
     def get_by_id(self, method_id: int) -> Optional[models.SupplierPaymentMethod]:
         return (
@@ -248,9 +251,12 @@ class SupplierPaymentMethodRepository:
             )
 
     def create(self, supplier_id: int, data: schemas.SupplierPaymentMethodCreate) -> models.SupplierPaymentMethod:
-        if data.is_default:
+        values = data.model_dump()
+        if not values.get("active", True):
+            values["is_default"] = False  # an inactive method can't be the default
+        if values["is_default"]:
             self._clear_default(supplier_id)
-        db_method = models.SupplierPaymentMethod(supplier_id=supplier_id, **data.model_dump())
+        db_method = models.SupplierPaymentMethod(supplier_id=supplier_id, **values)
         self.db.add(db_method)
         self._commit_method()
         self.db.refresh(db_method)
@@ -263,6 +269,8 @@ class SupplierPaymentMethodRepository:
         if not db_method:
             return None
         update_data = data.model_dump(exclude_unset=True)
+        if update_data.get("active") is False:
+            update_data["is_default"] = False  # an inactive method can't be the default
         if update_data.get("is_default"):
             self._clear_default(db_method.supplier_id, exclude_id=db_method.id)
         for field, value in update_data.items():
@@ -271,26 +279,17 @@ class SupplierPaymentMethodRepository:
         self.db.refresh(db_method)
         return db_method
 
-    def delete(self, method_id: int) -> bool:
-        db_method = self.get_by_id(method_id)
-        if db_method:
-            self.db.delete(db_method)
-            self.db.commit()
-            return True
-        return False
-
-
 class SupplierContactPersonRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_supplier(self, supplier_id: int) -> List[models.SupplierContactPerson]:
-        return (
-            self.db.query(models.SupplierContactPerson)
-            .filter(models.SupplierContactPerson.supplier_id == supplier_id)
-            .order_by(models.SupplierContactPerson.id)
-            .all()
+    def get_by_supplier(self, supplier_id: int, active_only: bool = False) -> List[models.SupplierContactPerson]:
+        query = self.db.query(models.SupplierContactPerson).filter(
+            models.SupplierContactPerson.supplier_id == supplier_id
         )
+        if active_only:
+            query = query.filter(models.SupplierContactPerson.active.is_(True))
+        return query.order_by(models.SupplierContactPerson.id).all()
 
     def get_by_id(self, contact_id: int) -> Optional[models.SupplierContactPerson]:
         return (
@@ -358,15 +357,6 @@ class SupplierContactPersonRepository:
         self._commit_contact()
         self.db.refresh(db_contact)
         return db_contact
-
-    def delete(self, contact_id: int) -> bool:
-        db_contact = self.get_by_id(contact_id)
-        if db_contact:
-            self.db.delete(db_contact)
-            self.db.commit()
-            return True
-        return False
-
 
 class SupplierProductRepository:
     def __init__(self, db: Session):
@@ -537,23 +527,7 @@ class PurchasingOrderRepository:
         year_yy = str(tz.year())[-2:]
         branch = branch_code or "HQ"
         prefix = f"PO-{branch}-{year_yy}"
-        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
-        last = (
-            self.db.query(models.PurchasingOrder)
-            .filter(models.PurchasingOrder.purchasing_order_no.like(f"{prefix}%"))
-            .order_by(models.PurchasingOrder.id.desc())
-            .first()
-        )
-        if last:
-            try:
-                last_part = last.purchasing_order_no.split("-")[-1]
-                last_seq = int(last_part[2:])
-                next_seq = last_seq + 1
-            except (ValueError, IndexError):
-                next_seq = 1
-        else:
-            next_seq = 1
-        return f"{prefix}{next_seq:06d}"
+        return next_document_number(self.db, models.PurchasingOrder.purchasing_order_no, prefix)
     
     def create(
         self,
@@ -1075,6 +1049,8 @@ class SupplierPaymentRepository:
             query = query.filter(models.SupplierPayment.supplier_id == filters.supplier_id)
         if filters.branch_code:
             query = query.filter(models.SupplierPayment.branch_code == filters.branch_code)
+        elif filters.branch_codes is not None:
+            query = query.filter(models.SupplierPayment.branch_code.in_(filters.branch_codes))
         if filters.payment_method:
             query = query.filter(models.SupplierPayment.payment_method == filters.payment_method)
         if filters.payment_for:

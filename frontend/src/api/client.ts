@@ -3,6 +3,7 @@ import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { toast } from "react-hot-toast";
 import { handleApiError } from "@/utils/errorHandling";
 import { showErrorToast } from "@/components/tijaero/feedback-extended/toast";
+import { invalidateStockQueries, isStockWrite } from "@/lib/queryClient";
 
 // Create axios instance with performance-optimized configuration
 const apiClient = axios.create({
@@ -48,6 +49,9 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => {
     // Optionally handle generic success messages here if desired mapped by custom headers
+    if (isStockWrite(response.config?.method, response.config?.url)) {
+      void invalidateStockQueries();
+    }
     return response;
   },
   async (error: AxiosError) => {

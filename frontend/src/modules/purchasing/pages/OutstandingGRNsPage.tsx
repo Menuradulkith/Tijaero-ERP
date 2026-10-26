@@ -53,6 +53,7 @@ import {
 import { suppliersApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
 import type { Supplier } from "@/modules/purchasing/types";
+import { escapeHtml } from "@/utils/escapeHtml";
 
 type SortDir = "asc" | "desc";
 type SortField =
@@ -230,15 +231,15 @@ export default function OutstandingGRNsPage() {
       .map(
         (i) => `
       <tr>
-        <td style="font-family:monospace">${i.grn_no}</td>
+        <td style="font-family:monospace">${escapeHtml(i.grn_no)}</td>
         <td>${i.grn_date ? new Date(i.grn_date).toLocaleDateString() : "-"}</td>
-        <td style="font-family:monospace">${i.po_no}</td>
-        <td>${i.supplier_name}</td>
-        <td>${i.supplier_invoice_no || "-"}</td>
-        <td style="text-align:right">${i.total_received_qty}</td>
+        <td style="font-family:monospace">${escapeHtml(i.po_no)}</td>
+        <td>${escapeHtml(i.supplier_name)}</td>
+        <td>${escapeHtml(i.supplier_invoice_no || "-")}</td>
+        <td style="text-align:right">${escapeHtml(i.total_received_qty)}</td>
         <td style="text-align:right;font-weight:bold">${fmtLKR(i.remaining_amount)}</td>
-        <td style="text-align:center;color:${i.days_since_grn > 30 ? "#c62828" : "#2e7d32"}">${i.days_since_grn}d</td>
-        <td>${i.branch_code}</td>
+        <td style="text-align:center;color:${i.days_since_grn > 30 ? "#c62828" : "#2e7d32"}">${escapeHtml(i.days_since_grn)}d</td>
+        <td>${escapeHtml(i.branch_code)}</td>
       </tr>`,
       )
       .join("");
@@ -250,7 +251,7 @@ export default function OutstandingGRNsPage() {
 .sc .val{font-size:18px;font-weight:bold;margin-top:4px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #ddd;padding:6px 8px}
 th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-child(even){background:#f9f9f9}@media print{body{padding:10px}}</style></head>
 <body><h1>Outstanding GRNs (Not Yet Vouchered)</h1>
-<div class="meta">${supplierLabel} | ${branchLabel} | Generated ${new Date().toLocaleString()}</div>
+<div class="meta">${escapeHtml(supplierLabel)} | ${escapeHtml(branchLabel)} | Generated ${new Date().toLocaleString()}</div>
 <div class="summary">
   <div class="sc"><div class="lbl">Total GRNs</div><div class="val" style="color:#1976d2">${summary.totalGRNs}</div></div>
   <div class="sc"><div class="lbl">Total Outstanding</div><div class="val" style="color:#ed6c02">${currencySymbol} ${fmtLKR(summary.totalAmount)}</div></div>

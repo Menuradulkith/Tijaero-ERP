@@ -520,17 +520,13 @@ export default function QuotationApprovalsPage() {
                             ) : itemStatus === "itn_created" ? (
                               <TChip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : itemStatus === "procurement" ? (
-                              stockStatus === "needs_transfer"
-                                ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
-                                : <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                              <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : itemStatus === "cancelled" ? (
                               <TChip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : ["rejected", "cancelled", "expired"].includes((selectedQuote?.status || "").toLowerCase()) ? (
                               <TChip label="Closed" color="default" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : (
-                              stockStatus === "needs_transfer"
-                                ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
-                                : stockStatus === "needs_procurement"
+                              stockStatus === "needs_procurement"
                                   ? <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                                   : <TChip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             )}

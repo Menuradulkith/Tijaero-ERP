@@ -1,3 +1,4 @@
+import os
 from datetime import date, timedelta
 from typing import Optional
 
@@ -5,14 +6,14 @@ from app.auth.dependencies import (
     get_current_active_user,
     get_current_user_flexible,
     get_user_branch_filter,
-    require_permission_flexible,
 )
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.core import timezone as tz
 from app.core.simple_rate_limit import rate_limit
+from app.core.ttl_cache import TTLCache
 from app.db.session import get_db
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
@@ -23,8 +24,12 @@ router = APIRouter(
     tags=["reporting"],
 )
 
-_limit_30 = rate_limit(30)
-_limit_60 = rate_limit(60)
+# Dashboard aggregates are identical for every user and expensive; share one computed copy
+# per worker for a short time (REPORT_CACHE_TTL seconds, 0 = off).
+_report_cache = TTLCache(float(os.getenv("REPORT_CACHE_TTL", "30")))
+
+_limit_30 = rate_limit(30, per_user=True)
+_limit_60 = rate_limit(60, per_user=True)
 
 
 @router.post(
@@ -127,8 +132,9 @@ def get_dashboard_metrics(
     db: Session = Depends(get_db),
     _rl: None = Depends(_limit_60),
 ):
-    reporting_service = service.ReportingService(db)
-    return reporting_service.get_dashboard_metrics()
+    return _report_cache.get_or_compute(
+        "dashboard", lambda: service.ReportingService(db).get_dashboard_metrics()
+    )
 
 
 @router.get(
@@ -141,6 +147,12 @@ def get_quick_stats(
     db: Session = Depends(get_db),
     _rl: None = Depends(_limit_60),
 ):
+    return _report_cache.get_or_compute(
+        ("quick-stats", period), lambda: _compute_quick_stats(db, period)
+    )
+
+
+def _compute_quick_stats(db: Session, period: str):
     reporting_service = service.ReportingService(db)
 
     today = tz.today()
@@ -182,286 +194,153 @@ def get_quick_stats(
     }
 
 
-@router.get("/documents/purchase-order/{po_id}", response_class=HTMLResponse)
-def get_purchase_order_report(
-    po_id: int,
-    _user: User = Depends(require_permission_flexible(*Permissions.PURCHASE_ORDER_VIEW)),
-    db: Session = Depends(get_db),
-):
+# ─── Printable documents ──────────────────────────────────────────────────────
+# One route set for every document type (see app/reporting/print_templates.py for the
+# registry): the HTML view, used by the print-preview iframe, and its PDF.
 
+
+def _print_document(
+    db: Session,
+    user: User,
+    doc_type: str,
+    doc_id: Optional[int],
+    *,
+    show_header: Optional[bool],
+    show_discount: Optional[bool],
+    show_signatures: Optional[bool],
+    custom_remarks: Optional[str],
+    template_id: Optional[int],
+    pdf: bool,
+    period: Optional[str] = None,
+):
+    import inspect
+
+    from app.auth.rbac import user_has_permission
+    from app.common.document_guard import ensure_document_printable
+    from app.reporting import print_templates
     from app.reporting.document_reports import get_document_report_service
 
-    report_service = get_document_report_service(db)
-    return report_service.generate_purchase_order_report(po_id)
-
-
-@router.get("/documents/grn/{grn_id}", response_class=HTMLResponse)
-def get_grn_report(
-    grn_id: int,
-    _user: User = Depends(require_permission_flexible(*Permissions.GRN_VIEW)),
-    db: Session = Depends(get_db),
-):
-
-    from app.reporting.document_reports import get_document_report_service
-
-    report_service = get_document_report_service(db)
-    return report_service.generate_grn_report(grn_id)
-
-
-@router.get("/documents/purchase-return/{return_id}", response_class=HTMLResponse)
-def get_purchase_return_report(
-    return_id: int,
-    _user: User = Depends(require_permission_flexible(*Permissions.PURCHASE_RETURN_VIEW)),
-    db: Session = Depends(get_db),
-):
-
-    from app.reporting.document_reports import get_document_report_service
-
-    report_service = get_document_report_service(db)
-    return report_service.generate_purchase_return_report(return_id)
-
-
-@router.get("/documents/quotation/{id}", response_class=HTMLResponse)
-def get_quotation_report(
-    id: int,
-    show_header: bool = Query(True),
-    show_discount: bool = Query(True),
-    show_signatures: bool = Query(True),
-    custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(require_permission_flexible(*Permissions.QUOTATION_VIEW)),
-    db: Session = Depends(get_db),
-):
-
-    from app.reporting.document_reports import get_document_report_service
-
-    report_service = get_document_report_service(db)
-    return report_service.generate_quotation_report(
-        id,
-        show_header=show_header,
-        show_discount=show_discount,
-        show_signatures=show_signatures,
-        custom_remarks=custom_remarks,
-    )
-
-
-@router.get("/documents/credit-note/{sale_return_id}", response_class=HTMLResponse)
-def get_credit_note_report(
-    sale_return_id: int,
-    show_header: bool = Query(True),
-    show_signatures: bool = Query(True),
-    custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(require_permission_flexible(*Permissions.SALES_RETURN_VIEW)),
-    db: Session = Depends(get_db),
-):
-    """Generate a credit note report for a processed sale return."""
-    from app.reporting.document_reports import get_document_report_service
-
-    report_service = get_document_report_service(db)
-    return report_service.generate_credit_note_report(
-        sale_return_id,
-        show_header=show_header,
-        show_signatures=show_signatures,
-        custom_remarks=custom_remarks,
-    )
-
-
-@router.get("/documents/invoice/{invoice_id}", response_class=HTMLResponse)
-def get_invoice_report(
-    invoice_id: int,
-    show_header: bool = Query(True),
-    show_discount: bool = Query(True),
-    show_signatures: bool = Query(True),
-    custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(require_permission_flexible(*Permissions.SALES_ORDER_VIEW)),
-    db: Session = Depends(get_db),
-):
-    """Generate a printable invoice report."""
-    from app.reporting.document_reports import get_document_report_service
-
-    report_service = get_document_report_service(db)
-    return report_service.generate_invoice_report(
-        invoice_id,
-        show_header=show_header,
-        show_discount=show_discount,
-        show_signatures=show_signatures,
-        custom_remarks=custom_remarks,
-    )
-
-
-@router.get("/documents/invoice/{invoice_id}/pdf")
-def get_invoice_report_pdf(
-    invoice_id: int,
-    show_header: bool = Query(True),
-    show_discount: bool = Query(True),
-    show_signatures: bool = Query(True),
-    custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(require_permission_flexible(*Permissions.SALES_ORDER_VIEW)),
-    db: Session = Depends(get_db),
-):
-    """Generate a PDF invoice report."""
-    from app.reporting.document_reports import get_document_report_service
-
-    try:
-        from playwright.sync_api import sync_playwright
-    except ModuleNotFoundError as exc:
+    doc = print_templates.DOCUMENT_TYPES.get(doc_type)
+    if doc is None or doc.has_id != (doc_id is not None):
+        raise HTTPException(status_code=404, detail="Unknown document type")
+    if not user_has_permission(user, *doc.permission):
         raise HTTPException(
-            status_code=503,
-            detail="PDF generation is not available. Install the 'playwright' package.",
-        ) from exc
+            status_code=403,
+            detail=f"Permission denied. Required: {doc.permission[0]}:{doc.permission[1]}",
+        )
+    if doc.guarded:
+        ensure_document_printable(db, doc_type, doc_id, user)
 
-    report_service = get_document_report_service(db)
-    html = report_service.generate_invoice_report(
-        invoice_id,
+    service = get_document_report_service(db, template_id=template_id)
+    generate = getattr(service, doc.method)
+    kwargs = dict(
         show_header=show_header,
-        show_discount=show_discount,
         show_signatures=show_signatures,
         custom_remarks=custom_remarks,
     )
-    pdf_css = (
-        "<style>"
-        "@page{size:821px 768px;margin:0;}"
-        "html,body{margin:0;padding:0;}"
-        ".invoice-bg{margin-bottom:0;}"
-        "</style>"
-    )
-    if "</head>" in html:
-        html = html.replace("</head>", f"{pdf_css}</head>", 1)
+    if "show_discount" in inspect.signature(generate).parameters:
+        kwargs["show_discount"] = show_discount
+    if doc.has_id:
+        html = generate(doc_id, **kwargs)
     else:
-        html = pdf_css + html
+        html = generate(period=period, **kwargs)
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--no-sandbox"])
-        page = browser.new_page(viewport={"width": 821, "height": 768})
-        page.emulate_media(media="screen")
-        page.set_content(html, wait_until="load")
-        page.wait_for_function(
-            """
-            () => {
-                const el = document.querySelector('#invoice-no');
-                return el && el.textContent && el.textContent.trim().length > 0;
-            }
-            """,
-            timeout=3000,
+    result = service.last_render
+    headers = {"Cache-Control": "no-store"}
+    if result.template_id is not None:
+        headers["X-Print-Template"] = f"{result.template_id}:{result.template_version}"
+    if result.fallback_error:
+        headers["X-Print-Template-Fallback"] = "1"
+    if pdf:
+        name = f"{doc_type}-{doc_id}" if doc_id is not None else doc_type
+        headers["Content-Disposition"] = f'inline; filename="{name}.pdf"'
+        return Response(
+            content=print_templates.html_to_pdf(html, doc, result),
+            media_type="application/pdf",
+            headers=headers,
         )
-        page.wait_for_timeout(100)
-        pdf_bytes = page.pdf(
-            print_background=True,
-            width="821px",
-            height="768px",
-            margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-            prefer_css_page_size=True,
-        )
-        browser.close()
-    filename = f"invoice-{invoice_id}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f"inline; filename=\"{filename}\""},
-    )
+    if result.custom_html:
+        headers["Content-Security-Policy"] = print_templates.CUSTOM_HTML_CSP
+    return HTMLResponse(content=html, headers=headers)
 
 
 @router.get("/documents/payroll", response_class=HTMLResponse)
 def get_payroll_report(
     period: Optional[str] = Query(None),
-    show_header: bool = Query(True),
-    show_signatures: bool = Query(True),
+    show_header: Optional[bool] = Query(None),
+    show_signatures: Optional[bool] = Query(None),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(require_permission_flexible(*Permissions.PAYROLL_VIEW)),
+    template_id: Optional[int] = Query(None, ge=1),
+    _user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
 ):
     """Generate a payroll summary report."""
-    from app.reporting.document_reports import get_document_report_service
-
-    report_service = get_document_report_service(db)
-    return report_service.generate_payroll_report(
-        period=period,
-        show_header=show_header,
-        show_signatures=show_signatures,
-        custom_remarks=custom_remarks,
+    return _print_document(
+        db, _user, "payroll", None, show_header=show_header, show_discount=None,
+        show_signatures=show_signatures, custom_remarks=custom_remarks,
+        template_id=template_id, pdf=False, period=period,
     )
 
 
-@router.get("/documents/expense/{expense_id}", response_class=HTMLResponse)
-def get_expense_report(
-    expense_id: int,
-    show_header: bool = Query(True),
-    show_signatures: bool = Query(True),
+@router.get("/documents/payroll/pdf")
+def get_payroll_report_pdf(
+    period: Optional[str] = Query(None),
+    show_header: Optional[bool] = Query(None),
+    show_signatures: Optional[bool] = Query(None),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(require_permission_flexible(*Permissions.EXPENSE_VIEW)),
+    template_id: Optional[int] = Query(None, ge=1),
+    _user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
 ):
-    """Generate a printable expense report."""
-    from app.reporting.document_reports import get_document_report_service
-
-    report_service = get_document_report_service(db)
-    return report_service.generate_expense_report(
-        expense_id,
-        show_header=show_header,
-        show_signatures=show_signatures,
-        custom_remarks=custom_remarks,
+    """Payroll summary as PDF."""
+    return _print_document(
+        db, _user, "payroll", None, show_header=show_header, show_discount=None,
+        show_signatures=show_signatures, custom_remarks=custom_remarks,
+        template_id=template_id, pdf=True, period=period,
     )
 
 
-@router.get("/documents/item-transfer-note/{itn_id}", response_class=HTMLResponse)
-def get_itn_report(
-    itn_id: int,
-    show_header: bool = Query(True),
-    show_signatures: bool = Query(True),
+@router.get("/documents/{doc_type}/{doc_id}", response_class=HTMLResponse)
+def get_document_report(
+    doc_type: str,
+    doc_id: int = Path(..., ge=1, le=2_147_483_647),
+    show_header: Optional[bool] = Query(None),
+    show_discount: Optional[bool] = Query(None),
+    show_signatures: Optional[bool] = Query(None),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(require_permission_flexible(*Permissions.ITN_VIEW)),
+    template_id: Optional[int] = Query(None, ge=1),
+    _user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
 ):
-    """Generate a printable item transfer note report."""
-    from app.reporting.document_reports import get_document_report_service
+    """Printable document (invoice, quotation, purchase order, GRN, ...) as HTML.
 
-    report_service = get_document_report_service(db)
-    return report_service.generate_itn_report(
-        itn_id,
-        show_header=show_header,
-        show_signatures=show_signatures,
-        custom_remarks=custom_remarks,
+    Unset display switches take the print template's values; `template_id` picks a
+    template other than the default one.
+    """
+    return _print_document(
+        db, _user, doc_type, doc_id, show_header=show_header, show_discount=show_discount,
+        show_signatures=show_signatures, custom_remarks=custom_remarks,
+        template_id=template_id, pdf=False,
     )
 
 
-@router.get("/documents/voucher/{voucher_id}", response_class=HTMLResponse)
-def get_voucher_report(
-    voucher_id: int,
-    show_header: bool = Query(True),
-    show_signatures: bool = Query(True),
+@router.get("/documents/{doc_type}/{doc_id}/pdf")
+def get_document_report_pdf(
+    doc_type: str,
+    doc_id: int = Path(..., ge=1, le=2_147_483_647),
+    show_header: Optional[bool] = Query(None),
+    show_discount: Optional[bool] = Query(None),
+    show_signatures: Optional[bool] = Query(None),
     custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(require_permission_flexible(*Permissions.GIFT_VOUCHER_VIEW)),
+    template_id: Optional[int] = Query(None, ge=1),
+    _user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
 ):
-    """Generate a printable gift voucher report."""
-    from app.reporting.document_reports import get_document_report_service
-
-    report_service = get_document_report_service(db)
-    return report_service.generate_voucher_report(
-        voucher_id,
-        show_header=show_header,
-        show_signatures=show_signatures,
-        custom_remarks=custom_remarks,
-    )
-
-
-@router.get("/documents/journal-entry/{je_id}", response_class=HTMLResponse)
-def get_journal_entry_report(
-    je_id: int,
-    show_header: bool = Query(True),
-    show_signatures: bool = Query(True),
-    custom_remarks: Optional[str] = Query(None),
-    _user: User = Depends(require_permission_flexible(*Permissions.JOURNAL_ENTRY_VIEW)),
-    db: Session = Depends(get_db),
-):
-    """Generate a printable journal entry report."""
-    from app.reporting.document_reports import get_document_report_service
-
-    report_service = get_document_report_service(db)
-    return report_service.generate_journal_entry_report(
-        je_id,
-        show_header=show_header,
-        show_signatures=show_signatures,
-        custom_remarks=custom_remarks,
+    """Printable document as PDF."""
+    return _print_document(
+        db, _user, doc_type, doc_id, show_header=show_header, show_discount=show_discount,
+        show_signatures=show_signatures, custom_remarks=custom_remarks,
+        template_id=template_id, pdf=True,
     )
 
 

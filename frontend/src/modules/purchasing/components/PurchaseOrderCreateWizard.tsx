@@ -45,7 +45,6 @@ import {
   TButton,
   TConfirmDialog,
   TFormSection,
-  TRemarkField,
   TSteps,
   useTConfirmDialog,
   type TStepConfig,
@@ -54,6 +53,7 @@ import { useCurrencyStore } from "@/state/currencyStore";
 import { useReferenceData } from "@/hooks";
 import { productsApi } from "@/modules/inventory/api";
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import { EntityLink, EntityPeekButton } from "@/components/tijaero/peek";
 import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
 import { addWorkingDays } from "@/modules/purchasing/utils/workingDays";
 import type {
@@ -79,6 +79,7 @@ interface DraftLine {
   quantity: number;
   supplier_id: number;
   unit_price: number;
+  remark: string;
 }
 
 const newLine = (): DraftLine => ({
@@ -87,6 +88,7 @@ const newLine = (): DraftLine => ({
   quantity: 1,
   supplier_id: 0,
   unit_price: 0,
+  remark: "",
 });
 
 /** State the wizard reports up so the parent page can render matching
@@ -146,8 +148,6 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
   // One Payment Method per resulting PO (i.e. per supplier group), keyed by
   // supplier id — sits next to that group's GRN Date.
   const [paymentMethods, setPaymentMethods] = useState<Record<number, string>>({});
-  // One Remarks per resulting PO (i.e. per supplier group), keyed by supplier id.
-  const [groupRemarks, setGroupRemarks] = useState<Record<number, string>>({});
 
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = refData?.products || [];
@@ -357,7 +357,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
   }, [activeStep, confirmMoq]);
   const handleBack = useCallback(() => setActiveStep((s) => Math.max(s - 1, 0)), []);
 
-  const handleConfirm = useCallback(async () => {
+  const runConfirm = useCallback(async () => {
     if (isSubmitting || supplierGroups.length === 0) return;
     setIsSubmitting(true);
     try {
@@ -403,7 +403,6 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
           // the date the supplier is expected to deliver by.
           good_received_note_date: requiredDate || orderDate,
           required_date: requiredDate,
-          remarks: groupRemarks[group.supplierId] || "",
           // Payment term (credit days) only matters for a credit purchase.
           credit_date: isCredit ? group.supplier?.credit_days ?? 0 : 0,
           first_suppliers_id: group.supplierId,
@@ -414,7 +413,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
               quantity: l.quantity,
               unit_price: l.unit_price,
               warrenty_month: "0",
-              remark: "",
+              remark: l.remark.trim(),
             }),
           ),
         };
@@ -440,13 +439,25 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     branchCode,
     orderDate,
     requiredDates,
-    groupRemarks,
     creditWarningDialog,
     confirmMoq,
     currencySymbol,
     queryClient,
     onCreated,
   ]);
+
+  // `isSubmitting` is state and only updates on the next render, so a double click would run the whole
+  // submit twice (two purchase orders). The ref blocks the second call for as long as the first runs.
+  const submittingRef = useRef(false);
+  const handleConfirm = useCallback(async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    try {
+      await runConfirm();
+    } finally {
+      submittingRef.current = false;
+    }
+  }, [runConfirm]);
 
   const isLastStep = activeStep === WIZARD_STEPS.length - 1;
   const canAdvance = isLastStep ? isReviewStepValid && !isSubmitting : isProductsStepValid;
@@ -495,7 +506,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
           </TFormSection>
 
           <TFormSection title="Products & Suppliers" columns={1}>
-            <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 3 }}>
+            <Paper variant="outlined" sx={{ overflowX: "auto", borderRadius: 3 }}>
               <Table size="small">
                 <TableHead>
                   <TableRow sx={modernTableStyles.headerRow}>
@@ -514,6 +525,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                     <TableCell align="right" sx={{ width: 120 }}>
                       {`Cost Price (${currencySymbol})`}
                     </TableCell>
+                    <TableCell sx={{ minWidth: 200 }}>Remark</TableCell>
                     <TableCell sx={{ width: 50 }} />
                   </TableRow>
                 </TableHead>
@@ -537,7 +549,21 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                               handleSelectProduct(line._id, newValue?.id || 0)
                             }
                             renderInput={(params) => (
-                              <TextField {...params} placeholder="Select Product" size="small" required />
+                              <TextField
+                                {...params}
+                                placeholder="Select Product"
+                                size="small"
+                                required
+                                InputProps={{
+                                  ...params.InputProps,
+                                  endAdornment: (
+                                    <>
+                                      <EntityPeekButton entity="product" id={line.product_id} />
+                                      {params.InputProps.endAdornment}
+                                    </>
+                                  ),
+                                }}
+                              />
                             )}
                             sx={{ minWidth: 170 }}
                           />
@@ -608,6 +634,15 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                                 }
                                 size="small"
                                 required
+                                InputProps={{
+                                  ...params.InputProps,
+                                  endAdornment: (
+                                    <>
+                                      <EntityPeekButton entity="supplier" id={line.supplier_id} />
+                                      {params.InputProps.endAdornment}
+                                    </>
+                                  ),
+                                }}
                               />
                             )}
                             noOptionsText={
@@ -620,6 +655,16 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                         </TableCell>
                         <TableCell align="right">
                           {line.supplier_id ? fmtLKR(line.unit_price) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          <TextField
+                            size="small"
+                            placeholder="Note for this product"
+                            value={line.remark}
+                            onChange={(e) => handleUpdateLine(line._id, { remark: e.target.value })}
+                            inputProps={{ maxLength: 200 }}
+                            fullWidth
+                          />
                         </TableCell>
                         <TableCell>
                           <IconButton
@@ -691,15 +736,6 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                   renderInput={(params) => <TextField {...params} label="Payment Method" />}
                   sx={{ width: 220 }}
                 />
-                <TRemarkField
-                  label="Remarks"
-                  size="small"
-                  value={groupRemarks[group.supplierId] || ""}
-                  onChange={(value) =>
-                    setGroupRemarks((prev) => ({ ...prev, [group.supplierId]: value }))
-                  }
-                  sx={{ flex: 1 }}
-                />
                 {getPaymentMethod(group.supplierId).toLowerCase() === "credit" && (
                   <TextField
                     label="Payment Term"
@@ -715,7 +751,11 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell>Product</TableCell>
+                      <TableCell>UOM</TableCell>
+                      <TableCell align="right">Available Qty</TableCell>
+                      <TableCell align="right">In-Transit Qty</TableCell>
                       <TableCell align="right">Qty</TableCell>
+                      <TableCell>Remark</TableCell>
                       <TableCell align="right">{`Unit Price (${currencySymbol})`}</TableCell>
                       <TableCell align="right">{`Subtotal (${currencySymbol})`}</TableCell>
                     </TableRow>
@@ -724,13 +764,21 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                     {group.lines.map((l) => (
                       <TableRow key={l._id}>
                         <TableCell>{getProductName(l.product_id)}</TableCell>
+                        <TableCell>
+                          {(products.find((p: any) => p.id === l.product_id) as any)?.unit_of_measure || "-"}
+                        </TableCell>
+                        <TableCell align="right">{getAvailableQty(l.product_id)}</TableCell>
+                        <TableCell align="right">{getInTransitQty(l.product_id)}</TableCell>
                         <TableCell align="right">{l.quantity}</TableCell>
+                        <TableCell sx={{ maxWidth: 240, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                          {l.remark.trim() || "-"}
+                        </TableCell>
                         <TableCell align="right">{fmtLKR(l.unit_price)}</TableCell>
                         <TableCell align="right">{fmtLKR(l.quantity * l.unit_price)}</TableCell>
                       </TableRow>
                     ))}
                     <TableRow sx={modernTableStyles.footerRow}>
-                      <TableCell colSpan={3} align="right">
+                      <TableCell colSpan={7} align="right">
                         <Typography fontWeight="bold">Group Total:</Typography>
                       </TableCell>
                       <TableCell align="right">

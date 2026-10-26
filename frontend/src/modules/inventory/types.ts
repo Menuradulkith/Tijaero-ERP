@@ -18,8 +18,8 @@ export interface Category {
 }
 
 export interface CategoryCreate {
+  // category_code is generated server-side — not sent by the client.
   name: string;
-  category_code: string;
   memo?: string;
   description?: string;
   active?: boolean;
@@ -27,7 +27,6 @@ export interface CategoryCreate {
 
 export interface CategoryUpdate {
   name?: string;
-  category_code?: string;
   memo?: string;
   description?: string;
   active?: boolean;
@@ -56,15 +55,14 @@ export interface Brand {
 }
 
 export interface BrandCreate {
+  // brand_code is generated server-side — not sent by the client.
   brand_name: string;
-  brand_code: string;
   description?: string;
   active?: boolean;
 }
 
 export interface BrandUpdate {
   brand_name?: string;
-  brand_code?: string;
   description?: string;
   active?: boolean;
   // Optimistic-concurrency check: the `version` the client last saw
@@ -157,8 +155,8 @@ export interface MinimumPriceCreate {
 }
 
 export interface ProductCreate {
+  // item_code is generated server-side — not sent by the client.
   name: string;
-  item_code: string;
   model?: string;
   item_type: string;
   unit_of_measure?: string;
@@ -240,6 +238,7 @@ export type SalesStockStatus =
   | "transfer_pending"
   | "in_transit"
   | "damaged"
+  | "frozen"
   | "cancelled";
 
 export interface SalesStock {
@@ -288,7 +287,9 @@ export interface SalesStockSummary {
   in_stock: number;
   reserved: number;
   sold_today: number;
-  returned: number;
+  returned: number; // purchase returns: sent back to a supplier or waiting to go
+  in_transit: number; // item-transfer units between branches
+  damaged: number; // units marked damaged
 }
 
 // Server-side paginated sales-stock response
@@ -296,6 +297,36 @@ export interface SalesStockPaginated {
   items: SalesStock[];
   total: number;
   summary: SalesStockSummary;
+}
+
+// One product's aggregated on-hand position (Stock Summary view)
+export interface StockSummaryRow {
+  product_id: number;
+  item_code: string;
+  product_name: string;
+  brand_name?: string | null;
+  category_name?: string | null;
+  unit_of_measure: string;
+  total_quantity: number;
+  allocated_quantity: number;
+  available_quantity: number;
+  issued_quantity: number;
+  freezed_quantity: number;
+  in_transit_quantity: number;
+  damaged_quantity: number;
+  unit_cost?: number | null;
+  total_value?: number | null;
+  in_house_date?: string | null;
+  ageing_days?: number | null;
+  supplier_name?: string | null;
+  supplier_code?: string | null;
+  invoice_no?: string | null;
+  low_stock: boolean;
+}
+
+export interface StockSummaryPaginated {
+  items: StockSummaryRow[];
+  total: number;
 }
 
 // Extra context for a tracking event

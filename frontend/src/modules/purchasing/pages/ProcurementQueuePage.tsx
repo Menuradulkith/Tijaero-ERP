@@ -81,8 +81,6 @@ interface SupplierGroup {
 
 interface SupplierSettings {
   orderDate: string;
-  expectedDeliveryDate: string;
-  paymentMethod: string;
 }
 
 const groupKey = (supplierId: number, quoteId: number) => `${supplierId}:${quoteId}`;
@@ -120,9 +118,35 @@ export default function ProcurementQueuePage() {
       return next;
     });
 
+  // Filters: free-text search (quotation, product, supplier), supplier and branch.
+  const [search, setSearch] = useState("");
+  const [supplierFilter, setSupplierFilter] = useState<number | null>(null);
+  const [branchFilter, setBranchFilter] = useState<string | null>(null);
+
+  const supplierFilterOptions = useMemo(
+    () => Array.from(new Set(queue.map((q) => q.supplier_id))),
+    [queue],
+  );
+  const branchFilterOptions = useMemo(
+    () => Array.from(new Set(queue.map((q) => q.branch_code))).sort(),
+    [queue],
+  );
+  const filtersActive = !!search.trim() || supplierFilter !== null || branchFilter !== null;
+
+  const filteredQueue = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return queue.filter((item) => {
+      if (supplierFilter !== null && item.supplier_id !== supplierFilter) return false;
+      if (branchFilter !== null && item.branch_code !== branchFilter) return false;
+      if (!term) return true;
+      const supplierName = (suppliers as Supplier[] | undefined)?.find((s) => s.id === item.supplier_id)?.company_name || "";
+      return [item.quote_no, item.product_name, supplierName].some((v) => (v || "").toLowerCase().includes(term));
+    });
+  }, [queue, search, supplierFilter, branchFilter, suppliers]);
+
   const supplierGroups = useMemo((): SupplierGroup[] => {
     const bySupplier = new Map<number, Map<number, QuoteSubGroup>>();
-    for (const item of queue) {
+    for (const item of filteredQueue) {
       let quoteMap = bySupplier.get(item.supplier_id);
       if (!quoteMap) {
         quoteMap = new Map();
@@ -150,7 +174,7 @@ export default function ProcurementQueuePage() {
       supplierId,
       quoteGroups: Array.from(quoteMap.values()),
     }));
-  }, [queue]);
+  }, [filteredQueue]);
 
   // Expected delivery = order date + the supplier's lead time in working days
   // (same estimate as the PO wizard); falls back to the computed average, then
@@ -165,23 +189,14 @@ export default function ProcurementQueuePage() {
     return base.toISOString().split("T")[0];
   };
 
-  // Order Date / Expected Delivery Date / Payment Terms are set per supplier
-  // — like the PO creation page — since they end up directly on the
-  // PurchaseOrder record, and one supplier can have several queued
-  // quotations that all share them. The actual GRN date is only known once
-  // the supplier delivers, and is entered later on the GRN page — not here.
-  // Falls back to sensible defaults until the user actually edits a field, so
-  // switching suppliers doesn't require re-entering everything each time.
-  const getSupplierSettings = (supplierId: number): SupplierSettings => {
-    const supplier = getSupplier(supplierId);
-    const existing = supplierSettings[supplierId];
-    const orderDate = existing?.orderDate ?? todayIso();
-    return {
-      orderDate,
-      expectedDeliveryDate: existing?.expectedDeliveryDate ?? computeDefaultDeliveryDate(supplier, orderDate),
-      paymentMethod: existing?.paymentMethod ?? "Non-credit",
-    };
-  };
+  // The Order Date is set per supplier, since one supplier can have several queued
+  // quotations that all share it. The expected delivery date is estimated from the
+  // supplier's lead time and the payment terms default to Non-credit; both can be
+  // changed on the Purchase Order itself (it is created pending approval). The
+  // actual GRN date is entered later on the GRN page.
+  const getSupplierSettings = (supplierId: number): SupplierSettings => ({
+    orderDate: supplierSettings[supplierId]?.orderDate ?? todayIso(),
+  });
 
   const updateSupplierSettings = (supplierId: number, patch: Partial<SupplierSettings>) =>
     setSupplierSettings((prev) => ({
@@ -205,9 +220,9 @@ export default function ProcurementQueuePage() {
     return {
       purchasing_order_no: "",
       branch_code: group.branchCode,
-      payment_method: settings.paymentMethod,
+      payment_method: "Non-credit",
       purchasing_order_date: settings.orderDate,
-      good_received_note_date: settings.expectedDeliveryDate,
+      good_received_note_date: computeDefaultDeliveryDate(supplier, settings.orderDate),
       remarks: `PO for Quotation ${group.quoteNo}`,
       credit_date: supplier?.credit_days ?? 0,
       first_suppliers_id: supplierId,
@@ -224,30 +239,6 @@ export default function ProcurementQueuePage() {
           quote_item_id: l.quote_item_id,
         })),
     };
-  };
-
-  const runCreditChecks = async (targets: { supplierId: number; group: QuoteSubGroup }[]): Promise<boolean> => {
-    for (const { supplierId, group } of targets) {
-      if (getSupplierSettings(supplierId).paymentMethod.toLowerCase() !== "credit") continue;
-      const supplier = getSupplier(supplierId);
-      try {
-        const creditCheck = await purchaseOrdersApi.checkCredit(supplierId, groupTotal(group.lines));
-        if (creditCheck.requires_approval) {
-          const confirmed = await creditWarningDialog.confirm({
-            title: "⚠️ Credit Limit Warning",
-            message: `Supplier: ${supplier?.company_name || "Unknown"}\nQuotation: ${group.quoteNo}\nCredit Limit: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.max_credit_limit)}\nCurrent Outstanding: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.current_outstanding)}\nAvailable Credit: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.available_credit)}\nThis Order: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.po_value)}\nExceeds by: ${currencySymbol} ${fmtLKR(creditCheck.credit_check.excess_amount)}\n\n${creditCheck.message}`,
-            confirmText: "Continue Anyway",
-            cancelText: "Cancel",
-            confirmColor: "warning",
-          });
-          if (!confirmed) return false;
-        }
-      } catch {
-        showErrorToast("Failed to check credit limit. Please try again.");
-        return false;
-      }
-    }
-    return true;
   };
 
   // Ordering below a supplier's MOQ is allowed, but the user is told first.
@@ -295,24 +286,15 @@ export default function ProcurementQueuePage() {
     );
   };
 
-  // Order Date, Expected Delivery Date and Payment Terms are all required
-  // per supplier before any PO for that supplier can be created — not just
-  // the delivery date.
+  // The Order Date is required per supplier before any PO for that supplier can be created.
   const missingRequiredFieldSuppliers = (targets: { supplierId: number }[]): number[] =>
     Array.from(
-      new Set(
-        targets
-          .filter((t) => {
-            const s = getSupplierSettings(t.supplierId);
-            return !s.orderDate || !s.expectedDeliveryDate || !s.paymentMethod;
-          })
-          .map((t) => t.supplierId),
-      ),
+      new Set(targets.filter((t) => !getSupplierSettings(t.supplierId).orderDate).map((t) => t.supplierId)),
     );
 
   const handleCreateGroup = async (supplierId: number, group: QuoteSubGroup) => {
     if (missingRequiredFieldSuppliers([{ supplierId }]).length > 0) {
-      showErrorToast(`Set the Order Date, Expected Delivery Date and Payment Terms for ${getSupplier(supplierId)?.company_name || "this supplier"} before creating its PO.`);
+      showErrorToast(`Set the Order Date for ${getSupplier(supplierId)?.company_name || "this supplier"} before creating its PO.`);
       return;
     }
     if (createInFlightRef.current) return;
@@ -321,7 +303,6 @@ export default function ProcurementQueuePage() {
     setCreatingKey(key);
     try {
       if (!(await runMoqChecks([{ supplierId, group }]))) return;
-      if (!(await runCreditChecks([{ supplierId, group }]))) return;
       const result = await purchaseOrdersApi.createBatch({ groups: [buildOrderPayload(supplierId, group)] });
       afterCreate(result.orders, [key]);
     } catch (err: any) {
@@ -337,7 +318,7 @@ export default function ProcurementQueuePage() {
     const missing = missingRequiredFieldSuppliers(targets);
     if (missing.length > 0) {
       const names = missing.map((id) => getSupplier(id)?.company_name || `Supplier #${id}`).join(", ");
-      showErrorToast(`Set the Order Date, Expected Delivery Date and Payment Terms for: ${names}`);
+      showErrorToast(`Set the Order Date for: ${names}`);
       return;
     }
     if (createInFlightRef.current) return;
@@ -345,7 +326,6 @@ export default function ProcurementQueuePage() {
     setCreatingKey(mode);
     try {
       if (!(await runMoqChecks(targets))) return;
-      if (!(await runCreditChecks(targets))) return;
       const result = await purchaseOrdersApi.createBatch({
         groups: targets.map((t) => buildOrderPayload(t.supplierId, t.group)),
       });
@@ -419,8 +399,55 @@ export default function ProcurementQueuePage() {
         }
       >
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+          {queue.length > 0 && (
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, mb: 1.5, alignItems: "center" }}>
+              <TextField
+                size="small"
+                label="Search"
+                placeholder="Quotation, product or supplier"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                sx={{ minWidth: 260 }}
+              />
+              <Autocomplete
+                size="small"
+                options={supplierFilterOptions}
+                value={supplierFilter}
+                onChange={(_, v) => setSupplierFilter(v)}
+                getOptionLabel={(id) => getSupplier(id)?.company_name || `#${id}`}
+                renderInput={(params) => <TextField {...params} label="Supplier" />}
+                sx={{ minWidth: 220 }}
+              />
+              <Autocomplete
+                size="small"
+                options={branchFilterOptions}
+                value={branchFilter}
+                onChange={(_, v) => setBranchFilter(v)}
+                renderInput={(params) => <TextField {...params} label="Branch" />}
+                sx={{ minWidth: 160 }}
+              />
+              {filtersActive && (
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setSearch("");
+                    setSupplierFilter(null);
+                    setBranchFilter(null);
+                  }}
+                >
+                  Clear filters
+                </Button>
+              )}
+            </Box>
+          )}
           {supplierGroups.length === 0 ? (
-            <EmptyState message="The procurement queue is empty — nothing waiting to be ordered." />
+            <EmptyState
+              message={
+                queue.length > 0 && filtersActive
+                  ? "No queued items match the filters."
+                  : "The procurement queue is empty — nothing waiting to be ordered."
+              }
+            />
           ) : (
             <>
               {supplierGroups.map((sg) => {
@@ -432,7 +459,7 @@ export default function ProcurementQueuePage() {
                     title={`Supplier: ${supplier?.company_name || `#${sg.supplierId}`}`}
                     columns={1}
                   >
-                    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr 1fr" }, gap: 1.5 }}>
+                    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "minmax(0, 260px)" }, gap: 1.5 }}>
                       <TextField
                         label="Order Date"
                         size="small"
@@ -443,29 +470,6 @@ export default function ProcurementQueuePage() {
                         required
                         error={!settings.orderDate}
                         helperText={!settings.orderDate ? "Order date is required" : undefined}
-                      />
-                      <TextField
-                        label="Expected Delivery Date"
-                        size="small"
-                        type="date"
-                        value={settings.expectedDeliveryDate}
-                        onChange={(e) => updateSupplierSettings(sg.supplierId, { expectedDeliveryDate: e.target.value })}
-                        InputLabelProps={{ shrink: true }}
-                        required
-                        error={!settings.expectedDeliveryDate}
-                        helperText={!settings.expectedDeliveryDate ? "Expected delivery date is required" : undefined}
-                      />
-                      <Autocomplete
-                        size="small"
-                        options={["Non-credit", "Credit"]}
-                        value={settings.paymentMethod}
-                        onChange={(_, newValue) =>
-                          updateSupplierSettings(sg.supplierId, { paymentMethod: newValue || "Non-credit" })
-                        }
-                        disableClearable
-                        renderInput={(params) => (
-                          <TextField {...params} label="Payment Terms" required error={!settings.paymentMethod} />
-                        )}
                       />
                     </Box>
 
@@ -525,9 +529,7 @@ export default function ProcurementQueuePage() {
                                 disabled={
                                   group.lines.every((l) => effectiveQty(l) === 0) ||
                                   creatingKey !== null ||
-                                  !settings.orderDate ||
-                                  !settings.expectedDeliveryDate ||
-                                  !settings.paymentMethod
+                                  !settings.orderDate
                                 }
                                 onClick={() => handleCreateGroup(sg.supplierId, group)}
                               >

@@ -419,9 +419,9 @@ class SupplierPaymentMethodService:
             )
         return method
 
-    def list_payment_methods(self, supplier_id: int) -> List[models.SupplierPaymentMethod]:
+    def list_payment_methods(self, supplier_id: int, active_only: bool = False) -> List[models.SupplierPaymentMethod]:
         self._ensure_supplier(supplier_id)
-        return self.repo.get_by_supplier(supplier_id)
+        return self.repo.get_by_supplier(supplier_id, active_only=active_only)
 
     def create_payment_method(
         self, supplier_id: int, data: schemas.SupplierPaymentMethodCreate
@@ -442,10 +442,6 @@ class SupplierPaymentMethodService:
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
         return self.repo.update(method_id, data)
-
-    def delete_payment_method(self, supplier_id: int, method_id: int) -> None:
-        self._get_owned_method(supplier_id, method_id)
-        self.repo.delete(method_id)
 
 
 # Fields that must be unique across all contact persons (system-wide, not just
@@ -491,9 +487,9 @@ class SupplierContactPersonService:
             )
         return contact
 
-    def list_contacts(self, supplier_id: int) -> List[models.SupplierContactPerson]:
+    def list_contacts(self, supplier_id: int, active_only: bool = False) -> List[models.SupplierContactPerson]:
         self._ensure_supplier(supplier_id)
-        return self.repo.get_by_supplier(supplier_id)
+        return self.repo.get_by_supplier(supplier_id, active_only=active_only)
 
     def create_contact(
         self, supplier_id: int, data: schemas.SupplierContactPersonCreate
@@ -510,10 +506,6 @@ class SupplierContactPersonService:
         self._get_owned_contact(supplier_id, contact_id)
         self._check_duplicate_fields(data, exclude_id=contact_id)
         return self.repo.update(contact_id, data)
-
-    def delete_contact(self, supplier_id: int, contact_id: int) -> None:
-        self._get_owned_contact(supplier_id, contact_id)
-        self.repo.delete(contact_id)
 
 
 class SupplierProductService:
@@ -1128,6 +1120,17 @@ class PurchasingOrderService:
         
         # Track if this was an approved PO being edited
         was_approved = existing_po.status == "approved"
+        # A rejected PO that is edited goes back into the approval queue as a normal pending PO
+        was_rejected = existing_po.status == PurchaseOrderStatus.REJECTED
+        from app.modules.sales.quotation_models import SalesQuoteItem
+        if was_rejected:
+            # Rejection gave the quotation quantities back; make sure they can be taken again
+            for line in (order_update.items if order_update.items is not None else existing_po.items):
+                qid = getattr(line, "quote_item_id", None)
+                if qid:
+                    qi = self.db.query(SalesQuoteItem).filter(SalesQuoteItem.id == qid).with_for_update().first()
+                    if qi:
+                        _check_quote_item_open(qi, line.quantity)
 
         item_changes = []
         if order_update.items is not None:
@@ -1176,6 +1179,44 @@ class PurchasingOrderService:
                 changes=changes or {"fields": sorted(changed_fields)},
             )
             self.db.commit()
+
+        # A rejected PO that was edited is resubmitted: fresh approval request, quotation quantities
+        # re-reserved. The earlier rejection stays in the history (audit log + the old approval row).
+        if was_rejected:
+            order.status = PurchaseOrderStatus.PENDING_APPROVAL
+            approval_record = approval_service.create_approval_request(
+                db=self.db,
+                approval_type=ApprovalType.PURCHASE_ORDER,
+                reference_id=order.id,
+                reference_no=order.purchasing_order_no,
+                branch_code=order.branch_code,
+                requested_by=updated_by or 0,
+                remarks="Resubmitted for approval after the rejected purchase order was edited.",
+                approval_group="purchasing_approvers",
+            )
+            order.approval_id = approval_record.id
+            self._fulfill_quote_items(order)
+            quote_ids = {
+                qi_quote_id for (qi_quote_id,) in self.db.query(SalesQuoteItem.quote_id).filter(
+                    SalesQuoteItem.id.in_([i.quote_item_id for i in order.items if i.quote_item_id])
+                ).all()
+            } if any(i.quote_item_id for i in order.items) else set()
+            if quote_ids:
+                from app.modules.sales.quotation_models import SalesQuote
+                from app.modules.sales.quotation_service import sales_quote_service
+                for quote in self.db.query(SalesQuote).filter(SalesQuote.id.in_(quote_ids)).all():
+                    self.db.refresh(quote, attribute_names=["items"])
+                    sales_quote_service.recompute_quote_status(self.db, quote)
+            log_audit(
+                self.db,
+                user_id=updated_by or 0,
+                action="resubmit",
+                entity_type="purchase_order",
+                entity_id=order.id,
+                changes={"status": str(order.status), "previous_status": "rejected"},
+            )
+            self.db.commit()
+            self.db.refresh(order)
 
         # If an approved PO was edited, reset it back to pending_approval
         if was_approved:
@@ -1230,6 +1271,11 @@ class PurchasingOrderService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot cancel: order is already '{order.status}'."
+            )
+        if order.status == PurchaseOrderStatus.APPROVED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot cancel: the order is already approved. An approved purchase order cannot be cancelled."
             )
         if order.good_received_notes:
             raise HTTPException(
@@ -1545,6 +1591,12 @@ class ProcurementQueueService:
         )
         if branch_codes is not None:
             query = query.filter(SalesQuote.branch_code.in_(branch_codes))
+        # Only lines of an approved, still-open quotation belong in the queue.
+        query = query.filter(
+            SalesQuote.approval.is_(True),
+            SalesQuote.status.notin_(["rejected", "cancelled", "revised", "expired", "completed"]),
+            SalesQuoteItem.item_status != "cancelled",
+        )
 
         rows = query.order_by(models.ProcurementQueueItem.added_date.asc()).all()
         if not rows:
@@ -1780,7 +1832,8 @@ class PurchasingReturnService:
                 from dateutil.relativedelta import relativedelta
                 months = int(warranty_month)
                 received_date = stock_item.added_date
-                if received_date:
+                # 0 months means "no warranty period recorded", not "expired the day it arrived"
+                if months > 0 and received_date:
                     expiry = received_date + relativedelta(months=months)
                     warranty_expiry_date = expiry.strftime("%Y-%m-%d")
                     warranty_expired = tz.now() > expiry
@@ -1801,10 +1854,13 @@ class PurchasingReturnService:
             warranty_expiry_date=warranty_expiry_date,
         )
     
-    def validate_lot_for_return(self, grn_id: int, sales_stock_id: int, quantity: int, lock: bool = False):
+    def validate_lot_for_return(
+        self, grn_id: int, sales_stock_id: int, quantity: int, lock: bool = False, branch_code: Optional[str] = None
+    ):
         """Validate returning `quantity` units of a batch/none lot row to the
         supplier. Returns (response, row); `row` is the (optionally locked)
-        sales_stock lot, or None when invalid."""
+        sales_stock lot, or None when invalid. With `branch_code` the lot must sit at that branch (as
+        for a serial unit): a branch cannot return stock another branch holds."""
         from app.modules.inventory.models import SalesStock
         from app.modules.products.models import Product
 
@@ -1820,6 +1876,8 @@ class PurchasingReturnService:
             return bad("This stock lot was not received on the selected GRN.")
         if row.barcode:
             return bad("This is a serial-tracked unit; return it by barcode.")
+        if branch_code and row.branch_code != branch_code:
+            return bad(f"This stock lot is at branch {row.branch_code}, not {branch_code}; it cannot be returned from here.")
         if row.status != "available" or not row.is_active:
             return bad(f"This lot is not available for return (status: {row.status}).")
         if quantity < 1 or quantity > row.quantity:
@@ -1891,6 +1949,18 @@ class PurchasingReturnService:
                 ),
             )
 
+    @staticmethod
+    def _check_return_price(item, validation, label: str) -> None:
+        """A unit cannot be returned for more than it was bought for: the supplier credit would exceed what
+        was paid. The reference is the purchase-order price found by the validation (the client-sent
+        purchasing_price only when no purchase line is known)."""
+        reference = validation.purchasing_price if validation.purchasing_price is not None else item.purchasing_price
+        if reference is not None and item.return_price > reference:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Return price {item.return_price} for {label} is higher than its purchase price {reference}.",
+            )
+
     def create_return(
         self,
         return_data: schemas.PurchasingReturnCreate,
@@ -1932,7 +2002,8 @@ class PurchasingReturnService:
                         detail="A barcode (serial items) or a stock lot (batch/none items) is required.",
                     )
                 lot_validation, lot_row = self.validate_lot_for_return(
-                    return_data.goodreceivednote_id, item.sales_stock_id, item.quantity, lock=True
+                    return_data.goodreceivednote_id, item.sales_stock_id, item.quantity, lock=True,
+                    branch_code=return_data.branch_code,
                 )
                 if not lot_validation.valid:
                     raise HTTPException(
@@ -1945,6 +2016,7 @@ class PurchasingReturnService:
                         grn, po_item_id, item.quantity, lot_qty_in_request.get(po_item_id, 0)
                     )
                     lot_qty_in_request[po_item_id] = lot_qty_in_request.get(po_item_id, 0) + item.quantity
+                self._check_return_price(item, lot_validation, f"lot {item.sales_stock_id}")
                 piece = split_lot(self.db, lot_row, item.quantity)
                 lot_validation.sales_stock_id = piece.id
                 validated_items.append((item, lot_validation))
@@ -1977,6 +2049,7 @@ class PurchasingReturnService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Barcode {item.barcode} is already on purchase return #{open_returns[0]}.",
                 )
+            self._check_return_price(item, validation, f"barcode {item.barcode}")
             seen_stock_ids.add(validation.sales_stock_id)
             validated_items.append((item, validation))
 
@@ -1992,6 +2065,7 @@ class PurchasingReturnService:
             purchasing_return_no=return_no,
             branch_code=return_data.branch_code,
             remark=return_data.remark,
+            reason=return_data.reason,
             status=initial_status,
             added_date=now.date(),
             approved_date=now if not return_data.require_approval else None,
@@ -2002,7 +2076,8 @@ class PurchasingReturnService:
         
         for item, validation in validated_items:
             db_item = models.PurchasingReturnItems(
-                purchasing_price=item.purchasing_price,
+                # what the unit really cost on its purchase order, not the figure the client sent
+                purchasing_price=validation.purchasing_price if validation.purchasing_price is not None else item.purchasing_price,
                 return_price=item.return_price,
                 barcode=item.barcode or None,
                 quantity=item.quantity,
@@ -2218,8 +2293,8 @@ class PurchasingReturnService:
         log = logging.getLogger(__name__)
         try:
             from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            # The cashbook row comes from the GL posting (GL-driven cashbook).
             PurchaseExpensePayrollGL(self.db).post_purchase_return_to_gl(purchase_return, user_id=user_id)
-            self._ensure_cashbook_entry_for_purchase_return(purchase_return)
             self.db.commit()
         except Exception as e:
             log.warning(f"Purchase return GL posting failed: {e}")
@@ -2235,105 +2310,6 @@ class PurchasingReturnService:
                 user_id=user_id,
             )
     
-    def _ensure_cashbook_entry_for_purchase_return(self, purchase_return: models.PurchasingReturn) -> None:
-        """Create a cashbook money-in entry for an approved purchase return.
-
-        Only paid (cash/bank/cheque...) purchases produce an actual refund
-        (money-in). Does NOT commit: the caller (``_post_approved_return``)
-        commits together with the JE; the insert runs in a savepoint so its
-        failure leaves the JE intact. Credit purchases reduce Trade Creditors (GL Dr 2010) and advance
-        purchases restore the supplier advance (GL Dr 2020) — no money moves,
-        so recording cashbook money-in for those would break the day-end
-        cashbook ↔ GL (1010+1020) reconciliation identity.
-        """
-        if purchase_return.status != "approved":
-            return
-
-        try:
-            from app.modules.finance.models import CashbookEntryRecord
-            from sqlalchemy import text
-
-            # Mirror the GL branching in post_purchase_return_to_gl: only
-            # cash/bank/cheque POs put money back into cash/bank.
-            grn = purchase_return.good_received_note
-            po_payment_method = ""
-            if grn:
-                po = self.db.query(models.PurchasingOrder).filter(
-                    models.PurchasingOrder.id == grn.purchasingorders_id
-                ).first()
-                po_payment_method = (getattr(po, "payment_method", "") or "").lower()
-            from app.modules.finance.purchase_expense_payroll_gl import (
-                ACCT_CASH_ON_HAND, ACCT_BANK_ACCOUNT, po_settlement_account,
-            )
-            settlement_account = po_settlement_account(po_payment_method)
-            if settlement_account not in (ACCT_CASH_ON_HAND, ACCT_BANK_ACCOUNT):
-                return  # credit / advance return → no cash movement
-            cashbook_method = (
-                "CASH" if settlement_account == ACCT_CASH_ON_HAND
-                else ("CHEQUE" if po_payment_method == "cheque" else "BANK")
-            )
-
-            existing = self.db.query(CashbookEntryRecord.id).filter(
-                CashbookEntryRecord.source_table == "purchasing_returns",
-                CashbookEntryRecord.source_id == purchase_return.id,
-            ).first()
-            if existing:
-                return
-
-            # Calculate total return amount
-            total_amount = Decimal("0")
-            for item in (purchase_return.items or []):
-                total_amount += Decimal(str(item.return_price or item.purchasing_price or 0)) * (item.quantity or 1)
-
-            if total_amount <= 0:
-                return
-
-            # Resolve supplier name via GRN → PO → supplier
-            supplier_name = "Supplier"
-            grn = purchase_return.good_received_note
-            if grn and grn.purchasing_order and grn.purchasing_order.first_supplier:
-                supplier_name = grn.purchasing_order.first_supplier.company_name or supplier_name
-
-            return_no = purchase_return.purchasing_return_no or f"PR-{purchase_return.id}"
-
-            # Savepoint: a cashbook failure must not discard the caller's JE.
-            savepoint = self.db.begin_nested()
-            try:
-                self.db.execute(
-                    text("""
-                        SELECT fn_insert_cashbook_entry(
-                            :entry_type, :transaction_date, :source_table, :source_id,
-                            :reference_no, :description, :party_name, :payment_method,
-                            :money_in, :money_out, :branch_code
-                        )
-                    """),
-                    {
-                        "entry_type": "purchase_return",
-                        "transaction_date": datetime.combine(
-                            purchase_return.approved_date or purchase_return.added_date or tz.today(),
-                            datetime.min.time()
-                        ),
-                        "source_table": "purchasing_returns",
-                        "source_id": purchase_return.id,
-                        "reference_no": return_no,
-                        "description": f"Purchase Return {return_no} - refund from supplier",
-                        "party_name": supplier_name,
-                        "payment_method": cashbook_method,
-                        "money_in": total_amount,
-                        "money_out": Decimal("0"),
-                        "branch_code": purchase_return.branch_code,
-                    },
-                )
-                savepoint.commit()
-            except Exception:
-                savepoint.rollback()
-                raise
-        except Exception as cashbook_err:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"Cashbook posting for purchase return {purchase_return.purchasing_return_no} failed (non-blocking): {cashbook_err}"
-            )
-
     def get_return(self, return_id: int) -> models.PurchasingReturn:
         return_record = self.repo.get_by_id(return_id)
         if not return_record:
@@ -2343,10 +2319,22 @@ class PurchasingReturnService:
             )
         return return_record
     
-    def list_returns(self, skip: int = 0, limit: int = 100, status_filter: Optional[str] = None) -> List[models.PurchasingReturn]:
+    def list_returns(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        status_filter: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
+        branch_code: Optional[str] = None,
+    ) -> List[models.PurchasingReturn]:
+        """`branch_codes` is the caller's allowed branches (None = unrestricted, e.g. a superuser)."""
         query = self.db.query(models.PurchasingReturn)
         if status_filter:
             query = query.filter(models.PurchasingReturn.status == status_filter)
+        if branch_code:
+            query = query.filter(models.PurchasingReturn.branch_code == branch_code)
+        elif branch_codes is not None:
+            query = query.filter(models.PurchasingReturn.branch_code.in_(branch_codes))
         return query.order_by(models.PurchasingReturn.added_date.desc()).offset(skip).limit(limit).all()
 
 class GoodReceivedNoteService:
@@ -2666,6 +2654,11 @@ class GoodReceivedNoteService:
                     raise bad(f"A batch number is required for '{label}'.")
                 if trk == "none" and (batch_no or line.expiry_date):
                     raise bad(f"Batch details are not allowed for '{label}'.")
+                if trk == "batch" and accepted > 0 and line.expiry_date and line.expiry_date < tz.today():
+                    raise bad(
+                        f"Batch {batch_no} of '{label}' expired on {line.expiry_date.isoformat()}; "
+                        "an expired batch cannot be received into stock (record it as rejected instead)."
+                    )
             rejected = line.rejected_quantity
             if rejected and len((line.rejection_reason or "").strip()) < 3:
                 raise bad(f"Enter a reason for the rejected '{label}'.")
@@ -3052,6 +3045,7 @@ class GoodReceivedNoteService:
                     reference_id=grn.id,
                     reference_no=grn.good_received_no,
                     transaction_type="Purchase",
+                    marker="grn",
                     description=f"Auto advance-application GL failed on GRN {grn.good_received_no}",
                     error=gl_adv_err,
                     user_id=created_by or 0,
@@ -3672,72 +3666,6 @@ class SupplierPaymentService:
         self.order_repo = repository.PurchasingOrderRepository(db)
         self.db = db
 
-    def _ensure_cashbook_entry_for_verified_payment(self, payment: models.SupplierPayment) -> None:
-        if payment.status != "verified":
-            return
-
-        try:
-            from app.modules.finance.models import CashbookEntryRecord
-
-            existing_entry = self.db.query(CashbookEntryRecord.id).filter(
-                CashbookEntryRecord.source_table == "supplier_payments",
-                CashbookEntryRecord.source_id == payment.id,
-            ).first()
-            if existing_entry:
-                return
-
-            supplier_name = None
-            if payment.supplier:
-                supplier_name = payment.supplier.company_name
-            if not supplier_name:
-                supplier_name = f"Supplier #{payment.supplier_id}"
-
-            description = f"Direct Payment {payment.payment_no}"
-            if payment.purchasing_order_id is not None:
-                description = f"{description} - PO #{payment.purchasing_order_id}"
-            if payment.payment_for:
-                description = f"{description} ({payment.payment_for})"
-
-            self.db.execute(
-                text(
-                    """
-                    SELECT fn_insert_cashbook_entry(
-                        :entry_type,
-                        :transaction_date,
-                        :source_table,
-                        :source_id,
-                        :reference_no,
-                        :description,
-                        :party_name,
-                        :payment_method,
-                        :money_in,
-                        :money_out,
-                        :branch_code
-                    )
-                    """
-                ),
-                {
-                    "entry_type": "supplier_payment",
-                    "transaction_date": datetime.combine(payment.payment_date, datetime.min.time()),
-                    "source_table": "supplier_payments",
-                    "source_id": payment.id,
-                    "reference_no": payment.payment_no,
-                    "description": description,
-                    "party_name": supplier_name,
-                    "payment_method": payment.payment_method,
-                    "money_in": Decimal("0"),
-                    "money_out": Decimal(str(payment.payment_amount)),
-                    "branch_code": payment.branch_code,
-                },
-            )
-            self.db.commit()
-        except Exception as cashbook_err:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"Cashbook posting for supplier payment {payment.payment_no} failed (non-blocking): {cashbook_err}"
-            )
-            self.db.rollback()
-    
     def create_payment(self, payment: schemas.SupplierPaymentCreate, created_by: int = None) -> models.SupplierPayment:
         # Lock order must match GRN creation / PO approval, which lock the PO
         # first and the supplier second. Locking the supplier first here and
@@ -3929,8 +3857,6 @@ class SupplierPaymentService:
             )
         # ────────────────────────────────────────────────────────────────
 
-        self._ensure_cashbook_entry_for_verified_payment(result)
-        
         return result
     
     def cancel_payment(self, payment_id: int, remarks: str = None, cancelled_by: Optional[int] = None) -> models.SupplierPayment:
@@ -4235,20 +4161,24 @@ class SupplierAdvancePaymentService:
 
         # Update advance record
         from decimal import Decimal as D
-        advance.returned_amount = D(str(float(advance.returned_amount or 0) + return_amount))
-        advance.remaining_amount = D(str(max(0.0, remaining - return_amount)))
-        advance.return_date = data.return_date
-        advance.return_method = data.return_method
-        if data.return_reference:
-            advance.return_reference = data.return_reference
-        if data.return_remarks:
-            advance.return_remarks = data.return_remarks
+        new_returned = D(str(advance.returned_amount or 0)) + D(str(data.return_amount))
+        new_remaining = max(D("0"), D(str(advance.remaining_amount or 0)) - D(str(data.return_amount)))
 
-        # If remaining is now 0, mark as fully applied
-        if float(advance.remaining_amount) <= 0.001:
-            advance.remaining_amount = D("0")
-            advance.is_fully_applied = True
+        def _apply_return() -> None:
+            advance.returned_amount = new_returned
+            advance.remaining_amount = new_remaining
+            advance.return_date = data.return_date
+            advance.return_method = data.return_method
+            if data.return_reference:
+                advance.return_reference = data.return_reference
+            if data.return_remarks:
+                advance.return_remarks = data.return_remarks
+            # If remaining is now 0, mark as fully applied
+            if advance.remaining_amount <= D("0.001"):
+                advance.remaining_amount = D("0")
+                advance.is_fully_applied = True
 
+        _apply_return()
         self.db.flush()
 
         # GL entry: Dr Bank/Cash, Cr Supplier Advances
@@ -4261,14 +4191,6 @@ class SupplierAdvancePaymentService:
                 return_date=data.return_date,
                 return_method=data.return_method,
                 user_id=user_id or 0,
-            )
-            # Keep the materialized cashbook in sync with the GL cash/bank debit so
-            # the day-end cashbook ↔ GL (1010+1020) reconciliation stays balanced.
-            self._ensure_cashbook_entry_for_advance_return(
-                advance,
-                return_amount=D(str(return_amount)),
-                return_date=data.return_date,
-                return_method=data.return_method,
             )
             log_audit(
                 self.db,
@@ -4295,71 +4217,14 @@ class SupplierAdvancePaymentService:
                 error=gl_err,
                 user_id=user_id or 0,
             )
-            # Re-apply the data change without GL
-            advance.returned_amount = D(str(float(advance.returned_amount)))
-            advance.remaining_amount = D(str(max(0.0, remaining - return_amount)))
-            if float(advance.remaining_amount) <= 0.001:
-                advance.remaining_amount = D("0")
-                advance.is_fully_applied = True
+            # Re-apply the whole return without GL (the rollback discarded it):
+            # returned amount, date and method are what the retry regenerates from.
+            advance = self.repo.get_by_id(advance_id)
+            _apply_return()
             self.db.commit()
 
         self.db.refresh(advance)
         return advance
-
-    def _ensure_cashbook_entry_for_advance_return(
-        self,
-        advance: models.SupplierAdvancePayment,
-        return_amount: Decimal,
-        return_date,
-        return_method: Optional[str],
-    ) -> None:
-        """Record a cashbook money-in entry for a supplier advance return.
-
-        When a supplier refunds an unused advance, cash/bank increases
-        (GL Dr 1010/1020). The advance-payment INSERT trigger only records the
-        original money-out on creation; returns are UPDATEs and therefore fire no
-        trigger, so the money-in must be inserted explicitly. Without this, the
-        day-end cashbook ↔ GL reconciliation would understate the inflow.
-
-        Does NOT commit — runs inside the return_advance transaction so the
-        cashbook entry is atomic with the GL posting.
-        """
-        amount = Decimal(str(return_amount or 0))
-        if amount <= 0:
-            return
-
-        supplier_name = None
-        if advance.supplier:
-            supplier_name = advance.supplier.company_name
-        if not supplier_name:
-            supplier_name = f"Supplier #{advance.supplier_id}"
-
-        self.db.execute(
-            text(
-                """
-                SELECT fn_insert_cashbook_entry(
-                    :entry_type, :transaction_date, :source_table, :source_id,
-                    :reference_no, :description, :party_name, :payment_method,
-                    :money_in, :money_out, :branch_code
-                )
-                """
-            ),
-            {
-                "entry_type": "supplier_advance_return",
-                "transaction_date": datetime.combine(
-                    return_date or tz.today(), datetime.min.time()
-                ),
-                "source_table": "supplier_advance_payment",
-                "source_id": advance.id,
-                "reference_no": advance.advance_no,
-                "description": f"Supplier Advance Return {advance.advance_no} - refund from supplier",
-                "party_name": supplier_name,
-                "payment_method": return_method or advance.payment_method,
-                "money_in": amount,
-                "money_out": Decimal("0"),
-                "branch_code": advance.branch_code,
-            },
-        )
 
     def delete_advance(self, advance_id: int) -> bool:
         """Delete an advance payment (only if no applications)"""

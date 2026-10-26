@@ -9,7 +9,7 @@ Pydantic v2 schemas for:
 - Cash Flow Statements
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
@@ -146,6 +146,16 @@ class JournalEntryUpdate(BaseModel):
 class JournalEntryLineInput(JournalEntryLineCreate):
     debit_amount: MoneyIn = Decimal("0")
     credit_amount: MoneyIn = Decimal("0")
+
+    @model_validator(mode="after")
+    def _one_sided(self):
+        if self.debit_amount and self.credit_amount:
+            raise ValueError(
+                f"Line {self.line_number}: a line is either a debit or a credit, not both"
+            )
+        if not self.debit_amount and not self.credit_amount:
+            raise ValueError(f"Line {self.line_number}: debit or credit amount is required")
+        return self
 
 
 class JournalEntryCreateInput(JournalEntryCreate):

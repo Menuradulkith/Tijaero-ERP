@@ -266,6 +266,7 @@ class SupplierContactPersonBase(BaseModel):
     passport_no: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+    active: bool = True
 
     @field_validator("birthdate")
     @classmethod
@@ -290,6 +291,7 @@ class SupplierContactPersonInputBase(BaseModel):
     passport_no: OptStr(50) = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+    active: bool = True
 
     @field_validator("birthdate")
     @classmethod
@@ -316,6 +318,8 @@ class SupplierContactPersonUpdate(BaseModel):
     _v_nn_name = field_validator("full_name")(_not_null("Full name"))
     _v_nn_phone = field_validator("phone")(_not_null("Contact No"))
     _v_nn_title = field_validator("title")(_not_null("Title"))
+    _v_nn_active = field_validator("active")(_not_null("Active"))
+    active: Optional[bool] = None
     title: OptStr(30) = None
     full_name: Optional[ReqStr(255)] = None
     occupation: OptStr(255) = None
@@ -828,6 +832,7 @@ class PurchasingReturnItemBase(BaseModel):
 class PurchasingReturnItemCreate(PurchasingReturnItemBase):
     purchasing_price: MoneyInput
     return_price: MoneyInput  # per unit
+    quantity: int = Field(default=1, ge=1, le=INT4_MAX)
 
 class PurchasingReturnItem(PurchasingReturnItemBase, TijaeroBaseSchema):
     id: int
@@ -837,15 +842,41 @@ class PurchasingReturnItem(PurchasingReturnItemBase, TijaeroBaseSchema):
     product_name: Optional[str] = None
     warranty_month: Optional[str] = None
 
+PURCHASE_RETURN_REASONS = (
+    "Quality issue",
+    "Incorrect item",
+    "Quantity mismatch",
+    "Damaged during delivery",
+    "Label errors",
+    "Other",
+)
+
+
 class PurchasingReturnBase(BaseModel):
-    purchasing_return_no: Optional[str] = None 
+    purchasing_return_no: Optional[str] = None
     branch_code: str
-    remark: Optional[str] = None
+    remark: Optional[str] = None  # comment
+    reason: Optional[str] = None
     goodreceivednote_id: int
 
+    @field_validator("reason")
+    @classmethod
+    def _check_reason(cls, v):
+        if v in (None, ""):
+            return None
+        if v not in PURCHASE_RETURN_REASONS:
+            raise ValueError("reason must be one of: " + ", ".join(PURCHASE_RETURN_REASONS))
+        return v
+
 class PurchasingReturnCreate(PurchasingReturnBase):
-    items: List[PurchasingReturnItemCreate]
-    require_approval: bool = False 
+    items: List[PurchasingReturnItemCreate] = Field(..., min_length=1)  # a return without items is meaningless
+    require_approval: bool = False
+
+    @model_validator(mode="after")
+    def _other_needs_comment(self):
+        if self.reason == "Other" and not (self.remark or "").strip():
+            raise ValueError("A comment is required when the reason is Other")
+        return self
 
 class PurchasingReturn(PurchasingReturnBase, TijaeroBaseSchema):
     id: int
@@ -858,6 +889,8 @@ class PurchasingReturn(PurchasingReturnBase, TijaeroBaseSchema):
     supplier_name: Optional[str] = None  # Populated from GRN→PO→supplier
     created_by: Optional[int] = None
     created_by_name: Optional[str] = None
+    total_quantity: int = 0  # units going back to the supplier
+    total_amount: Optional[Decimal] = None  # sum of return price x quantity
 
 class PurchasingReturnWithItems(PurchasingReturn):
     items: List[PurchasingReturnItem] = []
@@ -885,6 +918,7 @@ class LotReturnValidationRequest(BaseModel):
     grn_id: int
     sales_stock_id: int
     quantity: int = Field(..., ge=1)
+    branch_code: Optional[str] = None  # the returning branch: the lot must be stocked there
 
 
 class LotReturnValidationResponse(BaseModel):
@@ -1039,6 +1073,13 @@ class GoodReceivedNote(GoodReceivedNoteBase, TijaeroBaseSchema):
     cancel_reason: Optional[str] = None
     po_no: Optional[str] = None  # Populated from purchasing_order relationship
     supplier_name: Optional[str] = None  # Populated from PO→supplier
+    created_by_name: Optional[str] = None
+    units_received: int = 0  # accepted units on this receipt (lots count by quantity)
+    units_rejected: int = 0  # units turned away at the dock
+    total_value: Optional[Decimal] = None  # received units at their purchase-order price
+    # GRNs have no approval step of their own; these come from the linked PO.
+    po_approved_by_name: Optional[str] = None
+    po_approved_date: Optional[datetime] = None
 
 
 class GoodReceivedNoteReceiveResult(BaseModel):
@@ -1060,7 +1101,7 @@ class GoodReceivedItemBase(BaseModel):
     purchasing_order_items_id: int
 
 class GoodReceivedItemCreate(GoodReceivedItemBase):
-    pass
+    quantity: int = Field(default=1, ge=1, le=INT4_MAX)
 
 
 class GenerateBarcodesRequest(BaseModel):
@@ -1223,6 +1264,7 @@ class SupplierPayment(SupplierPaymentBase, TijaeroBaseSchema):
 class SupplierPaymentListFilter(BaseModel):
     supplier_id: Optional[int] = None
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None  # caller's allowed branches; None = no restriction
     payment_method: Optional[str] = None
     payment_for: Optional[str] = None
     status: Optional[str] = None

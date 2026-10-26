@@ -302,7 +302,11 @@ def update_expense(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return service.ExpenseService(db).update_expense(expense_id, data)
+    expense_service = service.ExpenseService(db)
+    expense = expense_service.get_expense(expense_id)
+    if not validate_branch_access(current_user, expense.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {expense.branch_code}")
+    return expense_service.update_expense(expense_id, data)
 
 @router.get("/expenses/{expense_id}", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_VIEW))])
 def get_expense(
@@ -414,7 +418,7 @@ def record_expense(
     _expense = svc.get_expense(expense_id)
     if not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
-    return svc.record_expense(expense_id, data)
+    return svc.record_expense(expense_id, data, user_id=current_user.id)
 
 # =============================================================================
 # ADVANCE PAYMENTS

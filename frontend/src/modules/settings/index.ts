@@ -11,3 +11,4 @@ export { default as ProfileSettings } from "./components/ProfileSettings";
 export { default as EmailTemplatesSettings } from "./components/EmailTemplatesSettings";
 export { default as EmailLogsSettings } from "./components/EmailLogsSettings";
 
+export { default as PrintTemplatesSettings } from "./components/PrintTemplatesSettings";

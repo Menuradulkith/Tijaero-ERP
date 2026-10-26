@@ -187,6 +187,37 @@ def list_journal_entries(
     return {"items": [_serialize_je(je) for je in items], "total": total}
 
 
+# Declared before /journal-entries/{je_id}: FastAPI matches in order, so the
+# static path must come first or it is parsed as an id (422).
+@router.get("/journal-entries/export-csv", summary="Export Journal Entries to CSV", dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
+def export_journal_entries_csv(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    fiscal_year: Optional[int] = None,
+    branch_code: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """Export journal entries to CSV."""
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
+    items, _total = JournalEntryService(db).list_journal_entries(schemas.JournalEntryListFilter(
+        status=status_filter,
+        fiscal_year=fiscal_year,
+        branch_code=branch_code,
+        branch_codes=user_branches if not branch_code else None,
+        skip=0, limit=100000,
+    ))
+    return build_csv_response(
+        filename="journal_entries",
+        headers=["JE No", "Date", "Description", "Status", "Fiscal Year", "Period", "Total Debit", "Total Credit", "Created By"],
+        rows=[
+            [e.journal_entry_no, e.entry_date, e.description, e.status, e.fiscal_year, e.fiscal_period, e.total_debit, e.total_credit, e.created_by]
+            for e in items
+        ],
+    )
+
+
 @router.get("/journal-entries/{je_id}", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
 def get_journal_entry(je_id: int, db: Session = Depends(get_db)):
     """Get a specific journal entry with lines."""
@@ -602,7 +633,7 @@ def get_audit_trail(
     ))
 
 
-@router.post("/journal-entries/{je_id}/correct", response_model=schemas.CorrectionResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
+@router.post("/journal-entries/{je_id}/correct", response_model=schemas.CorrectionResponse, dependencies=[Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
 def correct_journal_entry(
     je_id: int,
     data: schemas.CorrectionRequest,
@@ -957,35 +988,6 @@ def _serialize_cfs(statement) -> dict:
 # =============================================================================
 # CSV EXPORT ENDPOINTS
 # =============================================================================
-
-@router.get("/journal-entries/export-csv", summary="Export Journal Entries to CSV", dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
-def export_journal_entries_csv(
-    status_filter: Optional[str] = Query(None, alias="status"),
-    fiscal_year: Optional[int] = None,
-    branch_code: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
-):
-    """Export journal entries to CSV."""
-    if branch_code and user_branches is not None and branch_code not in user_branches:
-        raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
-    items, _total = JournalEntryService(db).list_journal_entries(schemas.JournalEntryListFilter(
-        status=status_filter,
-        fiscal_year=fiscal_year,
-        branch_code=branch_code,
-        branch_codes=user_branches if not branch_code else None,
-        skip=0, limit=100000,
-    ))
-    return build_csv_response(
-        filename="journal_entries",
-        headers=["JE No", "Date", "Description", "Status", "Fiscal Year", "Period", "Total Debit", "Total Credit", "Created By"],
-        rows=[
-            [e.journal_entry_no, e.entry_date, e.description, e.status, e.fiscal_year, e.fiscal_period, e.total_debit, e.total_credit, e.created_by]
-            for e in items
-        ],
-    )
-
 
 @router.get("/general-ledger/export-csv", summary="Export General Ledger to CSV", dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
 def export_general_ledger_csv(

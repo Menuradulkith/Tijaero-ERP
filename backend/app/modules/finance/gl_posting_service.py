@@ -38,12 +38,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import text
+from sqlalchemy import Integer, cast, func, or_, text
 from sqlalchemy.orm import Session
 
 from app.core import timezone as tz
@@ -61,6 +62,32 @@ logger = logging.getLogger(__name__)
 
 ROUNDING_ACCOUNT_CODE = "5900"
 ROUNDING_TOLERANCE = Decimal("0.05")
+CENT = Decimal("0.01")
+
+# Header (parent) accounts are summary nodes and must not receive postings.
+# Every hook posts to leaf accounts (4190 Miscellaneous Income, 5190
+# Miscellaneous Expense, ...); add a code here only as a temporary exemption.
+LEGACY_POSTABLE_HEADER_CODES: frozenset = frozenset()
+
+
+def _quantize(value: Any) -> Decimal:
+    """Money to 2dp, ROUND_HALF_UP - the precision the JE/GL columns store."""
+    return Decimal(str(value or 0)).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def _marker_variants(marker: str) -> List[str]:
+    """``marker`` plus its camel-case-split spelling (``SaleReturn`` ->
+    ``Sale Return``) so JEs written before the marker was stamped into the
+    description are still recognised."""
+    variants = [marker]
+    split = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", marker)
+    if split != marker:
+        variants.append(split)
+    return variants
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 # ─── Result object ───────────────────────────────────────────────────────────
@@ -70,7 +97,9 @@ class PostResult:
 
     status: str  # posted | skipped_duplicate | skipped_empty | failed
     journal_entry: Optional[JournalEntry] = None
-    error_code: Optional[str] = None  # missing_account | imbalance | period_closed | exception
+    # missing_account | header_account | imbalance | period_closed | exception
+    # | not_regenerable | regeneration_failed | empty_payload (retry only)
+    error_code: Optional[str] = None
     error_message: Optional[str] = None
     failure_id: Optional[int] = None
 
@@ -87,8 +116,35 @@ class GLPostingService:
     def __init__(self, db: Session):
         self.db = db
         self._account_cache: Dict[str, int] = {}
+        self._header_cache: Dict[int, bool] = {}
 
     # ─── Helpers ──────────────────────────────────────────────────────────
+    def _is_header_account(self, account_id: int, account_code: str) -> bool:
+        """An account with active child accounts is a non-postable header."""
+        if account_id in self._header_cache:
+            return self._header_cache[account_id]
+        self._header_cache[account_id] = is_header = self._compute_is_header(account_id, account_code)
+        return is_header
+
+    def _compute_is_header(self, account_id: int, account_code: str) -> bool:
+        has_child = self.db.query(
+            self.db.query(ChartOfAccounts.id)
+            .filter(
+                ChartOfAccounts.parent_account_id == account_id,
+                ChartOfAccounts.is_active == True,  # noqa: E712
+            )
+            .exists()
+        ).scalar()
+        if not has_child:
+            return False
+        if account_code in LEGACY_POSTABLE_HEADER_CODES:
+            logger.warning(
+                "GL posting to header account %s tolerated (legacy posting target; "
+                "re-point the hook at a leaf account)", account_code
+            )
+            return False
+        return True
+
     def _get_account_id(self, account_code: str) -> Optional[int]:
         if account_code in self._account_cache:
             return self._account_cache[account_code]
@@ -137,19 +193,18 @@ class GLPostingService:
             text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"),
             {"prefix": full_prefix},
         )
-        last = (
-            self.db.query(JournalEntry)
-            .filter(JournalEntry.journal_entry_no.like(f"{full_prefix}%"))
-            .order_by(JournalEntry.journal_entry_no.desc())
-            .first()
+        # Max of the *numeric* suffix: ordering the string DESC puts "...-10000"
+        # below "...-9999", so past 9999/month the same number was re-issued.
+        suffix = func.substr(JournalEntry.journal_entry_no, len(full_prefix) + 1)
+        max_seq = (
+            self.db.query(func.max(cast(suffix, Integer)))
+            .filter(
+                JournalEntry.journal_entry_no.like(f"{_escape_like(full_prefix)}%", escape="\\"),
+                suffix.op("~")("^[0-9]{1,9}$"),
+            )
+            .scalar()
         )
-        if last and last.journal_entry_no.startswith(full_prefix):
-            try:
-                seq = int(last.journal_entry_no.split("-")[-1]) + 1
-            except (ValueError, IndexError):
-                seq = 1
-        else:
-            seq = 1
+        seq = (max_seq or 0) + 1
         return f"{full_prefix}{seq:04d}"
 
     # ─── Idempotency ──────────────────────────────────────────────────────
@@ -164,7 +219,10 @@ class GLPostingService:
 
         Keyed on the integer ``reference_id`` (no more substring collisions) and
         ``reference_type`` recorded on the JE lines. ``marker`` distinguishes
-        multiple postings for one document (e.g. Revenue vs COGS vs Discount).
+        multiple postings for one document (e.g. Revenue vs COGS vs Discount);
+        :meth:`post` stamps it into the JE description, so the match never
+        depends on how a caller happened to word its description. Reversed JEs
+        are ignored so a source document can be re-posted after a reversal.
         """
         q = (
             self.db.query(JournalEntry)
@@ -173,11 +231,20 @@ class GLPostingService:
                 JournalEntryLine.reference_type == reference_type,
                 JournalEntryLine.reference_id == reference_id,
                 JournalEntry.entry_type == "Auto",
+                JournalEntry.status != "reversed",
+                or_(JournalEntry.is_reversed.is_(None), JournalEntry.is_reversed == False),  # noqa: E712
             )
         )
         if marker:
-            q = q.filter(JournalEntry.description.ilike(f"%{marker}%"))
-        return q.first()
+            q = q.filter(
+                or_(
+                    *[
+                        JournalEntry.description.ilike(f"%{_escape_like(v)}%", escape="\\")
+                        for v in _marker_variants(marker)
+                    ]
+                )
+            )
+        return q.order_by(JournalEntry.id).first()
 
     # ─── Failure recording (independent session) ──────────────────────────
     def _record_failure(
@@ -224,8 +291,12 @@ class GLPostingService:
                     GLPostingFailure.status == "pending",
                 )
             )
+            # Exact marker match (NULL == NULL): an unmarked failure must not be
+            # merged into e.g. the pending "Cancel" row of the same document.
             if posting_marker:
                 existing = existing.filter(GLPostingFailure.posting_marker == posting_marker)
+            else:
+                existing = existing.filter(GLPostingFailure.posting_marker.is_(None))
             existing = existing.first()
 
             if existing:
@@ -339,6 +410,13 @@ class GLPostingService:
         ``gl_posting_failures`` (independent session) and a non-posted result is
         returned — the caller decides whether to continue.
         """
+        # Keep the marker literally in the description: already_posted() matches
+        # on it, and a caller whose free-text description does not contain its
+        # own marker (e.g. "Sale Return" vs "SaleReturn") would otherwise never
+        # be found by the locked re-check -> double posting.
+        if marker and marker.lower() not in (description or "").lower():
+            description = f"{description} | {marker}" if description else marker
+
         try:
             # 1. Idempotency on the exact integer reference.
             if idempotent:
@@ -361,10 +439,13 @@ class GLPostingService:
             # 2. Resolve every referenced account up-front. A missing account is
             #    a real configuration error -> failure, never a silent skip.
             missing: List[str] = []
+            headers: List[str] = []
             resolved: List[Dict[str, Any]] = []
             for line in lines:
-                debit = Decimal(str(line.get("debit", 0) or 0))
-                credit = Decimal(str(line.get("credit", 0) or 0))
+                # Quantize to the stored precision BEFORE balancing, so the
+                # balance check sees exactly what the Numeric(.., 2) columns keep.
+                debit = _quantize(line.get("debit", 0))
+                credit = _quantize(line.get("credit", 0))
                 code = line["account_code"]
                 account_id = self._get_account_id(code)
                 if account_id is None:
@@ -373,6 +454,9 @@ class GLPostingService:
                         missing.append(code)
                     continue
                 if debit == 0 and credit == 0:
+                    continue
+                if self._is_header_account(account_id, code):
+                    headers.append(code)
                     continue
                 resolved.append(
                     {
@@ -409,6 +493,35 @@ class GLPostingService:
                 return PostResult(
                     status="failed",
                     error_code="missing_account",
+                    error_message=msg,
+                    failure_id=fid,
+                )
+
+            if headers:
+                msg = f"Cannot post to header (parent) account(s): {sorted(set(headers))}"
+                logger.error("GL post failed (%s#%s): %s", reference_type, reference_id, msg)
+                fid = (
+                    self._record_failure(
+                        reference_type=reference_type,
+                        reference_id=reference_id,
+                        reference_no=reference_no,
+                        source_module=source_module,
+                        transaction_type=transaction_type,
+                        posting_marker=marker,
+                        entry_date=entry_date,
+                        branch_code=branch_code,
+                        description=description,
+                        lines=lines,
+                        error_code="header_account",
+                        error_message=msg,
+                        user_id=user_id,
+                    )
+                    if record_failure
+                    else None
+                )
+                return PostResult(
+                    status="failed",
+                    error_code="header_account",
                     error_message=msg,
                     failure_id=fid,
                 )
@@ -589,6 +702,11 @@ class GLPostingService:
             # committing) makes the entry queryable while preserving atomicity
             # with the source document: a later rollback still discards it.
             self.db.flush()
+            record_cashbook_from_gl(
+                self.db, reference_type=reference_type, reference_id=reference_id,
+                reference_no=reference_no, entry_date=entry_date, branch_code=branch_code,
+                description=description, lines=resolved,
+            )
 
             return PostResult(status="posted", journal_entry=je)
 
@@ -625,8 +743,20 @@ class GLPostingService:
     # ─── Retry ────────────────────────────────────────────────────────────
     def retry_failure(self, failure_id: int, user_id: int) -> PostResult:
         """
-        Re-attempt a previously-failed posting using its stored payload.
-        On success the failure row is marked resolved and the JE is committed.
+        Re-attempt a previously-failed posting.
+
+        * When the source type has a regenerator, the source document is
+          reloaded and its posting hook re-run (lines rebuilt from the source).
+        * Otherwise a failure recorded by :meth:`post` replays the lines it
+          stored.
+        * A ``commit_failed`` failure (the JE was built but the caller's commit
+          failed) has NO lines -> the source document is reloaded and the same
+          module posting hook is re-run via :mod:`gl_regenerators`, so the lines
+          are rebuilt from the source. Without a registered regenerator the
+          retry fails with ``not_regenerable`` (never a silent skip).
+
+        On success the failure row is marked resolved (with ``resolved_je_id``)
+        and the JE is committed. ``skipped_empty`` is never reported as success.
         """
         failure = (
             self.db.query(GLPostingFailure)
@@ -650,6 +780,8 @@ class GLPostingService:
             stored_lines = json.loads(failure.payload or "[]")
         except (TypeError, ValueError):
             stored_lines = []
+        if not isinstance(stored_lines, list):
+            stored_lines = []
         lines = [
             {
                 "account_code": ln.get("account_code"),
@@ -658,7 +790,20 @@ class GLPostingService:
                 "description": ln.get("description", ""),
             }
             for ln in stored_lines
+            if isinstance(ln, dict) and ln.get("account_code")
         ]
+
+        # The source document is the authority: whenever it can be reloaded,
+        # rebuild the lines from it (a stored payload can be stale, imbalanced or
+        # belong to a document that no longer exists). Replay only otherwise.
+        from app.modules.finance.gl_regenerators import get_regenerator
+
+        if (
+            not lines
+            or failure.error_code == "commit_failed"
+            or get_regenerator(failure.reference_type, failure.posting_marker) is not None
+        ):
+            return self._retry_by_regeneration(failure, user_id)
 
         result = self.post(
             reference_type=failure.reference_type,
@@ -675,23 +820,264 @@ class GLPostingService:
             idempotent=True,
             record_failure=False,
         )
+        if result.status == "skipped_empty":
+            # The stored lines net to nothing postable: rebuild from the source
+            # if possible, otherwise this is a failure, not a success.
+            self.db.rollback()
+            return self._retry_by_regeneration(failure, user_id)
 
         if result.status in ("posted", "skipped_duplicate"):
-            failure.status = "resolved"
-            failure.resolved_at = tz.now()
-            failure.resolved_by = user_id
-            if result.journal_entry is not None:
-                failure.resolved_je_id = result.journal_entry.id
+            self._mark_resolved(failure, user_id, result.journal_entry)
             self.db.commit()
         else:
-            failure.attempts = (failure.attempts or 1) + 1
-            failure.error_code = result.error_code or failure.error_code
-            failure.error_message = result.error_message or failure.error_message
-            failure.last_attempt_at = tz.now()
-            self.db.commit()
-
+            self.db.rollback()
+            self._mark_attempt(failure, result.error_code, result.error_message)
         return result
 
+    def _mark_resolved(self, failure: GLPostingFailure, user_id: int, je: Optional[JournalEntry]) -> None:
+        failure.status = "resolved"
+        failure.resolved_at = tz.now()
+        failure.resolved_by = user_id
+        if je is not None:
+            failure.resolved_je_id = je.id
+
+    def _mark_attempt(self, failure: GLPostingFailure, error_code: Optional[str], error_message: Optional[str]) -> None:
+        """Record a failed retry attempt (own commit; caller already rolled back)."""
+        try:
+            self.db.refresh(failure)
+        except Exception:  # pragma: no cover - row vanished
+            return
+        failure.attempts = (failure.attempts or 1) + 1
+        failure.error_code = error_code or failure.error_code
+        failure.error_message = error_message or failure.error_message
+        failure.last_attempt_at = tz.now()
+        self.db.commit()
+
+    def _retry_by_regeneration(self, failure: GLPostingFailure, user_id: int) -> PostResult:
+        """Rebuild the posting from its source document via the module hook."""
+        from .gl_regenerators import RegenerationError, get_regenerator
+
+        reference_type = failure.reference_type
+        reference_id = failure.reference_id
+        regen = get_regenerator(reference_type, failure.posting_marker)
+        if regen is None:
+            msg = (
+                f"No stored lines and no regenerator for {reference_type}"
+                f"{' (' + failure.posting_marker + ')' if failure.posting_marker else ''}"
+                f"#{reference_id}; post it manually or ignore the failure"
+            )
+            self._mark_attempt(failure, "not_regenerable", msg)
+            return PostResult(status="failed", error_code="not_regenerable", error_message=msg)
+
+        try:
+            returned = regen.regenerate(self.db, reference_id, user_id)
+            self.db.commit()
+        except RegenerationError as exc:
+            self.db.rollback()
+            self._mark_attempt(failure, exc.code, str(exc))
+            return PostResult(status="failed", error_code=exc.code, error_message=str(exc))
+        except Exception as exc:  # noqa: BLE001 - surfaced on the failure row
+            logger.exception("GL regeneration failed for %s#%s", reference_type, reference_id)
+            self.db.rollback()
+            self._mark_attempt(failure, "regeneration_failed", str(exc))
+            return PostResult(status="failed", error_code="regeneration_failed", error_message=str(exc))
+
+        je = regen.verify(self.db, reference_id, returned)
+        if je is None:
+            msg = (
+                f"Re-ran the {reference_type} posting hook but no posted journal entry exists for "
+                f"{reference_type}#{reference_id} (see newer posting failures for the cause)"
+            )
+            # The hook's own post() may have recorded the concrete cause
+            # (missing_account, period_closed, ...) onto this same pending row
+            # via the independent session - keep that rather than masking it.
+            self.db.refresh(failure)
+            code = failure.error_code if failure.error_code not in (None, "commit_failed") else "regeneration_failed"
+            if code != "regeneration_failed":
+                msg = failure.error_message or msg
+            self._mark_attempt(failure, code, msg)
+            return PostResult(status="failed", error_code=code, error_message=msg)
+
+        self.db.refresh(failure)
+        self._mark_resolved(failure, user_id, je)
+        self.db.commit()
+        return PostResult(status="posted", journal_entry=je)
+
+
+# ─── Cashbook from the GL ───────────────────────────────────────────────────
+# The cashbook (cashbook_entries) is written ONLY from GL postings: one row per
+# journal entry that moves cash (1010), bank (1020) or cheques in hand (1040).
+# It records money when the ledger does (an invoice on approval, an expense on
+# payment), never when a document is merely created, so the day-end
+# cashbook <-> GL check reconciles by construction and the cashbook never
+# shows pending, cancelled or rejected documents.
+CASHBOOK_ACCOUNT_CODES = {"1010": "Cash", "1020": "Bank Transfer", "1040": "Cheque"}
+
+# reference_type -> (entry_type shown/filtered on the cashbook page,
+#                    source_table, SQL returning the party name for :id)
+_CUSTOMER_OF_INVOICE = (
+    "SELECT COALESCE(c.customer_name, 'Walk-in Customer') FROM invoices i "
+    "LEFT JOIN customers c ON c.id = i.customer_id WHERE i.id = :id"
+)
+_SUPPLIER_OF_GRN = (
+    "SELECT s.company_name FROM good_received_note g "
+    "JOIN purchasing_orders po ON po.id = g.purchasingorders_id "
+    "JOIN supplier s ON s.id = po.first_suppliers_id WHERE g.id = :id"
+)
+_VOUCHER_CUSTOMER = "SELECT customer_name FROM customer_gift_voucher WHERE id = :id"
+_ADVANCE_SUPPLIER = (
+    "SELECT s.company_name FROM supplier_advance_payment p JOIN supplier s ON s.id = p.supplier_id "
+    "WHERE p.id = :id"
+)
+CASHBOOK_SOURCES: Dict[str, tuple] = {
+    "Invoice": ("invoice_receipt", "invoices", _CUSTOMER_OF_INVOICE),
+    "CustomerCreditSettlement": (
+        "customer_credit_settle", "customer_credits_settle",
+        "SELECT c.customer_name FROM customer_credits_settle x "
+        "JOIN customers c ON c.id = x.customer_id WHERE x.id = :id",
+    ),
+    "GiftVoucherSale": ("voucher_sale", "customer_gift_voucher", _VOUCHER_CUSTOMER),
+    "GiftVoucherRefund": ("voucher_refund", "customer_gift_voucher", _VOUCHER_CUSTOMER),
+    "CustomerAdvance": (
+        "customer_advance", "customer_advance_payments",
+        "SELECT c.customer_name FROM customer_advance_payments a "
+        "JOIN customers c ON c.id = a.customer_id WHERE a.id = :id",
+    ),
+    "SaleReturn": (
+        "sale_return_refund", "sale_return",
+        "SELECT COALESCE(c.customer_name, 'Walk-in Customer') FROM sale_return r "
+        "JOIN invoices i ON i.id = r.invoice_id LEFT JOIN customers c ON c.id = i.customer_id "
+        "WHERE r.id = :id",
+    ),
+    "BankDeposit": ("bank_deposit", "bank_deposits", None),
+    "Expense": ("expense", "expenses", "SELECT vendor_name FROM expenses WHERE id = :id"),
+    "SupplierPayment": (
+        "supplier_payment", "supplier_payments",
+        "SELECT s.company_name FROM supplier_payments p JOIN supplier s ON s.id = p.supplier_id WHERE p.id = :id",
+    ),
+    "SupplierAdvance": ("supplier_payment", "supplier_advance_payment", _ADVANCE_SUPPLIER),
+    "SupplierAdvanceReturn": ("supplier_advance_return", "supplier_advance_payment", _ADVANCE_SUPPLIER),
+    "CreditSettle": (
+        "supplier_payment", "supplier_credits_settle",
+        "SELECT s.company_name FROM supplier_credits_settle x JOIN supplier s ON s.id = x.suppliers_id "
+        "WHERE x.id = :id",
+    ),
+    "GRN": ("grn_payment", "good_received_note", _SUPPLIER_OF_GRN),
+    "PurchaseReturn": (
+        "purchase_return", "purchasing_returns",  # legacy label (table: purchasing_return)
+        "SELECT s.company_name FROM purchasing_return r JOIN good_received_note g ON g.id = r.goodreceivednote_id "
+        "JOIN purchasing_orders po ON po.id = g.purchasingorders_id "
+        "JOIN supplier s ON s.id = po.first_suppliers_id WHERE r.id = :id",
+    ),
+    "LandedCost": (
+        "landed_cost", "landed_cost_vouchers",
+        "SELECT s.company_name FROM landed_cost_vouchers v JOIN supplier s ON s.id = v.supplier_id WHERE v.id = :id",
+    ),
+    "PayrollBatch": ("payroll", "payroll_batches", None),
+    "StatutoryPayment": ("statutory_payment", "payroll_batches", None),
+    "Reimbursement": (
+        "reimbursement", "reimbursements",
+        "SELECT e.name_with_initials FROM reimbursements r JOIN employees e ON e.employee_id = r.employee_id "
+        "WHERE r.id = :id",
+    ),
+    "CommissionPayment": ("commission_payment", "commission_payments", None),
+    "PettyCashFund": ("petty_cash", "petty_cash_funds", None),
+    "PettyCashTransaction": ("petty_cash", "petty_cash_transactions", None),
+    "JE": ("journal_entry", "journal_entries", None),
+}
+
+
+def _snake(name: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def cashbook_source(reference_type: str) -> tuple:
+    """(entry_type, source_table, party_sql) for a GL reference type."""
+    return CASHBOOK_SOURCES.get(
+        reference_type, (f"gl_{_snake(reference_type)}"[:50], f"gl:{reference_type}"[:100], None)
+    )
+
+
+def _cashbook_method(account_code: Optional[str], description: Optional[str]) -> Optional[str]:
+    method = CASHBOOK_ACCOUNT_CODES.get(account_code or "")
+    if method == "Bank Transfer" and "card" in (description or "").lower():
+        return "Card"
+    return method
+
+
+def record_cashbook_from_gl(
+    db: Session,
+    *,
+    reference_type: str,
+    reference_id: Optional[int],
+    reference_no: Optional[str],
+    entry_date: date,
+    branch_code: Optional[str],
+    description: Optional[str],
+    lines: List[Dict[str, Any]],
+) -> None:
+    """Write the cashbook row for one GL posting.
+
+    ``lines`` are ``{account_code, debit, credit, description?}``. The row holds
+    the posting's net cash/bank movement; postings that move no cash write
+    nothing. A bank deposit (cash/cheques -> bank, net zero) is recorded as the
+    money leaving the till, which the day-end identity adds back. Runs in a
+    savepoint and never raises: the GL posting stands even if the cashbook
+    insert fails (logged; day-end flags the gap)."""
+    net = Decimal("0")
+    till_out = Decimal("0")
+    by_method: Dict[str, Decimal] = {}
+    for ln in lines:
+        method = _cashbook_method(ln.get("account_code"), ln.get("description"))
+        if method is None:
+            continue
+        amount = _quantize(ln.get("debit", 0)) - _quantize(ln.get("credit", 0))
+        net += amount
+        if method in ("Cash", "Cheque") and amount < 0:
+            till_out -= amount
+        by_method[method] = by_method.get(method, Decimal("0")) + abs(amount)
+    entry_type, source_table, party_sql = cashbook_source(reference_type)
+    if entry_type == "bank_deposit":
+        money_in, money_out, method = Decimal("0"), till_out, "Bank Deposit"
+    elif net == 0:
+        return
+    else:
+        money_in = net if net > 0 else Decimal("0")
+        money_out = -net if net < 0 else Decimal("0")
+        method = max(by_method, key=by_method.get)
+    if money_in == 0 and money_out == 0:
+        return
+    from datetime import datetime as _dt
+
+    savepoint = db.begin_nested()
+    try:
+        party = None
+        if party_sql and reference_id:
+            party = db.execute(text(party_sql), {"id": reference_id}).scalar()
+        db.execute(
+            text(
+                "SELECT fn_insert_cashbook_entry(:entry_type, :transaction_date, :source_table, "
+                ":source_id, :reference_no, :description, :party_name, :payment_method, "
+                ":money_in, :money_out, :branch_code)"
+            ),
+            {
+                "entry_type": entry_type,
+                "transaction_date": _dt.combine(entry_date, _dt.min.time()),
+                "source_table": source_table,
+                "source_id": reference_id or 0,
+                "reference_no": (reference_no or f"{reference_type}#{reference_id}")[:200],
+                "description": description,
+                "party_name": str(party)[:200] if party else None,
+                "payment_method": method,
+                "money_in": money_in,
+                "money_out": money_out,
+                "branch_code": branch_code,
+            },
+        )
+        savepoint.commit()
+    except Exception:  # noqa: BLE001 - the GL posting must not fail for this
+        savepoint.rollback()
+        logger.exception("Cashbook entry from GL failed for %s#%s", reference_type, reference_id)
 
 def get_gl_posting_service(db: Session) -> GLPostingService:
     """Factory helper for dependency injection."""

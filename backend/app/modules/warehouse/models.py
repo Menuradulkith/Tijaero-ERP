@@ -138,3 +138,8 @@ class ItemReceiveNote(Base, AuditMixin):
     item_transfer_note = relationship(
         "ItemTransferNote", back_populates="receive_notes"
     )
+
+    @property
+    def item_transfer_note_no(self):
+        """The transfer note's own number (ITN-...), for display next to the receipt."""
+        return self.item_transfer_note.item_transfer_note if self.item_transfer_note else None

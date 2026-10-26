@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SupplierPaymentReportPage
  *
  * Tab 0 — Payment History: all direct payments, credit settlements, advance payments/applications.
@@ -60,6 +60,7 @@ import { suppliersApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
 import type { Supplier } from "@/modules/purchasing/types";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { escapeHtml } from "@/utils/escapeHtml";
 
 type SortDir = "asc" | "desc";
 type HistSortField = "date" | "supplier_name" | "type" | "amount" | "invoice_no";
@@ -253,17 +254,17 @@ export default function SupplierPaymentReportPage() {
     if (activeTab === 1) {
       const rowsHtml = filteredOut.map((i) => `
         <tr>
-          <td style="font-family:monospace">${i.invoice_no}</td>
-          <td>${i.supplier_name || ""}</td>
-          <td>${i.supplier_invoice_no || "-"}</td>
+          <td style="font-family:monospace">${escapeHtml(i.invoice_no)}</td>
+          <td>${escapeHtml(i.supplier_name || "")}</td>
+          <td>${escapeHtml(i.supplier_invoice_no || "-")}</td>
           <td>${i.supplier_invoice_date ? new Date(i.supplier_invoice_date).toLocaleDateString() : "-"}</td>
           <td><span style="padding:2px 8px;border-radius:10px;font-size:10px;background:${i.payment_type === "credit" ? "#e3f2fd" : "#e8f5e9"};color:${i.payment_type === "credit" ? "#1565c0" : "#2e7d32"}">${i.payment_type === "credit" ? "Credit" : "Non-Credit"}</span></td>
           <td style="text-align:right">${fmtLKR(i.total_amount)}</td>
           <td style="text-align:right">${fmtLKR(i.paid_amount)}</td>
           <td style="text-align:right;font-weight:bold;color:${i.is_overdue ? "#c62828" : "#1565c0"}">${fmtLKR(i.balance_due)}</td>
           <td>${i.due_date ? new Date(i.due_date).toLocaleDateString() : "-"}</td>
-          <td style="text-align:center;color:${i.is_overdue ? "#c62828" : "#2e7d32"}">${i.is_overdue ? `${i.days_overdue}d overdue` : "Current"}</td>
-          <td>${i.branch_code}</td>
+          <td style="text-align:center;color:${i.is_overdue ? "#c62828" : "#2e7d32"}">${i.is_overdue ? `${escapeHtml(i.days_overdue)}d overdue` : "Current"}</td>
+          <td>${escapeHtml(i.branch_code)}</td>
         </tr>`).join("");
       win.document.write(`<!DOCTYPE html><html><head><title>Outstanding Invoices</title>
 <style>body{font-family:Segoe UI,sans-serif;padding:20px;max-width:1100px;margin:0 auto}h1{color:#1976d2;border-bottom:2px solid #1976d2;padding-bottom:10px}
@@ -272,7 +273,7 @@ export default function SupplierPaymentReportPage() {
 .sc .val{font-size:18px;font-weight:bold;margin-top:4px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #ddd;padding:6px 8px}
 th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-child(even){background:#f9f9f9}@media print{body{padding:10px}}</style></head>
 <body><h1>Outstanding Supplier Invoices</h1>
-<div class="meta">${supplierLabel} | Generated ${new Date().toLocaleString()}</div>
+<div class="meta">${escapeHtml(supplierLabel)} | Generated ${new Date().toLocaleString()}</div>
 <div class="summary">
   <div class="sc"><div class="lbl">Total Outstanding</div><div class="val" style="color:#1976d2">${currencySymbol} ${fmtLKR(outSummary.total_outstanding)}</div></div>
   <div class="sc"><div class="lbl">Overdue</div><div class="val" style="color:#c62828">${currencySymbol} ${fmtLKR(outSummary.total_overdue)}</div></div>
@@ -290,15 +291,15 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
     const rowsHtml = filteredHist.map((i) => `
       <tr>
         <td>${new Date(i.date).toLocaleDateString()}</td>
-        <td>${i.supplier_name}</td>
-        <td>${i.type}</td>
-        <td style="font-family:monospace">${i.document_no}</td>
-        <td style="font-family:monospace">${i.invoice_no || "-"}</td>
-        <td>${i.payment_method || "-"}</td>
+        <td>${escapeHtml(i.supplier_name)}</td>
+        <td>${escapeHtml(i.type)}</td>
+        <td style="font-family:monospace">${escapeHtml(i.document_no)}</td>
+        <td style="font-family:monospace">${escapeHtml(i.invoice_no || "-")}</td>
+        <td>${escapeHtml(i.payment_method || "-")}</td>
         <td style="text-align:right;font-weight:bold">${currencySymbol} ${fmtLKR(i.amount)}</td>
-        <td>${i.status}</td>
-        <td>${i.branch_code || "-"}</td>
-        <td>${i.remarks || "-"}</td>
+        <td>${escapeHtml(i.status)}</td>
+        <td>${escapeHtml(i.branch_code || "-")}</td>
+        <td>${escapeHtml(i.remarks || "-")}</td>
       </tr>`).join("");
     win.document.write(`<!DOCTYPE html><html><head><title>Payment History Report</title>
 <style>body{font-family:Segoe UI,sans-serif;padding:20px;max-width:1100px;margin:0 auto}h1{color:#1976d2;border-bottom:2px solid #1976d2;padding-bottom:10px}
@@ -306,7 +307,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
 th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-child(even){background:#f9f9f9}
 .total-row{background:#f5f5f5;font-weight:bold}@media print{body{padding:10px}}</style></head>
 <body><h1>Supplier Payment History</h1>
-<div class="meta">${supplierLabel} | ${new Date(dateFrom).toLocaleDateString()} to ${new Date(dateTo).toLocaleDateString()} | Generated ${new Date().toLocaleString()}</div>
+<div class="meta">${escapeHtml(supplierLabel)} | ${new Date(dateFrom).toLocaleDateString()} to ${new Date(dateTo).toLocaleDateString()} | Generated ${new Date().toLocaleString()}</div>
 <table><thead><tr><th>Date</th><th>Supplier</th><th>Type</th><th>Payment No.</th><th>Invoice No.</th><th>Method</th><th>Amount (${currencySymbol})</th><th>Status</th><th>Branch</th><th>Remarks</th></tr></thead>
 <tbody>${rowsHtml}
 <tr class="total-row"><td colspan="6" style="text-align:right">TOTAL:</td><td style="text-align:right">${currencySymbol} ${fmtLKR(histSummary?.total_amount || 0)}</td><td colspan="3"></td></tr>

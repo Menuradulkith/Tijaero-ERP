@@ -408,6 +408,13 @@ export const PERMISSIONS = {
   // Settings
   SETTINGS_VIEW: { resource: "settings", action: "view" },
   SETTINGS_UPDATE: { resource: "settings", action: "update" },
+  PRINT_TEMPLATE_VIEW: { resource: "print_templates", action: "view" },
+  PRINT_TEMPLATE_CREATE: { resource: "print_templates", action: "create" },
+  PRINT_TEMPLATE_UPDATE: { resource: "print_templates", action: "update" },
+  PRINT_TEMPLATE_DELETE: { resource: "print_templates", action: "delete" },
+  PRINT_TEMPLATE_EDIT_HTML: { resource: "print_templates", action: "edit_html" },
+  SAVED_REPORT_SHARE: { resource: "saved_reports", action: "share" },
+  SAVED_REPORT_MANAGE: { resource: "saved_reports", action: "manage" },
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════

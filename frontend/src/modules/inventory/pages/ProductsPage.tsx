@@ -109,11 +109,11 @@ const PRODUCT_ACTIVE_FILTER_OPTIONS = [
 // Initial form data
 const emptyProductForm: ProductCreate = {
   name: "",
-  item_code: "",
   model: "",
   item_type: "inventory",
   unit_of_measure: "pcs",
-  tracking_type: "serial",
+  // Not pre-selected: the user must choose how the product is tracked.
+  tracking_type: "" as ProductCreate["tracking_type"],
   over_receipt_tolerance_pct: 0,
   under_receipt_tolerance_pct: 0,
   description: "",
@@ -130,7 +130,6 @@ const emptyProductForm: ProductCreate = {
 
 const emptyCategoryForm: CategoryCreate = {
   name: "",
-  category_code: "",
   memo: "",
   description: "",
   active: true,
@@ -138,7 +137,6 @@ const emptyCategoryForm: CategoryCreate = {
 
 const emptyBrandForm: BrandCreate = {
   brand_name: "",
-  brand_code: "",
   description: "",
 };
 
@@ -208,6 +206,10 @@ export default function ProductsPage({
   // Permissions
   const canCreate = usePermission("products", "create");
   const canUpdate = usePermission("products", "update");
+  const canCreateCategory = usePermission("categories", "create");
+  const canUpdateCategory = usePermission("categories", "update");
+  const canCreateBrand = usePermission("brands", "create");
+  const canUpdateBrand = usePermission("brands", "update");
 
   const queryClient = useQueryClient();
 
@@ -1040,7 +1042,6 @@ export default function ProductsPage({
     productState.setSelectedItem(product);
     productState.setFormData({
       name: product.name,
-      item_code: product.item_code,
       model: product.model || "",
       item_type: product.item_type,
       unit_of_measure: product.unit_of_measure || "pcs",
@@ -1077,7 +1078,6 @@ export default function ProductsPage({
     if (productState.selectedItem) {
       productState.setFormData({
         ...productState.formData,
-        item_code: `${productState.selectedItem.item_code}-COPY`,
         name: `${productState.selectedItem.name} (Copy)`,
       });
       setMinPriceInput("");
@@ -1105,8 +1105,8 @@ export default function ProductsPage({
   const saveProductInner = async () => {
     // Validate required fields (whitespace-only counts as empty)
     if (
-      !(productState.formData.item_code ?? "").trim() ||
       !(productState.formData.name ?? "").trim() ||
+      !productState.formData.tracking_type ||
       productState.formData.cost_price === undefined ||
       productState.formData.cost_price === null ||
       productState.formData.selling_price === undefined ||
@@ -1116,8 +1116,8 @@ export default function ProductsPage({
     ) {
       showErrorToast("Please fill in all required fields");
       setProductTouched({
-        item_code: true,
         name: true,
+        tracking_type: true,
         cost_price: true,
         selling_price: true,
       });
@@ -1141,7 +1141,6 @@ export default function ProductsPage({
     // Ensure website_active is false if product is inactive
     const dataToSave = { ...productState.formData };
     dataToSave.name = (dataToSave.name ?? "").trim();
-    dataToSave.item_code = (dataToSave.item_code ?? "").trim();
     if (!dataToSave.active) {
       dataToSave.website_active = false;
     }
@@ -1161,10 +1160,9 @@ export default function ProductsPage({
     } else if (productState.selectedItem) {
       // The backend only writes a new price-history row when the minimum
       // actually changed, so sending the current value is a no-op.
-      // item_code is immutable after creation, and image_url is owned by the
-      // image upload/remove endpoints — neither belongs in an update.
+      // image_url is owned by the image upload/remove endpoints — it
+      // doesn't belong in a form-save update.
       const updateFields: Partial<ProductCreate> = { ...dataToSave };
-      delete updateFields.item_code;
       delete updateFields.image_url;
       await updateProductMutation
         .mutateAsync({
@@ -1219,7 +1217,6 @@ export default function ProductsPage({
     categoryState.setSelectedItem(category);
     categoryState.setFormData({
       name: category.name,
-      category_code: category.category_code,
       memo: category.memo || "",
       description: category.description || "",
       active: category.active,
@@ -1238,17 +1235,15 @@ export default function ProductsPage({
 
   const saveCategoryInner = async () => {
     // Validate required fields (whitespace-only counts as empty)
-    if (!(categoryState.formData.name ?? "").trim() || !(categoryState.formData.category_code ?? "").trim()) {
+    if (!(categoryState.formData.name ?? "").trim()) {
       showErrorToast("Please fill in all required fields");
-      setCategoryTouched({ name: true, category_code: true });
+      setCategoryTouched({ name: true });
       return;
     }
-
 
     const categoryPayload = {
       ...categoryState.formData,
       name: (categoryState.formData.name ?? "").trim(),
-      category_code: (categoryState.formData.category_code ?? "").trim(),
     };
     if (categoryState.isCreating) {
       await createCategoryMutation.mutateAsync(categoryPayload).catch(() => undefined);
@@ -1296,7 +1291,6 @@ export default function ProductsPage({
     brandState.setSelectedItem(brand);
     brandState.setFormData({
       brand_name: brand.brand_name,
-      brand_code: brand.brand_code,
       description: brand.description || "",
       active: brand.active,
     });
@@ -1322,23 +1316,15 @@ export default function ProductsPage({
 
   const saveBrandInner = async () => {
     // Validate required fields (whitespace-only counts as empty)
-    if (!(brandState.formData.brand_name ?? "").trim() || !(brandState.formData.brand_code ?? "").trim()) {
+    if (!(brandState.formData.brand_name ?? "").trim()) {
       showErrorToast("Please fill in all required fields");
-      setBrandTouched({ brand_name: true, brand_code: true });
+      setBrandTouched({ brand_name: true });
       return;
     }
-
-    if (brandState.formData.brand_code.trim().length > 4) {
-      showErrorToast("Brand code cannot exceed 4 characters");
-      setBrandTouched({ ...brandTouched, brand_code: true });
-      return;
-    }
-
 
     const brandPayload = {
       ...brandState.formData,
       brand_name: (brandState.formData.brand_name ?? "").trim(),
-      brand_code: (brandState.formData.brand_code ?? "").trim(),
     };
     if (brandState.isCreating) {
       await createBrandMutation.mutateAsync(brandPayload).catch(() => undefined);
@@ -1499,7 +1485,9 @@ export default function ProductsPage({
                 tabs={PRODUCT_DETAIL_TABS}
                 activeTab={activeProductSection}
                 onChange={(id) => setActiveProductSection(id as typeof activeProductSection)}
+                appearance="segmented"
                 showDivider={false}
+                sx={{ mx: 2, my: 1 }}
               />
             )
           }
@@ -1524,7 +1512,6 @@ export default function ProductsPage({
           }
           saveDisabled={
             !productState.formData.name ||
-            !productState.formData.item_code ||
             productState.formData.cost_price === undefined ||
             productState.formData.cost_price === null ||
             productState.formData.selling_price === undefined ||
@@ -1555,25 +1542,16 @@ export default function ProductsPage({
                     <TextField
                       label="Item Code"
                       size="small"
-                      value={productState.formData.item_code}
-                      onChange={(e) =>
-                        productState.setFormData({
-                          ...productState.formData,
-                          item_code: e.target.value.toUpperCase(),
-                        })
+                      value={
+                        productState.isCreating
+                          ? ""
+                          : (productState.selectedItem?.item_code ?? "")
                       }
-                      onBlur={() => handleProductBlur("item_code")}
-                      disabled={!productState.isCreating}
-                      required
-                      error={
-                        productTouched.item_code && !productState.formData.item_code
+                      placeholder={
+                        productState.isCreating ? "Auto-generated on save" : ""
                       }
-                      helperText={
-                        productTouched.item_code && !productState.formData.item_code
-                          ? "Item code is required"
-                          : ""
-                      }
-                      inputProps={{ maxLength: 255, style: { textTransform: "uppercase" } }}
+                      disabled
+                      helperText="Generated automatically"
                     />
                     <TextField
                       label="Product Name"
@@ -1651,16 +1629,28 @@ export default function ProductsPage({
                       label="Tracking Type"
                       size="small"
                       select
-                      value={productState.formData.tracking_type || "serial"}
+                      required
+                      value={productState.formData.tracking_type || ""}
                       onChange={(e) =>
                         productState.setFormData({
                           ...productState.formData,
                           tracking_type: e.target.value,
                         })
                       }
+                      onBlur={() => handleProductBlur("tracking_type")}
                       disabled={!productState.isEditing && !productState.isCreating}
-                      helperText="Cannot be changed once the product has stock."
+                      error={productTouched.tracking_type && !productState.formData.tracking_type}
+                      helperText={
+                        productTouched.tracking_type && !productState.formData.tracking_type
+                          ? "Tracking type is required"
+                          : "Cannot be changed once the product has stock."
+                      }
+                      InputLabelProps={{ shrink: true }}
+                      SelectProps={{ displayEmpty: true }}
                     >
+                      <MenuItem value="" disabled>
+                        <em>Select tracking type</em>
+                      </MenuItem>
                       {PRODUCT_TRACKING_TYPE.map((option) => (
                         <MenuItem key={option.value} value={option.value}>
                           {option.label}
@@ -2166,8 +2156,8 @@ export default function ProductsPage({
         />
 
         <ActionToolbar
-          canCreate={canCreate}
-          canUpdate={canUpdate}
+          canCreate={canCreateCategory}
+          canUpdate={canUpdateCategory}
           isEditing={categoryState.isEditing}
           isCreating={categoryState.isCreating}
           hasSelection={!!categoryState.selectedItem}
@@ -2178,10 +2168,7 @@ export default function ProductsPage({
           isSaving={
             createCategoryMutation.isPending || updateCategoryMutation.isPending
           }
-          saveDisabled={
-            !categoryState.formData.name ||
-            !categoryState.formData.category_code
-          }
+          saveDisabled={!categoryState.formData.name}
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -2226,27 +2213,16 @@ export default function ProductsPage({
                 <TextField
                   label="Category Code"
                   size="small"
-                  value={categoryState.formData.category_code}
-                  onChange={(e) =>
-                    categoryState.setFormData({
-                      ...categoryState.formData,
-                      category_code: e.target.value.toUpperCase(),
-                    })
+                  value={
+                    categoryState.isCreating
+                      ? ""
+                      : (categoryState.selectedItem?.category_code ?? "")
                   }
-                  onBlur={() => handleCategoryBlur("category_code")}
-                  disabled={!categoryState.isCreating}
-                  required
-                  error={
-                    categoryTouched.category_code &&
-                    !categoryState.formData.category_code
+                  placeholder={
+                    categoryState.isCreating ? "Auto-generated on save" : ""
                   }
-                  helperText={
-                    categoryTouched.category_code &&
-                    !categoryState.formData.category_code
-                      ? "Category code is required"
-                      : ""
-                  }
-                  inputProps={{ maxLength: 255, style: { textTransform: "uppercase" } }}
+                  disabled
+                  helperText="Generated automatically"
                 />
                 <TextField
                   label="Memo"
@@ -2427,8 +2403,8 @@ export default function ProductsPage({
         />
 
         <ActionToolbar
-          canCreate={canCreate}
-          canUpdate={canUpdate}
+          canCreate={canCreateBrand}
+          canUpdate={canUpdateBrand}
           isEditing={brandState.isEditing}
           isCreating={brandState.isCreating}
           hasSelection={!!brandState.selectedItem}
@@ -2439,9 +2415,7 @@ export default function ProductsPage({
           isSaving={
             createBrandMutation.isPending || updateBrandMutation.isPending
           }
-          saveDisabled={
-            !brandState.formData.brand_name || !brandState.formData.brand_code
-          }
+          saveDisabled={!brandState.formData.brand_name}
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -2486,28 +2460,16 @@ export default function ProductsPage({
               <TextField
                 label="Brand Code"
                 size="small"
-                value={brandState.formData.brand_code}
-                onChange={(e) =>
-                  brandState.setFormData({
-                    ...brandState.formData,
-                    brand_code: e.target.value.toUpperCase(),
-                  })
+                value={
+                  brandState.isCreating
+                    ? ""
+                    : (brandState.selectedItem?.brand_code ?? "")
                 }
-                onBlur={() => handleBrandBlur("brand_code")}
-                disabled={!brandState.isCreating}
-                required
-                error={
-                  (brandTouched.brand_code && !brandState.formData.brand_code) ||
-                  (brandState.formData.brand_code?.length > 4)
+                placeholder={
+                  brandState.isCreating ? "Auto-generated on save" : ""
                 }
-                helperText={
-                  brandTouched.brand_code && !brandState.formData.brand_code
-                    ? "Brand code is required"
-                    : brandState.formData.brand_code?.length > 4
-                      ? "Brand code cannot exceed 4 characters"
-                      : ""
-                }
-                inputProps={{ maxLength: 4, style: { textTransform: "uppercase" } }}
+                disabled
+                helperText="Generated automatically"
               />
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
                 <FormControlLabel
@@ -2786,7 +2748,7 @@ export default function ProductsPage({
             )
           ) : activeTab === 1 ? (
             isCategoryDetailMode ? undefined : (
-              canCreate && (
+              canCreateCategory && (
                 <Button
                   variant="contained"
                   size="small"
@@ -2800,7 +2762,7 @@ export default function ProductsPage({
             )
           ) : activeTab === 2 ? (
             isBrandDetailMode ? undefined : (
-              canCreate && (
+              canCreateBrand && (
                 <Button
                   variant="contained"
                   size="small"

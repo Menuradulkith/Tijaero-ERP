@@ -40,7 +40,6 @@ import CreditCardIcon from "@mui/icons-material/CreditCard";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
 import HistoryIcon from "@mui/icons-material/History";
 import { useAuthStore } from "@/state/authStore";
 import { useCurrencyStore } from "@/state/currencyStore";
@@ -67,7 +66,6 @@ import {
   TTabPanel,
   type TTabConfig,
   TITLE_CHOICES,
-  GENDER_CHOICES,
   SUPPLIER_TAX_AREA,
   SUPPLIER_PAYMENT_TERMS,
   SUPPLIER_PAYMENT_TERMS_CUSTOM,
@@ -149,7 +147,6 @@ function SupplierAvatarCircle({
   );
 }
 
-const TODAY_DATE_STRING = new Date().toISOString().split("T")[0];
 
 // Runs `fn` once per item, one at a time (not concurrently). Used for flushing
 // draft contact persons / payment methods after a new supplier is created:
@@ -232,18 +229,18 @@ const INITIAL_PAYMENT_METHOD_FORM: SupplierPaymentAccountCreate = {
   wallet_provider: "",
   wallet_id: "",
   is_default: false,
+  active: true,
 };
 
 const INITIAL_CONTACT_PERSON_FORM: SupplierContactPersonCreate = {
   title: "",
   full_name: "",
   occupation: "",
-  gender: "",
-  birthdate: "",
   id_card_number: "",
   passport_no: "",
   email: "",
   phone: "",
+  active: true,
 };
 
 const SUPPLIER_DETAIL_TABS: TTabConfig[] = [
@@ -381,7 +378,8 @@ export default function SuppliersPage() {
   // Which unit the Lead Time field is currently displayed/typed in — purely
   // local UI state, never sent to the backend (formData.lead_time_days is
   // always in days; see daysToUnit/unitToDays above).
-  const [leadTimeUnit, setLeadTimeUnit] = useState<LeadTimeUnit>("days");
+  // Starts empty on a new supplier (no unit pre-selected); an existing supplier's value is shown in days.
+  const [leadTimeUnit, setLeadTimeUnit] = useState<LeadTimeUnit | "">("");
 
   // Sticky "user explicitly chose Custom" flag for the Payment Terms
   // dropdown — without this, clearing the custom day-count input back to ""
@@ -531,6 +529,10 @@ export default function SuppliersPage() {
     }
   }, [selectedSupplier?.id, isCreating, refreshPaymentMethods]);
 
+  useEffect(() => {
+    setLeadTimeUnit(isCreating || !selectedSupplier ? "" : "days");
+  }, [isCreating, selectedSupplier?.id]);
+
   // Draft rows rendered in the same grid as saved ones use negative ids so
   // they can't collide with real ones; this view-model adds the display
   // fields TDataGrid/the columns expect (id, is_default) uniformly.
@@ -542,11 +544,9 @@ export default function SuppliersPage() {
         ...draft,
       } as SupplierPaymentAccount));
 
-  // Stays fillable without an Edit click for as long as no payment method
-  // has been added yet — checked every time the supplier is opened, not
-  // just right after creation.
-  const isPaymentMethodsUnfilled = displayedPaymentMethods.length === 0;
-  const isPaymentMethodsEditable = isEditing || isCreating || isPaymentMethodsUnfilled;
+  // Payment methods save through their own panel; the toolbar Save (and the
+  // payment terms fields) only unlock while creating or editing the supplier.
+  const isPaymentMethodsEditable = isEditing || isCreating;
 
   const handleOpenAddPaymentMethod = useCallback(() => {
     setActivePaymentMethod(null);
@@ -582,6 +582,7 @@ export default function SuppliersPage() {
     wallet_provider: method.wallet_provider || "",
     wallet_id: method.wallet_id || "",
     is_default: method.is_default,
+    active: method.active ?? true,
   });
 
   const handleViewPaymentMethod = useCallback((method: SupplierPaymentAccount) => {
@@ -635,38 +636,6 @@ export default function SuppliersPage() {
     }
   }, [selectedSupplier, activePaymentMethod, paymentMethodForm, refreshPaymentMethods, handleClosePaymentMethodPanel]);
 
-  const handleDeletePaymentMethod = useCallback(async (method: SupplierPaymentAccount) => {
-    if (!selectedSupplier) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Payment Method",
-        message: `Delete this ${PAYMENT_METHOD_TYPE_LABELS[method.method_type]} payment method?`,
-        confirmText: "Delete",
-        confirmColor: "error",
-      });
-      if (!confirmed) return;
-      const index = -method.id - 1;
-      setDraftPaymentMethods((prev) => prev.filter((_, i) => i !== index));
-      showSuccessToast("Payment method deleted");
-      handleClosePaymentMethodPanel();
-      return;
-    }
-    const confirmed = await confirmDialog.confirm({
-      title: "Delete Payment Method",
-      message: `Delete this ${PAYMENT_METHOD_TYPE_LABELS[method.method_type]} payment method?`,
-      confirmText: "Delete",
-      confirmColor: "error",
-    });
-    if (!confirmed) return;
-    try {
-      await suppliersApi.deletePaymentMethod(selectedSupplier.id, method.id);
-      showSuccessToast("Payment method deleted");
-      await refreshPaymentMethods(selectedSupplier.id);
-      handleClosePaymentMethodPanel();
-    } catch {
-      showErrorToast("Failed to delete payment method");
-    }
-  }, [selectedSupplier, confirmDialog, refreshPaymentMethods, handleClosePaymentMethodPanel]);
-
   const paymentMethodColumns: TDataGridColumn<SupplierPaymentAccount>[] = useMemo(
     () => [
       {
@@ -703,6 +672,20 @@ export default function SuppliersPage() {
           ) : null,
       },
       {
+        field: "active",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<SupplierPaymentAccount>) => (
+          <TChip
+            label={params.row.active ? "Active" : "Inactive"}
+            size="small"
+            color={params.row.active ? "success" : "default"}
+          />
+        ),
+      },
+      {
         field: "actions",
         header: "Actions",
         width: 100,
@@ -720,16 +703,6 @@ export default function SuppliersPage() {
                 }}
               >
                 <EditIcon fontSize="small" />
-              </IconButton>
-              <IconButton
-                size="small"
-                color="error"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeletePaymentMethod(params.row);
-                }}
-              >
-                <DeleteIcon fontSize="small" />
               </IconButton>
             </Box>
           ) : null,
@@ -840,12 +813,11 @@ export default function SuppliersPage() {
     title: contact.title || "",
     full_name: contact.full_name,
     occupation: contact.occupation || "",
-    gender: contact.gender || "",
-    birthdate: contact.birthdate?.split("T")[0] || "",
     id_card_number: contact.id_card_number || "",
     passport_no: contact.passport_no || "",
     email: contact.email || "",
     phone: normalizePhone(contact.phone),
+    active: contact.active ?? true,
   });
 
   const handleViewContactPerson = useCallback((contact: SupplierContactPerson) => {
@@ -899,38 +871,6 @@ export default function SuppliersPage() {
     }
   }, [selectedSupplier, activeContactPerson, contactPersonForm, refreshContactPersons, handleCloseContactPersonPanel]);
 
-  const handleDeleteContactPerson = useCallback(async (contact: SupplierContactPerson) => {
-    if (!selectedSupplier) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Contact Person",
-        message: `Delete "${contact.full_name}" from this supplier's contact persons?`,
-        confirmText: "Delete",
-        confirmColor: "error",
-      });
-      if (!confirmed) return;
-      const index = -contact.id - 1;
-      setDraftContactPersons((prev) => prev.filter((_, i) => i !== index));
-      showSuccessToast("Contact person deleted");
-      handleCloseContactPersonPanel();
-      return;
-    }
-    const confirmed = await confirmDialog.confirm({
-      title: "Delete Contact Person",
-      message: `Delete "${contact.full_name}" from this supplier's contact persons?`,
-      confirmText: "Delete",
-      confirmColor: "error",
-    });
-    if (!confirmed) return;
-    try {
-      await suppliersApi.deleteContactPerson(selectedSupplier.id, contact.id);
-      showSuccessToast("Contact person deleted");
-      await refreshContactPersons(selectedSupplier.id);
-      handleCloseContactPersonPanel();
-    } catch {
-      showErrorToast("Failed to delete contact person");
-    }
-  }, [selectedSupplier, confirmDialog, refreshContactPersons, handleCloseContactPersonPanel]);
-
   const contactPersonColumns: TDataGridColumn<SupplierContactPerson>[] = useMemo(
     () => [
       {
@@ -951,6 +891,20 @@ export default function SuppliersPage() {
       { field: "email", header: "Email", flex: 1, minWidth: 160 },
       { field: "phone", header: "Contact No", width: 130 },
       {
+        field: "active",
+        header: "Status",
+        width: 110,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<SupplierContactPerson>) => (
+          <TChip
+            label={params.row.active ? "Active" : "Inactive"}
+            size="small"
+            color={params.row.active ? "success" : "default"}
+          />
+        ),
+      },
+      {
         field: "actions",
         header: "Actions",
         width: 100,
@@ -968,16 +922,6 @@ export default function SuppliersPage() {
                 }}
               >
                 <EditIcon fontSize="small" />
-              </IconButton>
-              <IconButton
-                size="small"
-                color="error"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteContactPerson(params.row);
-                }}
-              >
-                <DeleteIcon fontSize="small" />
               </IconButton>
             </Box>
           ) : null,
@@ -1534,7 +1478,9 @@ export default function SuppliersPage() {
               tabs={SUPPLIER_DETAIL_TABS}
               activeTab={activeSection}
               onChange={(id) => setActiveSection(id as typeof activeSection)}
+              appearance="segmented"
               showDivider={false}
+              sx={{ mx: 2, my: 1 }}
             />
           )
         }
@@ -1665,7 +1611,7 @@ export default function SuppliersPage() {
                   type="number"
                   value={
                     formData.lead_time_days != null
-                      ? daysToUnit(formData.lead_time_days, leadTimeUnit)
+                      ? daysToUnit(formData.lead_time_days, leadTimeUnit || "days")
                       : ""
                   }
                   onChange={(e) => {
@@ -1677,21 +1623,28 @@ export default function SuppliersPage() {
                     const parsed = Number(raw);
                     setFormData({
                       ...formData,
-                      lead_time_days: Number.isFinite(parsed) ? unitToDays(Math.max(0, parsed), leadTimeUnit) : undefined,
+                      lead_time_days: Number.isFinite(parsed) && leadTimeUnit ? unitToDays(Math.max(0, parsed), leadTimeUnit) : undefined,
                     });
                   }}
-                  disabled={!isEditing && !isCreating}
+                  disabled={(!isEditing && !isCreating) || !leadTimeUnit}
                   inputProps={{ min: 0 }}
+                  helperText={(isEditing || isCreating) && !leadTimeUnit ? "Select a unit first" : undefined}
                   sx={{ flex: 1 }}
                 />
                 <TextField
                   select
                   size="small"
+                  label="Unit"
                   value={leadTimeUnit}
                   onChange={(e) => setLeadTimeUnit(e.target.value as LeadTimeUnit)}
                   disabled={!isEditing && !isCreating}
-                  sx={{ width: 110, flexShrink: 0 }}
+                  InputLabelProps={{ shrink: true }}
+                  SelectProps={{ displayEmpty: true }}
+                  sx={{ width: 120, flexShrink: 0 }}
                 >
+                  <MenuItem value="" disabled>
+                    <em>Select unit</em>
+                  </MenuItem>
                   {LEAD_TIME_UNIT_OPTIONS.map((option) => (
                     <MenuItem key={option.value} value={option.value}>
                       {option.label}
@@ -2239,12 +2192,29 @@ export default function SuppliersPage() {
             sx={{ alignSelf: "center" }}
             control={
               <Switch
-                checked={!!paymentMethodForm.is_default}
-                disabled={paymentMethodPanelMode === "view"}
+                checked={!!paymentMethodForm.is_default && paymentMethodForm.active !== false}
+                disabled={paymentMethodPanelMode === "view" || paymentMethodForm.active === false}
                 onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, is_default: e.target.checked })}
               />
             }
             label="Set as default"
+          />
+          <FormControlLabel
+            sx={{ alignSelf: "center" }}
+            control={
+              <Switch
+                checked={paymentMethodForm.active !== false}
+                disabled={paymentMethodPanelMode === "view"}
+                onChange={(e) =>
+                  setPaymentMethodForm({
+                    ...paymentMethodForm,
+                    active: e.target.checked,
+                    is_default: e.target.checked ? paymentMethodForm.is_default : false,
+                  })
+                }
+              />
+            }
+            label="Active"
           />
         </TFormSection>
         {["bank_transfer", "cheque", "direct_debit"].includes(paymentMethodForm.method_type) && (
@@ -2551,8 +2521,7 @@ export default function SuppliersPage() {
           !contactPersonForm.full_name ||
           !contactPersonForm.title ||
           !contactPersonForm.phone ||
-          !isValidPhone(contactPersonForm.phone) ||
-          (!!contactPersonForm.birthdate && contactPersonForm.birthdate > TODAY_DATE_STRING)
+          !isValidPhone(contactPersonForm.phone)
         }
         extraActions={
           contactPersonPanelMode === "view" && (canUpdateSupplier || isContactPersonEditable) ? (
@@ -2598,34 +2567,6 @@ export default function SuppliersPage() {
             onChange={(e) => setContactPersonForm({ ...contactPersonForm, occupation: e.target.value })}
           />
           <TextField
-            select
-            label="Gender"
-            size="small"
-            value={contactPersonForm.gender ?? ""}
-            disabled={contactPersonPanelMode === "view"}
-            onChange={(e) => setContactPersonForm({ ...contactPersonForm, gender: e.target.value })}
-          >
-            {GENDER_CHOICES.map((g) => (
-              <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            label="Birthdate"
-            type="date"
-            size="small"
-            value={contactPersonForm.birthdate}
-            disabled={contactPersonPanelMode === "view"}
-            onChange={(e) => setContactPersonForm({ ...contactPersonForm, birthdate: e.target.value })}
-            InputLabelProps={{ shrink: true }}
-            inputProps={{ max: TODAY_DATE_STRING }}
-            error={!!contactPersonForm.birthdate && contactPersonForm.birthdate > TODAY_DATE_STRING}
-            helperText={
-              contactPersonForm.birthdate && contactPersonForm.birthdate > TODAY_DATE_STRING
-                ? "Birthdate cannot be a future date"
-                : undefined
-            }
-          />
-          <TextField
             label="ID Card Number"
             inputProps={{ maxLength: 12 }}
             size="small"
@@ -2658,6 +2599,17 @@ export default function SuppliersPage() {
             value={contactPersonForm.phone}
             disabled={contactPersonPanelMode === "view"}
             onChange={(v) => setContactPersonForm({ ...contactPersonForm, phone: v })}
+          />
+          <FormControlLabel
+            sx={{ alignSelf: "center" }}
+            control={
+              <Switch
+                checked={contactPersonForm.active !== false}
+                disabled={contactPersonPanelMode === "view"}
+                onChange={(e) => setContactPersonForm({ ...contactPersonForm, active: e.target.checked })}
+              />
+            }
+            label="Active"
           />
         </TFormSection>
       </TSidePanel>

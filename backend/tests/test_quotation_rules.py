@@ -92,7 +92,6 @@ class TestUpdateRules:
     def test_ids_are_bounded(self, superclient):
         assert superclient.get(f"{Q}/{2 ** 31}").status_code == 422
         assert superclient.put(f"{Q}/{2 ** 40}", json={}).status_code == 422
-        assert superclient.delete(f"{Q}/{2 ** 40}").status_code == 422
         assert superclient.patch(f"{Q}/{2 ** 40}/status", json={"status": "cancelled"}).status_code == 422
         assert superclient.get(f"{Q}/0").status_code == 422
 
@@ -126,6 +125,28 @@ class TestApprovalGate:
         assert superclient.post(f"{Q}/{qid}/send").status_code == 200
         assert superclient.post(f"{Q}/{qid}/accept").status_code == 200
 
+    def test_sent_quote_must_be_confirmed_and_rejection_needs_a_reason(self, superclient, quote):
+        qid = quote["id"]
+        # not sent yet: nothing to confirm
+        assert superclient.post(f"{A}/{quote['approval_id']}/approve", json={}).status_code == 200
+        assert superclient.post(f"{Q}/{qid}/confirm").status_code == 400
+        assert superclient.post(f"{Q}/{qid}/send").status_code == 200
+        # rejecting needs a reason
+        assert superclient.post(f"{Q}/{qid}/reject-quote", json={}).status_code == 422
+        assert superclient.post(f"{Q}/{qid}/reject-quote", json={"reason": "   "}).status_code in (400, 422)
+        # confirm once
+        r = superclient.post(f"{Q}/{qid}/confirm")
+        assert r.status_code == 200 and r.json()["confirmed_date"]
+        assert superclient.post(f"{Q}/{qid}/confirm").status_code == 400
+
+    def test_sent_quote_can_be_rejected_with_a_reason(self, superclient, quote):
+        qid = quote["id"]
+        assert superclient.post(f"{A}/{quote['approval_id']}/approve", json={}).status_code == 200
+        assert superclient.post(f"{Q}/{qid}/send").status_code == 200
+        r = superclient.post(f"{Q}/{qid}/reject-quote", json={"reason": "Too expensive"})
+        assert r.status_code == 200 and r.json()["status"] == "rejected" and r.json()["rejection_reason"] == "Too expensive"
+        assert superclient.post(f"{Q}/{qid}/confirm").status_code == 400
+
     def test_revising_a_pending_quote_closes_its_approval(self, superclient, quote):
         r = superclient.post(f"{Q}/{quote['id']}/revise", json={})
         assert r.status_code == 200, r.text
@@ -139,18 +160,9 @@ class TestApprovalGate:
         assert superclient.post(f"{Q}/{quote['id']}/cancel", params={"reason": "customer withdrew"}).status_code == 200
         assert superclient.get(f"{A}/{quote['approval_id']}").json()["status"] == "cancelled"
 
-    def test_delete_closes_the_approval_and_refuses_processed_quotes(self, superclient, db, quote, world):
-        keep = superclient.post(f"{Q}/", json=_body(world)).json()
-        from app.modules.sales.quotation_models import SalesQuote
-
-        db.query(SalesQuote).filter(SalesQuote.id == keep["id"]).update({"converted_to_invoice_id": None, "linked_po_id": None})
-        row = db.query(SalesQuote).filter(SalesQuote.id == keep["id"]).first()
-        item = row.items[0]
-        item.item_status = "so_created"
-        db.flush()
-        assert superclient.delete(f"{Q}/{keep['id']}").status_code == 400
-        assert superclient.delete(f"{Q}/{quote['id']}").status_code == 204
-        assert superclient.get(f"{A}/{quote['approval_id']}").json()["status"] == "cancelled"
+    def test_quotations_cannot_be_deleted(self, superclient, quote):
+        assert superclient.delete(f"{Q}/{quote['id']}").status_code == 405
+        assert superclient.get(f"{Q}/{quote['id']}").status_code == 200
 
     def test_pending_quote_cannot_be_rejected_outside_approvals(self, superclient, quote):
         assert superclient.post(f"{Q}/{quote['id']}/reject-quote", json={"reason": "x"}).status_code == 400
@@ -168,7 +180,6 @@ class TestBranchScope:
         oid = other["id"]
         assert c.get(f"{Q}/{oid}").status_code == 403
         assert c.put(f"{Q}/{oid}", json={"remarks": "idor"}).status_code == 403
-        assert c.delete(f"{Q}/{oid}").status_code == 403
         assert c.post(f"{Q}/{oid}/cancel", params={"reason": "idor"}).status_code == 403
         assert c.patch(f"{Q}/{oid}/status", json={"status": "cancelled"}).status_code == 403
         assert c.post(f"{Q}/{oid}/revise", json={}).status_code == 403

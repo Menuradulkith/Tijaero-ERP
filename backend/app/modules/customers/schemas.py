@@ -529,7 +529,7 @@ class CouponUsageBase(BaseModel):
     discount_amount: Decimal
 
 class CouponUsageCreate(CouponUsageBase):
-    pass
+    discount_amount: MoneyIn
 
 class CouponUsage(CouponUsageBase, TijaeroBaseSchema):
     id: int
@@ -541,7 +541,7 @@ class CouponUsage(CouponUsageBase, TijaeroBaseSchema):
 # Coupon Validation Request/Response
 class LineItemForCoupon(BaseModel):
     product_id: int
-    quantity: int
+    quantity: int = Field(..., ge=1, le=INT4_MAX)
     selling_price: MoneyIn
 
 class CouponValidationRequest(BaseModel):
@@ -669,7 +669,7 @@ class VoucherUsageBase(BaseModel):
     amount_used: Decimal
 
 class VoucherUsageCreate(VoucherUsageBase):
-    pass
+    amount_used: PositiveMoneyIn
 
 class VoucherUsage(VoucherUsageBase, TijaeroBaseSchema):
     id: int

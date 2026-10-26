@@ -102,11 +102,10 @@ class TestLotTransfers:
         moved = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).one()
         assert (moved.location_id, moved.batch_no) == (w["loc_b"].id, "B1")
 
-    def test_cannot_approve_more_than_the_source_holds(self, db, lot_world):
+    def test_cannot_transfer_more_than_the_source_holds(self, db, lot_world):
         w = lot_world
-        svc, note, _ = _itn(db, w, 150)
         with pytest.raises(HTTPException) as exc:
-            svc.approve_transfer_note(note.id, user_id=w["user"].id)
+            _itn(db, w, 150)  # refused when the line is added, not only at approval
         assert exc.value.status_code == 400
         assert _units(db, w["product"], StockStatus.AVAILABLE, w["a"]) == 100
 
@@ -171,9 +170,6 @@ class TestLotPurchaseReturns:
 
     def test_return_splits_the_lot_and_approval_completes_it(self, db, lot_world, monkeypatch):
         w = lot_world
-        # The cashbook hook calls a DB function that this dev DB lacks; its failure
-        # path rolls the session back, which is unrelated to what is tested here.
-        monkeypatch.setattr(PurchasingReturnService, "_ensure_cashbook_entry_for_purchase_return", lambda self, r: None)
         svc = PurchasingReturnService(db)
         ret = svc.create_return(self._return(w, 30), user_id=w["user"].id)
         (item,) = db.query(PurchasingReturnItems).filter(PurchasingReturnItems.purchasingreturn_id == ret.id).all()

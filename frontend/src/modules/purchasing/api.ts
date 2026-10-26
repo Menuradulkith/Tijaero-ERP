@@ -197,9 +197,11 @@ export const suppliersApi = {
     return response.data;
   },
 
-  getPaymentMethods: async (supplierId: number) => {
+  // activeOnly: pickers on other pages list only the active methods.
+  getPaymentMethods: async (supplierId: number, activeOnly = false) => {
     const response = await apiClient.get<SupplierPaymentAccount[]>(
-      `/purchasing/suppliers/${supplierId}/payment-methods`
+      `/purchasing/suppliers/${supplierId}/payment-methods`,
+      activeOnly ? { params: { active_only: true } } : undefined
     );
     return response.data;
   },
@@ -220,13 +222,10 @@ export const suppliersApi = {
     return response.data;
   },
 
-  deletePaymentMethod: async (supplierId: number, methodId: number) => {
-    await apiClient.delete(`/purchasing/suppliers/${supplierId}/payment-methods/${methodId}`);
-  },
-
-  getContactPersons: async (supplierId: number) => {
+  getContactPersons: async (supplierId: number, activeOnly = false) => {
     const response = await apiClient.get<SupplierContactPerson[]>(
-      `/purchasing/suppliers/${supplierId}/contact-persons`
+      `/purchasing/suppliers/${supplierId}/contact-persons`,
+      activeOnly ? { params: { active_only: true } } : undefined
     );
     return response.data;
   },
@@ -247,10 +246,6 @@ export const suppliersApi = {
       cleanData
     );
     return response.data;
-  },
-
-  deleteContactPerson: async (supplierId: number, contactId: number) => {
-    await apiClient.delete(`/purchasing/suppliers/${supplierId}/contact-persons/${contactId}`);
   },
 
   getProducts: async (supplierId: number) => {
@@ -557,20 +552,6 @@ export const goodReceivedNotesApi = {
     return response.data;
   },
 
-  create: async (data: GoodReceivedNoteCreate, allowCreditOverride?: boolean) => {
-    // Errors are handled by the caller (e.g. the credit-limit override dialog),
-    // so suppress the global interceptor's toast to avoid showing it twice.
-    const response = await apiClient.post<GoodReceivedNote>(
-      "/purchasing/grn",
-      data,
-      {
-        params: allowCreditOverride ? { allow_credit_override: true } : {},
-        headers: { "X-Hide-Error-Toast": "true" },
-      }
-    );
-    return response.data;
-  },
-
   /** Post a whole receipt atomically (header + lines + stock + rejections in one transaction). */
   receive: async (data: GoodReceivedNoteReceive, allowCreditOverride?: boolean) => {
     const response = await apiClient.post<GoodReceivedNoteReceiveResult>(
@@ -644,6 +625,9 @@ export const goodReceivedItemsApi = {
     return response.data;
   },
 
+  /** Older line-by-line receiving flow (pair with salesStockApi.create). Not
+   * used by GoodReceivedNotesPage, which posts a whole receipt atomically via
+   * goodReceivedNotesApi.receive — kept for callers that still need it. */
   create: async (data: GoodReceivedItemCreate) => {
     const response = await apiClient.post<GoodReceivedItem>(
       "/purchasing/grn-items",

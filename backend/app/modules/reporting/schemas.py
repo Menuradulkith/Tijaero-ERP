@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field, StringConstraints
+from typing import Annotated, Optional, Dict, Any, List, Literal
 from datetime import datetime, date
 
 from app.common.base_schemas import TijaeroBaseSchema
@@ -90,8 +90,8 @@ class FinanceReportResponse(BaseModel):
 
 class InventoryReportRequest(BaseModel):
     branch_code: Optional[str] = None
-    category: Optional[str] = None
-    low_stock_threshold: Optional[int] = 10
+    category: Optional[str] = Field(None, max_length=20)
+    low_stock_threshold: Optional[int] = Field(10, ge=0, le=1_000_000)
 
 
 class InventoryReportResponse(BaseModel):
@@ -189,3 +189,90 @@ class DashboardMetrics(BaseModel):
 
     # Recent activities (real data)
     recent_activities: List[Dict[str, Any]]
+
+
+# ─── Print templates ──────────────────────────────────────────────────────────
+
+_LOGO_RE = r"^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$"
+_COLOR_RE = r"^#[0-9a-fA-F]{6}$"
+
+
+class PrintLayoutSettings(BaseModel):
+    """Layout options of a print template. Free texts are printed escaped; the logo and
+    colour are restricted to formats that cannot carry markup or script."""
+
+    model_config = {"extra": "forbid"}
+
+    show_header: bool = True
+    show_discount: bool = True
+    show_signatures: bool = True
+    logo: Optional[str] = Field(None, max_length=1_500_000, pattern=_LOGO_RE)
+    primary_color: Optional[str] = Field(None, pattern=_COLOR_RE)
+    company_name: Optional[str] = Field(None, max_length=200)
+    company_address: Optional[str] = Field(None, max_length=500)
+    company_phone: Optional[str] = Field(None, max_length=100)
+    company_email: Optional[str] = Field(None, max_length=200)
+    header_text: Optional[str] = Field(None, max_length=1000)
+    terms: Optional[str] = Field(None, max_length=4000)
+    bank_details: Optional[str] = Field(None, max_length=1000)
+    footer_text: Optional[str] = Field(None, max_length=1000)
+    layout_style: str = Field("standard", pattern=r"^[a-z_]{1,30}$")
+    show_amount_in_words: bool = True
+    show_bank_details: bool = True
+
+
+# Names are trimmed before the length check, so "   " is rejected rather than saved as "".
+TemplateName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
+class PrintTemplateBase(BaseModel):
+    name: TemplateName
+    branch_code: Optional[str] = Field(None, max_length=255)
+    paper_size: Optional[Literal["A4", "A5", "Letter", "Legal", "80mm"]] = None
+    orientation: Literal["portrait", "landscape"] = "portrait"
+    settings: PrintLayoutSettings = Field(default_factory=PrintLayoutSettings)
+    custom_html: Optional[str] = Field(None, max_length=200_000)
+    is_active: bool = True
+
+
+class PrintTemplateCreate(PrintTemplateBase):
+    document_type: str = Field(..., max_length=50)
+    is_default: bool = False
+
+
+class PrintTemplateUpdate(PrintTemplateBase):
+    # The version the editor loaded; a mismatch means someone else saved in between (409).
+    expected_version: Optional[int] = None
+
+
+class PrintTemplatePreview(PrintTemplateBase):
+    document_type: str = Field(..., max_length=50)
+    document_id: Optional[int] = Field(None, ge=1, le=2_147_483_647)
+    name: TemplateName = "Preview"
+
+
+class PrintTemplateSummary(TijaeroBaseSchema):
+    id: int
+    document_type: str
+    name: str
+    branch_code: Optional[str] = None
+    paper_size: Optional[str] = None
+    orientation: str
+    is_default: bool
+    is_active: bool
+    has_custom_html: bool
+    version: int
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[int] = None
+
+
+class PrintTemplateDetail(PrintTemplateSummary):
+    settings: Dict[str, Any]
+    custom_html: Optional[str] = None
+
+
+class PrintTemplateVersionOut(TijaeroBaseSchema):
+    version: int
+    created_at: datetime
+    created_by: Optional[int] = None
+    snapshot: Dict[str, Any]

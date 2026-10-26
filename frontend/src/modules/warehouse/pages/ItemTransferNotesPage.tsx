@@ -29,6 +29,8 @@ import {
   Tooltip,
   Avatar,
   Autocomplete,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -151,7 +153,7 @@ export default function ItemTransferNotesPage() {
   const [prefillItems, setPrefillItems] = useState<Array<{ product_id: number; product_name: string; quantity: number }>>([]);
   const [formStep, setFormStep] = useState(0);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
-  
+
   // Barcode scanning state (Purchase Returns pattern)
   const [barcodeInput, setBarcodeInput] = useState('');
   const [isValidating, setIsValidating] = useState(false);
@@ -164,12 +166,14 @@ export default function ItemTransferNotesPage() {
     cost_price?: number;
   }>>([]);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
-  
+
 
   // Batch/none-tracked products are transferred by quantity (no barcodes).
   const [lotProductId, setLotProductId] = useState<number | null>(null);
   const [lotQuantity, setLotQuantity] = useState('');
   const [lotError, setLotError] = useState<string | null>(null);
+  // How items are added: scan serial units, or enter a quantity of a batch / untracked product.
+  const [addMode, setAddMode] = useState<'serial' | 'lot'>('serial');
   const [isValidatingLot, setIsValidatingLot] = useState(false);
   const { data: lotProducts = [] } = useQuery({
     queryKey: ["transfer-lot-products"],
@@ -179,14 +183,14 @@ export default function ItemTransferNotesPage() {
 
   // Confirm dialog for unsaved changes
   const confirmDialog = useTConfirmDialog();
-  
+
   // Validation state
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  
+
   const handleBlur = (fieldName: string) => {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
   };
-  
+
   // Filter states - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
@@ -385,7 +389,7 @@ export default function ItemTransferNotesPage() {
         from_location_id: formData.from_location_id,
         branch_code: formData.branch_code,
       });
-      
+
       if (!response.valid) {
         setValidationError(response.message);
         return;
@@ -471,7 +475,12 @@ export default function ItemTransferNotesPage() {
         from_location_id: formData.from_location_id,
       });
       if (!response.valid) {
-        setLotError(response.message);
+        // The server counts the whole request; say how many are left beyond what this note already holds.
+        setLotError(
+          alreadyAdded > 0 && response.available_quantity !== undefined
+            ? `Only ${Math.max(response.available_quantity - alreadyAdded, 0)} more unit(s) available (${alreadyAdded} already on this note).`
+            : response.message
+        );
         return;
       }
       setLineItems((prev) => {
@@ -516,11 +525,9 @@ export default function ItemTransferNotesPage() {
 
   const { data: transferNotes, isLoading } = useQuery({
     queryKey: ["transfer-notes", filterBranch],
-    queryFn: () => {
-      if (!filterBranch) return Promise.resolve([]);
-      return transferNotesApi.getAll({ branch_code: filterBranch });
-    },
-    enabled: branchResolved && filterBranch !== null,
+    // "All Branches" (no filter) lists every note the user may see; the server limits it to their branches.
+    queryFn: () => transferNotesApi.getAll({ limit: 5000, ...(filterBranch ? { branch_code: filterBranch } : {}) }),
+    enabled: branchResolved,
   });
 
   const nextITNNumber = useMemo(() => 
@@ -550,35 +557,59 @@ export default function ItemTransferNotesPage() {
     return filtered;
   }, [transferNotes, searchQuery, filterBranch]);
 
+  // Saves the form: creates a new note, or - when an existing pending note is being edited - updates it
+  // in place (header, removed lines deleted, new lines added). Editing must never create a second note.
   const createMutation = useMutation({
     mutationFn: async (data: ItemTransferNoteCreate) => {
       // Validate we have items
       if (lineItems.length === 0) {
         throw new Error("No items to transfer. Please scan barcodes or add a quantity to add items.");
       }
-      
+
+      const toLine = (item: ITNLineItem, noteId: number) => ({
+        product_id: item.product_id,
+        barcode: item.barcode || undefined,
+        quantity: item.barcode ? 1 : (item.quantity ?? 1),
+        branch_code: item.branch_code || data.branch_code,
+        remark: item.remark,
+        item_recieved: false,
+        itemtransfernote_id: noteId,
+      });
+      const itemCount = lineItems.reduce((n, i) => n + (i.barcode ? 1 : (i.quantity ?? 1)), 0);
+
+      if (isEditing && selectedITN) {
+        const updatedITN = await transferNotesApi.update(selectedITN.id, {
+          remark: data.remark,
+          created_date: data.created_date,
+          from_location_id: data.from_location_id,
+          to_location_id: data.to_location_id,
+          branch_code: data.branch_code,
+        });
+        const existing = await transferNoteItemsApi.getAll(selectedITN.id);
+        const keep = new Set(lineItems.filter((i) => i.id).map((i) => i.id));
+        for (const old of existing) {
+          if (!keep.has(old.id)) await transferNoteItemsApi.delete(old.id);
+        }
+        for (const item of lineItems.filter((i) => !i.id)) {
+          await transferNoteItemsApi.create(toLine(item, selectedITN.id));
+        }
+        return { itn: updatedITN, itemCount, updated: true };
+      }
+
       // Create the ITN
       const newITN = await transferNotesApi.create(data);
-      
+
       // Create ITN items
       for (const item of lineItems) {
-        await transferNoteItemsApi.create({
-          product_id: item.product_id,
-          barcode: item.barcode || undefined,
-          quantity: item.barcode ? 1 : (item.quantity ?? 1),
-          branch_code: item.branch_code || data.branch_code,
-          remark: item.remark,
-          item_recieved: false,
-          itemtransfernote_id: newITN.id,
-        });
+        await transferNoteItemsApi.create(toLine(item, newITN.id));
       }
-      
-      return { itn: newITN, itemCount: lineItems.reduce((n, i) => n + (i.barcode ? 1 : (i.quantity ?? 1)), 0) };
+
+      return { itn: newITN, itemCount, updated: false };
     },
-    onSuccess: ({ itn: newITN, itemCount }) => {
+    onSuccess: ({ itn: newITN, itemCount, updated }) => {
       queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
       queryClient.invalidateQueries({ queryKey: ["salesStock"] });
-      showSuccessToast(`Transfer note created with ${itemCount} items!`);
+      showSuccessToast(updated ? `Transfer note updated (${itemCount} items).` : `Transfer note created with ${itemCount} items!`);
       setIsCreating(false);
       setIsEditing(false);
       setLineItems([]);
@@ -587,16 +618,68 @@ export default function ItemTransferNotesPage() {
       setTimeout(() => handleSelectITNWithItems(newITN), 0);
     },
     onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to create transfer note"));
+      showErrorToast(handleApiError(error, "Failed to save transfer note"));
     },
   });
 
-  // Load stock from source location when location is selected
-  const handleFromLocationChange = async (locationId: number) => {
-    setFormData(prev => ({ ...prev, from_location_id: locationId }));
+  // Locations belong to one branch each: the pickers offer only the chosen branch's locations, and a branch
+  // with a single location is selected for you.
+  const locationsOf = useCallback(
+    (branchCode: string, exceptId?: number) =>
+      locations.filter((l) => l.branch_code === branchCode && l.id !== exceptId),
+    [locations]
+  );
+  const [toBranchChoice, setToBranchChoice] = useState<string | null>(null);
+  const toBranchCode =
+    toBranchChoice ?? (locations.find((l) => l.id === formData.to_location_id)?.branch_code || "");
+
+  const handleFromBranchChange = (code: string) => {
+    const options = locationsOf(code);
+    setFormData(prev => {
+      const from = options.some((l) => l.id === prev.from_location_id)
+        ? prev.from_location_id
+        : options.length === 1 ? options[0].id : 0;
+      // the destination cannot be the source
+      return { ...prev, branch_code: code, from_location_id: from, to_location_id: prev.to_location_id === from ? 0 : prev.to_location_id };
+    });
     handleBlur("from_location_id");
   };
-  
+
+  const handleToBranchChange = (code: string) => {
+    setToBranchChoice(code);
+    const options = locationsOf(code, formData.from_location_id);
+    setFormData(prev => ({
+      ...prev,
+      to_location_id: options.some((l) => l.id === prev.to_location_id)
+        ? prev.to_location_id
+        : options.length === 1 ? options[0].id : 0,
+    }));
+    handleBlur("to_location_id");
+  };
+
+  // Load stock from source location when location is selected
+  const handleFromLocationChange = async (locationId: number) => {
+    setFormData(prev => ({
+      ...prev,
+      from_location_id: locationId,
+      // the destination cannot be the source: drop it if it was just chosen as the source
+      to_location_id: prev.to_location_id === locationId ? 0 : prev.to_location_id,
+    }));
+    handleBlur("from_location_id");
+  };
+
+  // A new note, or the one opened, starts from what it holds (not from a stale To Branch pick).
+  useEffect(() => { setToBranchChoice(null); }, [isCreating, selectedITN?.id]);
+
+  // New note: a branch with one location needs no pick.
+  useEffect(() => {
+    if (!isCreating || !formData.branch_code) return;
+    const options = locationsOf(formData.branch_code);
+    if (!formData.from_location_id && options.length === 1) {
+      setFormData(prev => ({ ...prev, from_location_id: options[0].id }));
+    }
+  }, [isCreating, formData.branch_code, formData.from_location_id, locationsOf, setFormData]);
+
   // Location lookup
   const getLocationName = (locationId: number): string => {
     return locations.find(l => l.id === locationId)?.name || `Location #${locationId}`;
@@ -625,8 +708,13 @@ export default function ItemTransferNotesPage() {
     }
   }, [formStep]);
 
+  // A double click must not save twice (two notes holding the same units): the ref blocks a second call
+  // until the first save has settled; `isPending` alone only changes on the next render.
+  const savingRef = useRef(false);
   const handleSave = useCallback(() => {
-    createMutation.mutate(formData);
+    if (savingRef.current) return;
+    savingRef.current = true;
+    createMutation.mutate(formData, { onSettled: () => { savingRef.current = false; } });
   }, [formData, createMutation]);
 
   const isSaving = createMutation.isPending;
@@ -658,6 +746,8 @@ export default function ItemTransferNotesPage() {
           params.row.to_location_name || getLocationName(params.row.to_location_id),
       },
       { field: "branch_code", header: "Branch", width: 110 },
+      { field: "total_units", header: "Units", width: 90, type: "number" },
+      { field: "created_by_name", header: "Created By", width: 150, valueGetter: (_v: unknown, row: ItemTransferNote) => row.created_by_name || "-" },
       { field: "created_date", header: "Date", width: 130, type: "date" },
       { field: "status", header: "Status", width: 140, align: "center", headerAlign: "center", type: "status", statusMap: "orderStatus" },
       {
@@ -728,7 +818,7 @@ export default function ItemTransferNotesPage() {
         isSaving={isSaving}
         isFormValid={!!isFormValid}
         onNew={handleNewITN}
-        onSave={handleSave}
+        onSave={isCreating && formStep < FORM_STEPS.length - 1 ? undefined : handleSave}
         onCancel={() => handleCancel(filteredITNs)}
         startActions={
           isCreating && formStep === 1 ? (
@@ -807,10 +897,10 @@ export default function ItemTransferNotesPage() {
                   />
                   <TextField
                     select
-                    label="Branch"
+                    label="From Branch"
                     size="small"
                     value={formData.branch_code}
-                    onChange={(e) => setFormData(prev => ({ ...prev, branch_code: e.target.value }))}
+                    onChange={(e) => handleFromBranchChange(e.target.value)}
                     disabled={!isCreating && !isEditing}
                     required
                   >
@@ -824,12 +914,12 @@ export default function ItemTransferNotesPage() {
                     select
                     label="From Location"
                     size="small"
-                    value={formData.from_location_id}
+                    value={formData.from_location_id || ""}
                     onChange={(e) => handleFromLocationChange(parseInt(e.target.value))}
                     disabled={!isCreating && !isEditing}
                     required
                   >
-                    {locations.map((location) => (
+                    {locationsOf(formData.branch_code).map((location) => (
                       <MenuItem key={location.id} value={location.id}>
                         {location.name}
                       </MenuItem>
@@ -837,11 +927,27 @@ export default function ItemTransferNotesPage() {
                   </TextField>
                   <TextField
                     select
+                    label="To Branch"
+                    size="small"
+                    value={toBranchCode}
+                    onChange={(e) => handleToBranchChange(e.target.value)}
+                    disabled={!isCreating && !isEditing}
+                    required
+                  >
+                    {branches.map((branch) => (
+                      <MenuItem key={branch.branch_code} value={branch.branch_code}>
+                        {branch.branch_code} - {branch.branch_name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
                     label="To Location"
                     size="small"
-                    value={formData.to_location_id}
+                    value={formData.to_location_id || ""}
                     onChange={(e) => {
                       setFormData(prev => ({ ...prev, to_location_id: parseInt(e.target.value) }));
+                      setToBranchChoice(null);
                       handleBlur("to_location_id");
                     }}
                     disabled={!isCreating && !isEditing}
@@ -849,7 +955,7 @@ export default function ItemTransferNotesPage() {
                     error={touched.to_location_id && formData.from_location_id === formData.to_location_id}
                     helperText={touched.to_location_id && formData.from_location_id === formData.to_location_id ? "Must be different from source location" : ""}
                   >
-                    {locations.filter(l => l.id !== formData.from_location_id).map((location) => (
+                    {locationsOf(toBranchCode, formData.from_location_id).map((location) => (
                       <MenuItem key={location.id} value={location.id}>
                         {location.name}
                       </MenuItem>
@@ -900,7 +1006,7 @@ export default function ItemTransferNotesPage() {
                       ))}
                     </Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-                      Scan items below to add them to this transfer.
+                      Add items below to this transfer.
                     </Typography>
                   </Alert>
                 )}
@@ -920,10 +1026,25 @@ export default function ItemTransferNotesPage() {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                       <QrCodeScannerIcon color="primary" />
                       <Typography variant="subtitle1" fontWeight="bold">
-                        Scan Items for Transfer
+                        Add Items for Transfer
                       </Typography>
                     </Box>
-                    
+
+                    {lotProducts.length > 0 && (
+                      <ToggleButtonGroup
+                        size="small"
+                        exclusive
+                        value={addMode}
+                        onChange={(_, value) => value && setAddMode(value)}
+                        sx={{ mb: 1.5 }}
+                      >
+                        <ToggleButton value="serial">Serial items (scan)</ToggleButton>
+                        <ToggleButton value="lot">Batch / quantity items</ToggleButton>
+                      </ToggleButtonGroup>
+                    )}
+
+                    {addMode === 'serial' && (
+                    <>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
                       <TextField
                         inputRef={barcodeInputRef}
@@ -982,17 +1103,20 @@ export default function ItemTransferNotesPage() {
                       </Box>
                     )}
 
+                    </>
+                    )}
+
                     {!formData.from_location_id && (
                       <Alert severity="info" sx={{ mt: 2 }}>
-                        Please select a source location in Step 1 before scanning items
+                        Please select a source location in Step 1 before adding items
                       </Alert>
                     )}
 
                     {/* Batch / none-tracked products: transfer by quantity, no barcodes */}
-                    {lotProducts.length > 0 && (
+                    {lotProducts.length > 0 && addMode === 'lot' && (
                       <Box sx={{ mt: 2 }}>
                         <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-                          Or add a quantity of a batch / non-serial product:
+                          Enter the quantity to transfer. Batch stock is taken automatically, earliest expiry first; no scanning is needed.
                         </Typography>
                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                           <Autocomplete
@@ -1040,7 +1164,7 @@ export default function ItemTransferNotesPage() {
                 {/* Warning for empty items */}
                 {isCreating && lineItems.length === 0 && (
                   <Alert severity="warning" sx={{ mb: 2 }}>
-                    At least one item is required to save the transfer note. Scan barcodes to add items.
+                    At least one item is required to save the transfer note. Scan serial items or add a quantity of batch / quantity items.
                   </Alert>
                 )}
 
@@ -1051,7 +1175,7 @@ export default function ItemTransferNotesPage() {
                     <Table size="small">
                       <TableHead>
                         <TableRow sx={modernTableStyles.headerRow}>
-                          <TableCell>Barcode</TableCell>
+                          <TableCell>Serial / Quantity</TableCell>
                           <TableCell>Product</TableCell>
                           <TableCell>Branch Code</TableCell>
                           <TableCell align="right">{`Cost Price (${currencySymbol})`}</TableCell>
@@ -1099,7 +1223,7 @@ export default function ItemTransferNotesPage() {
                     <Table size="small">
                       <TableHead>
                         <TableRow sx={modernTableStyles.headerRow}>
-                          <TableCell>Barcode</TableCell>
+                          <TableCell>Serial / Quantity</TableCell>
                           <TableCell>Product</TableCell>
                           <TableCell>Branch Code</TableCell>
                           <TableCell align="right">{`Cost Price (${currencySymbol})`}</TableCell>

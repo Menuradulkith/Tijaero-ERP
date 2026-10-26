@@ -13,12 +13,12 @@ def _u() -> str:
 @pytest.fixture
 def seeded(superclient):
     tag = _u()
-    cat = superclient.post(f"{B}/categories/", json={"name": f"PG Cat {tag}", "category_code": f"PC{tag}"}).json()
-    cat2 = superclient.post(f"{B}/categories/", json={"name": f"PG Cat2 {tag}", "category_code": f"PD{tag}"}).json()
-    brand = superclient.post(f"{B}/brands/", json={"brand_name": f"PG Brand {tag}", "brand_code": tag[:4]}).json()
+    cat = superclient.post(f"{B}/categories/", json={"name": f"PG Cat {tag}"}).json()
+    cat2 = superclient.post(f"{B}/categories/", json={"name": f"PG Cat2 {tag}"}).json()
+    brand = superclient.post(f"{B}/brands/", json={"brand_name": f"PG Brand {tag}"}).json()
     for i in range(7):
         r = superclient.post(f"{B}/products/", json={
-            "name": f"PG Prod {tag} {i}", "item_code": f"PG{tag}{i}", "item_type": "inventory", "unit_of_measure": "pcs",
+            "name": f"PG Prod {tag} {i}", "item_type": "inventory", "tracking_type": "serial", "unit_of_measure": "pcs",
             "cost_price": 10 + i, "selling_price": 20 + i,
             "category_id": (cat if i < 5 else cat2)["id"], "items_brand_id": brand["id"],
         })
@@ -39,12 +39,12 @@ def test_pages_cover_all_rows_without_overlap(superclient, seeded):
     seen = []
     for pg in range(3):
         seen += [x["item_code"] for x in _get(superclient, "products", q=q, size=3, page=pg)["items"]]
-    assert len(seen) == 7 and len(set(seen)) == 7 and seen == sorted(seen)
+    assert len(seen) == 7 and len(set(seen)) == 7 and seen == sorted(seen, reverse=True)  # default: newest first
     assert _get(superclient, "products", q=q, size=3, page=3)["items"] == []
 
 
 def test_product_rows_carry_category_and_brand_names(superclient, seeded):
-    row = _get(superclient, "products", q=seeded["tag"], size=1)["items"][0]
+    row = _get(superclient, "products", q=seeded["tag"], size=1, sort_by="item_code", order="asc")["items"][0]
     assert row["category_name"] == seeded["cat"]["name"]
     assert row["brand_name"] == seeded["brand"]["brand_name"]
 

@@ -151,8 +151,8 @@ class TestUpdateRules:
 
 class TestListPagingExport:
     def test_list_is_ordered_and_search_literal(self, superclient, customer):
-        names = [c["customer_name"].lower() for c in superclient.get(f"{C}/", params={"limit": 100000}).json()]
-        assert names == sorted(names)
+        ids = [c["id"] for c in superclient.get(f"{C}/", params={"limit": 100000}).json()]
+        assert ids == sorted(ids, reverse=True)  # newest first
         assert superclient.get(f"{C}/search", params={"q": "%"}).json() == []
 
     def test_paged(self, superclient):
@@ -164,7 +164,7 @@ class TestListPagingExport:
         names = []
         for pg in range(3):
             names += [x["customer_name"] for x in superclient.get(f"{C}/paged", params={"q": tag, "size": 2, "page": pg}).json()["items"]]
-        assert names == sorted(names) and len(set(names)) == 5
+        assert names == sorted(names, reverse=True) and len(set(names)) == 5  # default: newest first
         d = superclient.get(f"{C}/paged", params={"q": tag, "sort_by": "customer_name", "order": "desc", "size": 1}).json()
         assert d["items"][0]["customer_name"].endswith("4")
         assert superclient.get(f"{C}/paged", params={"q": tag, "active": "false"}).json()["total"] == 0

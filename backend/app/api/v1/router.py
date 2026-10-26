@@ -10,6 +10,7 @@ from app.modules.finance.accounting_api import router as accounting_router
 from app.modules.finance.api import router as finance_router
 from app.modules.groups.api import router as groups_router
 from app.modules.hr.api import router as hr_router
+from app.modules.peek.api import router as peek_router
 from app.modules.hr_core.api import router as hr_core_router, employee_router as hr_core_employee_router
 from app.modules.hr.sales_commission_api import router as sales_commissions_router
 from app.modules.attendance.api import router as attendance_router
@@ -21,6 +22,8 @@ from app.modules.products.price_tier_api import router as price_tier_router
 from app.modules.purchasing.api import router as purchasing_router
 from app.modules.purchasing.invoice_api import router as purchase_invoice_router
 from app.modules.reporting.api import router as reporting_router
+from app.modules.reporting.template_api import router as print_templates_router
+from app.modules.reporting.center_api import router as report_center_router
 from app.modules.sales.api import router as sales_router
 from app.modules.sales.quotation_api import router as quotation_router
 from app.modules.settings.api import router as settings_router
@@ -61,9 +64,12 @@ api_router.include_router(attendance_router)
 api_router.include_router(warehouse_router)
 api_router.include_router(support_router)
 api_router.include_router(reporting_router)
+api_router.include_router(print_templates_router)
+api_router.include_router(report_center_router)
 api_router.include_router(settings_router)
 api_router.include_router(notifications_router)
 api_router.include_router(common_router)
+api_router.include_router(peek_router)
 api_router.include_router(communication_router, prefix="/communication", tags=["communication"])
 api_router.include_router(hr_core_router)
 api_router.include_router(hr_core_employee_router, prefix="/employees", tags=["employees"])

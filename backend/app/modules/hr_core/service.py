@@ -855,7 +855,7 @@ class EmployeeService:
         query = self._list_query(actor_branches, **filters)
         total = query.count()
         key = self._SORTS.get(sort_by or "", self._SORTS["employee_id"])()
-        query = query.order_by(key.desc() if order == "desc" else key.asc(), Employee.id)
+        query = query.order_by(key.desc() if order == "desc" else key.asc(), Employee.id) if sort_by else query.order_by(Employee.id.desc())
         rows = query.offset((page - 1) * size).limit(size).all()
         managers, names = self._managers([e for e, _ in rows]), self._names()
         return {"items": [self._item(e, u, names, managers) for e, u in rows], **_page(total, page, size)}

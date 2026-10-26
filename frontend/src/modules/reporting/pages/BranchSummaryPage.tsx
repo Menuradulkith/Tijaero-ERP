@@ -32,9 +32,9 @@ import ReceiptIcon from "@mui/icons-material/Receipt";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
-import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import { reportingApi } from "@/modules/reporting/api";
 import type { BranchDailySummary, BranchOption } from "@/modules/reporting/types";
+import { toCsv, type CsvValue } from "@/modules/reporting/csv";
 
 import { TChip } from "@/components/tijaero";
 const fmt = (n: number) =>
@@ -48,83 +48,58 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 // ─── Export to CSV Helper ──────────────────────────────────────────────────
 function exportToCsv(data: BranchDailySummary[], startDate: string, endDate: string) {
-  let csv = "Branch Account Summary\n";
-  csv += `Date Range: ${startDate} to ${endDate}\n\n`;
+  const rows: CsvValue[][] = [["Branch Account Summary"], [`Date Range: ${startDate} to ${endDate}`], []];
+  const section = (title: string, header: string[]) => rows.push([], [`--- ${title} ---`], header);
 
   data.forEach((branch) => {
-    csv += `BRANCH: ${branch.branch_name} (${branch.branch_code})\n`;
-    csv += `\n--- SALES ---\n`;
-    csv += `Invoice No,Total,Cash,Card,Bank,Credit,Cheque\n`;
-    branch.sales.details.forEach(d => {
-      csv += `${d.invoice_no},${d.total},${d.cash},${d.card},${d.bank},${d.credit},${d.cheque}\n`;
-    });
-    csv += `Total Sales,${branch.sales.total_gross}\n`;
+    rows.push([`BRANCH: ${branch.branch_name} (${branch.branch_code})`]);
+    section("SALES", ["Invoice No", "Total", "Cash", "Card", "Bank", "Credit", "Cheque"]);
+    branch.sales.details.forEach((d) => rows.push([d.invoice_no, d.total, d.cash, d.card, d.bank, d.credit, d.cheque]));
+    rows.push(["Total Sales", branch.sales.total_gross]);
 
-    csv += `\n--- RETURNS ---\n`;
-    csv += `Return No,Refund Amount\n`;
-    branch.returns.details.forEach(d => {
-      csv += `${d.return_no},${d.total_refund}\n`;
-    });
-    csv += `Total Returns,${branch.returns.total_refunds}\n`;
-    
-    csv += `\nNet Sales,${branch.net_sales}\n`;
+    section("RETURNS", ["Return No", "Refund Amount"]);
+    branch.returns.details.forEach((d) => rows.push([d.return_no, d.total_refund]));
+    rows.push(["Total Returns", branch.returns.total_refunds], [], ["Net Sales", branch.net_sales]);
 
-    csv += `\n--- PURCHASE ORDERS ---\n`;
-    csv += `PO No,Status,Value\n`;
-    branch.purchasing.details.forEach(d => {
-      csv += `${d.po_no},${d.status},${d.value}\n`;
-    });
-    csv += `Total PO Value,${branch.purchasing.total_value}\n`;
+    section("PURCHASE ORDERS", ["PO No", "Status", "Value"]);
+    branch.purchasing.details.forEach((d) => rows.push([d.po_no, d.status, d.value]));
+    rows.push(["Total PO Value", branch.purchasing.total_value]);
 
-    csv += `\n--- CASH INFLOWS ---\n`;
-    csv += `Time,Type,Source Table,Source ID,Amount\n`;
-    branch.cash_banking.inflow_details.forEach(d => {
-      csv += `${d.time},${d.type},${d.source_table},${d.source_id},${d.amount}\n`;
-    });
-    csv += `Total Inflows,${branch.cash_banking.money_in}\n`;
+    section("CASH INFLOWS", ["Time", "Type", "Source Table", "Source ID", "Amount"]);
+    branch.cash_banking.inflow_details.forEach((d) => rows.push([d.time, d.type, d.source_table, d.source_id, d.amount]));
+    rows.push(["Total Inflows", branch.cash_banking.money_in]);
 
-    csv += `\n--- CASH OUTFLOWS ---\n`;
-    csv += `Time,Type,Source Table,Source ID,Amount\n`;
-    branch.cash_banking.outflow_details.forEach(d => {
-      csv += `${d.time},${d.type},${d.source_table},${d.source_id},${d.amount}\n`;
-    });
-    csv += `Total Outflows,${branch.cash_banking.money_out}\n`;
+    section("CASH OUTFLOWS", ["Time", "Type", "Source Table", "Source ID", "Amount"]);
+    branch.cash_banking.outflow_details.forEach((d) => rows.push([d.time, d.type, d.source_table, d.source_id, d.amount]));
+    rows.push(["Total Outflows", branch.cash_banking.money_out]);
 
-    csv += `\n--- BANKING ---\n`;
-    csv += `Time,Amount\n`;
-    branch.cash_banking.banking_details.forEach(d => {
-      csv += `${d.time},${d.amount}\n`;
-    });
-    csv += `Total Banked,${branch.cash_banking.total_banked}\n`;
+    section("BANKING", ["Time", "Amount"]);
+    branch.cash_banking.banking_details.forEach((d) => rows.push([d.time, d.amount]));
+    rows.push(["Total Banked", branch.cash_banking.total_banked]);
 
-    csv += `\n--- EXPENSES ---\n`;
-    csv += `Expense No,Type,Vendor,Amount\n`;
-    branch.expenses.details.forEach(d => {
-      csv += `${d.expense_no},${d.type},${d.vendor},${d.amount}\n`;
-    });
-    csv += `Total Expenses,${branch.expenses.total}\n`;
+    section("EXPENSES", ["Expense No", "Type", "Vendor", "Amount"]);
+    branch.expenses.details.forEach((d) => rows.push([d.expense_no, d.type, d.vendor, d.amount]));
+    rows.push(["Total Expenses", branch.expenses.total]);
 
-    csv += `\n--- VOUCHERS ---\n`;
-    csv += `Voucher No,Type,Amount\n`;
-    branch.vouchers.details.forEach(d => {
-      csv += `${d.voucher_no},${d.type},${d.amount}\n`;
-    });
-    csv += `Total Vouchers,${branch.vouchers.total}\n`;
+    section("VOUCHERS", ["Voucher No", "Type", "Amount"]);
+    branch.vouchers.details.forEach((d) => rows.push([d.voucher_no, d.type, d.amount]));
+    rows.push(["Total Vouchers", branch.vouchers.total]);
 
-    csv += `\nCash In Hand (EOD),${branch.cash_banking.cash_in_hand_eod}\n`;
-    csv += `Petty Cash Balance,${branch.cash_banking.petty_cash_balance}\n`;
-    csv += `\n=========================================\n\n`;
+    rows.push([], ["Cash In Hand (EOD)", branch.cash_banking.cash_in_hand_eod]);
+    rows.push(["Petty Cash Balance", branch.cash_banking.petty_cash_balance], [], []);
   });
 
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const csv = toCsv(rows);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.setAttribute("href", url);
   link.setAttribute("download", `Branch_Summary_${startDate}_to_${endDate}.csv`);
-  link.style.visibility = 'hidden';
+  link.style.visibility = "hidden";
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 // ─── Expandable Row Component ──────────────────────────────────────────────
@@ -258,7 +233,7 @@ function POTable({ data }: { data: BranchDailySummary["purchasing"]["details"] }
   );
 }
 
-function CashFlowTable({ data }: { data: any[] }) {
+function CashFlowTable({ data }: { data: BranchDailySummary["cash_banking"]["inflow_details"] }) {
   if (data.length === 0) return <Typography variant="caption" color="text.secondary">No transactions</Typography>;
   return (
     <Table size="small" sx={{ "& td, & th": { fontSize: "0.75rem", p: 0.5 } }}>
@@ -510,7 +485,7 @@ export default function BranchSummaryPage() {
         {results && (
           <Stack direction="row" spacing={1}>
             <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleExport} className="no-print">
-              Export Excel
+              Export CSV
             </Button>
             <Button variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint} className="no-print">
               Print / PDF

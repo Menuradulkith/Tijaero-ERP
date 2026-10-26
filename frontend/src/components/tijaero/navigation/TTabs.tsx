@@ -24,7 +24,8 @@
  */
 
 import React from "react";
-import { Box, Tabs, Tab, Paper, Divider } from "@mui/material";
+import { Box, Tabs, Tab, Paper, Divider, alpha } from "@mui/material";
+import type { Theme } from "@mui/material";
 
 export interface TTabConfig {
   /** Unique tab ID */
@@ -37,6 +38,8 @@ export interface TTabConfig {
   disabled?: boolean;
   /** Badge count */
   badge?: number;
+  /** Draw attention to the tab (amber, pulsing) — e.g. a tab that still needs filling in */
+  highlight?: boolean;
 }
 
 export interface TTabsProps {
@@ -50,6 +53,8 @@ export interface TTabsProps {
   children?: React.ReactNode;
   /** Tabs variant */
   variant?: "standard" | "scrollable" | "fullWidth";
+  /** Look: classic underline tabs, or a segmented control (grey track, selected tab is a raised white pill) */
+  appearance?: "underline" | "segmented";
   /** Tabs orientation */
   orientation?: "horizontal" | "vertical";
   /** Indicator color */
@@ -72,6 +77,7 @@ export const TTabs: React.FC<TTabsProps> = ({
   onChange,
   children,
   variant = "standard",
+  appearance = "underline",
   orientation = "horizontal",
   indicatorColor = "primary",
   textColor = "primary",
@@ -84,6 +90,38 @@ export const TTabs: React.FC<TTabsProps> = ({
     onChange(newValue);
   };
 
+  const segmented = appearance === "segmented" && orientation === "horizontal";
+
+  const segmentedTabsSx = {
+    minHeight: 0,
+    width: "fit-content",
+    maxWidth: "100%",
+    p: 0.375,
+    borderRadius: 2.5,
+    bgcolor: (theme: Theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.12 : 0.05),
+    "& .MuiTabs-indicator": { display: "none" },
+    "& .MuiTabs-flexContainer": { gap: 0.25 },
+    "& .MuiTab-root": {
+      minWidth: 0,
+      maxWidth: "none",
+      minHeight: 32,
+      px: 1.75,
+      py: 0.5,
+      fontSize: "0.8125rem",
+      borderRadius: 2,
+      textTransform: "none",
+      fontWeight: 600,
+      "& .MuiSvgIcon-root": { fontSize: "1rem" },
+      color: "text.secondary",
+      transition: "background-color .15s, box-shadow .15s, color .15s",
+      "&.Mui-selected": {
+        color: "text.primary",
+        bgcolor: "background.paper",
+        boxShadow: "0 1px 3px rgba(16, 24, 40, 0.18), 0 1px 2px rgba(16, 24, 40, 0.10)",
+      },
+    },
+  };
+
   const tabsContent = (
     <>
       <Tabs
@@ -94,15 +132,19 @@ export const TTabs: React.FC<TTabsProps> = ({
         indicatorColor={indicatorColor}
         textColor={textColor}
         centered={centered}
-        sx={{
-          ...(orientation === "horizontal" && { px: 2 }),
-          "& .MuiTab-root": {
-            textTransform: "none",
-            minHeight: 48,
-            fontWeight: 500,
-          },
-          ...sx,
-        }}
+        sx={
+          segmented
+            ? { ...segmentedTabsSx, ...sx }
+            : {
+                ...(orientation === "horizontal" && { px: 2 }),
+                "& .MuiTab-root": {
+                  textTransform: "none",
+                  minHeight: 48,
+                  fontWeight: 500,
+                },
+                ...sx,
+              }
+        }
       >
         {tabs.map((tab) => (
           <Tab
@@ -137,6 +179,22 @@ export const TTabs: React.FC<TTabsProps> = ({
             icon={tab.icon as React.ReactElement}
             iconPosition="start"
             disabled={tab.disabled}
+            sx={
+              tab.highlight
+                ? {
+                    color: "warning.dark",
+                    fontWeight: 700,
+                    borderRadius: 1,
+                    bgcolor: "rgba(237, 108, 2, 0.12)",
+                    "&.Mui-selected": { color: "warning.dark" },
+                    animation: "tabAttention 1.8s ease-in-out infinite",
+                    "@keyframes tabAttention": {
+                      "0%, 100%": { boxShadow: "0 0 0 0 rgba(237, 108, 2, 0.45)" },
+                      "50%": { boxShadow: "0 0 0 6px rgba(237, 108, 2, 0)" },
+                    },
+                  }
+                : undefined
+            }
           />
         ))}
       </Tabs>

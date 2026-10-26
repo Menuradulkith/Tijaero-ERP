@@ -1093,67 +1093,8 @@ class PayrollService:
         # Statutory payment posts: Dr EPF Payable + ETF Payable / Cr Bank
         try:
             from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
-            from app.modules.finance.accounting_models import (
-                JournalEntry, JournalEntryLine, GeneralLedger
-            )
-            gl_service = PurchaseExpensePayrollGL(self.db)
-            
-            marker = f"StatutoryPayment BatchID: {batch.id}"
-            if not gl_service._check_already_posted(batch.id, marker):
-                from decimal import Decimal
-                # Get employee-level totals for EPF employee portion
-                payroll_records = self.db.query(EmployeePayroll).filter(
-                    EmployeePayroll.payroll_batch_no == batch.batch_no
-                ).all()
-                total_epf_employee = sum(Decimal(str(pr.less_epf_employee or 0)) for pr in payroll_records)
-                total_epf_employer = Decimal(str(batch.total_employer_epf or 0))
-                total_etf_employer = Decimal(str(batch.total_employer_etf or 0))
-                total_epf = total_epf_employee + total_epf_employer
-                total_etf = total_etf_employer  # ETF is employer-only in Sri Lanka
-                
-                lines = []
-                if total_epf > 0:
-                    lines.append({
-                        "account_code": "2120",
-                        "debit": total_epf,
-                        "credit": Decimal("0"),
-                        "description": f"EPF paid - Batch {batch.batch_no}",
-                    })
-                if total_etf > 0:
-                    lines.append({
-                        "account_code": "2130",
-                        "debit": total_etf,
-                        "credit": Decimal("0"),
-                        "description": f"ETF paid - Batch {batch.batch_no}",
-                    })
-                total_statutory = total_epf + total_etf
-                if total_statutory > 0:
-                    lines.append({
-                        "account_code": "1020",
-                        "debit": Decimal("0"),
-                        "credit": total_statutory,
-                        "description": f"Statutory payment - Batch {batch.batch_no}",
-                    })
-                
-                if lines:
-                    description = (
-                        f"Auto GL - Statutory Payment | Batch: {batch.batch_no} | "
-                        f"EPF: {total_epf} | ETF: {total_etf} | "
-                        f"StatutoryPayment BatchID: {batch.id}"
-                    )
-                    gl_service._create_je_and_post(
-                        entry_date=payment_date,
-                        description=description,
-                        lines=lines,
-                        branch_code=None,
-                        user_id=user_id,
-                        je_prefix="JE-STT",
-                        transaction_type="Payroll",
-                        reference_type="StatutoryPayment",
-                        reference_id=batch.id,
-                        reference_no=batch.batch_no,
-                    )
-                    self.db.commit()
+            if PurchaseExpensePayrollGL(self.db).post_statutory_payment_to_gl(batch, user_id=user_id):
+                self.db.commit()
         except Exception as gl_err:
             import logging
             logging.getLogger(__name__).warning(f"GL posting for statutory payment batch {batch.batch_no} failed (non-blocking): {gl_err}")
@@ -1265,7 +1206,7 @@ class SalaryProfileService:
         return self._to_response(profile)
 
     def list_profiles(self) -> List[schemas.EmployeeSalaryProfile]:
-        profiles = self.db.query(EmployeeSalaryProfile).all()
+        profiles = self.db.query(EmployeeSalaryProfile).order_by(EmployeeSalaryProfile.id.desc()).all()
         return [self._to_response(p) for p in profiles]
     
     def update_profile(self, profile_id: int, profile: schemas.EmployeeSalaryProfileCreate, user_id: int = 0) -> schemas.EmployeeSalaryProfile:

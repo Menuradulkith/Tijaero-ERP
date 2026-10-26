@@ -34,3 +34,51 @@ def advisory_xact_lock(db: Session, key: str) -> None:
         text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
         {"key": key},
     )
+
+
+def next_document_number(
+    db: Session,
+    column,
+    prefix: str,
+    width: int = 6,
+) -> str:
+    """Next ``<prefix><zero-padded seq>`` for a unique document-number column.
+
+    Serialises on ``prefix`` with an advisory lock, then continues from the
+    highest numeric suffix already used (not the highest row id, which breaks
+    after deletes or out-of-order imports). Rows whose suffix is not purely
+    numeric are ignored. Callers must keep the column ``unique`` as a safety net.
+    """
+    import re
+
+    from sqlalchemy import Integer, func
+
+    advisory_xact_lock(db, prefix)
+    pattern = "^" + re.escape(prefix) + "[0-9]+$"
+    last_seq = (
+        db.query(func.max(func.cast(func.substr(column, len(prefix) + 1), Integer)))
+        .filter(column.like(f"{prefix}%"))
+        .filter(column.op("~")(pattern))
+        .scalar()
+    )
+    return f"{prefix}{(last_seq or 0) + 1:0{width}d}"
+
+
+def next_plain_number(db: Session, column, key: str, width: int = 4) -> str:
+    """Next zero-padded numeric string for a column with no prefix (e.g. a
+    short brand code that has no room for one).
+
+    Same advisory-lock/safety-net shape as ``next_document_number``, but
+    without a prefix: only rows whose existing value is purely numeric count
+    toward the sequence, so hand-typed legacy codes (e.g. "SONY") are ignored
+    rather than breaking the cast.
+    """
+    from sqlalchemy import Integer, func
+
+    advisory_xact_lock(db, key)
+    last_seq = (
+        db.query(func.max(func.cast(column, Integer)))
+        .filter(column.op("~")("^[0-9]+$"))
+        .scalar()
+    )
+    return f"{(last_seq or 0) + 1:0{width}d}"

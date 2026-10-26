@@ -100,6 +100,17 @@ class ReportingService:
         returns_by_date: Dict[str, Decimal] = {}
         returns_by_branch: Dict[str, Decimal] = {}
         returns_by_product: Dict[int, Dict[str, Decimal]] = {}
+        # One query for every return's items instead of one query per return.
+        items_by_return: Dict[int, list] = {}
+        return_ids = [sr.id for sr in returns if gl_return_revenue(sr) > 0]
+        for i in range(0, len(return_ids), 1000):
+            for it in (
+                self.db.query(SaleReturnItems)
+                .filter(SaleReturnItems.sale_return_id.in_(return_ids[i:i + 1000]))
+                .order_by(SaleReturnItems.id)
+                .all()
+            ):
+                items_by_return.setdefault(it.sale_return_id, []).append(it)
         for sr in returns:
             amount = gl_return_revenue(sr)
             if amount <= 0:
@@ -109,7 +120,7 @@ class ReportingService:
             returns_by_date[d] = returns_by_date.get(d, Decimal("0")) + amount
             returns_by_branch[sr.branch_code] = returns_by_branch.get(sr.branch_code, Decimal("0")) + amount
             # Allocate the return's revenue reversal over its items by value.
-            items = self.db.query(SaleReturnItems).filter(SaleReturnItems.sale_return_id == sr.id).all()
+            items = items_by_return.get(sr.id, [])
             weights = [
                 (it, Decimal(str(it.return_price or 0)) * Decimal(str(it.quantity or 1)))
                 for it in items if it.product_id
@@ -364,47 +375,88 @@ class ReportingService:
         self, request: schemas.InventoryReportRequest
     ) -> schemas.InventoryReportResponse:
         """Generate inventory report"""
-        query = self.db.query(Product).options(joinedload(Product.price_tiers)).filter(Product.active == True)
+        from app.modules.products.price_tier_models import ProductPriceTier
 
+        # Everything is computed in SQL: loading every active product (and its price
+        # tiers) into Python made this endpoint O(catalogue) in memory and time.
+        category_filter = []
         if request.category:
-            query = query.filter(Product.category_id == request.category)
+            # The request carries the category as text; category_id is an integer column.
+            try:
+                category_id = int(request.category)
+            except (TypeError, ValueError):
+                category_id = -1
+            if not 0 < category_id <= 2_147_483_647:  # beyond int4 nothing can match
+                category_id = -1  # unknown category: no products
+            category_filter.append(Product.category_id == category_id)
+        product_filter = [Product.active == True, *category_filter]
 
-        products = query.all()
-        total_products = len(products)
-        
-        # Helper to get the correct cost price for a product
-        def get_product_cost(p: Product) -> float:
-            active_tiers = [t for t in p.price_tiers if t.is_active] if hasattr(p, "price_tiers") else []
-            if active_tiers:
-                latest_tier = max(active_tiers, key=lambda x: x.created_at or x.id)
-                return float(latest_tier.cost_price)
-            return float(p.cost_price) if p.cost_price is not None else 0.0
+        # Effective cost: latest active price tier, else the product's own cost price.
+        latest_tier = (
+            self.db.query(ProductPriceTier.product_id, ProductPriceTier.cost_price)
+            .filter(ProductPriceTier.is_active == True)
+            .distinct(ProductPriceTier.product_id)
+            .order_by(
+                ProductPriceTier.product_id,
+                ProductPriceTier.created_at.desc().nullslast(),
+                ProductPriceTier.id.desc(),
+            )
+            .subquery()
+        )
+        cost_expr = func.coalesce(latest_tier.c.cost_price, Product.cost_price, 0)
 
-        total_stock_value = sum([get_product_cost(p) for p in products])
+        total_products = (
+            self.db.query(func.count(Product.id)).filter(*product_filter).scalar()
+        )
+
+        # Stock value: units on hand x what each unit was bought for - the same rule as
+        # the inventory Stock Summary and the Report Center stock valuation.
+        from app.modules.inventory.service import SalesStockService
+        from app.modules.purchasing.models import PurchasingOrderItems
+
+        unit_cost = func.coalesce(PurchasingOrderItems.unit_price, Product.cost_price, 0)
+        value_q = (
+            self.db.query(func.coalesce(func.sum(SalesStock.quantity * unit_cost), 0))
+            .join(Product, Product.id == SalesStock.product_id)
+            .outerjoin(PurchasingOrderItems, PurchasingOrderItems.id == SalesStock.purchasing_order_items_id)
+            .filter(SalesStock.status.in_(SalesStockService._SUMMARY_ON_HAND_STATUSES))
+        )
+        if category_filter:  # not the active filter: an inactive product's stock still has value
+            value_q = value_q.filter(*category_filter)
+        total_stock_value = float(value_q.scalar())
+        threshold = request.low_stock_threshold if request.low_stock_threshold is not None else LOW_STOCK_THRESHOLD
 
         # Low stock items: products whose count of AVAILABLE (unsold) stock units
         # is at or below the low-stock threshold. Driven by real SalesStock data.
-        available_counts = dict(
+        available = (
             self.db.query(
-                SalesStock.product_id,
-                func.coalesce(func.sum(SalesStock.quantity), 0),
+                SalesStock.product_id.label("product_id"),
+                func.coalesce(func.sum(SalesStock.quantity), 0).label("qty"),
             )
             .filter(
                 SalesStock.status == "available",
                 SalesStock.is_active == True,
             )
             .group_by(SalesStock.product_id)
+            .subquery()
+        )
+        available_expr = func.coalesce(available.c.qty, 0)
+        low_rows = (
+            self.db.query(Product.name, Product.item_code, cost_expr.label("cost"), available_expr.label("qty"))
+            .outerjoin(latest_tier, latest_tier.c.product_id == Product.id)
+            .outerjoin(available, available.c.product_id == Product.id)
+            .filter(*product_filter, available_expr <= threshold)
+            .order_by(Product.id)
             .all()
         )
         low_stock_items = [
             {
-                "product_name": p.name,
-                "item_code": p.item_code,
-                "cost_price": get_product_cost(p),
-                "available_quantity": int(available_counts.get(p.id, 0)),
+                "product_name": r.name,
+                "item_code": r.item_code,
+                "cost_price": float(r.cost),
+                "available_quantity": int(r.qty),
             }
-            for p in products
-            if available_counts.get(p.id, 0) <= LOW_STOCK_THRESHOLD
+            for r in low_rows
         ]
 
         # Stock by category

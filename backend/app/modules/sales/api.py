@@ -1,3 +1,4 @@
+import os
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from app.auth.dependencies import (
@@ -7,6 +8,7 @@ from app.auth.dependencies import (
 )
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
+from app.core.ttl_cache import TTLCache
 from app.db.session import get_db
 from app.modules.sales import schemas, service
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -59,6 +61,9 @@ def get_available_products(
 
 
 # Statistics endpoint
+_stats_cache = TTLCache(float(os.getenv("SALES_STATS_CACHE_TTL", "30")))
+
+
 @router.get(
     "/statistics",
     response_model=Dict[str, Any],
@@ -83,7 +88,12 @@ def get_sales_statistics(
             effective_branches = [branch_code]
     else:
         effective_branches = user_branches
-    return service.sales_service.get_sales_statistics(db, effective_branches)
+    # Whole-history aggregates are expensive; serve a short-lived shared copy so a
+    # burst of dashboard loads computes it once per worker (SALES_STATS_CACHE_TTL, 0 = off).
+    key = tuple(sorted(effective_branches)) if effective_branches else None
+    return _stats_cache.get_or_compute(
+        key, lambda: service.sales_service.get_sales_statistics(db, effective_branches)
+    )
 
 
 import csv

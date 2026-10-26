@@ -64,6 +64,21 @@ class TestQueueGate:
         r = superclient.post(f"{PUR}/procurement-queue", json={"items": [_qi(world, q)]})
         assert r.status_code == 400, r.text
 
+    def test_queue_list_hides_lines_of_closed_quotes(self, superclient, world, db):
+        from app.modules.sales.quotation_models import SalesQuote
+
+        keep, closed = _quote(superclient, world), _quote(superclient, world)
+        assert superclient.post(f"{PUR}/procurement-queue", json={"items": [_qi(world, keep), _qi(world, closed)]}).status_code == 201
+        ids = lambda: {e["quote_item_id"] for e in superclient.get(f"{PUR}/procurement-queue").json()}
+        assert {keep["items"][0]["id"], closed["items"][0]["id"]} <= ids()
+        # a quote that is no longer approved/open must drop out of the list
+        db.query(SalesQuote).filter(SalesQuote.id == closed["id"]).update({"status": "rejected"})
+        db.flush()
+        assert closed["items"][0]["id"] not in ids() and keep["items"][0]["id"] in ids()
+        db.query(SalesQuote).filter(SalesQuote.id == keep["id"]).update({"approval": False})
+        db.flush()
+        assert keep["items"][0]["id"] not in ids()
+
     def test_approved_quote_can_be_queued_and_listed(self, superclient, world):
         q = _quote(superclient, world)
         r = superclient.post(f"{PUR}/procurement-queue", json={"items": [_qi(world, q)]})

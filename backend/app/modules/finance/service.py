@@ -252,11 +252,43 @@ class ExpenseService:
         
         return expense
 
-    def record_expense(self, expense_id: int, record_data: schemas.ExpenseRecord) -> models.Expenses:
+    def record_expense(
+        self, expense_id: int, record_data: schemas.ExpenseRecord, user_id: Optional[int] = None
+    ) -> models.Expenses:
         expense = self.get_expense(expense_id)
         if expense.status != ExpenseStatus.PAID:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot record expense in '{expense.status}' status")
-        expense.account_code = record_data.account_code
+        new_account = (record_data.account_code or "").strip()
+        # The payment was already posted to the GL (Dr <expense account> / Cr cash|bank).
+        # Changing the account code afterwards must move the amount in the ledger too,
+        # otherwise the expense says e.g. 5130 while the GL still carries it on 5190.
+        from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+        gl = PurchaseExpensePayrollGL(self.db)
+        booked = gl.expense_posted_accounts(expense)
+        if booked and set(booked) != {new_account}:
+            from app.modules.finance.accounting_models import ChartOfAccounts
+            acct = self.db.query(ChartOfAccounts).filter(ChartOfAccounts.account_code == new_account).first()
+            if acct is None or not acct.is_active:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail=f"Account {new_account!r} is not an active chart-of-accounts account")
+            if acct.account_type != "Expense":
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail=f"Account {new_account} is a {acct.account_type} account; an expense can only be recorded to an Expense account")
+            has_children = self.db.query(ChartOfAccounts.id).filter(
+                ChartOfAccounts.parent_account_id == acct.id).first() is not None
+            if has_children:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail=f"Account {new_account} is a header account; choose one of its sub-accounts")
+            try:
+                gl.post_expense_reclass_to_gl(
+                    expense, new_account,
+                    user_id=user_id if user_id is not None else (expense.approved_by or 0),
+                )
+            except ValueError as err:
+                self.db.rollback()
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail=f"Could not reclassify the posted expense: {err}")
+        expense.account_code = new_account
         expense.cost_center = record_data.cost_center
         expense.status = "recorded"
         if record_data.remarks:
@@ -381,53 +413,9 @@ class CustomerCreditNoteService:
         # Dr 4030 Sales Returns          (reduces revenue)
         # Cr 2530 Customer Credit Notes  (liability — owed back to customer)
         try:
-            from app.modules.finance.purchase_expense_payroll_gl import (
-                PurchaseExpensePayrollGL,
-                ACCT_SALES_RETURNS,
-                ACCT_CUSTOMER_CREDIT_NOTES,
-            )
-            from decimal import Decimal as _D
-            gl = PurchaseExpensePayrollGL(self.db)
-            amount = _D(str(getattr(db_note, "amount", 0) or 0))
-            if amount > 0:
-                marker = f"CustomerCreditNote ID: {db_note.id}"
-                if not gl._check_already_posted(db_note.id, marker):
-                    note_date = getattr(db_note, "date", None)
-                    if note_date is not None and hasattr(note_date, "date"):
-                        # 'date' column is a TIMESTAMP -> coerce to date
-                        note_date = note_date.date()
-                    if note_date is None:
-                        note_date = tz.today()
-                    gl._create_je_and_post(
-                        entry_date=note_date,
-                        description=(
-                            f"Auto GL - Customer Credit Note Issued | Customer ID: "
-                            f"{db_note.customer_id} | Amount: {amount} | "
-                            f"CustomerCreditNote ID: {db_note.id}"
-                        ),
-                        lines=[
-                            {
-                                "account_code": ACCT_SALES_RETURNS,
-                                "debit": amount,
-                                "credit": _D("0"),
-                                "description": f"Customer credit note issued (CN #{db_note.id})",
-                            },
-                            {
-                                "account_code": ACCT_CUSTOMER_CREDIT_NOTES,
-                                "debit": _D("0"),
-                                "credit": amount,
-                                "description": f"Liability - credit note owed to customer #{db_note.customer_id}",
-                            },
-                        ],
-                        branch_code=getattr(db_note, "branch_code", None),
-                        user_id=user_id,
-                        je_prefix="JE-CCN",
-                        transaction_type="Sales",
-                        reference_type="CustomerCreditNote",
-                        reference_id=db_note.id,
-                        reference_no=f"CN-{db_note.id}",
-                    )
-                    self.db.commit()
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            if PurchaseExpensePayrollGL(self.db).post_customer_credit_note_to_gl(db_note, user_id=user_id):
+                self.db.commit()
         except Exception as gl_err:
             import logging
             logging.getLogger(__name__).warning(
@@ -557,26 +545,10 @@ class CashbookService:
         if filters.payment_method:
             query = query.filter(models.CashbookEntryRecord.payment_method.ilike(f"%{filters.payment_method}%"))
 
-        # Enforce only the direct supplier-payment verification rule:
-        # block unverified rows from supplier_payments, but never block other cashflow sources.
+        # No status filtering: the cashbook is GL-driven, so a row exists only
+        # once its document posted money (e.g. a supplier payment on verification).
         from app.modules.purchasing import models as purchasing_models
 
-        direct_payment_visible = self.db.query(purchasing_models.SupplierPayment.id).filter(
-            purchasing_models.SupplierPayment.id == models.CashbookEntryRecord.source_id,
-            purchasing_models.SupplierPayment.status == "verified",
-        ).exists()
-
-        query = query.filter(
-            or_(
-                models.CashbookEntryRecord.entry_type != "supplier_payment",
-                and_(
-                    models.CashbookEntryRecord.source_table == "supplier_payments",
-                    direct_payment_visible,
-                ),
-                models.CashbookEntryRecord.source_table != "supplier_payments",
-            )
-        )
-        
         # Order newest first for display
         query = query.order_by(
             models.CashbookEntryRecord.transaction_date.desc(),
@@ -981,7 +953,7 @@ class PettyCashService:
         # GL: Dr expense account / Cr 1030 Petty Cash
         expense_category = (data.expense_type or "miscellaneous").lower().strip()
         from app.modules.finance.purchase_expense_payroll_gl import EXPENSE_CATEGORY_MAP
-        expense_account = EXPENSE_CATEGORY_MAP.get(expense_category, "5100")
+        expense_account = EXPENSE_CATEGORY_MAP.get(expense_category, "5190")
 
         self._post_gl(
             fund=fund,
@@ -1113,7 +1085,7 @@ class PettyCashService:
         if discrepancy < 0:
             self._post_gl(
                 fund=fund,
-                debit_account="5100",  # Miscellaneous expense (cash shortage)
+                debit_account="5190",  # Miscellaneous expense (cash shortage)
                 credit_account="1030",
                 amount=abs(discrepancy),
                 description=f"Petty cash shortage on closure | {fund.petty_cash_no}",
@@ -1129,7 +1101,7 @@ class PettyCashService:
             self._post_gl(
                 fund=fund,
                 debit_account="1030",
-                credit_account="4100",  # Other Income
+                credit_account="4190",  # Miscellaneous Income
                 amount=discrepancy,
                 description=f"Petty cash surplus on closure | {fund.petty_cash_no}",
                 je_prefix="JE-PCD",

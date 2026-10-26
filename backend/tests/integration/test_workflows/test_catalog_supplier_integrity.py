@@ -36,13 +36,13 @@ def _uid(prefix: str = "") -> str:
 # Helpers
 # --------------------------------------------------------------------------- #
 def _category(c, **extra):
-    r = c.post(f"{INV}/categories/", json={"name": _uid("Cat "), "category_code": _uid("C"), **extra})
+    r = c.post(f"{INV}/categories/", json={"name": _uid("Cat "), **extra})
     assert r.status_code == 201, r.text
     return r.json()
 
 
 def _brand(c, **extra):
-    r = c.post(f"{INV}/brands/", json={"brand_name": _uid("Brand "), "brand_code": uuid.uuid4().hex[:4], **extra})
+    r = c.post(f"{INV}/brands/", json={"brand_name": _uid("Brand "), **extra})
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -51,8 +51,7 @@ def _product(c, **extra):
     cat, brand = _category(c), _brand(c)
     payload = {
         "name": _uid("Prod "),
-        "item_code": _uid("ITM"),
-        "item_type": "general",
+        "item_type": "general", "tracking_type": "serial",
         "cost_price": 100,
         "selling_price": 200,
         "category_id": cat["id"],
@@ -207,7 +206,7 @@ class TestMinimumPrice:
     def test_minimum_below_cost_rejected_on_create(self, superclient):
         cat, brand = _category(superclient), _brand(superclient)
         r = superclient.post(f"{INV}/products/", json={
-            "name": _uid("P "), "item_code": _uid("I"), "item_type": "general", "cost_price": 100,
+            "name": _uid("P "), "item_type": "general", "tracking_type": "serial", "cost_price": 100,
             "category_id": cat["id"], "items_brand_id": brand["id"], "minimum_selling_price": 50,
         })
         assert r.status_code == 400
@@ -239,19 +238,18 @@ class TestCatalogDuplicates:
         p = _product(superclient)
         cat, brand = _category(superclient), _brand(superclient)
         r = superclient.post(f"{INV}/products/", json={
-            "name": p["name"].upper(), "item_code": _uid("I"), "item_type": "general", "cost_price": 1,
+            "name": p["name"].upper(), "item_type": "general", "tracking_type": "serial", "cost_price": 1,
             "category_id": cat["id"], "items_brand_id": brand["id"],
         })
         assert r.status_code in (400, 409)
 
-    def test_duplicate_item_code_case_insensitive(self, superclient):
-        p = _product(superclient)
-        cat, brand = _category(superclient), _brand(superclient)
-        r = superclient.post(f"{INV}/products/", json={
-            "name": _uid("P "), "item_code": p["item_code"].lower(), "item_type": "general", "cost_price": 1,
-            "category_id": cat["id"], "items_brand_id": brand["id"],
-        })
-        assert r.status_code in (400, 409)
+    def test_item_codes_are_generated_and_unique(self, superclient):
+        """item_code is no longer user input — each create gets its own
+        generated, distinct code regardless of what the caller sends."""
+        p1 = _product(superclient)
+        p2 = _product(superclient)
+        assert p1["item_code"] and p2["item_code"]
+        assert p1["item_code"] != p2["item_code"]
 
     def test_duplicate_blocked_by_database_when_precheck_is_bypassed(self, db, make_product):
         """Simulates two concurrent creates both passing the service pre-check."""

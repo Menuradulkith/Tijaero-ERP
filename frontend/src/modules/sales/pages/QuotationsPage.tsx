@@ -42,6 +42,7 @@ import { minimumPriceApi } from "@/modules/inventory/api";
 import { customersApi } from "@/modules/customers/api";
 import { customerDisplayName } from "@/modules/customers/types";
 import { procurementQueueApi } from "@/modules/purchasing/api";
+import { EntityLink, EntityPeekButton } from "@/components/tijaero/peek";
 import {
   Add as AddIcon,
   ArrowBack as ArrowBackIcon,
@@ -54,7 +55,7 @@ import {
   Receipt as TaxIcon,
   Send as SendIcon,
   ThumbDown as RejectIcon,
-  Warehouse as WarehouseIcon,
+  CheckCircleOutline as ApproveIcon,
   Email as EmailIcon,
   History as HistoryIcon,
   Search as SearchIcon,
@@ -185,7 +186,6 @@ export default function QuotationsPage() {
   // Per-item qty overrides for partial SO dialog (item_id → qty to convert)
   const [partialQtyMap, setPartialQtyMap] = useState<Record<number, number>>({});
   const [partialSOSubmitting, setPartialSOSubmitting] = useState(false);
-  const [transferFromBranch, setTransferFromBranch] = useState<string | null>(null);
   // Cancel item state
   const [cancelItemDialogOpen, setCancelItemDialogOpen] = useState(false);
   const [cancelItemTarget, setCancelItemTarget] = useState<{ quoteId: number; itemId: number; productName: string } | null>(null);
@@ -195,28 +195,13 @@ export default function QuotationsPage() {
   // Derived: whether any items need a PO, and whether any items are in stock (can go to SO)
   const hasItemsNeedingPO = stockAvailability.some(sa => !sa.is_sufficient);
   const hasItemsInStock = stockAvailability.some(sa => (sa.current_branch_available || 0) > 0);
-  const hasItemsInOtherBranches = stockAvailability.some(sa => (sa.other_branches?.length || 0) > 0);
 
-  const transferBranchOptions = useMemo(() => {
-    const branchesSet = new Set<string>();
-    stockAvailability.forEach(sa => {
-      sa.other_branches?.forEach(b => branchesSet.add(b.branch_code));
-    });
-    return Array.from(branchesSet);
-  }, [stockAvailability]);
-
-  useEffect(() => {
-    if (!transferFromBranch && transferBranchOptions.length > 0) {
-      setTransferFromBranch(transferBranchOptions[0]);
-    }
-  }, [transferBranchOptions, transferFromBranch]);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [cancelLinkedPO, setCancelLinkedPO] = useState(false);
 
   // Permissions
   const canCreate = usePermission("quotations", "create");
-  const canDelete = usePermission("quotations", "delete");
   const canUpdate = usePermission("quotations", "update");
   // Cost/margin is sensitive — only shown to users with cost_price:view
   // (same permission gate used on the Sales Stock dashboard).
@@ -507,16 +492,6 @@ export default function QuotationsPage() {
     },
   });
 
-  const deleteMutation = useCrudMutation({
-    mutationFn: (id: number) => quotationApi.delete(id),
-    getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType]],
-    successMessage: "Quote deleted successfully",
-    errorMessage: "Failed to delete quote",
-    onSuccess: () => {
-      setSelectedQuote(null);
-    },
-  });
-
   // ==================== Workflow Mutations ====================
 
   const rejectMutation = useCrudMutation({
@@ -549,6 +524,16 @@ export default function QuotationsPage() {
     getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType], ["sales-quote-details"]],
     successMessage: "Quotation marked as sent",
     errorMessage: "Failed to mark as sent",
+    onSuccess: (updatedQuote: SalesQuote) => {
+      handleSelectQuote(updatedQuote);
+    },
+  });
+
+  const confirmMutation = useCrudMutation({
+    mutationFn: (id: number) => quotationApi.confirm(id),
+    getInvalidateQueryKeys: () => [["sales-quotes", pageQuoteType], ["sales-quote-details"]],
+    successMessage: "Quotation confirmed",
+    errorMessage: "Failed to confirm quotation",
     onSuccess: (updatedQuote: SalesQuote) => {
       handleSelectQuote(updatedQuote);
     },
@@ -625,63 +610,6 @@ export default function QuotationsPage() {
     }
   }, [selectedQuote, confirmDialog, queryClient]);
 
-  const handleCreateITNNavigate = useCallback(async () => {
-    if (!selectedQuote || !selectedQuoteDetails?.items || !transferFromBranch) return;
-    const itemsForITN = stockAvailability
-      .filter(sa => {
-        if ((sa.other_branches?.length || 0) === 0) return false;
-        // Skip fulfilled items
-        const quoteItem = selectedQuoteDetails.items.find(qi => qi.product_id === sa.product_id);
-        if (!quoteItem) return false;
-        if (['completed', 'cancelled', 'so_created', 'po_created', 'itn_created'].includes(quoteItem.item_status)) return false;
-        return true;
-      })
-      .map(sa => {
-        const branchEntry = sa.other_branches?.find(b => b.branch_code === transferFromBranch);
-        if (!branchEntry) return null;
-        const quoteItem = selectedQuoteDetails.items.find(qi => qi.product_id === sa.product_id);
-        const remaining = quoteItem ? quoteItem.quantity - (quoteItem.converted_qty || 0) : sa.requested_quantity;
-        const qty = Math.min(remaining, branchEntry.available_quantity);
-        return qty > 0
-          ? {
-              product_id: sa.product_id,
-              product_name: sa.product_name || `Product #${sa.product_id}`,
-              quantity: qty,
-            }
-          : null;
-      })
-      .filter(Boolean) as Array<{ product_id: number; product_name: string; quantity: number }>;
-
-    if (itemsForITN.length === 0) {
-      showErrorToast("No items available in the selected branch for transfer.");
-      return;
-    }
-
-    const itemIds = selectedQuoteDetails.items
-      .filter(item => itemsForITN.some(itnItem => itnItem.product_id === item.product_id))
-      .map(item => item.id);
-
-    try {
-      if (itemIds.length > 0) {
-        await quotationApi.markItemsProcurement(selectedQuote.id, itemIds);
-      }
-      navigate("/warehouse/item-transfer-notes", {
-        state: {
-          prefillTransfer: {
-            fromBranch: transferFromBranch,
-            toBranch: selectedQuote.branch_code,
-            items: itemsForITN,
-            quoteId: selectedQuote.id,
-            quoteNo: selectedQuote.quote_no,
-          },
-        },
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to mark items for transfer";
-      showErrorToast(msg);
-    }
-  }, [selectedQuote, selectedQuoteDetails, stockAvailability, transferFromBranch, navigate]);
-
   // Items already queued (supplier chosen, no PO yet) for this quote — kept
   // out of the candidate list so the same line can't be queued twice.
   const { data: procurementQueue = [] } = useQuery({
@@ -706,8 +634,7 @@ export default function QuotationsPage() {
         // Prefer a live stock check result; fall back to the stored value.
         const liveStock = stockAvailability.find(sa => sa.product_id === item.product_id);
         const stockStatus = liveStock
-          ? (liveStock.is_sufficient ? 'in_stock'
-              : (liveStock.other_branches && liveStock.other_branches.length > 0) ? 'needs_transfer'
+          ? (liveStock.is_sufficient ? 'in_stock'
               : 'needs_procurement')
           : item.stock_status;
         return stockStatus === 'needs_procurement';
@@ -887,7 +814,7 @@ export default function QuotationsPage() {
     if (!selectedQuote) return;
     rejectMutation.mutate({
       id: selectedQuote.id,
-      data: { reason: rejectReason || undefined, cancel_linked_po: cancelLinkedPO },
+      data: { reason: rejectReason.trim(), cancel_linked_po: cancelLinkedPO },
     });
   }, [selectedQuote, rejectReason, cancelLinkedPO, rejectMutation]);
 
@@ -897,11 +824,33 @@ export default function QuotationsPage() {
     const s = selectedQuote.status;
     const actions: string[] = [];
 
+    // Flow: approved -> Mark Sent -> Confirm / Reject -> everything else.
+    // Approved but not sent yet (and nothing already converted): only Mark Sent.
+    const alreadyInProgress =
+      !!selectedQuote.linked_po_id ||
+      !!selectedQuote.po_created_date ||
+      !!selectedQuoteDetails?.items?.some(i => (i.item_status ?? 'pending') !== 'pending');
+    if (
+      selectedQuote.approval &&
+      !selectedQuote.submitted_date &&
+      !alreadyInProgress &&
+      ['approved', 'accepted'].includes(s)
+    ) return ['send'];
+
+    // Sent to the customer but not answered yet: the only moves are Confirm (customer
+    // accepted) or Reject (with a reason) — nothing else until then.
+    const awaitingCustomer =
+      !!selectedQuote.approval &&
+      !!selectedQuote.submitted_date &&
+      !selectedQuote.confirmed_date &&
+      !['rejected', 'cancelled', 'revised', 'completed'].includes(s);
+    if (awaitingCustomer) return ['confirm', 'reject'];
+
     // Mark as sent — only once the quote has cleared internal approval
     // (same `approval` gate as create_po/create_so below). "Sent" is not a
     // status value at all (see submitted_date), so this doesn't need to
     // special-case an already-"sent" status the way it used to.
-    if (selectedQuote.approval && !['rejected', 'cancelled', 'revised'].includes(s)) actions.push('send');
+    if (selectedQuote.approval && !selectedQuote.submitted_date && !['rejected', 'cancelled', 'revised'].includes(s)) actions.push('send');
     // Check stock — allowed for any non-terminal status
     if (!['completed', 'cancelled'].includes(s)) actions.push('check_stock');
     // Create PO / SO — only once the quotation has been approved. `approval`
@@ -920,7 +869,7 @@ export default function QuotationsPage() {
     if (!['revised', 'so_created', 'cancelled', 'completed'].includes(s)) actions.push('revise');
 
     return actions;
-  }, [selectedQuote, isCreating, isEditing]);
+  }, [selectedQuote, selectedQuoteDetails, isCreating, isEditing]);
 
   const handleCreateRevision = useCallback(async () => {
     if (!selectedQuote) return;
@@ -1060,21 +1009,6 @@ export default function QuotationsPage() {
     }
   }, [formData, lineItems, isCreating, isEditing, selectedQuote, createMutation, updateMutation]);
 
-  const handleDelete = useCallback(async () => {
-    if (selectedQuote) {
-      const confirmed = await confirmDialog.confirm({
-        title: "Delete Quote",
-        message: `Are you sure you want to delete ${selectedQuote.quote_no}?`,
-        confirmText: "Delete",
-        confirmColor: "error",
-      });
-      if (confirmed) {
-        deleteMutation.mutate(selectedQuote.id);
-      }
-    }
-  }, [selectedQuote, deleteMutation, confirmDialog]);
-
-
   // Add line item
   const handleAddLineItem = () => {
     setLineItemsDirty(true);
@@ -1158,9 +1092,12 @@ export default function QuotationsPage() {
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
-  // Check if actions are allowed based on status
-  const canEditQuote = !["completed", "cancelled"].includes(selectedQuote?.status || "");
-  const canDeleteQuoteStatus = !["completed", "cancelled"].includes(selectedQuote?.status || "");
+  // Check if actions are allowed based on status.
+  // Only a quotation that is not approved yet can be edited; once approved, changes go through
+  // Create Revision (which keeps the original on record).
+  const canEditQuote =
+    !selectedQuote?.approval &&
+    !["completed", "cancelled", "rejected", "revised"].includes(selectedQuote?.status || "");
 
   // Whether we're showing a single quote's detail view (selected or being
   // created) instead of the browse table.
@@ -1309,14 +1246,12 @@ export default function QuotationsPage() {
 
         <ActionToolbar
           canCreate={canCreate}
-          canDelete={canDelete && canDeleteQuoteStatus}
           canUpdate={canUpdate && canEditQuote}
           isEditing={isEditing}
           isCreating={isCreating}
           hasSelection={!!selectedQuote}
           onAdd={handleNewQuote}
           onEdit={handleEdit}
-          onDelete={handleDelete}
           onSave={undefined}
           onCancel={undefined}
           isSaving={createMutation.isPending || updateMutation.isPending}
@@ -1349,6 +1284,15 @@ export default function QuotationsPage() {
             ) : selectedQuote && !isCreating && !isEditing ? (
               <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
                 {/* Workflow Action Buttons */}
+                {getAvailableActions().includes('confirm') && (
+                  <Tooltip title="The customer accepted this quotation">
+                    <Button size="small" variant="contained" color="success" startIcon={<ApproveIcon />}
+                      onClick={() => confirmMutation.mutate(selectedQuote.id)}
+                      disabled={confirmMutation.isPending}>
+                      Confirm
+                    </Button>
+                  </Tooltip>
+                )}
                 {getAvailableActions().includes('send') && (
                   <Tooltip title="Mark as Sent to Customer">
                     <Button size="small" variant="contained" color="primary" startIcon={<SendIcon />}
@@ -1373,14 +1317,6 @@ export default function QuotationsPage() {
                     <Button size="small" variant="contained" color="primary" startIcon={<POIcon />}
                       onClick={handleOpenCreatePurchaseOrders}>
                       Create PO
-                    </Button>
-                  </Tooltip>
-                )}
-                {stockCheckedQuoteId === selectedQuote.id && hasItemsInOtherBranches && (
-                  <Tooltip title="Create ITN for items available in other branches">
-                    <Button size="small" variant="contained" color="primary" startIcon={<WarehouseIcon />}
-                      onClick={handleCreateITNNavigate}>
-                      Create ITN
                     </Button>
                   </Tooltip>
                 )}
@@ -1411,27 +1347,30 @@ export default function QuotationsPage() {
                     </Button>
                   </Tooltip>
                 )}
+                {/* While the sent quotation awaits Confirm / Reject, no other button shows */}
+                {!getAvailableActions().includes('confirm') && (<>
                 {/* Customer advance — only once the quotation is approved */}
-                <Tooltip title={selectedQuote.status !== "draft" && !canPrintDocument(selectedQuote.status, ["cancelled"]) ? `Cannot email: quotation is ${(selectedQuote.status || "").replace(/_/g, " ")}` : "Send via Email"}>
+                {canPrintDocument(selectedQuote.status, ["cancelled"]) && (<Tooltip title={!canPrintDocument(selectedQuote.status, ["cancelled"]) ? `Cannot email: quotation is ${(selectedQuote.status || "").replace(/_/g, " ")}` : "Send via Email"}>
                   <span>
                     <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
-                      disabled={selectedQuote.status !== "draft" && !canPrintDocument(selectedQuote.status, ["cancelled"])}
+                      disabled={!canPrintDocument(selectedQuote.status, ["cancelled"])}
                       onClick={() => setEmailDialogOpen(true)}>
                       Email
                     </Button>
                   </span>
-                </Tooltip>
+                </Tooltip>)}
                 <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
                 <TPrintButton
                   documentType="quotation"
                   documentId={selectedQuote.id}
-                  disabled={selectedQuote.status !== "draft" && !canPrintDocument(selectedQuote.status, ["cancelled"])}
+                  disabled={!canPrintDocument(selectedQuote.status, ["cancelled"])}
                   disabledReason={selectedQuote.status === "cancelled" ? "Cannot print: quotation is cancelled" : `Cannot print: quotation is ${(selectedQuote.status || "").replace(/_/g, " ")}`}
                   onClick={() => {
                     setSelectedQuoteForPrint(selectedQuote);
                     setPrintDialogOpen(true);
                   }}
                 />
+                </>)}
               </Box>
             ) : undefined
           }
@@ -1490,7 +1429,7 @@ export default function QuotationsPage() {
             size="small"
             value={getCustomerName(quote.customer_id)}
             disabled
-            InputProps={{ readOnly: true }}
+            InputProps={{ readOnly: true, endAdornment: <EntityPeekButton entity="customer" id={quote.customer_id} /> }}
           />
           <TextField
             label="Created Date"
@@ -1583,8 +1522,7 @@ export default function QuotationsPage() {
                   const liveStock = stockAvailability.find(sa => sa.product_id === item.product_id);
                   // Derive stock status: live check overrides stored value
                   const stockStatus = liveStock
-                    ? (liveStock.is_sufficient ? 'in_stock'
-                        : (liveStock.other_branches && liveStock.other_branches.length > 0) ? 'needs_transfer'
+                    ? (liveStock.is_sufficient ? 'in_stock'
                         : 'needs_procurement')
                     : item.stock_status;
                   const itemStatus = item.item_status ?? 'pending';
@@ -1594,7 +1532,11 @@ export default function QuotationsPage() {
                       ...(index % 2 === 1 && { bgcolor: "grey.25" }),
                       ...(itemStatus === 'cancelled' && { opacity: 0.5 }),
                     }}>
-                      <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
+                      <TableCell>
+                        <EntityLink entity="product" id={item.product_id}>
+                          {product?.name || `Product #${item.product_id}`}
+                        </EntityLink>
+                      </TableCell>
                       <TableCell align="right">{item.quantity}</TableCell>
                       <TableCell align="right"><TCurrency value={Number(item.selling_price)} showSymbol={false} /></TableCell>
                       <TableCell align="right">
@@ -1614,16 +1556,12 @@ export default function QuotationsPage() {
                             <TChip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'procurement' ? (
                             // PO/ITN in progress — show what was initiated
-                            stockStatus === 'needs_transfer'
-                              ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                              : <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'cancelled' ? (
                             <TChip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : (
                             // Pending — show based on stock availability
-                            stockStatus === 'needs_transfer'
-                              ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                              : stockStatus === 'needs_procurement'
+                            stockStatus === 'needs_procurement'
                                 ? <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                                 : stockStatus === 'in_stock'
                                   ? <TChip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
@@ -1948,7 +1886,20 @@ export default function QuotationsPage() {
                 value={customers?.find((c) => c.id === formData.customer_id) || null}
                 onChange={(_, newValue) => setFormData({ ...formData, customer_id: newValue?.id || 0 })}
                 renderInput={(params) => (
-                  <TextField {...params} label="Customer" required />
+                  <TextField
+                    {...params}
+                    label="Customer"
+                    required
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          <EntityPeekButton entity="customer" id={formData.customer_id} />
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
                 )}
               />
 
@@ -1979,25 +1930,6 @@ export default function QuotationsPage() {
               />
             </FormSection>
 
-            {/* Notes */}
-            <FormSection title="Notes" columns={2}>
-              <TRemarkField
-                label="Internal Remarks"
-                value={formData.remarks || ""}
-                onChange={(value) => setFormData({ ...formData, remarks: value })}
-                multiline
-                rows={2}
-                size="small"
-              />
-              <TRemarkField
-                label="Customer Notes (shown on printed document)"
-                value={formData.customer_notes || ""}
-                onChange={(value) => setFormData({ ...formData, customer_notes: value })}
-                multiline
-                rows={2}
-                size="small"
-              />
-            </FormSection>
         </>
 
         {/* Quote Items */}
@@ -2054,7 +1986,20 @@ export default function QuotationsPage() {
                                 handleUpdateLineItem(index, "product_id", newValue?.id || 0)
                               }
                               renderInput={(params) => (
-                                <TextField {...params} size="small" placeholder="Search by name or code" />
+                                <TextField
+                                  {...params}
+                                  size="small"
+                                  placeholder="Search by name or code"
+                                  InputProps={{
+                                    ...params.InputProps,
+                                    endAdornment: (
+                                      <>
+                                        <EntityPeekButton entity="product" id={item.product_id} />
+                                        {params.InputProps.endAdornment}
+                                      </>
+                                    ),
+                                  }}
+                                />
                               )}
                             />
                           </Box>
@@ -2276,6 +2221,26 @@ export default function QuotationsPage() {
                 )}
               </Box>
             </Paper >
+
+            {/* Notes */}
+            <FormSection title="Notes" columns={2}>
+              <TRemarkField
+                label="Internal Remarks"
+                value={formData.remarks || ""}
+                onChange={(value) => setFormData({ ...formData, remarks: value })}
+                multiline
+                rows={2}
+                size="small"
+              />
+              <TRemarkField
+                label="Customer Notes (shown on printed document)"
+                value={formData.customer_notes || ""}
+                onChange={(value) => setFormData({ ...formData, customer_notes: value })}
+                multiline
+                rows={2}
+                size="small"
+              />
+            </FormSection>
         </>
       </>
     );
@@ -2416,9 +2381,7 @@ export default function QuotationsPage() {
               <Alert severity={stockAllSufficient ? "success" : "warning"} sx={{ mb: 2 }}>
                 {stockAllSufficient
                   ? "All items are available in stock. Ready to proceed."
-                  : hasItemsInOtherBranches
-                    ? "Some items are not in this branch. You can transfer from another branch or procure if needed."
-                    : "Some items are not available in stock and need procurement."}
+                  : "Some items are not available in stock and need procurement."}
               </Alert>
               <Table size="small">
                 <TableHead>
@@ -2437,8 +2400,7 @@ export default function QuotationsPage() {
                     const itemStatus = quoteItem?.item_status ?? 'pending';
                     const currentAvailable = item.current_branch_available ?? item.available_quantity;
                     // Derive stockStatus from live check
-                    const stockStatus = item.is_sufficient ? 'in_stock'
-                      : (item.other_branches && item.other_branches.length > 0) ? 'needs_transfer'
+                    const stockStatus = item.is_sufficient ? 'in_stock'
                       : 'needs_procurement';
                     return (
                       <TableRow key={index} sx={modernTableStyles.bodyRow}>
@@ -2477,15 +2439,11 @@ export default function QuotationsPage() {
                           ) : itemStatus === 'itn_created' ? (
                             <TChip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'procurement' ? (
-                            stockStatus === 'needs_transfer'
-                              ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                              : <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                            <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'cancelled' ? (
                             <TChip label="Cancelled" color="default" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : (
-                            stockStatus === 'needs_transfer'
-                              ? <TChip label="Transfer Available" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                              : stockStatus === 'needs_procurement'
+                            stockStatus === 'needs_procurement'
                                 ? <TChip label="Need PO" color="warning" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                                 : <TChip label="Need SO" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           )}
@@ -2520,11 +2478,12 @@ export default function QuotationsPage() {
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Reject {selectedQuote?.quote_no}. Optionally provide a reason.
+            Reject {selectedQuote?.quote_no}. A reason is required.
           </Typography>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
             <TextField
-              label="Rejection Reason" size="small" multiline rows={3}
+              label="Rejection Reason" size="small" multiline rows={3} required
+              inputProps={{ maxLength: 500 }}
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               placeholder="e.g., Customer declined, pricing not competitive..."
@@ -2540,7 +2499,7 @@ export default function QuotationsPage() {
         <DialogActions>
           <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
           <Button variant="contained" color="error" onClick={handleRejectSubmit}
-            disabled={rejectMutation.isPending}>
+            disabled={rejectMutation.isPending || !rejectReason.trim()}>
             {rejectMutation.isPending ? "Rejecting..." : "Reject"}
           </Button>
         </DialogActions>

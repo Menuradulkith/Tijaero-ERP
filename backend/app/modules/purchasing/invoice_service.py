@@ -816,27 +816,30 @@ class PurchaseInvoiceService:
             self.db.flush()
             # Post GL for each advance application (Dr Trade Creditors /
             # Cr Supplier Advances). Non-blocking, mirrors the GRN path.
-            try:
-                from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
-                gl_service = PurchaseExpensePayrollGL(self.db)
-                for app_record in created_applications:
+            # Each application posts in its own savepoint and, on failure, is
+            # recorded on its own id so the retry can regenerate exactly it.
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            from app.modules.finance.gl_posting_service import record_gl_commit_failure
+            gl_service = PurchaseExpensePayrollGL(self.db)
+            for app_record in created_applications:
+                savepoint = self.db.begin_nested()
+                try:
                     gl_service.post_advance_application_to_gl(app_record, user_id=created_by or 0)
-            except Exception as gl_err:
-                logger.warning(
-                    f"GL posting for invoice advance applications failed (non-blocking): {gl_err}"
-                )
-                # Loop-level failure for this supplier's advance applications;
-                # distinct reference_type marks it as a batch-level record.
-                from app.modules.finance.gl_posting_service import record_gl_commit_failure
-                record_gl_commit_failure(
-                    self.db,
-                    reference_type="AdvanceApplicationBatch",
-                    reference_id=supplier_id,
-                    transaction_type="Purchase",
-                    description=f"Invoice advance-application GL failed for supplier {supplier_id}",
-                    error=gl_err,
-                    user_id=created_by or 0,
-                )
+                    savepoint.commit()
+                except Exception as gl_err:
+                    savepoint.rollback()
+                    logger.warning(
+                        f"GL posting for invoice advance application {app_record.id} failed (non-blocking): {gl_err}"
+                    )
+                    record_gl_commit_failure(
+                        self.db,
+                        reference_type="AdvanceApplication",
+                        reference_id=app_record.id,
+                        transaction_type="Purchase",
+                        description=f"Invoice advance-application GL failed (application #{app_record.id})",
+                        error=gl_err,
+                        user_id=created_by or 0,
+                    )
             self.db.commit()
 
     # ─── GET INVOICEABLE GRNs ──────────────────────────────────────────

@@ -4,6 +4,7 @@ from app.auth.models import User
 from app.auth.rbac import Permissions, require_any_permission, require_permission
 from app.db.session import get_db
 from app.modules.products import schemas, service
+from app.modules.purchasing.lookup_access import SUPPLIER_LOOKUP_PERMISSIONS
 from app.modules.purchasing.schemas import SupplierProduct as SupplierProductSchema
 from app.utils.csv_export import csv_safe
 from fastapi import APIRouter, Depends, File, Path, Query, UploadFile, status
@@ -147,12 +148,12 @@ def get_product(
     "/products/{product_id}/suppliers",
     response_model=List[SupplierProductSchema],
     summary="List Suppliers For Product",
-    dependencies=[Depends(require_permission(*Permissions.PRODUCT_VIEW))],
 )
 def list_product_suppliers(
     product_id: ProductId,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
+    # also open to the PO / GRN users who pick a supplier per product (cost + lead time only)
+    current_user: User = Depends(require_any_permission(Permissions.PRODUCT_VIEW, *SUPPLIER_LOOKUP_PERMISSIONS)),
 ):
     """Read-only reciprocal view of the approved-vendor mapping — which
     suppliers can supply this product, and at what cost/lead time."""

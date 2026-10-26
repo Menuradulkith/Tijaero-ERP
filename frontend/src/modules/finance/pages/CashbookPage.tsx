@@ -20,6 +20,7 @@ import { TChip, TPageHeader, TCurrency, TBranchFilter, showErrorToast, showSucce
 import { cashbookApi } from "@/modules/finance/api";
 import { CashbookEntryType, CashbookReport } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
+import { escapeHtml } from "@/utils/escapeHtml";
 
 // Date range quick filter options
 type DateRangePreset = "today" | "thisWeek" | "thisMonth" | "lastMonth" | "last30Days" | "custom";
@@ -64,6 +65,18 @@ const ENTRY_TYPES: { value: CashbookEntryType | ""; label: string }[] = [
   { value: "supplier_payment", label: "Supplier Payments" },
   { value: "expense", label: "Expenses" },
   { value: "bank_deposit", label: "Bank Deposits" },
+  { value: "sale_return_refund", label: "Sale Return Refunds" },
+  { value: "voucher_refund", label: "Voucher Refunds" },
+  { value: "grn_payment", label: "GRN Payments" },
+  { value: "purchase_return", label: "Purchase Return Refunds" },
+  { value: "supplier_advance_return", label: "Supplier Advance Returns" },
+  { value: "landed_cost", label: "Landed Costs" },
+  { value: "payroll", label: "Payroll" },
+  { value: "statutory_payment", label: "Statutory Payments" },
+  { value: "reimbursement", label: "Reimbursements" },
+  { value: "commission_payment", label: "Commission Payments" },
+  { value: "petty_cash", label: "Petty Cash" },
+  { value: "journal_entry", label: "Journal Entries" },
 ];
 
 const PAYMENT_METHODS = [
@@ -558,7 +571,7 @@ export default function CashbookPage() {
             rows={report?.entries || []}
             columns={columns}
             loading={isLoading}
-            getRowId={(row) => `${row.source_table}-${row.source_id}`}
+            getRowId={(row) => row.id}
             initialState={{
               sorting: {
                 sortModel: [{ field: "transaction_date", sort: "desc" }],
@@ -592,11 +605,11 @@ function generatePrintHTML(report: CashbookReport, branchName: string, dateFrom:
   const entriesHTML = report.entries.map(e => `
     <tr>
       <td>${new Date(e.transaction_date).toLocaleDateString()}</td>
-      <td>${getEntryTypeLabel(e.entry_type)}</td>
-      <td>${e.reference_no}</td>
-      <td>${e.description}</td>
-      <td>${e.party_name || "-"}</td>
-      <td>${e.payment_method || "-"}</td>
+      <td>${escapeHtml(getEntryTypeLabel(e.entry_type))}</td>
+      <td>${escapeHtml(e.reference_no)}</td>
+      <td>${escapeHtml(e.description)}</td>
+      <td>${escapeHtml(e.party_name || "-")}</td>
+      <td>${escapeHtml(e.payment_method || "-")}</td>
       <td style="text-align: right; color: green;">${e.money_in > 0 ? fmtLKR(e.money_in) : "-"}</td>
       <td style="text-align: right; color: red;">${e.money_out > 0 ? fmtLKR(e.money_out) : "-"}</td>
       <td style="text-align: right; font-weight: bold;">${fmtLKR(e.running_balance)}</td>
@@ -632,7 +645,7 @@ function generatePrintHTML(report: CashbookReport, branchName: string, dateFrom:
     <body>
       <h1>Cashbook Report</h1>
       <div class="header-info">
-        <p>Branch: ${branchName} | Period: ${dateFrom} to ${dateTo}</p>
+        <p>Branch: ${escapeHtml(branchName)} | Period: ${escapeHtml(dateFrom)} to ${escapeHtml(dateTo)}</p>
         <p>Generated: ${new Date().toLocaleString()}</p>
       </div>
       

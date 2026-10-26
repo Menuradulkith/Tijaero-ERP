@@ -22,6 +22,8 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SecurityIcon from "@mui/icons-material/Security";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import PaymentsIcon from "@mui/icons-material/Payments";
+import DescriptionIcon from "@mui/icons-material/Description";
+import CompanyDocumentSettings from "../components/CompanyDocumentSettings";
 import {
   Autocomplete,
   Avatar,
@@ -594,6 +596,11 @@ export default function CompanySettingsPage() {
             icon={<SecurityIcon fontSize="small" />}
             iconPosition="start"
           />
+          <Tab
+            label="Documents"
+            icon={<DescriptionIcon fontSize="small" />}
+            iconPosition="start"
+          />
         </Tabs>
 
         {/* ── Tab 0: Company Details ── */}
@@ -1138,6 +1145,11 @@ export default function CompanySettingsPage() {
               {savingPasscodeSetting ? "Saving…" : "Save Security Settings"}
             </Button>
           </Box>
+        </TabPanel>
+
+        {/* ── Tab 4: Documents (logo, BRN, bank account on printouts) ── */}
+        <TabPanel value={activeTab} index={4}>
+          <CompanyDocumentSettings />
         </TabPanel>
       </Paper>
     </Box>

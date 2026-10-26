@@ -26,8 +26,12 @@ Key fixtures
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import date
+
+os.environ.setdefault("SALES_STATS_CACHE_TTL", "0")  # tests need live numbers
+os.environ.setdefault("REPORT_CACHE_TTL", "0")
 from typing import Callable, Iterable, Optional, Tuple
 
 import pytest
@@ -518,3 +522,35 @@ def _clear_user_cache():
     user_cache.clear()
     yield
     user_cache.clear()
+
+
+class _SharedTestSession:
+    """Stand-in for an independent ``SessionLocal()`` inside a test: writes go
+    into the test's transaction (rolled back afterwards) instead of committing
+    to the real database. commit() only flushes; close() is a no-op."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    def commit(self):
+        self._real.flush()
+
+    def close(self):
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _no_independent_sessions(request, monkeypatch):
+    """Code that opens its own ``SessionLocal()`` (GL posting-failure recorder,
+    e-mail log, alerts) used to commit straight into the shared dev database,
+    leaving permanent rows behind every test run. Route it into the test
+    session when the test has one."""
+    if "db" not in request.fixturenames:
+        yield
+        return
+    db = request.getfixturevalue("db")
+    monkeypatch.setattr("app.db.session.SessionLocal", lambda: _SharedTestSession(db))
+    yield

@@ -298,3 +298,33 @@ class TestGrnInventoryPosting:
         assert sum(D(str(x[1])) for x in rows if x[0] == "1210") == D("1120.00")
         assert sum(D(str(x[2])) for x in rows if x[0] == "1210") == D("1120.00")  # reversed: net 0
         assert sum(D(str(x[1])) for x in rows) == sum(D(str(x[2])) for x in rows)
+
+
+class TestExpiredBatch:
+    def test_an_expired_batch_cannot_be_received_into_stock(self, db, superclient, world):
+        w = world
+        before = _counts(db)
+        line = {"purchasing_order_items_id": w["items"]["batch"].id, "quantity": 10, "batch_no": "B-OLD",
+                "expiry_date": "2020-01-01"}
+        r = superclient.post(f"{P}/grn/receive", json=_body(w, [line]))
+        assert r.status_code == 400 and "expired" in r.text
+        assert _counts(db) == before  # nothing saved
+
+    def test_today_or_later_is_accepted(self, db, superclient, world):
+        w = world
+        line = {"purchasing_order_items_id": w["items"]["batch"].id, "quantity": 10, "batch_no": "B-OK",
+                "expiry_date": str(date.today())}
+        assert superclient.post(f"{P}/grn/receive", json=_body(w, [line])).status_code == 201
+
+
+class TestListColumns:
+    def test_grn_list_carries_units_rejected_and_value(self, db, superclient, world):
+        w = world
+        r = superclient.post(f"{P}/grn/receive", json=_body(w, _full_lines(w), delivery_note_no="DN-9"))
+        assert r.status_code == 201, r.text
+        grn_id = r.json()["grn"]["id"]
+        rows = superclient.get(f"{P}/grn", params={"limit": 500}).json()
+        row = next(x for x in rows if x["id"] == grn_id)
+        # serial 2 accepted + batch 60 + none 50, 1 serial rejected, all at 10.00
+        assert (row["units_received"], row["units_rejected"]) == (112, 1)
+        assert float(row["total_value"]) == 1120.0 and row["delivery_note_no"] == "DN-9"

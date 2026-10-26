@@ -11,7 +11,7 @@ Attendance:
 Products:
     * Price validation (selling >= cost, website >= cost)
     * Minimum price guard (min price >= cost)
-    * Duplicate item_code rejected
+    * Duplicate product name rejected
 """
 
 from __future__ import annotations
@@ -349,7 +349,9 @@ class TestProductPriceValidation:
         result = minimum_price_service.set_minimum_price(db, product.id, 600)
         assert result is not None
 
-    def test_create_duplicate_item_code_rejected(self, db, make_product):
+    def test_create_duplicate_name_rejected(self, db, make_product):
+        """item_code is generated server-side and can't collide, but the
+        product name is still user input and must stay unique."""
         from fastapi import HTTPException
         from app.modules.products import schemas as prod_schemas
 
@@ -358,9 +360,9 @@ class TestProductPriceValidation:
             product_service.create_product(
                 db,
                 prod_schemas.ProductCreate(
-                    name="Dup",
-                    item_code=product.item_code,
+                    name=product.name,
                     item_type="general",
+                    tracking_type="serial",
                     cost_price=100,
                     category_id=product.category_id,
                     items_brand_id=product.items_brand_id,

@@ -79,6 +79,9 @@ class SalesQuote(Base, AuditMixin):
     
     # Workflow date tracking
     submitted_date = Column(TIMESTAMP, nullable=True)  # When submitted to customer
+    # The customer's go-ahead after the quote was sent. Until it is set, a sent quote can only be
+    # confirmed or rejected; PO/SO creation opens up after.
+    confirmed_date = Column(TIMESTAMP, nullable=True)
     po_created_date = Column(TIMESTAMP, nullable=True)  # When PO was created from this quote
     approved_date = Column(TIMESTAMP, nullable=True)  # When customer approved
     approved_by_customer = Column(String(200), nullable=True)  # Customer contact who approved

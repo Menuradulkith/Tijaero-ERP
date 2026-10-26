@@ -680,7 +680,7 @@ export default function ExpensesPage() {
         isSaving={isSaving}
         isFormValid={isFormValid}
         onNew={handleNewExpense}
-        onSave={handleSave}
+        onSave={isCreating && formStep < FORM_STEPS.length - 1 ? undefined : handleSave}
         onCancel={handleCancelExpense}
         onEdit={canEdit ? handleStartEdit : undefined}
         onDelete={canDelete ? handleDelete : undefined}

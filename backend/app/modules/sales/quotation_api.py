@@ -278,24 +278,6 @@ def update_quote(
     return sales_quote_service.update_quote(db, quote_id, quote_data, user_id=current_user.id)
 
 
-@router.delete(
-    "/{quote_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete Quote",
-    dependencies=[Depends(require_permission(*Permissions.QUOTATION_DELETE))]
-)
-def delete_quote(
-    quote_id: RowId,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.QUOTATION_DELETE))
-):
-    """Delete a quote. Only draft quotes can be deleted."""
-    sales_quote_service.delete_quote(db, quote_id, user_id=current_user.id)
-    return None
-
-
-# ==================== Status Management ====================
-
 @router.patch(
     "/{quote_id}/status",
     response_model=SalesQuote,
@@ -393,6 +375,21 @@ def mark_under_review(
 
 
 @router.post(
+    "/{quote_id}/confirm",
+    response_model=SalesQuote,
+    summary="Confirm a sent quotation (customer accepted)",
+    dependencies=[Depends(require_permission(*Permissions.QUOTATION_UPDATE))]
+)
+def confirm_quote(
+    quote_id: RowId,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
+):
+    """The customer accepted the sent quotation; PO/SO creation opens up."""
+    return sales_quote_service.confirm_quote(db, quote_id, user_id=current_user.id)
+
+
+@router.post(
     "/{quote_id}/customer-approve",
     response_model=SalesQuote,
     summary="Customer Approval",
@@ -421,16 +418,16 @@ def customer_approve(
 )
 def reject_quote_with_options(
     quote_id: RowId,
-    data: Optional[RejectQuoteRequest] = None,
+    data: RejectQuoteRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.QUOTATION_UPDATE))
 ):
     """
-    Reject a quote with optional reason and option to cancel linked PO.
+    Reject a quote with a (required) reason and an option to cancel the linked PO.
     If cancel_linked_po=true and a PO was created from this quote, the PO will also be cancelled.
     """
-    reason = data.reason if data else None
-    cancel_po = data.cancel_linked_po if data else False
+    reason = data.reason
+    cancel_po = data.cancel_linked_po
     return sales_quote_service.reject_quote(db, quote_id, reason, cancel_po, user_id=current_user.id)
 
 

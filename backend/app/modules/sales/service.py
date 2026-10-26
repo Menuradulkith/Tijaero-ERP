@@ -9,6 +9,7 @@ from app.modules.finance.models import ChequePayments, CardPayments, BankDeposit
 from app.modules.finance.gl_posting_service import record_gl_commit_failure
 from app.modules.customers.credit_service import CustomerCreditService
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
+from app.core.concurrency import next_document_number
 from app.core import timezone as tz
 from app.modules.inventory.lots import FEFO_ORDER, find_grn_item, split_lot, take_units, units_in
 from app.common.audit import log_audit, diff_changes
@@ -46,29 +47,30 @@ customer_credit_service = CustomerCreditService()
 # returned as change (cash over-tender), never absorbed.
 PAYMENT_EPSILON = Decimal("0.005")
 
+def _lock_stock_rows(db: Session, items) -> None:
+    """Lock every SalesStock row the given invoice items touch in ascending id order.
+
+    One batched query in a fixed order, so concurrent multi-line operations on
+    overlapping stock cannot deadlock; later per-row locks become no-ops.
+    """
+    stock_ids = sorted({i.sales_stock_id for i in items if getattr(i, "sales_stock_id", None)})
+    if stock_ids:
+        (
+            db.query(SalesStock.id)
+            .filter(SalesStock.id.in_(stock_ids))
+            .order_by(SalesStock.id)
+            .with_for_update()
+            .all()
+        )
+
+
 class SalesService:
     def _get_next_invoice_number(self, db: Session, branch_code: str = None) -> str:
         """Generate next Invoice number: INV-BranchCode-YYXXXXXX with advisory lock"""
         year_yy = str(tz.year())[-2:]
         branch_code = branch_code or "HQ"
         prefix = f"INV-{branch_code}-{year_yy}"
-        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
-        last = (
-            db.query(Invoice)
-            .filter(Invoice.invoice_no.like(f"{prefix}%"))
-            .order_by(Invoice.id.desc())
-            .first()
-        )
-        if last:
-            try:
-                last_part = last.invoice_no.split("-")[-1]
-                last_seq = int(last_part[2:])
-                next_seq = last_seq + 1
-            except (ValueError, IndexError):
-                next_seq = 1
-        else:
-            next_seq = 1
-        return f"{prefix}{next_seq:06d}"
+        return next_document_number(db, Invoice.invoice_no, prefix)
     
     def _get_next_sale_return_number(self, db: Session, branch_code: str = None) -> str:
         """Generate next Sale Return number: SRN-BranchCode-YYXXXXXX with advisory lock"""
@@ -78,23 +80,7 @@ class SalesService:
         branch_code = branch_code or "HQ"
         
         prefix = f"SRN-{branch_code}-{year_yy}"
-        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
-        last = (
-            db.query(SaleReturn)
-            .filter(SaleReturn.sale_return_no.like(f"{prefix}%"))
-            .order_by(SaleReturn.id.desc())
-            .first()
-        )
-        if last:
-            try:
-                last_part = last.sale_return_no.split("-")[-1]
-                last_seq = int(last_part[2:])
-                next_seq = last_seq + 1
-            except (ValueError, IndexError):
-                next_seq = 1
-        else:
-            next_seq = 1
-        return f"{prefix}{next_seq:06d}"
+        return next_document_number(db, SaleReturn.sale_return_no, prefix)
     
     def get_all_invoices(self, db: Session, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None):
         return repository.sales_repository.get_all(db, skip, limit, branch_codes)
@@ -303,7 +289,7 @@ class SalesService:
         last_month_end = current_month_start - relativedelta(days=1)
         
         # Base query with branch filtering
-        from app.modules.sales.sales_metrics import counted_invoice_filters, net_sales_expr
+        from app.modules.sales.sales_metrics import counted_invoice_filters, net_sales_expr, net_sales_join
 
         # Only real sales (approved/completed, not cancelled) are counted;
         # pending/cancelled orders are reported separately below.
@@ -312,42 +298,59 @@ class SalesService:
             if branch_codes:
                 q = q.filter(Invoice.branch_code.in_(branch_codes))
             return q
-        
-        # Revenue expression helper
+
         # Value = document grand_total net of processed returns (not the sum of
         # tender columns, which ignores vouchers / credit notes / returns).
-        invoice_total_expr = net_sales_expr()
+        # Returns are pre-aggregated per invoice and LEFT JOINed once instead of
+        # running a correlated subquery for every invoice row.
+        returns_sq = net_sales_join()
+        invoice_total_expr = Invoice.grand_total - func.coalesce(returns_sq.c.refund, 0)
 
-        def calc_revenue(query):
-            return query.with_entities(
-                func.coalesce(func.sum(invoice_total_expr), 0)
-            ).scalar() or 0
-        
-        # ── Core counts ───────────────────────────────────────────────
-        total_invoices = base_query().with_entities(func.count(Invoice.id)).scalar() or 0
-        current_month_invoices = base_query().filter(
-            Invoice.created_date >= current_month_start
-        ).with_entities(func.count(Invoice.id)).scalar() or 0
-        last_month_invoices = base_query().filter(
-            Invoice.created_date >= last_month_start,
-            Invoice.created_date <= last_month_end
-        ).with_entities(func.count(Invoice.id)).scalar() or 0
-        
-        total_revenue = calc_revenue(base_query())
-        current_month_revenue = calc_revenue(
-            base_query().filter(Invoice.created_date >= current_month_start)
-        )
-        last_month_revenue = calc_revenue(
-            base_query().filter(
-                Invoice.created_date >= last_month_start,
-                Invoice.created_date <= last_month_end,
-            )
-        )
-        
-        # Today's sales
-        today_revenue = calc_revenue(base_query().filter(Invoice.created_date == today))
-        today_orders = base_query().filter(Invoice.created_date == today).with_entities(func.count(Invoice.id)).scalar() or 0
-        
+        def scoped(q):
+            q = q.select_from(Invoice).outerjoin(returns_sq, returns_sq.c.invoice_id == Invoice.id)
+            q = q.filter(*counted_invoice_filters())
+            if branch_codes:
+                q = q.filter(Invoice.branch_code.in_(branch_codes))
+            return q
+
+        # ── One pass over all counted invoices: totals + payment breakdown ──
+        totals = scoped(db.query(
+            func.count(Invoice.id).label("cnt"),
+            func.coalesce(func.sum(invoice_total_expr), 0).label("rev"),
+            func.coalesce(func.sum(Invoice.cash_amount), 0).label("cash"),
+            func.coalesce(func.sum(Invoice.card_visa_amount + Invoice.card_mastercard_amount + Invoice.card_amex_amount), 0).label("card"),
+            func.coalesce(func.sum(Invoice.cheque_amount), 0).label("cheque"),
+            func.coalesce(func.sum(Invoice.bank_transfer_amount), 0).label("bank_transfer"),
+            func.coalesce(func.sum(Invoice.credit_amount), 0).label("credit"),
+        )).one()
+        total_invoices = totals.cnt or 0
+        total_revenue = totals.rev or 0
+        payment_breakdown = totals
+
+        # ── One grouped query for everything date-bucketed (last 6 months) ──
+        window_start = (today - relativedelta(months=5)).replace(day=1)
+        window_start = min(window_start, last_month_start)
+        per_day = {
+            r.created_date: (r.cnt, r.rev)
+            for r in scoped(db.query(
+                Invoice.created_date.label("created_date"),
+                func.count(Invoice.id).label("cnt"),
+                func.coalesce(func.sum(invoice_total_expr), 0).label("rev"),
+            )).filter(Invoice.created_date >= window_start).group_by(Invoice.created_date).all()
+        }
+
+        def window_sum(start, end):
+            cnt, rev = 0, 0
+            for d, (c, r) in per_day.items():
+                if start <= d <= end:
+                    cnt += c
+                    rev += r or 0
+            return cnt, rev
+
+        current_month_invoices, current_month_revenue = window_sum(current_month_start, today)
+        last_month_invoices, last_month_revenue = window_sum(last_month_start, last_month_end)
+        today_orders, today_revenue = window_sum(today, today)
+
         # Real pending only: awaiting approval (not cancelled, not counted sales)
         pending_q = db.query(Invoice).filter(
             Invoice.status == True,
@@ -357,37 +360,27 @@ class SalesService:
             pending_q = pending_q.filter(Invoice.branch_code.in_(branch_codes))
         pending_approval = pending_q.with_entities(func.count(Invoice.id)).scalar() or 0
         approved = total_invoices
-        
+
         # Sale returns (with branch filtering)
         returns_query = db.query(SaleReturn)
         if branch_codes:
             returns_query = returns_query.filter(SaleReturn.branch_code.in_(branch_codes))
         sale_returns_count = returns_query.with_entities(func.count(SaleReturn.id)).scalar() or 0
-        
+
         # ── Average order value ───────────────────────────────────────
         avg_order_value = float(total_revenue) / total_invoices if total_invoices > 0 else 0
-        
-        # ── Payment breakdown ─────────────────────────────────────────
-        payment_breakdown = base_query().with_entities(
-            func.coalesce(func.sum(Invoice.cash_amount), 0).label('cash'),
-            func.coalesce(func.sum(Invoice.card_visa_amount + Invoice.card_mastercard_amount + Invoice.card_amex_amount), 0).label('card'),
-            func.coalesce(func.sum(Invoice.cheque_amount), 0).label('cheque'),
-            func.coalesce(func.sum(Invoice.bank_transfer_amount), 0).label('bank_transfer'),
-            func.coalesce(func.sum(Invoice.credit_amount), 0).label('credit'),
-        ).first()
-        
+
         # ── Daily sales – last 7 days ────────────────────────────────
         daily_sales = []
         for i in range(6, -1, -1):
             d = today - timedelta(days=i)
-            day_rev = calc_revenue(base_query().filter(Invoice.created_date == d))
-            day_cnt = base_query().filter(Invoice.created_date == d).with_entities(func.count(Invoice.id)).scalar() or 0
+            day_cnt, day_rev = window_sum(d, d)
             daily_sales.append({
                 "date": d.strftime("%b %d"),
                 "revenue": float(day_rev),
                 "orders": day_cnt,
             })
-        
+
         # ── Monthly sales – last 6 months ────────────────────────────
         monthly_sales = []
         for i in range(5, -1, -1):
@@ -396,28 +389,22 @@ class SalesService:
                 m_end = today
             else:
                 m_end = (today - relativedelta(months=i - 1)).replace(day=1) - timedelta(days=1)
-            m_rev = calc_revenue(
-                base_query().filter(Invoice.created_date >= m_start, Invoice.created_date <= m_end)
-            )
-            m_cnt = base_query().filter(
-                Invoice.created_date >= m_start, Invoice.created_date <= m_end
-            ).with_entities(func.count(Invoice.id)).scalar() or 0
+            m_cnt, m_rev = window_sum(m_start, m_end)
             monthly_sales.append({
                 "month": m_start.strftime("%b"),
                 "revenue": float(m_rev),
                 "orders": m_cnt,
             })
-        
+
         # ── Top 5 customers by revenue ────────────────────────────────
         from app.modules.customers.models import Customer
         top_customers_raw = (
-            base_query()
-            .join(Customer, Invoice.customer_id == Customer.id)
-            .with_entities(
+            scoped(db.query(
                 Customer.customer_name,
                 func.count(Invoice.id).label("order_count"),
                 func.sum(invoice_total_expr).label("total_spent"),
-            )
+            ))
+            .join(Customer, Invoice.customer_id == Customer.id)
             .group_by(Customer.id, Customer.customer_name)
             .order_by(func.sum(invoice_total_expr).desc())
             .limit(5)
@@ -431,16 +418,18 @@ class SalesService:
             }
             for c in top_customers_raw
         ]
-        
+
         # ── Order status breakdown ────────────────────────────────────
         status_breakdown = {
             "approved": approved,
             "pending": pending_approval,
             "total": total_invoices,
         }
-        
+
         # ── Top 5 & Recent 5 invoices ─────────────────────────────────
-        top_invoices_raw = base_query().order_by(invoice_total_expr.desc()).limit(5).all()
+        top_invoices_raw = (
+            scoped(db.query(Invoice)).order_by(invoice_total_expr.desc()).limit(5).all()
+        )
         recent_invoices_raw = base_query().order_by(Invoice.created_date.desc()).limit(5).all()
         
         def invoice_to_dict(inv):
@@ -2052,6 +2041,7 @@ class SalesService:
                 {"product_id": i.product_id, "quantity": i.quantity, "unit_price": float(i.selling_price)}
                 for i in existing_items
             ]
+            _lock_stock_rows(db, existing_items)
             for item in existing_items:
                 if item.sales_stock_id:
                     stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
@@ -2174,6 +2164,7 @@ class SalesService:
             
             # Restore stock to reserved state (lock rows to prevent concurrent modification)
             items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
+            _lock_stock_rows(db, items)
             for item in items:
                 if item.sales_stock_id:
                     stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
@@ -2348,6 +2339,43 @@ class SalesService:
         if approval_id:
             db.query(Approvals.id).filter(Approvals.id == approval_id).with_for_update().first()
 
+    @staticmethod
+    def _release_source_quote_items(db: Session, invoice, items) -> None:
+        """A cancelled / rejected / deleted order gives its quantities back to the quotation lines it was
+        created from, so the lines can be converted again and the quotation status follows (a completed
+        quotation is reopened). Runs inside the caller's transaction (no commit)."""
+        if not invoice.source_quote_id:
+            return
+        from collections import defaultdict
+        from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
+        from app.modules.sales.quotation_service import sales_quote_service
+
+        to_give = defaultdict(int)
+        for it in items:
+            to_give[it.product_id] += int(it.quantity or 0)
+        quote_items = (
+            db.query(SalesQuoteItem)
+            .filter(SalesQuoteItem.quote_id == invoice.source_quote_id, SalesQuoteItem.item_status == "so_created")
+            .order_by(SalesQuoteItem.id)
+            .with_for_update()
+            .all()
+        )
+        for qi in quote_items:
+            give = min(to_give.get(qi.product_id, 0), qi.converted_qty or 0)
+            if give <= 0:
+                continue
+            to_give[qi.product_id] -= give
+            qi.converted_qty = (qi.converted_qty or 0) - give
+            # what is left was ordered from suppliers (PO); nothing left means the line is open again
+            qi.item_status = "procurement" if qi.converted_qty > 0 else "pending"
+        quote = db.query(SalesQuote).filter(SalesQuote.id == invoice.source_quote_id).first()
+        if quote:
+            if quote.converted_to_invoice_id == invoice.id:
+                quote.converted_to_invoice_id = None
+            db.flush()
+            db.refresh(quote, attribute_names=["items"])
+            sales_quote_service.recompute_quote_status(db, quote)
+
     def _close_approval_request(self, db: Session, invoice, user_id: Optional[int]) -> None:
         """A cancelled or deleted order must not stay in the approvers' queue."""
         if not invoice.approval_id:
@@ -2387,6 +2415,7 @@ class SalesService:
         
         # Restore sales stock for items that were sold (lock rows to prevent concurrent modification)
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
+        _lock_stock_rows(db, items)
         for item in items:
             if item.sales_stock_id:
                 stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
@@ -2394,7 +2423,9 @@ class SalesService:
                     # Restore the stock item to available
                     stock_item.status = StockStatus.AVAILABLE
                     stock_item.is_active = True
-        
+                    stock_item.reserved_for_quote_item_id = None
+        self._release_source_quote_items(db, invoice, items)
+
         invoice_id_for_log = invoice.id
         invoice_no_for_log = invoice.invoice_no
         self._close_approval_request(db, invoice, user_id)
@@ -2587,6 +2618,7 @@ class SalesService:
         
         # Ensure all stock items are marked as sold (lock rows to prevent concurrent modification)
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
+        _lock_stock_rows(db, items)
         for item in items:
             if item.sales_stock_id:
                 stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
@@ -2657,13 +2689,16 @@ class SalesService:
         
         # Restore sales stock for all items (lock rows to prevent concurrent modification)
         items = db.query(InvoiceItems).filter(InvoiceItems.invoice_id == invoice_id).all()
+        _lock_stock_rows(db, items)
         for item in items:
             if item.sales_stock_id:
                 stock_item = db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).with_for_update().first()
                 if stock_item:
                     stock_item.status = StockStatus.AVAILABLE
                     stock_item.is_active = True
-        
+                    stock_item.reserved_for_quote_item_id = None
+        self._release_source_quote_items(db, invoice, items)
+
         # Cancel/void the credit payment record if exists
         if invoice.credit_payment_id:
             from app.modules.finance.models import CreditPayments
@@ -3572,12 +3607,6 @@ class SalesService:
                 user_id=user_id,
             )
 
-        # Cashbook hook: cash/bank/cheque refunds move real money out of the
-        # till — mirror the GL credit (1010/1020) so the day-end cashbook ↔ GL
-        # identity holds. Credit-note refunds move no money → no cashbook entry.
-        if (sale_return.payment_method or "").lower() in ("cash", "bank_transfer", "cheque") and paid_out > 0:
-            self._ensure_cashbook_entry_for_sale_return(db, sale_return, invoice, money_out=paid_out)
-
         log_audit(
             db,
             user_id=user_id or 0,
@@ -3612,69 +3641,6 @@ class SalesService:
             "message": f"Sale return processed successfully. {items_restocked} items restocked. {items_to_company_assets} items saved to company assets."
         }
     
-    def _ensure_cashbook_entry_for_sale_return(self, db: Session, sale_return, invoice, money_out=None) -> None:
-        """Record cashbook money-out for a cash/bank/cheque sale-return refund.
-
-        Mirrors the GL credit to 1010/1020 so the day-end cashbook ↔ GL
-        reconciliation identity holds. Idempotent per sale_return id; runs in
-        the caller's transaction (no commit here). Credit-note refunds move no
-        money and must NOT reach this helper.
-        """
-        try:
-            from app.modules.finance.models import CashbookEntryRecord
-
-            existing = db.query(CashbookEntryRecord.id).filter(
-                CashbookEntryRecord.source_table == "sale_return",
-                CashbookEntryRecord.source_id == sale_return.id,
-            ).first()
-            if existing:
-                return
-
-            total_refund = Decimal(str(sale_return.total_refund if money_out is None else money_out or 0))
-            if total_refund <= 0:
-                return
-
-            customer_name = None
-            if invoice is not None and invoice.customer_id:
-                from app.modules.customers.models import Customer
-                row = db.query(Customer.customer_name).filter(
-                    Customer.id == invoice.customer_id
-                ).first()
-                customer_name = row[0] if row else None
-
-            # SAVEPOINT: a failing (or missing) DB function must not abort the
-            # surrounding transaction - the step is non-blocking.
-            with db.begin_nested():
-                db.execute(
-                    text("""
-                        SELECT fn_insert_cashbook_entry(
-                            :entry_type, :transaction_date, :source_table, :source_id,
-                            :reference_no, :description, :party_name, :payment_method,
-                            :money_in, :money_out, :branch_code
-                        )
-                    """),
-                    {
-                        "entry_type": "sale_return_refund",
-                        "transaction_date": datetime.combine(
-                            sale_return.refund_date or sale_return.added_date or tz.today(),
-                            datetime.min.time(),
-                        ),
-                        "source_table": "sale_return",
-                        "source_id": sale_return.id,
-                        "reference_no": sale_return.sale_return_no,
-                        "description": f"Sale Return {sale_return.sale_return_no} - refund to customer",
-                        "party_name": customer_name or (f"Customer #{invoice.customer_id}" if invoice else "Customer"),
-                        "payment_method": sale_return.payment_method,
-                        "money_in": Decimal("0"),
-                        "money_out": total_refund,
-                        "branch_code": sale_return.branch_code,
-                    },
-                )
-        except Exception as cashbook_err:
-            logging.getLogger(__name__).warning(
-                f"Cashbook posting for sale return {sale_return.sale_return_no} failed (non-blocking): {cashbook_err}"
-            )
-
     def delete_sale_return(self, db: Session, return_id: int, user_id: Optional[int] = None):
         """Delete a pending sale return."""
         sale_return = self.get_sale_return(db, return_id)

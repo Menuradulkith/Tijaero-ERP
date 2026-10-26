@@ -142,6 +142,21 @@ def update_company_settings(
     return comp_service.update_company_settings(settings_update)
 
 
+@router.get("/company/logo", response_model=schemas.CompanyLogo, dependencies=[Depends(require_permission(*Permissions.SETTINGS_VIEW))])
+def get_company_logo(db: Session = Depends(get_db)):
+    """The company logo printed on documents and reports (null when none is set)."""
+    return {"logo": service.CompanySettingsService(db).get_company_settings().company_logo}
+
+
+@router.put("/company/logo", response_model=schemas.CompanyLogo, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
+def update_company_logo(body: schemas.CompanyLogo, db: Session = Depends(get_db)):
+    """Set (or, with null, remove) the company logo."""
+    settings = service.CompanySettingsService(db).get_company_settings()
+    settings.company_logo = body.logo
+    db.commit()
+    return {"logo": settings.company_logo}
+
+
 # Currency Endpoints
 @router.get("/currencies", response_model=List[schemas.Currency], dependencies=[Depends(require_permission(*Permissions.SETTINGS_VIEW))])
 def list_currencies(

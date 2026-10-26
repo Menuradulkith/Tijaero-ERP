@@ -67,7 +67,7 @@ import {
 } from "@/modules/purchasing/purchaseInvoiceApi";
 import { Supplier } from "@/modules/purchasing/types";
 import { useAuthStore } from "@/state/authStore";
-import { hasPermission } from "@/auth/permissions";
+import { hasPermission, usePermission } from "@/auth/permissions";
 
 interface InvoiceFormData {
   supplier_invoice_no: string;
@@ -473,7 +473,9 @@ export default function PurchaseInvoicesPage() {
 
   const isSaving = createMutation.isPending;
 
-  const canCancelInvoice = selectedInvoice?.status === "unpaid";
+  const canCreateInvoice = usePermission("purchase_orders", "create");
+  const canUpdateInvoice = usePermission("purchase_orders", "update");
+  const canCancelInvoice = canUpdateInvoice && selectedInvoice?.status === "unpaid";
 
   // Whether we're showing a single invoice's detail view (selected or being
   // created) instead of the browse table.
@@ -616,6 +618,7 @@ export default function PurchaseInvoicesPage() {
         isEditing={isEditing}
         isSaving={isSaving}
         isFormValid={!!isFormValid}
+        canCreate={canCreateInvoice}
         onNew={handleNewOrder}
         onSave={handleSave}
         onCancel={() => handleCancel(filteredInvoices)}
@@ -954,7 +957,7 @@ export default function PurchaseInvoicesPage() {
         }}
         isLoading={isLoading}
         headerActions={
-          isInvoiceDetailMode ? undefined : (
+          isInvoiceDetailMode || !canCreateInvoice ? undefined : (
             <Button
               variant="contained"
               size="small"

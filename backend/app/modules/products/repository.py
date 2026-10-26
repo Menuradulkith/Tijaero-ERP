@@ -1,7 +1,8 @@
 from typing import List, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_
 from app.core import timezone as tz
+from app.core.concurrency import next_document_number, next_plain_number
 from app.modules.products.models import Product, Category, ItemsBrand, MinimumPrice
 from app.modules.products.schemas import ProductCreate, ProductUpdate, CategoryCreate, CategoryUpdate, BrandCreate, BrandUpdate, NON_COLUMN_UPDATE_FIELDS
 
@@ -22,7 +23,8 @@ class ProductRepository:
         return db.query(Product).filter(func.lower(func.btrim(Product.name)) == (name or "").strip().lower()).first()
     
     def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = True) -> List[Product]:
-        query = db.query(Product)
+        # price_tiers is serialized per product: one extra query instead of one per row.
+        query = db.query(Product).options(selectinload(Product.price_tiers))
         if active_only:
             query = query.filter(Product.active == True)
         return query.offset(skip).limit(limit).all()
@@ -37,11 +39,13 @@ class ProductRepository:
             Product.item_code.ilike(pattern, escape="\\"),
             Product.model.ilike(pattern, escape="\\")
         )
-        return db.query(Product).filter(search_filter).offset(skip).limit(limit).all()
+        return db.query(Product).options(selectinload(Product.price_tiers)).filter(search_filter).offset(skip).limit(limit).all()
     
     def create(self, db: Session, product: ProductCreate, created_by: int) -> Product:
+        item_code = next_document_number(db, Product.item_code, "ITM", width=6)
         db_product = Product(
             **product.dict(exclude=NON_COLUMN_UPDATE_FIELDS),
+            item_code=item_code,
             created_date=tz.today(),
             added_date=tz.now(),
         )
@@ -113,8 +117,10 @@ class CategoryRepository:
         return query.offset(skip).limit(limit).all()
     
     def create(self, db: Session, category: CategoryCreate, created_by: int) -> Category:
+        category_code = next_document_number(db, Category.category_code, "CAT", width=4)
         db_category = Category(
             **category.dict(),
+            category_code=category_code,
             created_date=tz.now(),
         )
         db.add(db_category)
@@ -160,7 +166,11 @@ class BrandRepository:
         return query.offset(skip).limit(limit).all()
     
     def create(self, db: Session, brand: BrandCreate) -> ItemsBrand:
-        db_brand = ItemsBrand(**brand.dict())
+        # brand_code is capped at 4 chars, with no room for a prefix, so it's
+        # a plain zero-padded sequence rather than next_document_number's
+        # <prefix><seq> shape (see CategoryRepository.create / ProductRepository.create).
+        brand_code = next_plain_number(db, ItemsBrand.brand_code, "brand_code", width=4)
+        db_brand = ItemsBrand(**brand.dict(), brand_code=brand_code)
         db.add(db_brand)
         db.flush()
         return db_brand
@@ -253,7 +263,9 @@ def _page_query(query, order_cols, tiebreaker, page: int, size: int):
     from sqlalchemy import func
 
     total = query.order_by(None).with_entities(func.count(tiebreaker)).scalar() or 0
-    rows = query.order_by(*order_cols, tiebreaker).offset(page * size).limit(size).all()
+    # Empty order_cols = no explicit sort: newest first.
+    ordering = (*order_cols, tiebreaker) if order_cols else (tiebreaker.desc(),)
+    rows = query.order_by(*ordering).offset(page * size).limit(size).all()
     return rows, total
 
 
@@ -287,20 +299,24 @@ BRAND_SORTS = {
 
 
 def _sort_cols(sorts: dict, default: str, sort_by: Optional[str], order: str):
-    col, text = sorts.get(sort_by or default) or sorts[default]
+    if not sort_by:
+        return []
+    col, text = sorts.get(sort_by) or sorts[default]
     return [_order(col, order, text)]
 
 
 def products_page(db: Session, *, page: int, size: int, q=None, active=None, category_id=None,
                   brand_id=None, supplier_id=None, sort_by=None, order="asc"):
-    from sqlalchemy.orm import joinedload
+    from sqlalchemy.orm import joinedload, selectinload
     from app.modules.purchasing.models import SupplierProduct
 
+    # price_tiers is serialized for every row: load them in one extra query instead of
+    # one lazy query per product (25+ round trips for a 25-row page).
     query = (
         db.query(Product)
         .join(Category, Product.category_id == Category.id)
         .join(ItemsBrand, Product.items_brand_id == ItemsBrand.id)
-        .options(joinedload(Product.category), joinedload(Product.brand))
+        .options(joinedload(Product.category), joinedload(Product.brand), selectinload(Product.price_tiers))
     )
     pat = _like_pattern(q)
     if pat:

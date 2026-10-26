@@ -171,18 +171,9 @@ class TestQuoteEditDelete:
             SERVICE.update_quote(db, quote.id, SalesQuoteUpdate(remarks="x"))
         assert exc.value.status_code == 400
 
-    def test_cannot_delete_cancelled_quote(self, db, make_branch, make_customer, make_product):
-        branch, customer, product = make_branch(), make_customer(), make_product()
-        quote = _make_quote(db, branch, customer, [_item(product.id)])
-        SERVICE.cancel_quote(db, quote.id)
-        with pytest.raises(HTTPException) as exc:
-            SERVICE.delete_quote(db, quote.id)
-        assert exc.value.status_code == 400
-
-    def test_delete_draft_quote(self, db, make_branch, make_customer, make_product):
-        branch, customer, product = make_branch(), make_customer(), make_product()
-        quote = _make_quote(db, branch, customer, [_item(product.id)])
-        assert SERVICE.delete_quote(db, quote.id) is True
+    def test_quotations_cannot_be_deleted(self):
+        # Quotations are never deleted; cancel or reject them instead.
+        assert not hasattr(SERVICE, "delete_quote")
 
 
 # --------------------------------------------------------------------------- #

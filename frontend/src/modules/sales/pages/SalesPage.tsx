@@ -2217,7 +2217,7 @@ export default function SalesPage() {
         >
           Edit
         </Button>
-        <Tooltip title={!canPrintDocument(state.selectedItem.approval_status, ["cancelled"]) ? `Cannot email: invoice is ${(state.selectedItem.approval_status || "").replace(/_/g, " ")}` : "Send via Email"}>
+        {canPrintDocument(state.selectedItem.approval_status, ["cancelled"]) && (<Tooltip title={!canPrintDocument(state.selectedItem.approval_status, ["cancelled"]) ? `Cannot email: invoice is ${(state.selectedItem.approval_status || "").replace(/_/g, " ")}` : "Send via Email"}>
           <span>
             <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
               disabled={!canPrintDocument(state.selectedItem.approval_status, ["cancelled"])}
@@ -2225,7 +2225,7 @@ export default function SalesPage() {
               Email
             </Button>
           </span>
-        </Tooltip>
+        </Tooltip>)}
         <TPrintButton
           documentType="invoice"
           documentId={state.selectedItem.id}
@@ -5337,7 +5337,7 @@ export default function SalesPage() {
         hasSelection={!!state.selectedItem}
         onAdd={handleCreate}
         onDelete={handleDelete}
-        onSave={handleSave}
+        onSave={state.isCreating && formStep < FORM_STEPS.length - 1 ? undefined : handleSave}
         onCancel={handleCancel}
         isSaving={createMutation.isPending || updateMutation.isPending}
         saveDisabled={lineItems.length === 0 || formStep !== 1}

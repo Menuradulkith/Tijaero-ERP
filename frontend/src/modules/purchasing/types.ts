@@ -71,6 +71,7 @@ export interface SupplierContactPerson {
   passport_no?: string;
   email?: string;
   phone?: string;
+  active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -85,6 +86,7 @@ export interface SupplierContactPersonCreate {
   passport_no?: string;
   email?: string;
   phone?: string;
+  active?: boolean;
 }
 
 export type SupplierContactPersonUpdate = Partial<SupplierContactPersonCreate>;
@@ -449,6 +451,7 @@ export interface LotReturnValidationRequest {
   grn_id: number;
   sales_stock_id: number;
   quantity: number;
+  branch_code?: string;  // the returning branch: the lot must be stocked there
 }
 
 export interface LotReturnValidationResponse {
@@ -462,11 +465,23 @@ export interface LotReturnValidationResponse {
   purchasing_price?: number;  // per unit
 }
 
+export const PURCHASE_RETURN_REASONS = [
+  "Quality issue",
+  "Incorrect item",
+  "Quantity mismatch",
+  "Damaged during delivery",
+  "Label errors",
+  "Other",
+] as const;
+
+export type PurchaseReturnReason = (typeof PURCHASE_RETURN_REASONS)[number];
+
 export interface PurchasingReturn {
   id: number;
   purchasing_return_no: string;
   branch_code: string;
-  remark?: string;
+  remark?: string;  // comment
+  reason?: string | null;
   goodreceivednote_id: number;
   added_date: string;
   status: PurchaseReturnStatus;
@@ -477,6 +492,8 @@ export interface PurchasingReturn {
   supplier_name?: string;
   created_by?: number;
   created_by_name?: string;
+  total_quantity?: number;  // units going back to the supplier
+  total_amount?: number | string | null;
 }
 
 export interface PurchasingReturnWithItems extends PurchasingReturn {
@@ -486,7 +503,8 @@ export interface PurchasingReturnWithItems extends PurchasingReturn {
 export interface PurchasingReturnCreate {
   purchasing_return_no?: string;  // Auto-generated if not provided
   branch_code: string;
-  remark?: string;
+  remark?: string;  // comment; required when reason is "Other"
+  reason?: string;
   goodreceivednote_id: number;
   items: PurchasingReturnItemCreate[];
   require_approval?: boolean;  // Whether to submit for approval or approve immediately
@@ -555,6 +573,13 @@ export interface GoodReceivedNote {
   added_date: string;
   po_no?: string;
   supplier_name?: string;
+  created_by_name?: string;
+  units_received?: number;  // accepted units (lots count by quantity)
+  units_rejected?: number;
+  total_value?: number | string | null;  // received units at their purchase-order price
+  // GRNs have no approval step; these describe the linked PO's approval.
+  po_approved_by_name?: string;
+  po_approved_date?: string;
 }
 
 export interface GoodReceivedNoteCreate {

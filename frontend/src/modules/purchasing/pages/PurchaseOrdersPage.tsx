@@ -85,6 +85,7 @@ import {
 
 import { useReferenceData } from "@/hooks";
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import { EntityLink, EntityPeekButton } from "@/components/tijaero/peek";
 import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
 import PurchaseOrderCreateWizard, {
   type PurchaseOrderWizardHandle,
@@ -103,7 +104,7 @@ import {
 import { productsApi } from "@/modules/inventory/api";
 
 import { useAuthStore } from "@/state/authStore";
-import { hasPermission } from "@/auth/permissions";
+import { hasPermission, usePermission } from "@/auth/permissions";
 
 import CancelIcon from "@mui/icons-material/Cancel";
 import SaveIcon from "@mui/icons-material/Save";
@@ -213,9 +214,7 @@ export default function PurchaseOrdersPage() {
   const confirmDialog = useTConfirmDialog();
   const creditWarningDialog = useTConfirmDialog();
 
-  // Cancel / Short-Close reason dialogs
-  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [cancelReason, setCancelReason] = useState("");
+  // Short-Close reason dialog
   const [shortCloseDialogOpen, setShortCloseDialogOpen] = useState(false);
   const [shortCloseReason, setShortCloseReason] = useState("");
 
@@ -821,19 +820,6 @@ export default function PurchaseOrdersPage() {
     },
   });
 
-  const cancelOrderMutation = useCrudMutation({
-    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
-      purchaseOrdersApi.cancel(id, reason),
-    invalidateQueryKeys: [["purchaseOrders"]],
-    successMessage: "Purchase order cancelled",
-    errorMessage: "Failed to cancel purchase order",
-    onSuccess: (updatedOrder) => {
-      setSelectedOrder((prev) => (prev ? { ...prev, ...updatedOrder } : updatedOrder));
-      setCancelDialogOpen(false);
-      setCancelReason("");
-    },
-  });
-
   const shortCloseMutation = useCrudMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       purchaseOrdersApi.shortClose(id, reason),
@@ -848,25 +834,16 @@ export default function PurchaseOrdersPage() {
   });
 
   // Check if order can be edited (no GRN created)
-  const canEdit = !!(
+  const canCreateOrder = usePermission("purchase_orders", "create");
+  const canUpdateOrder = usePermission("purchase_orders", "update");
+  const canEdit = canUpdateOrder && !!(
     selectedOrder && 
     !["completed", "partially_completed", "cancelled", "short_closed"].includes(selectedOrder.status?.toLowerCase() || "")
   );
 
-  // Cancel is only offered before anything has been received — once any GRN
-  // exists the order must be short-closed instead (backend enforces this
-  // too; the status check here just keeps the button from being offered
-  // when it would always be rejected).
-  const canCancelOrder = !!(
-    selectedOrder &&
-    !["completed", "partially_completed", "cancelled", "rejected", "short_closed"].includes(
-      selectedOrder.status?.toLowerCase() || ""
-    )
-  );
-
   // Short-close only makes sense once something has been received but the
   // rest never will be.
-  const canShortCloseOrder = selectedOrder?.status?.toLowerCase() === "partially_completed";
+  const canShortCloseOrder = canUpdateOrder && selectedOrder?.status?.toLowerCase() === "partially_completed";
 
   const handleAddLineItem = () => {
     const newItem: OrderLineItem = {
@@ -995,6 +972,11 @@ export default function PurchaseOrdersPage() {
           remark: item.remark,
         })),
       };
+
+      // A rejected order that is edited goes back to approval as a normal pending order
+      if (selectedOrder.status?.toLowerCase() === "rejected") {
+        showWarningToast("This order will be sent back for approval after the edit.");
+      }
 
       // Reset to pending_approval if was approved
       if (wasApproved) {
@@ -1163,12 +1145,6 @@ export default function PurchaseOrdersPage() {
         width: 130,
       },
       {
-        field: "required_date",
-        header: "Expected Delivery Date",
-        type: "date",
-        width: 130,
-      },
-      {
         field: "status",
         header: "Status",
         type: "status",
@@ -1283,10 +1259,20 @@ export default function PurchaseOrdersPage() {
         isEditing={isEditing}
         isSaving={isCreating ? !!wizardState?.isSubmitting : isSaving}
         isFormValid={!!isFormValid}
+        canCreate={canCreateOrder}
+        canDuplicate={canCreateOrder}
+        canUpdate={canUpdateOrder}
         onNew={handleNewOrder}
         onDuplicate={handleDuplicate}
         onSave={isCreating ? undefined : handleSave}
         onCancel={isCreating ? undefined : () => handleCancel(filteredOrders)}
+        startActions={
+          isCreating && !wizardState?.isFirstStep ? (
+            <Button size="small" variant="outlined" onClick={() => wizardRef.current?.goBack()} disabled={wizardState?.isSubmitting}>
+              Back
+            </Button>
+          ) : undefined
+        }
         endActions={
           isCreating ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -1297,11 +1283,6 @@ export default function PurchaseOrdersPage() {
               >
                 Cancel
               </Button>
-              {!wizardState?.isFirstStep && (
-                <Button size="small" variant="outlined" onClick={() => wizardRef.current?.goBack()} disabled={wizardState?.isSubmitting}>
-                  Back
-                </Button>
-              )}
               <Button
                 size="small"
                 variant="contained"
@@ -1328,16 +1309,6 @@ export default function PurchaseOrdersPage() {
                   Edit
                 </Button>
               )}
-              {canCancelOrder && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  onClick={() => setCancelDialogOpen(true)}
-                >
-                  Cancel Order
-                </Button>
-              )}
               {canShortCloseOrder && (
                 <Button
                   size="small"
@@ -1348,7 +1319,7 @@ export default function PurchaseOrdersPage() {
                   Short Close
                 </Button>
               )}
-              <Tooltip title={!canPrintDocument(selectedOrder.status, ["cancelled"]) ? `Cannot email: order is ${(selectedOrder.status || "").replace(/_/g, " ")}` : "Send via Email"}>
+              {canPrintDocument(selectedOrder.status, ["cancelled"]) && (<Tooltip title={!canPrintDocument(selectedOrder.status, ["cancelled"]) ? `Cannot email: order is ${(selectedOrder.status || "").replace(/_/g, " ")}` : "Send via Email"}>
                 <span>
                   <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
                     disabled={!canPrintDocument(selectedOrder.status, ["cancelled"])}
@@ -1356,7 +1327,7 @@ export default function PurchaseOrdersPage() {
                     Email
                   </Button>
                 </span>
-              </Tooltip>
+              </Tooltip>)}
               <TPrintButton
                 documentType="purchase-order"
                 documentId={selectedOrder.id}
@@ -1393,7 +1364,7 @@ export default function PurchaseOrdersPage() {
               <>
                 <FormSection title="Order Information" columns={3}>
                   <TextField
-                    label="Order Number"
+                    label="PO Number"
                     size="small"
                     value={
                       isCreating ? nextPONumber : formData.purchasing_order_no
@@ -1525,6 +1496,15 @@ export default function PurchaseOrdersPage() {
                         required
                         error={hasError("first_suppliers_id")}
                         helperText={getFieldError("first_suppliers_id")}
+                        InputProps={{
+                          ...params.InputProps,
+                          endAdornment: (
+                            <>
+                              <EntityPeekButton entity="supplier" id={formData.first_suppliers_id} />
+                              {params.InputProps.endAdornment}
+                            </>
+                          ),
+                        }}
                       />
                     )}
                   />
@@ -1619,27 +1599,6 @@ export default function PurchaseOrdersPage() {
                     required
                     error={hasError("purchasing_order_date")}
                     helperText={getFieldError("purchasing_order_date")}
-                  />
-                  <TextField
-                    label="Expected Delivery Date"
-                    size="small"
-                    type="date"
-                    value={formData.required_date || ""}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        required_date: e.target.value,
-                        // The order's GRN date always tracks this same date —
-                        // the supplier is expected to deliver by the date the
-                        // products are needed.
-                        good_received_note_date: e.target.value || formData.good_received_note_date,
-                      })
-                    }
-                    disabled={!isEditing && !isCreating}
-                    InputLabelProps={{ shrink: true }}
-                    required
-                    error={hasError("good_received_note_date")}
-                    helperText={getFieldError("good_received_note_date")}
                   />
                   {normalizePurchaseOrderPaymentMethod(formData.payment_method) === "Credit" && (
                     <TextField
@@ -1769,7 +1728,9 @@ export default function PurchaseOrdersPage() {
                         <Typography variant="body2">
                           Created from Sales Quotation{" "}
                           <Typography component="span" variant="body2" sx={{ fontWeight: 600 }}>
-                            {selectedOrder.sales_quote_no || `Quote #${selectedOrder.sales_quote_id}`}
+                            <EntityLink entity="quotation" id={selectedOrder.sales_quote_id}>
+                              {selectedOrder.sales_quote_no || `Quote #${selectedOrder.sales_quote_id}`}
+                            </EntityLink>
                           </Typography>
                           .
                         </Typography>
@@ -1929,7 +1890,9 @@ export default function PurchaseOrdersPage() {
                                     </Box>
                                   </Box>
                                 ) : (
-                                  getProductName(item.product_id)
+                                  <EntityLink entity="product" id={item.product_id}>
+                                    {getProductName(item.product_id)}
+                                  </EntityLink>
                                 )}
                               </TableCell>
                               <TableCell>
@@ -2165,7 +2128,7 @@ export default function PurchaseOrdersPage() {
           )
         }
         headerActions={
-          isPurchaseOrderDetailMode ? undefined : (
+          isPurchaseOrderDetailMode || !canCreateOrder ? undefined : (
             <Button
               variant="contained"
               size="small"
@@ -2220,55 +2183,6 @@ export default function PurchaseOrdersPage() {
               Save
             </Button>
           )}
-        </DialogActions>
-      </Dialog>
-
-      {/* Cancel Order Dialog */}
-      <Dialog
-        open={cancelDialogOpen}
-        onClose={() => {
-          setCancelDialogOpen(false);
-          setCancelReason("");
-        }}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Cancel Purchase Order</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ mb: 2 }}>
-            This cancels "{selectedOrder?.purchasing_order_no}" — only possible before any goods have been received.
-          </Typography>
-          <TextField
-            fullWidth
-            multiline
-            rows={3}
-            autoFocus
-            label="Cancellation Reason"
-            placeholder="e.g. Supplier unable to fulfill, duplicate order..."
-            value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => {
-              setCancelDialogOpen(false);
-              setCancelReason("");
-            }}
-          >
-            Keep Order
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            disabled={!cancelReason.trim() || cancelOrderMutation.isPending}
-            onClick={() =>
-              selectedOrder &&
-              cancelOrderMutation.mutate({ id: selectedOrder.id, reason: cancelReason.trim() })
-            }
-          >
-            Cancel Order
-          </Button>
         </DialogActions>
       </Dialog>
 

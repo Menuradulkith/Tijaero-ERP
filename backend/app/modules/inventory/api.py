@@ -319,6 +319,48 @@ def get_paginated_sales_stock(
     return result
 
 
+@router.get(
+    "/sales-stock/stock-summary",
+    response_model=schemas.StockSummaryPaginated,
+    dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))],
+)
+def get_stock_summary(
+    branch_code: Optional[str] = None,
+    brand_id: Optional[int] = None,
+    search: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """Per-product aggregated on-hand position (total/allocated/available/issued/
+    freezed quantities, on-hand value, ageing, and the oldest batch's supplier/invoice)."""
+    if branch_code:
+        if user_branches is not None and branch_code not in user_branches:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied to branch: {branch_code}",
+            )
+
+    sales_stock_service = service.SalesStockService(db)
+    result = sales_stock_service.get_stock_summary(
+        branch_code=branch_code,
+        branch_codes=user_branches,
+        brand_id=brand_id,
+        search=search,
+        skip=skip,
+        limit=limit,
+    )
+    # Hide cost/value from users without cost_price:view
+    if not user_has_permission(current_user, *Permissions.COST_PRICE_VIEW):
+        for it in result.get("items", []):
+            if isinstance(it, dict):
+                it["unit_cost"] = None
+                it["total_value"] = None
+    return result
+
+
 @router.post(
     "/sales-stock",
     response_model=schemas.SalesStock,
@@ -330,7 +372,13 @@ def create_sales_stock(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a sales stock item from GRN"""
+    """Create one sales-stock unit for an already-received GRN line (older
+    two-step flow, paired with POST /purchasing/grn-items). Not used by the
+    current frontend — POST /purchasing/grn/receive creates stock and its
+    GRN-item row together, atomically — but kept live: the service validates
+    the unit against GoodReceivedItems (product/PO-line/GRN match, no
+    over-receipt) and is covered by
+    tests/test_purchasing_receipt_approval_audit.py::TestSalesStockConsistency."""
     # Branch isolation: users may only create stock in branches they can access
     if not validate_branch_access(current_user, item.branch_code):
         raise HTTPException(
@@ -458,29 +506,12 @@ def get_all_company_assets(
     )
 
 
-@router.post(
-    "/company-assets",
-    response_model=schemas.CompanyAsset,
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.COMPANY_ASSET_CREATE))],
-)
-def create_company_asset(
-    item: schemas.CompanyAssetCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Create a company asset from GRN"""
-    # Branch isolation: users may only create assets in branches they can access
-    if not validate_branch_access(current_user, item.branch_code):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Access denied to branch: {item.branch_code}",
-        )
-    company_asset_service = service.CompanyAssetService(db)
-    try:
-        return company_asset_service.create(item)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# A standalone "create one company-asset row for an existing GRN" endpoint
+# used to live here (service.CompanyAssetService.create), mirroring the
+# removed standalone sales-stock create — same gap (no matching
+# GoodReceivedItems row). Removed — nothing in the frontend ever called it;
+# POST /purchasing/grn/receive creates assets and their GRN-item row
+# together, atomically.
 
 
 @router.get("/company-assets/check-barcode/{barcode}", dependencies=[Depends(require_any_permission(Permissions.COMPANY_ASSET_VIEW, Permissions.GRN_CREATE))])

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from app.api.deps import get_db, get_current_active_user
 from app.auth.models import User
+from app.common.document_guard import ensure_document_printable
 from app.auth.rbac import Permissions, require_permission, user_has_permission
 from app.modules.communication.schemas import EmailDraftResponse, EmailSendRequest
 from app.modules.communication.models import EmailTemplate, EmailLog
@@ -126,6 +127,7 @@ def get_email_draft(
     current_user: User = Depends(get_current_active_user)
 ):
     _require_document_access(current_user, document_type)
+    ensure_document_printable(db, document_type, document_id, current_user)
     to_email = ""
     cc_email = ""
     customer_name = ""
@@ -170,18 +172,20 @@ def get_email_draft(
             raise HTTPException(status_code=404, detail="Document not found")
         if doc:
             doc_display_id = doc.purchasing_order_no
-            if doc.supplier:
-                to_email = doc.supplier.email
-                supplier_name = doc.supplier.company_name
+            if doc.first_supplier:
+                to_email = doc.first_supplier.email
+                supplier_name = doc.first_supplier.company_name
     elif document_type == "purchase-return":
         doc = db.query(PurchasingReturn).filter(PurchasingReturn.id == document_id).first()
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
         if doc:
             doc_display_id = doc.purchasing_return_no
-            if doc.supplier:
-                to_email = doc.supplier.email
-                supplier_name = doc.supplier.company_name
+            return_po = doc.good_received_note.purchasing_order if doc.good_received_note else None
+            return_supplier = return_po.first_supplier if return_po else None
+            if return_supplier:
+                to_email = return_supplier.email
+                supplier_name = return_supplier.company_name
 
     # Fetch Company Settings for company_name replacement
     from app.modules.settings.models import Settings
@@ -240,6 +244,7 @@ def send_email(
     current_user: User = Depends(get_current_active_user)
 ):
     _require_document_access(current_user, request.document_type)
+    ensure_document_printable(db, request.document_type, request.document_id, current_user)
     # Extract token
     token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
     

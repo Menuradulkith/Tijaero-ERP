@@ -12,10 +12,15 @@ business flow, whatever module produced the postings.
 from __future__ import annotations
 
 from collections import defaultdict
+import decimal
 from decimal import Decimal
 from typing import Dict, List, Tuple
 
 from sqlalchemy import text
+
+# Ledger sums can be far wider than Decimal's default 28 digits (QA rows of
+# 1e30 sit next to cent amounts); keep the arithmetic exact.
+decimal.getcontext().prec = 60
 
 D = Decimal
 CASH_BANK_ACCOUNTS = ("1010", "1020", "1030", "1040")
@@ -55,13 +60,16 @@ class Books:
 
     # ---- trial balance --------------------------------------------------------------------------
     def balances(self) -> Dict[str, Tuple[Decimal, Decimal]]:
-        """{account_code: (total debit, total credit)} over POSTED entries."""
+        """{account_code: (total debit, total credit)} over entries that reached the GL.
+
+        A reversed entry keeps its GL rows (its mirror reversal cancels them), so it
+        counts alongside posted ones."""
         rows = self.db.execute(text("""
             SELECT a.account_code, COALESCE(SUM(l.debit_amount), 0), COALESCE(SUM(l.credit_amount), 0)
             FROM journal_entry_lines l
             JOIN journal_entries je ON je.id = l.journal_entry_id
             JOIN chart_of_accounts a ON a.id = l.account_id
-            WHERE je.status = 'posted'
+            WHERE je.status IN ('posted', 'reversed')
             GROUP BY a.account_code
         """)).all()
         return {code: (_d(dr), _d(cr)) for code, dr, cr in rows}
@@ -75,7 +83,7 @@ class Books:
         return sum((dr for dr, _ in bal.values()), D(0)) - sum((cr for _, cr in bal.values()), D(0))
 
     def unposted_entries(self) -> List[tuple]:
-        return self.db.execute(text("SELECT id, journal_entry_no, status FROM journal_entries WHERE status <> 'posted'")).all()
+        return self.db.execute(text("SELECT id, journal_entry_no, status FROM journal_entries WHERE status NOT IN ('posted', 'reversed')")).all()
 
     # ---- document -> journal -----------------------------------------------------------------------
     def entries_for(self, reference_type: str, reference_id: int) -> Dict[str, Tuple[Decimal, Decimal]]:
@@ -89,7 +97,14 @@ class Books:
 
     # ---- cashbook ------------------------------------------------------------------------------------
     def cashbook_net(self) -> Decimal:
-        return _d(self.db.execute(text("SELECT COALESCE(SUM(money_in - money_out), 0) FROM cashbook_entries")).scalar())
+        """Cashbook money in - out, with bank deposits added back: a deposit is
+        money leaving the till but not leaving cash+bank (same identity as the
+        day-end reconciliation)."""
+        return _d(self.db.execute(text(
+            "SELECT COALESCE(SUM(money_in - money_out), 0)"
+            " + COALESCE(SUM(CASE WHEN entry_type = 'bank_deposit' THEN money_out ELSE 0 END), 0)"
+            " FROM cashbook_entries"
+        )).scalar())
 
     def gl_cash_net(self) -> Decimal:
         return sum((self.net(c) for c in CASH_BANK_ACCOUNTS), D(0))

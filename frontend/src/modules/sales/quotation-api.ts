@@ -118,15 +118,6 @@ export const quotationApi = {
   },
 
   /**
-   * Delete a quote (only drafts can be deleted)
-   */
-  delete: async (id: number): Promise<void> => {
-    await apiClient.delete(`${BASE_URL}/${id}`);
-  },
-
-  // ==================== Status Management ====================
-
-  /**
    * Update quote status
    */
   updateStatus: async (id: number, data: SalesQuoteStatusUpdate): Promise<SalesQuote> => {
@@ -144,6 +135,14 @@ export const quotationApi = {
 
   // Approving/rejecting a quotation flows only through the generic
   // /common/approvals dashboard now (see approvalsApi in @/modules/common/api).
+
+  /**
+   * Confirm a sent quotation (the customer accepted it)
+   */
+  confirm: async (id: number): Promise<SalesQuote> => {
+    const response = await apiClient.post<SalesQuote>(`${BASE_URL}/${id}/confirm`);
+    return response.data;
+  },
 
   /**
    * Mark quote as sent to customer

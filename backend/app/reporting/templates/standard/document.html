@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ doc.title|title }} {{ doc.number }}</title>
+<style>
+  :root { --doc-primary: #1a4480; --ink: #1f2933; --muted: #616e7c; --rule: #d9dee4; --tint: #f4f6f8; }
+  @page { size: A4 {{ 'landscape' if doc.landscape else 'portrait' }}; margin: 12mm 12mm 16mm 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", Arial, Helvetica, sans-serif; font-size: 9.5px; line-height: 1.45; color: var(--ink); background: #fff;
+         -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { max-width: {{ '277mm' if doc.landscape else '186mm' }}; margin: 0 auto; padding: 10mm 0; position: relative; }
+  @media print { .page { padding: 0; max-width: none; } }
+
+  /* letterhead */
+  .lh { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 10px;
+        border-bottom: 2px solid var(--doc-primary); }
+  .lh-company { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+  .lh-logo { max-height: 62px; max-width: 150px; object-fit: contain; }
+  .lh-name { font-size: 15px; font-weight: 700; color: var(--doc-primary); line-height: 1.2; margin-bottom: 3px; }
+  .lh-lines { color: var(--muted); font-size: 8.8px; }
+  .lh-ids { margin-top: 3px; font-size: 8.8px; }
+  .lh-ids b { color: var(--ink); }
+  .lh-doc { text-align: right; flex-shrink: 0; }
+  .lh-title { font-size: 20px; font-weight: 700; letter-spacing: 1.5px; color: var(--doc-primary); line-height: 1.1; }
+  .lh-number { font-size: 11px; font-weight: 600; margin-top: 4px; }
+  .badge { display: inline-block; margin-top: 5px; padding: 2px 8px; border-radius: 3px; font-size: 8.5px; font-weight: 700;
+           text-transform: uppercase; letter-spacing: .5px; background: #fff4e5; color: #9a5b00; border: 1px solid #f0c27b; }
+  .header-text { margin-top: 8px; padding: 6px 8px; background: var(--tint); border-left: 3px solid var(--doc-primary); }
+
+  /* parties and details */
+  .info { display: flex; gap: 12px; margin: 12px 0; }
+  .parties { flex: 1.6; display: flex; gap: 12px; }
+  .party { flex: 1; min-width: 0; }
+  .box-title { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+               border-bottom: 1px solid var(--rule); padding-bottom: 2px; margin-bottom: 4px; }
+  .party-name { font-weight: 700; font-size: 10.5px; }
+  .party .muted { color: var(--muted); }
+  .meta { flex: 1; min-width: 190px; }
+  .meta table { width: 100%; border-collapse: collapse; }
+  .meta td { padding: 2px 0; vertical-align: top; }
+  .meta td.k { color: var(--muted); width: 46%; padding-right: 8px; }
+  .meta td.v { font-weight: 600; text-align: right; }
+
+  /* lines */
+  table.lines { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  table.lines thead { display: table-header-group; }
+  table.lines th { background: var(--doc-primary); color: #fff; font-weight: 600; font-size: 8.8px; padding: 5px 6px; text-align: left; }
+  table.lines td { padding: 5px 6px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  table.lines tbody tr:nth-child(even) td { background: #fafbfc; }
+  table.lines tr { page-break-inside: avoid; }
+  table.lines .r { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  table.lines .c { text-align: center; }
+  table.lines .detail { color: var(--muted); font-size: 8.3px; }
+  table.lines tfoot td { font-weight: 700; border-top: 1.5px solid var(--doc-primary); border-bottom: none; background: none; }
+  .empty { padding: 14px 6px; color: var(--muted); text-align: center; border-bottom: 1px solid var(--rule); }
+
+  /* summary */
+  .summary { display: flex; gap: 16px; margin-top: 10px; page-break-inside: avoid; }
+  .summary-left { flex: 1; min-width: 0; }
+  .summary-right { width: 250px; flex-shrink: 0; }
+  table.totals { width: 100%; border-collapse: collapse; }
+  table.totals td { padding: 3px 6px; font-variant-numeric: tabular-nums; }
+  table.totals td.v { text-align: right; white-space: nowrap; }
+  table.totals tr.strong td { font-weight: 700; border-top: 1px solid var(--rule); }
+  table.totals tr.grand td { background: var(--doc-primary); color: #fff; font-size: 10.5px; border: none; }
+  .words { margin-top: 8px; padding: 6px 8px; background: var(--tint); font-style: italic; }
+  .words b { font-style: normal; }
+  table.small { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  table.small th { text-align: left; font-size: 8px; color: var(--muted); font-weight: 700; text-transform: uppercase;
+                   border-bottom: 1px solid var(--rule); padding: 2px 4px; }
+  table.small td { padding: 2px 4px; border-bottom: 1px solid #eef1f4; }
+  table.small .r { text-align: right; font-variant-numeric: tabular-nums; }
+  .block { margin-top: 10px; page-break-inside: avoid; }
+  .block p { white-space: pre-line; }
+  .bank td.k { color: var(--muted); width: 32%; }
+
+  /* signatures and footer */
+  .signs { display: flex; gap: 24px; margin-top: 38px; page-break-inside: avoid; }
+  .sign { flex: 1; text-align: center; }
+  .sign .line { border-top: 1px solid var(--ink); margin-bottom: 3px; }
+  .sign .who { font-size: 8.5px; color: var(--muted); }
+  .footer { margin-top: 18px; padding-top: 5px; border-top: 1px solid var(--rule); display: flex; justify-content: space-between;
+            gap: 12px; color: var(--muted); font-size: 7.8px; }
+  .footer-text { margin-top: 10px; text-align: center; color: var(--muted); }
+  .watermark { position: fixed; top: 42%; left: 0; right: 0; text-align: center; font-size: 90px; font-weight: 800;
+               color: rgba(198, 40, 40, .07); transform: rotate(-24deg); pointer-events: none; z-index: 0; letter-spacing: 6px; }
+</style>
+</head>
+<body>
+{% set cur = company.currency_code %}
+{% if doc.status and doc.status|lower in ('draft', 'cancelled', 'rejected', 'pending approval', 'revised') %}
+<div class="watermark">{{ doc.status|upper }}</div>
+{% endif %}
+<div class="page">
+
+  {% if options.show_header %}
+  <div class="lh">
+    <div class="lh-company">
+      {% if company.logo %}<img class="lh-logo" src="{{ company.logo }}" alt="">{% endif %}
+      <div>
+        <div class="lh-name">{{ company.name }}</div>
+        <div class="lh-lines">
+          {% for l in company.address_lines %}{{ l }}{% if not loop.last %}, {% endif %}{% endfor %}
+          {% set contacts = [] %}
+          {% if company.phone %}{% set _ = contacts.append('Tel: ' ~ company.phone) %}{% endif %}
+          {% if company.fax %}{% set _ = contacts.append('Fax: ' ~ company.fax) %}{% endif %}
+          {% if company.email %}{% set _ = contacts.append(company.email) %}{% endif %}
+          {% if company.website %}{% set _ = contacts.append(company.website) %}{% endif %}
+          {% if contacts %}<br>{{ contacts|join('  ·  ') }}{% endif %}
+        </div>
+        {% if company.tax_registration_number or company.business_registration_number %}
+        <div class="lh-ids">
+          {% if company.tax_registration_number %}<span>TIN / VAT No: <b>{{ company.tax_registration_number }}</b></span>{% endif %}
+          {% if company.tax_registration_number and company.business_registration_number %}&nbsp;&nbsp;{% endif %}
+          {% if company.business_registration_number %}<span>BRN: <b>{{ company.business_registration_number }}</b></span>{% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="lh-doc">
+      <div class="lh-title">{{ doc.title }}</div>
+      <div class="lh-number">{{ doc.number }}</div>
+      {% if doc.status %}<div class="badge">{{ doc.status }}</div>{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="lh" style="border-bottom-width:1px">
+    <div></div>
+    <div class="lh-doc">
+      <div class="lh-title">{{ doc.title }}</div>
+      <div class="lh-number">{{ doc.number }}</div>
+      {% if doc.status %}<div class="badge">{{ doc.status }}</div>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if layout.header_text %}<div class="header-text">{{ layout.header_text }}</div>{% endif %}
+
+  <div class="info">
+    {% if doc.parties %}
+    <div class="parties">
+      {% for p in doc.parties %}
+      <div class="party">
+        <div class="box-title">{{ p.title }}</div>
+        <div class="party-name">{{ p.name }}</div>
+        {% if p.attention %}<div>Attn: {{ p.attention }}</div>{% endif %}
+        {% for l in p.lines %}<div>{{ l }}</div>{% endfor %}
+        {% if p.phone %}<div class="muted">Tel: {{ p.phone }}</div>{% endif %}
+        {% if p.email %}<div class="muted">{{ p.email }}</div>{% endif %}
+        {% if p.tax_no %}<div>TIN / VAT No: <b>{{ p.tax_no }}</b></div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if doc.meta %}
+    <div class="meta">
+      <div class="box-title">Details</div>
+      <table>
+        {% for k, v in doc.meta %}<tr><td class="k">{{ k }}</td><td class="v">{{ v|fmt_date if v is date_like else v }}</td></tr>{% endfor %}
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <table class="lines">
+    <thead><tr>
+      {% for c in doc.columns %}<th class="{{ 'r' if c.align == 'right' else ('c' if c.align == 'center' else '') }}"{% if c.wide %} style="width:40%"{% endif %}>{{ c.label }}{% if c.type == 'money' and c.key in ('price', 'amount', 'debit', 'credit') %} ({{ cur }}){% endif %}</th>{% endfor %}
+    </tr></thead>
+    <tbody>
+      {% for row in doc.lines %}
+      <tr>
+        {% for c in doc.columns %}
+        {% set v = row[c.key] if c.key in row else None %}
+        <td class="{{ 'r' if c.align == 'right' else ('c' if c.align == 'center' else '') }}">
+          {% if c.type == 'money' %}{{ v|money if v is not none else '' }}
+          {% elif c.type == 'qty' %}{{ v|qty if v is not none else '' }}
+          {% elif c.type == 'percent' %}{{ (v|qty ~ '%') if v else '' }}
+          {% elif c.type == 'date' %}{{ v|fmt_date }}
+          {% else %}{{ v if v is not none else '' }}{% endif %}
+          {% if c.key == 'description' and row.details %}{% for d in row.details %}<div class="detail">{{ d }}</div>{% endfor %}{% endif %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% else %}
+      <tr><td class="empty" colspan="{{ doc.columns|length }}">{{ doc.empty_message or 'No lines.' }}</td></tr>
+      {% endfor %}
+    </tbody>
+    {% if doc.column_totals %}
+    <tfoot><tr>
+      {% for c in doc.columns %}
+      <td class="{{ 'r' if c.align == 'right' else '' }}">{% if loop.first %}Total{% elif c.key in doc.column_totals %}{{ doc.column_totals[c.key]|money if c.type == 'money' else doc.column_totals[c.key]|qty }}{% endif %}</td>
+      {% endfor %}
+    </tr></tfoot>
+    {% endif %}
+  </table>
+
+  {% if doc.totals or doc.tax_summary or (doc.amount_in_words and layout.show_amount_in_words) %}
+  <div class="summary">
+    <div class="summary-left">
+      {% if doc.tax_summary %}
+      <div class="box-title">VAT summary</div>
+      <table class="small">
+        <tr><th>Rate</th><th class="r">Value excl. VAT</th><th class="r">VAT</th><th class="r">Total incl. VAT</th></tr>
+        {% for t in doc.tax_summary %}
+        <tr><td>{{ (t.rate|qty ~ '%') if t.rate is not none else '-' }}</td><td class="r">{{ t.taxable|money }}</td><td class="r">{{ t.tax|money }}</td><td class="r">{{ t.total|money }}</td></tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+      {% if doc.amount_in_words and layout.show_amount_in_words %}
+      <div class="words"><b>Amount in words:</b> {{ doc.amount_in_words }}</div>
+      {% endif %}
+      {% for s in doc.sections if s.compact %}
+      <div class="block">
+        <div class="box-title">{{ s.title }}</div>
+        <table class="small">
+          <tr>{% for c in s.columns %}<th class="{{ 'r' if c.align == 'right' else '' }}">{{ c.label }}</th>{% endfor %}</tr>
+          {% for r in s.rows %}<tr>{% for c in s.columns %}<td class="{{ 'r' if c.align == 'right' else '' }}">{% if c.type == 'money' %}{{ r[c.key]|money }}{% elif c.type == 'qty' %}{{ r[c.key]|qty }}{% elif c.type == 'date' %}{{ r[c.key]|fmt_date }}{% else %}{{ r[c.key] if r[c.key] is not none else '' }}{% endif %}</td>{% endfor %}</tr>{% endfor %}
+        </table>
+      </div>
+      {% endfor %}
+    </div>
+    {% if doc.totals %}
+    <div class="summary-right">
+      <table class="totals">
+        {% for t in doc.totals %}
+        <tr class="{{ 'strong' if t.strong else '' }}{{ ' grand' if loop.last and t.strong else '' }}">
+          <td>{{ t.label }}</td>
+          <td class="v">{{ ('(' ~ (t.value|money) ~ ')') if t.sign == '-' else t.value|money }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% for s in doc.sections if not s.compact %}
+  <div class="block">
+    <div class="box-title">{{ s.title }}</div>
+    <table class="small">
+      <tr>{% for c in s.columns %}<th class="{{ 'r' if c.align == 'right' else '' }}">{{ c.label }}</th>{% endfor %}</tr>
+      {% for r in s.rows %}<tr>{% for c in s.columns %}<td class="{{ 'r' if c.align == 'right' else '' }}">{% if c.type == 'money' %}{{ r[c.key]|money }}{% elif c.type == 'qty' %}{{ r[c.key]|qty }}{% elif c.type == 'date' %}{{ r[c.key]|fmt_date }}{% else %}{{ r[c.key] if r[c.key] is not none else '' }}{% endif %}</td>{% endfor %}</tr>{% endfor %}
+    </table>
+  </div>
+  {% endfor %}
+
+  {% set bank_text = layout.bank_details %}
+  {% set bank = company.bank or {} %}
+  {% if layout.show_bank_details and doc.show_payment_details and (bank_text or bank.account_number) %}
+  <div class="block bank">
+    <div class="box-title">Payment details</div>
+    {% if bank_text %}<p>{{ bank_text }}</p>{% else %}
+    <table class="small">
+      {% if bank.account_name %}<tr><td class="k">Account name</td><td>{{ bank.account_name }}</td></tr>{% endif %}
+      <tr><td class="k">Account number</td><td><b>{{ bank.account_number }}</b></td></tr>
+      {% if bank.name %}<tr><td class="k">Bank</td><td>{{ bank.name }}{% if bank.branch %}, {{ bank.branch }}{% endif %}</td></tr>{% endif %}
+      {% if bank.swift_code %}<tr><td class="k">SWIFT</td><td>{{ bank.swift_code }}</td></tr>{% endif %}
+    </table>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% for title, text in doc.notes %}
+  <div class="block"><div class="box-title">{{ title }}</div><p>{{ text }}</p></div>
+  {% endfor %}
+  {% if options.custom_remarks %}
+  <div class="block"><div class="box-title">Additional remarks</div><p>{{ options.custom_remarks }}</p></div>
+  {% endif %}
+  {% if layout.terms %}
+  <div class="block"><div class="box-title">Terms &amp; conditions</div><p>{{ layout.terms }}</p></div>
+  {% endif %}
+
+  {% if options.show_signatures and doc.signatures %}
+  <div class="signs">
+    {% for s in doc.signatures %}<div class="sign"><div class="line"></div><div class="who">{{ s }}</div></div>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if layout.footer_text %}<div class="footer-text">{{ layout.footer_text }}</div>{% endif %}
+  <div class="footer">
+    <span>{{ company.name }}{% if company.tax_registration_number %} · TIN {{ company.tax_registration_number }}{% endif %}{% if branch and branch.branch_name %} · {{ branch.branch_name }}{% endif %}</span>
+    <span>{{ doc.title|title }} {{ doc.number }} · Printed {{ generated_at }}</span>
+  </div>
+</div>
+</body>
+</html>

@@ -73,7 +73,12 @@ from app.modules.purchasing.invoice_models import (
     PurchaseInvoiceItem,
     PurchaseInvoicePayment,
 )
-from app.modules.reporting.models import Report, ReportExecution
+from app.modules.reporting.models import (
+    DocumentTemplate,
+    DocumentTemplateVersion,
+    Report,
+    ReportExecution,
+)
 from app.modules.sales.models import (
     Invoice,
     InvoiceItems,

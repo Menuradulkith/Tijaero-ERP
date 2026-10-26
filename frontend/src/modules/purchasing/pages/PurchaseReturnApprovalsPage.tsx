@@ -4,6 +4,7 @@
  * Refactored to use common purchasing components for better code reuse
  */
 
+import { usePermission } from "@/auth/permissions";
 import { useMemo, useCallback, useState, useEffect } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { useCurrencyStore } from "@/state/currencyStore";
@@ -71,6 +72,7 @@ import { PurchasingReturn, PurchasingReturnWithItems, GoodReceivedNote } from "@
 type ReturnApprovalRow = PurchasingReturn & { grn_display_no: string };
 
 export default function PurchaseReturnApprovalsPage() {
+  const canApprove = usePermission("purchase_return_approvals", "approve") || usePermission("common", "update");
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
@@ -303,6 +305,9 @@ export default function PurchaseReturnApprovalsPage() {
         header: "Branch",
         width: 110,
       },
+      { field: "reason", header: "Reason", width: 150, valueGetter: (_v: unknown, row: ReturnApprovalRow) => row.reason || "-" },
+      { field: "total_quantity", header: "Units", width: 90, type: "number" },
+      { field: "total_amount", header: `Amount (${currencySymbol})`, width: 130, type: "currency" },
       {
         field: "added_date",
         header: "Return Date",
@@ -344,7 +349,7 @@ export default function PurchaseReturnApprovalsPage() {
         ),
       },
     ],
-    [handleSelectReturn]
+    [handleSelectReturn, currencySymbol]
   );
 
   // Browse mode: a full-width table of every return matching the current
@@ -395,7 +400,7 @@ export default function PurchaseReturnApprovalsPage() {
 
       {/* Approve/Reject, grouped together on the right like the
           Cancel / Next pairing on the PO creation wizard's toolbar. */}
-      {selectedReturn && selectedIsPending && (
+      {selectedReturn && selectedIsPending && canApprove && (
         <ActionToolbar
           hasSelectedItem
           isCreating={false}
@@ -503,7 +508,7 @@ export default function PurchaseReturnApprovalsPage() {
                     })}
                     <TableRow sx={modernTableStyles.footerRow}>
                       <TableCell colSpan={3} align="right">
-                        <strong>Total Return Amount:</strong>
+                        <strong>{`Total Return Amount (${currencySymbol}):`}</strong>
                       </TableCell>
                       <TableCell align="right">
                         <strong>

@@ -6,6 +6,12 @@ services:
       # Frontend and backend share the same origin (tijaero.xyz.lk:80) via nginx,
       # so CORS is same-origin. Still set it explicitly for correctness.
       BACKEND_CORS_ORIGINS: '["http://${GATEWAY_IP:-tijaero.xyz.lk}:8000", "http://${GATEWAY_IP:-tijaero.xyz.lk}:3000", "http://${GATEWAY_IP:-tijaero.xyz.lk}:3000"]'
+      # Per worker process: total DB connections = BACKEND_WORKERS x (pool + overflow),
+      # which must stay below Postgres max_connections (set below). 4 x 20 = 80 < 200.
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      # Dashboard aggregates are cached per worker for this many seconds (0 = off).
+      SALES_STATS_CACHE_TTL: ${SALES_STATS_CACHE_TTL:-30}
     command: >
       sh -c "
         echo 'Checking for migrations...' &&
@@ -18,7 +24,7 @@ services:
         python scripts/init_permissions.py &&
         echo 'Ensuring admin user exists...' &&
         python scripts/ensure_admin.py &&
-        uvicorn app.main:app --host 0.0.0.0 --port 8000
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${BACKEND_WORKERS:-4}
       "
     # Remove --reload for production
     volumes: []
@@ -40,6 +46,23 @@ services:
   # Database - Server Settings
   postgres:
     restart: always
+    # Stock Postgres settings (128MB shared_buffers, 4MB work_mem) are sized for a
+    # laptop. Size these to the host: shared_buffers ~25% of RAM, effective_cache_size
+    # ~50-75%. Defaults below suit a 4GB host.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-1GB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-3GB}
+      - -c
+      - work_mem=${POSTGRES_WORK_MEM:-16MB}
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - max_connections=200
+      - -c
+      - random_page_cost=1.1
 
   # Adminer - Server Settings
   adminer:

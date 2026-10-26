@@ -93,6 +93,7 @@ import {
   TDataGrid,
   type TDataGridColumn,
   continueOrReveal,
+  canPrintDocument,
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
@@ -100,6 +101,7 @@ import { locationsApi } from "@/modules/common/api";
 import { companyAssetsApi, productsApi, salesStockApi } from "@/modules/inventory/api";
 import ReclassifyDialog from "@/modules/inventory/components/ReclassifyDialog";
 import LandedCostPanel from "@/modules/purchasing/components/LandedCostPanel";
+import { EntityLink, EntityPeekButton } from "@/components/tijaero/peek";
 import { Product } from "@/modules/inventory/types";
 import { goodReceivedItemsApi, goodReceivedNotesApi, purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import {
@@ -140,10 +142,16 @@ const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: 
   return `${fullPrefix}${String(maxSeq + 1).padStart(6, '0')}`;
 };
 
+// The GRN date is always today (local date), filled in automatically
+const todayLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
 const INITIAL_FORM_DATA: GoodReceivedNoteCreate = {
   good_received_no: "",
-  good_received_date: new Date().toISOString().split("T")[0],
-  // The supplier invoice is matched later (purchase invoice); the GRN carries the delivery note.
+  good_received_date: todayLocal(),
+  supplier_invoice_no: "",
   delivery_note_no: "",
   vehicle_no: "",
   received_by: "",
@@ -176,10 +184,12 @@ interface GRNLineItem extends Omit<GoodReceivedItemCreate, "barcode"> {
 // Batch/none-tracked products are received as one lot line carrying a
 // quantity (no per-unit barcode); serial products stay one line per unit.
 const isLotItem = (i: { tracking_type?: TrackingType }) => (i.tracking_type ?? "serial") !== "serial";
+// Today's date as YYYY-MM-DD in the user's own time zone (an expiry before it means already expired).
+const todayLocalISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const isLotReady = (i: GRNLineItem) =>
   (i.quantity ?? 0) >= 1 &&
   (i.max_quantity === undefined || (i.quantity ?? 0) <= i.max_quantity) &&
-  (i.tracking_type !== "batch" || !!i.batch_no?.trim());
+  (i.tracking_type !== "batch" || (!!i.batch_no?.trim() && !(i.expiry_date && i.expiry_date < todayLocalISO())));
 const lineUnits = (i: GRNLineItem) => (isLotItem(i) ? (i.quantity ?? 0) : 1);
 
 // Grouped items by product for nice display
@@ -209,6 +219,7 @@ type GRNRow = GoodReceivedNote & {
 const resetFormFromGRN = (grn: GoodReceivedNote): GoodReceivedNoteCreate => ({
   good_received_no: grn.good_received_no,
   good_received_date: grn.good_received_date?.split("T")[0] || "",
+  supplier_invoice_no: grn.supplier_invoice_no || "",
   delivery_note_no: grn.delivery_note_no || "",
   vehicle_no: grn.vehicle_no || "",
   received_by: grn.received_by || "",
@@ -242,11 +253,21 @@ export default function GoodReceivedNotesPage() {
   // Most units still receivable per PO line (ordered + the product's over-receipt tolerance - already received).
   const [receiptCaps, setReceiptCaps] = useState<Record<number, number>>({});
 
+  // Display info per PO line for the receiving grid (ordered / already received / item master data).
+  const [lineMeta, setLineMeta] = useState<Record<number, {
+    ordered: number;
+    received: number;
+    item_code: string;
+    description: string;
+    uom: string;
+  }>>({});
+
   // Goods delivered but NOT accepted, per PO line: they never enter stock and the PO stays open.
   const [rejections, setRejections] = useState<Record<number, { qty: string; reason: string }>>({});
 
   // Cancel (reverse) a posted GRN
   const canCancelGRN = usePermission("grn", "delete");
+  const canCreateGRN = usePermission("grn", "create");
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -389,6 +410,7 @@ export default function GoodReceivedNotesPage() {
     setFormData(prev => ({
       ...prev,
       good_received_no: "",
+      good_received_date: todayLocal(),
       branch_code: defaultBranchCode || prev.branch_code,
     }));
     setLineItems([]);
@@ -443,27 +465,95 @@ export default function GoodReceivedNotesPage() {
     }
   }, []);
 
-  // Group items by product for view mode display
-  const groupedViewItems = useMemo(() => {
+  // View mode: PO lines, products and every receipt on the PO, so each GRN line
+  // can show ordered / to-receive / remaining quantities and its cost.
+  const viewPoId = selectedGRN && !isCreating ? selectedGRN.purchasingorders_id : 0;
+  const { data: viewPO } = useQuery({
+    queryKey: ["grn-view-po", viewPoId],
+    queryFn: () => purchaseOrdersApi.getById(viewPoId),
+    enabled: viewPoId > 0,
+  });
+  const { data: viewPOReceipts = [] } = useQuery({
+    queryKey: ["grn-view-po-receipts", viewPoId, selectedGRN?.status],
+    queryFn: () => goodReceivedItemsApi.getByPO(viewPoId),
+    enabled: viewPoId > 0,
+  });
+  const { data: viewProducts = [] } = useQuery({
+    queryKey: ["grn-view-products"],
+    queryFn: () => productsApi.getAll(0, 1000, true),
+    enabled: viewPoId > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // View mode: one row per PO line received on this GRN.
+  const viewLines = useMemo(() => {
     if (!lineItems.length || isCreating) return [];
 
-    const groups: { [key: string]: { product_name: string; product_id?: number; items: typeof lineItems } } = {};
-
-    lineItems.forEach(item => {
-      const key = item.product_name || `PO Item #${item.purchasing_order_items_id}`;
-      if (!groups[key]) {
-        groups[key] = {
-          product_name: key,
-          product_id: item.product_id,
-          items: [],
-        };
+    const poItems = new Map<number, PurchasingOrderItem>(
+      ((viewPO as PurchasingOrderWithItems | undefined)?.items ?? []).map((i: PurchasingOrderItem) => [i.id, i])
+    );
+    const receivedByLine = new Map<number, number>();
+    viewPOReceipts.forEach((r: GoodReceivedItem) => {
+      if (r.active) {
+        receivedByLine.set(
+          r.purchasing_order_items_id,
+          (receivedByLine.get(r.purchasing_order_items_id) ?? 0) + (r.quantity ?? 1)
+        );
       }
-      groups[key].items.push(item);
     });
 
-    // Sort by product name
-    return Object.values(groups).sort((a, b) => a.product_name.localeCompare(b.product_name));
-  }, [lineItems, isCreating]);
+    const rows = new Map<number, {
+      key: number;
+      product_id?: number;
+      item_code: string;
+      item_name: string;
+      description: string;
+      unit_price: number;
+      ordered: number | null;
+      toReceive: number;
+      remaining: number | null;
+      uom: string;
+      expiry: string[];
+      refs: string[];
+    }>();
+
+    lineItems.forEach((item) => {
+      const lineId = item.purchasing_order_items_id;
+      const poItem = poItems.get(lineId);
+      const product = (viewProducts as Product[]).find((p) => p.id === (item.product_id ?? poItem?.product_id));
+      let row = rows.get(lineId);
+      if (!row) {
+        const ordered = poItem ? poItem.quantity : null;
+        row = {
+          key: lineId,
+          product_id: item.product_id ?? poItem?.product_id,
+          item_code: product?.item_code ?? "",
+          item_name: item.product_name || product?.name || `PO Item #${lineId}`,
+          description: product?.description ?? "",
+          unit_price: poItem?.unit_price ?? 0,
+          ordered,
+          toReceive: 0,
+          remaining: ordered === null ? null : Math.max(ordered - (receivedByLine.get(lineId) ?? 0), 0),
+          uom: product?.unit_of_measure ?? "",
+          expiry: [],
+          refs: [],
+        };
+        rows.set(lineId, row);
+      }
+      row.toReceive += item.quantity ?? 1;
+      if (item.expiry_date && !row.expiry.includes(item.expiry_date)) row.expiry.push(item.expiry_date);
+      const ref = item.barcode || (item.batch_no ? `Batch ${item.batch_no}` : "");
+      if (ref) row.refs.push(ref);
+    });
+
+    return Array.from(rows.values()).sort((a, b) => a.item_name.localeCompare(b.item_name));
+  }, [lineItems, isCreating, viewPO, viewPOReceipts, viewProducts]);
+
+  // Full cost of this GRN = sum of (received qty x PO unit price)
+  const viewTotalCost = useMemo(
+    () => viewLines.reduce((sum, r) => sum + r.toReceive * r.unit_price, 0),
+    [viewLines]
+  );
 
   // handleStartEdit removed - GRNs are not editable after creation
 
@@ -874,6 +964,10 @@ export default function GoodReceivedNotesPage() {
     enabled: !!selectedGRN && !isCreating,
   });
 
+  const createTotalCost = useMemo(
+    () => productGroups.reduce((sum, g) => sum + g.total_quantity * g.unit_price, 0),
+    [productGroups]
+  );
   const handlePOChange = async (poId: number) => {
     const selectedPO = purchaseOrders?.find((o: PurchasingOrder) => o.id === poId);
     if (selectedPO) {
@@ -892,7 +986,7 @@ export default function GoodReceivedNotesPage() {
         ...formData,
         purchasingorders_id: poId,
         branch_code: selectedPO.branch_code,
-        good_received_date: selectedPO.good_received_note_date?.split("T")[0] || new Date().toISOString().split("T")[0],
+        good_received_date: todayLocal(),
         good_received_locations_id: selectedLocationId,
       });
 
@@ -931,6 +1025,7 @@ export default function GoodReceivedNotesPage() {
           // Create line items from PO items - one for each quantity (excluding received items)
           const newLineItems: GRNLineItem[] = [];
           const caps: Record<number, number> = {};
+          const meta: Record<number, { ordered: number; received: number; item_code: string; description: string; uom: string }> = {};
           poWithItems.items?.forEach((poItem: PurchasingOrderItem) => {
             const product = allProducts.find((p: Product) => p.id === poItem.product_id);
             const receivedCount = receivedCountMap.get(poItem.id) || 0;
@@ -938,6 +1033,13 @@ export default function GoodReceivedNotesPage() {
             const overPct = Number((product as Product | undefined)?.over_receipt_tolerance_pct ?? 0);
             const receivableCap = Math.max(Math.floor(poItem.quantity * (1 + overPct / 100)) - receivedCount, 0);
             caps[poItem.id] = receivableCap;
+            meta[poItem.id] = {
+              ordered: poItem.quantity,
+              received: receivedCount,
+              item_code: product?.item_code ?? "",
+              description: product?.description ?? "",
+              uom: product?.unit_of_measure ?? "",
+            };
 
             const trackingType = ((product as Product | undefined)?.tracking_type ?? "serial") as TrackingType;
 
@@ -992,6 +1094,7 @@ export default function GoodReceivedNotesPage() {
           });
 
           setReceiptCaps(caps);
+          setLineMeta(meta);
           setLineItems(newLineItems);
 
           // Group items by product for display
@@ -1037,7 +1140,8 @@ export default function GoodReceivedNotesPage() {
           unit_price: item.unit_price || 0,
           total_quantity: lineUnits(item),
           items: [item],
-          expanded: true,
+          // Quantity-only items need nothing but a qty, which the grid row carries.
+          expanded: (item.tracking_type ?? "serial") !== "none",
         });
       }
     });
@@ -1069,27 +1173,6 @@ export default function GoodReceivedNotesPage() {
         return { ...g, items, total_quantity: items.reduce((n, i) => n + lineUnits(i), 0) };
       })
     );
-  };
-
-  // Fill every still-empty serial unit of a product with a generated barcode
-  // (for goods that arrived without a manufacturer serial/barcode).
-  const handleGenerateBarcodes = async (productId: number) => {
-    const targets = lineItems.filter(
-      i => i.product_id === productId && !isLotItem(i) && !i.barcode
-    );
-    if (targets.length === 0) return;
-    try {
-      const codes = await goodReceivedItemsApi.generateBarcodes(targets.length);
-      const byId = new Map(targets.map((t, idx) => [t._id, codes[idx]]));
-      const apply = (item: GRNLineItem): GRNLineItem =>
-        byId.has(item._id)
-          ? { ...item, barcode: byId.get(item._id)!, scanned: true, barcodeError: undefined }
-          : item;
-      setLineItems(items => items.map(apply));
-      setProductGroups(groups => groups.map(g => ({ ...g, items: g.items.map(apply) })));
-    } catch {
-      showErrorToast("Failed to generate barcodes");
-    }
   };
 
   // Validate barcode against database - extracted for reuse
@@ -1354,10 +1437,6 @@ export default function GoodReceivedNotesPage() {
   };
 
   // Check if all items are scanned
-  const allItemsScanned = useMemo(() => {
-    return lineItems.length > 0 && lineItems.every(item => item.scanned);
-  }, [lineItems]);
-
   // Check if any items have barcode errors (excluding "Checking..." state)
   const hasBarcodeErrors = useMemo(() => {
     return lineItems.some(item => item.barcodeError && item.barcodeError !== "Checking...");
@@ -1376,10 +1455,6 @@ export default function GoodReceivedNotesPage() {
   }, [lineItems]);
 
   // Count scanned items
-  const scannedCount = useMemo(() => {
-    return lineItems.filter(item => item.scanned).reduce((n, item) => n + lineUnits(item), 0);
-  }, [lineItems]);
-
   const totalUnits = useMemo(() => {
     return lineItems.reduce((n, item) => n + lineUnits(item), 0);
   }, [lineItems]);
@@ -1476,6 +1551,22 @@ export default function GoodReceivedNotesPage() {
       { field: "po_display", header: "PO No", width: 150 },
       { field: "supplier_display", header: "Supplier", flex: 1, minWidth: 170 },
       { field: "branch_display", header: "Branch", width: 170 },
+      { field: "delivery_note_no", header: "Delivery Note", width: 140, valueGetter: (_v: unknown, row: GRNRow) => row.delivery_note_no || "-" },
+      { field: "units_received", header: "Units", width: 90, type: "number" },
+      {
+        field: "units_rejected",
+        header: "Rejected",
+        width: 100,
+        type: "number",
+        renderCell: (params: GridRenderCellParams<GRNRow>) =>
+          (params.row.units_rejected ?? 0) > 0 ? (
+            <span style={{ color: "#d32f2f", fontWeight: 600 }}>{params.row.units_rejected}</span>
+          ) : (
+            "-"
+          ),
+      },
+      { field: "total_value", header: `Value (${currencySymbol})`, width: 130, type: "currency" },
+      { field: "received_by", header: "Received By", width: 150, valueGetter: (_v: unknown, row: GRNRow) => row.received_by || row.created_by_name || "-" },
       {
         field: "good_received_date",
         header: "Received Date",
@@ -1519,7 +1610,7 @@ export default function GoodReceivedNotesPage() {
         ),
       },
     ],
-    [handleSelectGRNWithItems]
+    [handleSelectGRNWithItems, currencySymbol]
   );
 
   // Whether we're showing a single GRN's detail view (selected or being
@@ -1570,8 +1661,9 @@ export default function GoodReceivedNotesPage() {
         isEditing={isEditing}
         isSaving={isSaving}
         isFormValid={!!isFormValid}
+        canCreate={canCreateGRN}
         onNew={handleNewGRN}
-        onSave={handleSaveClick}
+        onSave={isCreating && formStep < FORM_STEPS.length - 1 ? undefined : handleSaveClick}
         onCancel={() => handleCancel(filteredGRNs)}
         startActions={
           isCreating && formStep === 1 ? (
@@ -1599,9 +1691,26 @@ export default function GoodReceivedNotesPage() {
             </Button>
           ) : selectedGRN && !isCreating && !isEditing ? (
             <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+              {canCancelGRN && selectedGRN.status !== "cancelled" && (
+                <>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    onClick={() => {
+                      setCancelError(null);
+                      setCancelOpen(true);
+                    }}
+                  >
+                    Cancel GRN
+                  </Button>
+                  <Divider orientation="vertical" flexItem sx={{ mx: 2 }} />
+                </>
+              )}
               <Button
                 size="small"
                 variant="outlined"
+                disabled={selectedGRN.status === "cancelled"}
                 startIcon={<PaymentIcon />}
                 onClick={() => {
                   const po = purchaseOrderMap.get(selectedGRN.purchasingorders_id);
@@ -1616,22 +1725,11 @@ export default function GoodReceivedNotesPage() {
               >
                 Make Payment
               </Button>
-              {canCancelGRN && selectedGRN.status !== "cancelled" && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  onClick={() => {
-                    setCancelError(null);
-                    setCancelOpen(true);
-                  }}
-                >
-                  Cancel GRN
-                </Button>
-              )}
               <TPrintButton
                 documentType="grn"
                 documentId={selectedGRN.id}
+                disabled={!canPrintDocument(selectedGRN.status, ["cancelled"])}
+                disabledReason="Cannot print: only posted goods received notes can be printed"
                 tooltip="Print GRN"
                 onClick={() => handlePrint(selectedGRN.id)}
               />
@@ -1691,6 +1789,15 @@ export default function GoodReceivedNotesPage() {
                         required
                         error={hasError('purchasingorders_id')}
                         helperText={getFieldError('purchasingorders_id')}
+                        InputProps={{
+                          ...params.InputProps,
+                          endAdornment: (
+                            <>
+                              <EntityPeekButton entity="purchase-order" id={formData.purchasingorders_id} />
+                              {params.InputProps.endAdornment}
+                            </>
+                          ),
+                        }}
                       />
                     )}
                     isOptionEqualToValue={(option, value) => option.id === value?.id}
@@ -1700,13 +1807,9 @@ export default function GoodReceivedNotesPage() {
                     size="small"
                     type="date"
                     value={formData.good_received_date}
-                    onChange={(e) => setFormData({ ...formData, good_received_date: e.target.value })}
-                    onBlur={() => handleBlur('good_received_date')}
-                    disabled={!isEditing && !isCreating}
+                    disabled
                     InputLabelProps={{ shrink: true }}
-                    required
-                    error={hasError('good_received_date')}
-                    helperText={getFieldError('good_received_date')}
+                    helperText={isCreating ? "Today's date, set automatically" : undefined}
                   />
                   <TextField
                     label="Branch"
@@ -1744,6 +1847,24 @@ export default function GoodReceivedNotesPage() {
                     value={getSupplierName(formData.purchasingorders_id)}
                     disabled
                     helperText="Auto-filled from Purchase Order"
+                    InputProps={{
+                      endAdornment: (
+                        <EntityPeekButton
+                          entity="supplier"
+                          hideTabs={["payment"]}
+                          id={purchaseOrders?.find((o: PurchasingOrder) => o.id === formData.purchasingorders_id)?.first_suppliers_id}
+                        />
+                      ),
+                    }}
+                  />
+                  <TextField
+                    label="Supplier Invoice No"
+                    size="small"
+                    value={formData.supplier_invoice_no || ""}
+                    onChange={(e) => setFormData({ ...formData, supplier_invoice_no: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    inputProps={{ maxLength: 200 }}
+                    helperText={isCreating ? "Invoice number printed on the supplier's invoice (optional)" : undefined}
                   />
                   <TextField
                     label="Delivery Note No"
@@ -1762,28 +1883,17 @@ export default function GoodReceivedNotesPage() {
                     disabled={!isEditing && !isCreating}
                     inputProps={{ maxLength: 50 }}
                   />
-                  <TextField
-                    label="Received By"
-                    size="small"
-                    value={formData.received_by || ""}
-                    onChange={(e) => setFormData({ ...formData, received_by: e.target.value })}
-                    disabled={!isEditing && !isCreating}
-                    inputProps={{ maxLength: 200 }}
-                    helperText={isCreating ? "Leave blank to record yourself" : undefined}
-                  />
+                  {/* Filled automatically with the user who saved the GRN, so it only shows once saved */}
+                  {!isCreating && (
+                    <TextField
+                      label="Received By"
+                      size="small"
+                      value={formData.received_by || ""}
+                      disabled
+                    />
+                  )}
                 </FormSection>
 
-                <FormSection title="Remarks" columns={1}>
-                  <TRemarkField
-                    label="Remarks"
-                    size="small"
-                    value={formData.remark}
-                    onChange={(value) => setFormData({ ...formData, remark: value })}
-                    disabled={!isEditing && !isCreating}
-                    multiline
-                    rows={2}
-                  />
-                </FormSection>
 
               </>
             )}
@@ -1802,45 +1912,12 @@ export default function GoodReceivedNotesPage() {
                   </Box>
                 )}
 
-                {/* Progress indicator */}
-                {isCreating && lineItems.length > 0 && (
-                  <Box sx={{ mb: 2 }}>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                      <Typography variant="body2" color="text.secondary">
-                        Scanning Progress
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {scannedCount} / {totalUnits} units ready
-                      </Typography>
-                    </Box>
-                    <LinearProgress
-                      variant="determinate"
-                      value={totalUnits > 0 ? (scannedCount / totalUnits) * 100 : 0}
-                      sx={{
-                        height: 8,
-                        borderRadius: 4,
-                        bgcolor: 'grey.200',
-                        '& .MuiLinearProgress-bar': {
-                          bgcolor: allItemsScanned ? 'success.main' : 'primary.main',
-                        }
-                      }}
-                    />
-                    {allItemsScanned && (
-                      <Alert severity="success" sx={{ mt: 1 }} icon={<CheckCircleIcon />}>
-                        All items scanned! Ready to save.
-                      </Alert>
-                    )}
-                  </Box>
-                )}
 
                 {!isCreating && selectedGRN?.status === "cancelled" && (
                   <Alert severity="error" sx={{ mt: 2 }}>
                     This GRN was cancelled{selectedGRN.cancelled_at ? ` on ${new Date(selectedGRN.cancelled_at).toLocaleDateString()}` : ""}:{" "}
                     {selectedGRN.cancel_reason || "no reason recorded"}. Its stock was withdrawn and the purchase order line reopened.
                   </Alert>
-                )}
-                {!isCreating && selectedGRN && (
-                  <LandedCostPanel grnId={selectedGRN.id} grnStatus={selectedGRN.status} />
                 )}
                 {!isCreating && grnRejections.length > 0 && (
                   <Paper variant="outlined" sx={{ mt: 2, p: 1.5 }}>
@@ -1870,86 +1947,101 @@ export default function GoodReceivedNotesPage() {
                 {/* Products grouped by product ID - Nice card-based layout */}
                 {isCreating && productGroups.length > 0 ? (
                   <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    {productGroups.map((group) => (
-                      <Card
-                        key={group.product_id}
-                        variant="outlined"
-                        sx={{
-                          borderLeft: 4,
-                          borderLeftColor: group.items.every(i => i.scanned) ? 'success.main' : 'primary.main'
-                        }}
-                      >
-                        {/* Product Header */}
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            p: 1.5,
-                            bgcolor: "action.hover",
-                            cursor: "pointer",
-                          }}
-                          onClick={() => toggleProductGroup(group.product_id)}
-                        >
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                            <InventoryIcon color="primary" />
-                            <Box>
-                              <Typography variant="subtitle1" fontWeight="bold">
-                                {group.product_name}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {currencySymbol} {fmtLKR(group.unit_price)} per unit • Qty: {group.total_quantity} • Branch: {group.items[0]?.branch_code} • PO Item ID: {group.items[0]?.purchasing_order_items_id}
-                              </Typography>
-                            </Box>
-                          </Box>
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                            <TChip
-                              label={`${group.items.filter(i => i.scanned).reduce((n, i) => n + lineUnits(i), 0)}/${group.total_quantity} ready`}
-                              size="small"
-                              color={group.items.every(i => i.scanned) ? "success" : "default"}
-                            />
-                            <IconButton size="small">
-                              {group.expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                    <Paper variant="outlined" sx={{ overflow: "auto", borderRadius: 3 }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={modernTableStyles.headerRow}>
+                            <TableCell sx={{ width: 36 }} />
+                            <TableCell>Item Code</TableCell>
+                            <TableCell>Item Name</TableCell>
+                            <TableCell>Tracking</TableCell>
+                            <TableCell>UOM</TableCell>
+                            <TableCell>Currency</TableCell>
+                            <TableCell align="right">{`Unit Price (${currencySymbol})`}</TableCell>
+                            <TableCell align="right">Ordered</TableCell>
+                            <TableCell align="right">Prev. Received</TableCell>
+                            <TableCell align="right">Open</TableCell>
+                            <TableCell align="right">To Receive</TableCell>
+                            <TableCell align="right">Remaining</TableCell>
+                            <TableCell>Expiry</TableCell>
+                            <TableCell align="right">{`Line Cost (${currencySymbol})`}</TableCell>
+                            <TableCell>Status</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                    {productGroups.map((group) => {
+                      const first = group.items[0];
+                      const meta = lineMeta[first?.purchasing_order_items_id];
+                      const lot = isLotItem(first);
+                      const open = meta ? Math.max(meta.ordered - meta.received, 0) : null;
+                      const toReceive = group.total_quantity;
+                      const readyUnits = group.items.filter((i) => i.scanned).reduce((n, i) => n + lineUnits(i), 0);
+                      const isReady = group.items.every((i) => i.scanned);
+                      const hasError = group.items.some((i) => i.barcodeError && i.barcodeError !== "Checking...");
+                      const expiries = Array.from(new Set(group.items.map((i) => i.expiry_date).filter(Boolean)));
+                      const trackingLabel = first?.tracking_type === "serial" ? "Serial" : first?.tracking_type === "batch" ? "Batch" : "Quantity";
+                      return (
+                      <Fragment key={group.product_id}>
+                        <TableRow hover sx={{ "& > td": { borderBottom: group.expanded ? 0 : undefined } }}>
+                          <TableCell sx={{ px: 0.5 }}>
+                            <IconButton size="small" aria-label="Toggle details" onClick={() => toggleProductGroup(group.product_id)}>
+                              {group.expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                             </IconButton>
-                          </Box>
-                        </Box>
-
-                        {/* Individual Items for barcode scanning */}
-                        <Collapse in={group.expanded}>
+                          </TableCell>
+                          <TableCell>{meta?.item_code || "—"}</TableCell>
+                          <TableCell>
+                            <EntityLink entity="product" id={group.product_id}>
+                              {group.product_name}
+                            </EntityLink>
+                            {meta?.description && (
+                              <Typography variant="caption" color="text.secondary" display="block" noWrap sx={{ maxWidth: 240 }}>
+                                {meta.description}
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <TChip size="small" label={trackingLabel} color={first?.tracking_type === "serial" ? "primary" : first?.tracking_type === "batch" ? "secondary" : "default"} />
+                          </TableCell>
+                          <TableCell>{meta?.uom || "—"}</TableCell>
+                          <TableCell>{currencySymbol}</TableCell>
+                          <TableCell align="right">{fmtLKR(group.unit_price)}</TableCell>
+                          <TableCell align="right">{meta?.ordered ?? "—"}</TableCell>
+                          <TableCell align="right">{meta?.received ?? "—"}</TableCell>
+                          <TableCell align="right">{open ?? "—"}</TableCell>
+                          <TableCell align="right">
+                            {lot && group.items.length === 1 ? (
+                              <TextField
+                                size="small"
+                                type="number"
+                                value={first.quantity ?? ""}
+                                onChange={(e) =>
+                                  handleLotChange(first._id, { quantity: e.target.value === "" ? undefined : Math.floor(Number(e.target.value)) })
+                                }
+                                inputProps={{ min: 1, max: first.max_quantity, style: { textAlign: "right", padding: "4px 6px" } }}
+                                error={(first.quantity ?? 0) < 1 || (first.max_quantity !== undefined && (first.quantity ?? 0) > first.max_quantity)}
+                                sx={{ width: 80 }}
+                              />
+                            ) : (
+                              toReceive
+                            )}
+                          </TableCell>
+                          <TableCell align="right">{open === null ? "—" : Math.max(open - toReceive, 0)}</TableCell>
+                          <TableCell>{expiries.length ? expiries.join(", ") : "—"}</TableCell>
+                          <TableCell align="right">{fmtLKR(toReceive * group.unit_price)}</TableCell>
+                          <TableCell>
+                            <TChip
+                              size="small"
+                              label={hasError ? "Barcode error" : isReady ? "Ready" : `${readyUnits}/${toReceive} ${first?.tracking_type === "serial" ? "serials" : "ready"}`}
+                              color={hasError ? "error" : isReady ? "success" : "warning"}
+                            />
+                          </TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={15} sx={{ p: 0, borderBottom: group.expanded ? undefined : 0 }}>
+                        {/* Detail row: serial scanning, lot entry and rejections */}
+                        <Collapse in={group.expanded} unmountOnExit>
                           <Divider />
-                          <CardContent sx={{ p: 1 }}>
-                            {(() => {
-                              const poItemId = group.items[0]?.purchasing_order_items_id;
-                              const rej = rejections[poItemId] ?? { qty: "", reason: "" };
-                              const setRej = (patch: Partial<{ qty: string; reason: string }>) =>
-                                setRejections((prev) => ({ ...prev, [poItemId]: { ...rej, ...patch } }));
-                              return (
-                                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "flex-start", mb: 1 }}>
-                                  <TextField
-                                    size="small"
-                                    type="number"
-                                    label="Rejected qty"
-                                    value={rej.qty}
-                                    onChange={(e) => setRej({ qty: e.target.value })}
-                                    inputProps={{ min: 0 }}
-                                    sx={{ width: 130 }}
-                                    helperText="Not accepted: not stocked, PO stays open"
-                                  />
-                                  {Number(rej.qty) > 0 && (
-                                    <TextField
-                                      size="small"
-                                      label="Rejection reason"
-                                      required
-                                      value={rej.reason}
-                                      onChange={(e) => setRej({ reason: e.target.value })}
-                                      error={rej.reason.trim().length < 3}
-                                      inputProps={{ maxLength: 500 }}
-                                      sx={{ flex: 1, minWidth: 240 }}
-                                    />
-                                  )}
-                                </Box>
-                              );
-                            })()}
+                          <Box sx={{ p: 1, bgcolor: "action.hover" }}>
                             {!isLotItem(group.items[0]) && (receiptCaps[group.items[0].purchasing_order_items_id] ?? 0) > group.items.length && (
                               <Button
                                 size="small"
@@ -1958,17 +2050,6 @@ export default function GoodReceivedNotesPage() {
                                 sx={{ mb: 1, mr: 1 }}
                               >
                                 + Add unit (over-receipt tolerance allows {(receiptCaps[group.items[0].purchasing_order_items_id] ?? 0) - group.items.length} more)
-                              </Button>
-                            )}
-                            {!isLotItem(group.items[0]) && group.items.some(i => !i.barcode) && (
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                startIcon={<QrCodeScannerIcon />}
-                                onClick={() => handleGenerateBarcodes(group.product_id)}
-                                sx={{ mb: 1 }}
-                              >
-                                Generate barcodes for unscanned units
                               </Button>
                             )}
                             {group.items.map((item, index) => (
@@ -2006,7 +2087,12 @@ export default function GoodReceivedNotesPage() {
                                       label="Received Qty"
                                       value={item.quantity ?? ""}
                                       onChange={(e) =>
-                                        handleLotChange(item._id, { quantity: e.target.value === "" ? undefined : Math.floor(Number(e.target.value)) })
+                                        handleLotChange(item._id, {
+                                          // never negative, never above what is still open on the PO line
+                                          quantity: e.target.value === ""
+                                            ? undefined
+                                            : Math.max(0, Math.min(Math.floor(Number(e.target.value)) || 0, item.max_quantity ?? Number.MAX_SAFE_INTEGER)),
+                                        })
                                       }
                                       inputProps={{ min: 1, max: item.max_quantity }}
                                       error={(item.quantity ?? 0) < 1 || (item.max_quantity !== undefined && (item.quantity ?? 0) > item.max_quantity)}
@@ -2032,6 +2118,9 @@ export default function GoodReceivedNotesPage() {
                                           value={item.expiry_date || ""}
                                           onChange={(e) => handleLotChange(item._id, { expiry_date: e.target.value || undefined })}
                                           InputLabelProps={{ shrink: true }}
+                                          inputProps={{ min: todayLocalISO() }}
+                                          error={!!item.expiry_date && item.expiry_date < todayLocalISO()}
+                                          helperText={item.expiry_date && item.expiry_date < todayLocalISO() ? "Already expired" : undefined}
                                           sx={{ width: 170 }}
                                         />
                                       </>
@@ -2119,10 +2208,25 @@ export default function GoodReceivedNotesPage() {
                                 )}
                               </Box>
                             ))}
-                          </CardContent>
+                          </Box>
                         </Collapse>
-                      </Card>
-                    ))}
+                          </TableCell>
+                        </TableRow>
+                      </Fragment>
+                      );
+                    })}
+                        </TableBody>
+                      </Table>
+                    </Paper>
+
+                    <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 4, px: 1 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Units to receive: <b>{totalUnits}</b>
+                      </Typography>
+                      <Typography variant="subtitle2">
+                        Total GRN Cost ({currencySymbol}): {fmtLKR(createTotalCost)}
+                      </Typography>
+                    </Box>
 
                     {/* Barcode Validation Status */}
                     {isValidatingBarcodes && (
@@ -2148,8 +2252,84 @@ export default function GoodReceivedNotesPage() {
 
 
                   </Box>
+                ) : !isEditing ? (
+                  /* View mode - one row per received PO line, with full cost */
+                  <Box>
+                    <Paper variant="outlined" sx={{ overflow: "auto", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={modernTableStyles.headerRow}>
+                            <TableCell>Item Code</TableCell>
+                            <TableCell>Item Name</TableCell>
+                            <TableCell>Description</TableCell>
+                            <TableCell>Currency</TableCell>
+                            <TableCell align="right">{`Unit Price (${currencySymbol})`}</TableCell>
+                            <TableCell align="right">Quantity</TableCell>
+                            <TableCell align="right">To Receive</TableCell>
+                            <TableCell align="right">Remaining Qty</TableCell>
+                            <TableCell>UOM</TableCell>
+                            <TableCell>Expiry Date</TableCell>
+                            <TableCell align="right">{`Line Cost (${currencySymbol})`}</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {loadingItems ? (
+                            <TableRow>
+                              <TableCell colSpan={11} align="center">
+                                <CircularProgress size={24} sx={{ my: 2 }} />
+                              </TableCell>
+                            </TableRow>
+                          ) : viewLines.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={11} sx={modernTableStyles.emptyCell}>
+                                No items received yet
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            <>
+                              {viewLines.map((row) => (
+                                <TableRow key={row.key}>
+                                  <TableCell>{row.item_code || "—"}</TableCell>
+                                  <TableCell>
+                                    <EntityLink entity="product" id={row.product_id}>
+                                      {row.item_name}
+                                    </EntityLink>
+                                    {row.refs.length > 0 && (
+                                      <Typography variant="caption" color="text.secondary" display="block">
+                                        {row.refs.slice(0, 3).join(", ")}
+                                        {row.refs.length > 3 ? ` +${row.refs.length - 3} more` : ""}
+                                      </Typography>
+                                    )}
+                                  </TableCell>
+                                  <TableCell sx={{ maxWidth: 220 }}>{row.description || "—"}</TableCell>
+                                  <TableCell>{currencySymbol}</TableCell>
+                                  <TableCell align="right">{fmtLKR(row.unit_price)}</TableCell>
+                                  <TableCell align="right">{row.ordered ?? "—"}</TableCell>
+                                  <TableCell align="right">{row.toReceive}</TableCell>
+                                  <TableCell align="right">{row.remaining ?? "—"}</TableCell>
+                                  <TableCell>{row.uom || "—"}</TableCell>
+                                  <TableCell>
+                                    {row.expiry.length ? row.expiry.map((d) => d.split("T")[0]).join(", ") : "—"}
+                                  </TableCell>
+                                  <TableCell align="right">{fmtLKR(row.toReceive * row.unit_price)}</TableCell>
+                                </TableRow>
+                              ))}
+                              <TableRow sx={{ bgcolor: "action.hover" }}>
+                                <TableCell colSpan={10} align="right" sx={{ fontWeight: "bold" }}>
+                                  Total GRN Cost ({currencySymbol})
+                                </TableCell>
+                                <TableCell align="right" sx={{ fontWeight: "bold" }}>
+                                  {fmtLKR(viewTotalCost)}
+                                </TableCell>
+                              </TableRow>
+                            </>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </Paper>
+                  </Box>
                 ) : (
-                  /* View/Edit mode - Table layout */
+                  /* Edit mode - Table layout */
                   <Box>
                     <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
                       <Table size="small">
@@ -2219,64 +2399,28 @@ export default function GoodReceivedNotesPage() {
                                 </TableCell>
                               </TableRow>
                             ))
-                          ) : (
-                            // View mode - grouped by product
-                            groupedViewItems.map((group) => (
-                              <Fragment key={`group-${group.product_name}`}>
-                                {/* Product group header */}
-                                <TableRow sx={{ bgcolor: "action.hover" }}>
-                                  <TableCell colSpan={6}>
-                                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                                      <InventoryIcon fontSize="small" color="primary" />
-                                      <Typography variant="subtitle2" fontWeight="bold">
-                                        {group.product_name}
-                                      </Typography>
-                                      <TChip size="small" label={`${group.items.length} items`} />
-                                    </Box>
-                                  </TableCell>
-                                </TableRow>
-                                {/* Items in this group */}
-                                {group.items.map((item) => (
-                                  <TableRow key={item._id} sx={{ "&:last-child td": { borderBottom: 0 } }}>
-                                    <TableCell sx={{ pl: 4 }}>
-                                      {item.barcode ||
-                                        (item.batch_no
-                                          ? `Batch ${item.batch_no} \u00d7 ${item.quantity ?? 1}`
-                                          : `Qty ${item.quantity ?? 1}`)}
-                                    </TableCell>
-                                    <TableCell>
-                                      <Typography variant="body2" color="text.secondary">
-                                        {item.product_name}
-                                      </Typography>
-                                    </TableCell>
-                                    <TableCell>{item.warranty_month ? `${item.warranty_month} mo` : "—"}</TableCell>
-                                    <TableCell>
-                                      <Box sx={{ display: "flex", gap: 0.5 }}>
-                                        {item.saveToSalesStock && (
-                                          <TChip size="small" label="Sales Stock" color="success" icon={<InventoryIcon />} />
-                                        )}
-                                        {item.saveToCompanyAssets && (
-                                          <TChip size="small" label="Company Asset" color="info" icon={<BusinessIcon />} />
-                                        )}
-                                        {!item.saveToSalesStock && !item.saveToCompanyAssets && (
-                                          <Typography variant="body2" color="text.secondary">—</Typography>
-                                        )}
-                                      </Box>
-                                    </TableCell>
-                                    <TableCell>{item.branch_code}</TableCell>
-                                    <TableCell align="center">
-                                      <TChip size="small" label={item.active ? "Yes" : "No"} color={item.active ? "success" : "default"} />
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
-                              </Fragment>
-                            ))
-                          )}
+                          ) : null}
                         </TableBody>
                       </Table>
                     </Paper>
                   </Box>
                 )}
+
+                {!isCreating && selectedGRN && (
+                  <LandedCostPanel grnId={selectedGRN.id} grnStatus={selectedGRN.status} />
+                )}
+
+                <FormSection title="Remarks" columns={1}>
+                  <TRemarkField
+                    label="Remarks"
+                    size="small"
+                    value={formData.remark}
+                    onChange={(value) => setFormData({ ...formData, remark: value })}
+                    disabled={!isEditing && !isCreating}
+                    multiline
+                    rows={2}
+                  />
+                </FormSection>
               </>
             )}
           </>
@@ -2392,7 +2536,7 @@ export default function GoodReceivedNotesPage() {
           )
         }
         headerActions={
-          isGRNDetailMode ? undefined : (
+          isGRNDetailMode || !canCreateGRN ? undefined : (
             <Button
               variant="contained"
               size="small"

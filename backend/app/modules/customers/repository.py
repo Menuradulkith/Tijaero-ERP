@@ -70,11 +70,11 @@ class CustomerRepository:
     def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = False, customer_type: Optional[str] = None) -> List[Customer]:
         query = self._filtered(db, active=True if active_only else None, customer_type=customer_type)
         # Stable order: without one a skip/limit window can repeat or miss rows.
-        return query.order_by(func.lower(Customer.customer_name), Customer.id).offset(skip).limit(limit).all()
+        return query.order_by(Customer.id.desc()).offset(skip).limit(limit).all()
 
     def search(self, db: Session, query: str, skip: int = 0, limit: int = 100, customer_type: Optional[str] = None) -> List[Customer]:
         q = self._filtered(db, customer_type=customer_type, q=query)
-        return q.order_by(func.lower(Customer.customer_name), Customer.id).offset(skip).limit(limit).all()
+        return q.order_by(Customer.id.desc()).offset(skip).limit(limit).all()
 
     SORTS = {
         "customer_no": (Customer.customer_no, False),
@@ -95,7 +95,9 @@ class CustomerRepository:
         col, text_sort = self.SORTS.get(sort_by or "customer_name") or self.SORTS["customer_name"]
         expr = func.lower(col) if text_sort else col
         expr = expr.desc() if order == "desc" else expr.asc()
-        rows = query.order_by(expr, Customer.id).offset(page * size).limit(size).all()
+        # No explicit sort: newest first.
+        ordering = (expr, Customer.id) if sort_by else (Customer.id.desc(),)
+        rows = query.order_by(*ordering).offset(page * size).limit(size).all()
         return rows, total
 
     def create(self, db: Session, customer: CustomerCreate, created_by: int) -> Customer:
