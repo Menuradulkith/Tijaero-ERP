@@ -1,0 +1,10 @@
+
+=== 100 users, 30s, think=1.0s -> 832 req, 27.7 req/s, ok=745
+endpoint              n   p50ms   p95ms   p99ms  status
+customer_paged       95    1547    5310    6313  {200: 84, 'ConnectError': 11}
+health              117    1226    4898    7418  {200: 102, 'ConnectError': 15}
+invoice_detail       92    1608    5619    6857  {200: 82, 'ConnectError': 10}
+invoice_list        211    1919    6000    7460  {200: 190, 'ConnectError': 21}
+product_paged       102    1894    6057    6483  {200: 93, 'ConnectError': 8, 'ReadError': 1}
+product_search      108    1788    6818   12046  {200: 100, 'ConnectError': 7, 'ReadError': 1}
+sales_stats         107    2493    7524   10549  {'ConnectError': 12, 200: 94, 'ReadError': 1}

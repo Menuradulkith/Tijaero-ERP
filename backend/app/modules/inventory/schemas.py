@@ -61,7 +61,9 @@ class SalesStockSummary(BaseModel):
     in_stock: int = 0
     reserved: int = 0
     sold_today: int = 0
-    returned: int = 0
+    returned: int = 0  # purchase returns: sent back to a supplier or waiting to go
+    in_transit: int = 0  # item-transfer units between branches (approved or dispatched)
+    damaged: int = 0  # units marked damaged (on arrival or in stock)
 
 
 class SalesStockPaginated(BaseModel):
@@ -69,6 +71,41 @@ class SalesStockPaginated(BaseModel):
     items: List[SalesStock]
     total: int
     summary: SalesStockSummary
+
+
+class StockSummaryRow(BaseModel):
+    """One product's aggregated on-hand position, for the Stock Summary view
+    of the sales-stock dashboard (see SalesStockService.get_stock_summary)."""
+    product_id: int
+    item_code: str
+    product_name: str
+    brand_name: Optional[str] = None
+    category_name: Optional[str] = None
+    unit_of_measure: str
+    # Quantities, in unit_of_measure units
+    total_quantity: int = 0
+    allocated_quantity: int = 0  # reserved for a pending sales order/quotation
+    available_quantity: int = 0  # free to sell
+    issued_quantity: int = 0  # sold out of this product's lifetime stock
+    freezed_quantity: int = 0  # on quality/admin hold
+    in_transit_quantity: int = 0  # moving between branches; not part of total/available
+    damaged_quantity: int = 0  # marked damaged; not part of total/available
+    unit_cost: Optional[Decimal] = None  # average purchase cost of the on-hand units
+    total_value: Optional[Decimal] = None  # on-hand units at their purchase-order cost (excludes issued)
+    # Ageing of the oldest unit still on hand (available/allocated/freezed)
+    in_house_date: Optional[datetime] = None
+    ageing_days: Optional[int] = None
+    supplier_name: Optional[str] = None
+    supplier_code: Optional[str] = None
+    invoice_no: Optional[str] = None
+    # Available quantity at/below the system-wide low-stock threshold — see
+    # SalesStockService._LOW_STOCK_THRESHOLD.
+    low_stock: bool = False
+
+
+class StockSummaryPaginated(BaseModel):
+    items: List[StockSummaryRow]
+    total: int
 
 
 # Company Assets Schemas - Real table for company-owned items

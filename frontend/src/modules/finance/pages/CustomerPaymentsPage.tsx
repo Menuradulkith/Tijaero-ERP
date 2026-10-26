@@ -194,7 +194,7 @@ export default function CustomerPaymentsPage() {
 
   // Selection state
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("customer_name");
+  const [sortField, setSortField] = useState("created_at");
 
   // View state
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);

@@ -556,7 +556,7 @@ export default function JournalEntriesPage() {
         isSaving={isSaving}
         isFormValid={isFormValid}
         onNew={handleNew}
-        onSave={handleSave}
+        onSave={isCreating && formStep < FORM_STEPS.length - 1 ? undefined : handleSave}
         onCancel={() => handleCancel(filteredEntries)}
         onEdit={canEdit ? handleStartEdit : undefined}
         onDelete={canDelete ? handleDelete : undefined}

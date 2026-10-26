@@ -22,6 +22,7 @@ import {
 import { usePermission } from "@/auth/permissions";
 import { fmtLKR, handleApiError, showSuccessToast, TChip } from "@/components/tijaero";
 import ReclassifyDialog from "@/modules/inventory/components/ReclassifyDialog";
+import { useCurrencyStore } from "@/state/currencyStore";
 import { goodReceivedNotesApi } from "@/modules/purchasing/api";
 import type { LandedCostCreate } from "@/modules/purchasing/types";
 
@@ -50,6 +51,7 @@ interface Props {
 /** Landed costs of a GRN: vouchers (freight, duty...) allocated across its lines, giving each line a landed unit cost. */
 export default function LandedCostPanel({ grnId, grnStatus }: Props) {
   const queryClient = useQueryClient();
+  const currencySymbol = useCurrencyStore((s) => s.symbol);
   const canEdit = usePermission("grn", "update") && grnStatus !== "cancelled";
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState<LandedCostCreate>(EMPTY);
@@ -116,7 +118,7 @@ export default function LandedCostPanel({ grnId, grnStatus }: Props) {
               <TableCell>Basis</TableCell>
               <TableCell>Paid via</TableCell>
               <TableCell>Reference</TableCell>
-              <TableCell align="right">Amount</TableCell>
+              <TableCell align="right">{`Amount (${currencySymbol})`}</TableCell>
               <TableCell align="center">Status</TableCell>
               {canEdit && <TableCell />}
             </TableRow>
@@ -165,9 +167,9 @@ export default function LandedCostPanel({ grnId, grnStatus }: Props) {
             <TableRow>
               <TableCell>Product</TableCell>
               <TableCell align="right">Qty</TableCell>
-              <TableCell align="right">Unit price</TableCell>
-              <TableCell align="right">Landed / unit</TableCell>
-              <TableCell align="right">Landed unit cost</TableCell>
+              <TableCell align="right">{`Unit price (${currencySymbol})`}</TableCell>
+              <TableCell align="right">{`Landed / unit (${currencySymbol})`}</TableCell>
+              <TableCell align="right">{`Landed unit cost (${currencySymbol})`}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -198,7 +200,7 @@ export default function LandedCostPanel({ grnId, grnStatus }: Props) {
             ))}
           </TextField>
           <TextField
-            label="Amount"
+            label={`Amount (${currencySymbol})`}
             type="number"
             required
             value={form.amount || ""}

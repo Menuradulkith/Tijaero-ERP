@@ -7,17 +7,39 @@ import {
     DialogContent,
     DialogTitle,
     Divider,
+    FormControl,
     FormControlLabel,
     IconButton,
+    InputLabel,
+    MenuItem,
     Paper,
+    Select,
     Switch,
     TextField,
     Typography,
 } from "@mui/material";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import apiClient from "@/api/client";
 import { useAuthStore } from "@/state/authStore";
 import { TButton } from "../base/TButton";
 import { getReportUrl, TPrintDocumentType } from "../base/TPrintButton";
+
+interface PrintTemplateOption {
+    id: number;
+    name: string;
+    branch_code: string | null;
+    show_header: boolean;
+    show_discount: boolean;
+    show_signatures: boolean;
+}
+
+interface PrintTemplatesForDocument {
+    default_template_id: number | null;
+    show_header: boolean;
+    show_discount: boolean;
+    show_signatures: boolean;
+    templates: PrintTemplateOption[];
+}
 
 export interface TPrintPreviewDialogProps {
     open: boolean;
@@ -38,7 +60,45 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
     const [showDiscount, setShowDiscount] = useState(true);
     const [showSignatures, setShowSignatures] = useState(false);
     const [customRemarks, setCustomRemarks] = useState("");
+    const [templates, setTemplates] = useState<PrintTemplateOption[]>([]);
+    const [templateId, setTemplateId] = useState<number | "">("");
     const token = useAuthStore((s) => s.token);
+
+    // Start from the print template's section switches (Settings → Print Templates).
+    useEffect(() => {
+        if (!open) return;
+        let cancelled = false;
+        apiClient
+            .get<PrintTemplatesForDocument>("/reporting/print-templates/for-document", {
+                params: { document_type: documentType, document_id: documentId },
+            })
+            .then(({ data }) => {
+                if (cancelled) return;
+                setTemplates(data.templates);
+                setTemplateId(data.default_template_id ?? "");
+                // No template configured: keep this dialog's own starting switches.
+                if (data.default_template_id === null) return;
+                setShowHeader(data.show_header);
+                setShowDiscount(data.show_discount);
+                setShowSignatures(data.show_signatures);
+            })
+            .catch(() => {
+                // Older backend or no access to templates: keep the built-in switches.
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, documentType, documentId]);
+
+    const handleTemplateChange = (value: number | "") => {
+        setTemplateId(value);
+        const t = templates.find((x) => x.id === value);
+        if (t) {
+            setShowHeader(t.show_header);
+            setShowDiscount(t.show_discount);
+            setShowSignatures(t.show_signatures);
+        }
+    };
 
     const reportUrl = useMemo(() => {
         const baseUrl = getReportUrl(documentType, documentId);
@@ -46,16 +106,17 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
         const urlObj = new URL(baseUrl, 'http://localhost');
         
         // Add additional parameters (token is already in baseUrl from getReportUrl)
-        if (!showHeader) urlObj.searchParams.append("show_header", "false");
-        if (!showDiscount) urlObj.searchParams.append("show_discount", "false");
-        if (!showSignatures) urlObj.searchParams.append("show_signatures", "false");
+        urlObj.searchParams.append("show_header", String(showHeader));
+        urlObj.searchParams.append("show_discount", String(showDiscount));
+        urlObj.searchParams.append("show_signatures", String(showSignatures));
+        if (templateId !== "") urlObj.searchParams.append("template_id", String(templateId));
         if (customRemarks) urlObj.searchParams.append("custom_remarks", customRemarks);
 
         urlObj.searchParams.append("t", Date.now().toString());
 
         // Return relative path
         return urlObj.pathname + urlObj.search;
-    }, [documentType, documentId, showHeader, showDiscount, showSignatures, customRemarks, token]);
+    }, [documentType, documentId, showHeader, showDiscount, showSignatures, templateId, customRemarks, token]);
 
     const handlePrint = () => {
         const printUrl = new URL(reportUrl, window.location.origin);
@@ -111,6 +172,25 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
                         overflow: "auto"
                     }}
                 >
+                    {templates.length > 1 && (
+                        <Box sx={{ p: 2, pb: 0 }}>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>Layout</InputLabel>
+                                <Select
+                                    label="Layout"
+                                    value={templateId}
+                                    onChange={(e) => handleTemplateChange(e.target.value as number | "")}
+                                >
+                                    {templates.map((t) => (
+                                        <MenuItem key={t.id} value={t.id}>
+                                            {t.name}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        </Box>
+                    )}
+
                     <Box sx={{ p: 2 }}>
                         <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>
                             Display Options
@@ -125,7 +205,7 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
                                         size="small"
                                     />
                                 }
-                                label={<Typography variant="body2">Show Background</Typography>}
+                                label={<Typography variant="body2">Show Letterhead / Background</Typography>}
                             />
 
                             {(documentType === "quotation" || documentType === "invoice") && (

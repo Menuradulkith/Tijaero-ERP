@@ -12,7 +12,7 @@ Business logic for:
 
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, and_, or_, case, text
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from datetime import date, datetime
 from decimal import Decimal, localcontext
 import functools
@@ -55,6 +55,55 @@ def _cents(value) -> Decimal:
     with localcontext() as ctx:
         ctx.prec = _REPORT_PRECISION
         return Decimal(value).quantize(_CENTS)
+
+
+BALANCE_SHEET_TYPES = ("Asset", "Liability", "Equity")
+PROFIT_AND_LOSS_TYPES = ("Revenue", "Expense")
+RETAINED_EARNINGS_CODE = "3100"
+CURRENT_YEAR_PL_CODE = "3200"
+# Sub-ledger controlled accounts: manual journals may not post to them.
+CONTROL_ACCOUNT_CATEGORIES = ("Receivable", "Payable", "Inventory")
+
+
+def _not_closing(column):
+    """GL rows that are not year-end closing entries (NULL-safe)."""
+    return func.coalesce(column, "") != "Closing"
+
+
+def _cashbook_for_je(db: Session, je, lines, on: date, description, swap: bool) -> None:
+    """Mirror a posted (or reversing, ``swap=True``) JE's cash/bank movement
+    into the cashbook. Closing entries never touch cash."""
+    from .gl_posting_service import record_cashbook_from_gl
+
+    if je.entry_type == "Closing":
+        return
+    codes = dict(db.query(ChartOfAccounts.id, ChartOfAccounts.account_code).filter(
+        ChartOfAccounts.id.in_({line.account_id for line in lines})
+    ).all())
+    record_cashbook_from_gl(
+        db, reference_type="JE", reference_id=je.id, reference_no=je.journal_entry_no,
+        entry_date=on, branch_code=je.branch_code, description=description,
+        lines=[
+            {
+                "account_code": codes.get(line.account_id),
+                "debit": line.credit_amount if swap else line.debit_amount,
+                "credit": line.debit_amount if swap else line.credit_amount,
+                "description": line.description,
+            }
+            for line in lines
+        ],
+    )
+
+
+def _refresh_balances(db: Session, lines, from_date: date) -> None:
+    """Best-effort running-balance refresh after a multi-entry commit."""
+    try:
+        GeneralLedgerService(db).update_account_balances(
+            list({line.account_id for line in lines}), from_date=from_date
+        )
+    except Exception as e:  # non-blocking, same as single-entry posting
+        import logging
+        logging.getLogger(__name__).warning(f"Balance update warning (non-blocking): {e}")
 
 
 def _branch_criteria(column, branch_code: Optional[str], branch_codes: Optional[List[str]]):
@@ -167,6 +216,28 @@ class ChartOfAccountsService:
                         f"Cannot change account_type/normal_balance for account "
                         f"'{account.account_code}' with {gl_count} GL entries. "
                         f"Create a new account instead."
+                    ),
+                )
+
+        # A balance-sheet account still holding a balance cannot be deactivated:
+        # the balance would vanish from new postings' pick-lists while staying in
+        # the statements. Clear it to zero first. (P&L accounts may be
+        # deactivated; the income statement still reports their postings.)
+        if (
+            update_data.get("is_active") is False
+            and account.is_active
+            and account.account_type in BALANCE_SHEET_TYPES
+        ):
+            balance = self.db.query(
+                func.coalesce(func.sum(GeneralLedger.debit_amount), 0)
+                - func.coalesce(func.sum(GeneralLedger.credit_amount), 0)
+            ).filter(GeneralLedger.account_id == account_id).scalar()
+            if Decimal(str(balance or 0)) != 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Cannot deactivate account '{account.account_code}' while it has a "
+                        f"balance of {_cents(Decimal(str(balance)))}. Transfer the balance first."
                     ),
                 )
 
@@ -329,13 +400,18 @@ class JournalEntryService:
         prefix = f"JE-{today.strftime('%Y%m')}-"
         # Advisory lock to prevent race conditions on sequence generation
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
-        last = self.db.query(JournalEntry).filter(
+        # Highest number, not highest string: "...-10000" sorts below "...-9999"
+        # as text, so order by length first (the suffix has no extra zeros).
+        last = self.db.query(JournalEntry.journal_entry_no).filter(
             JournalEntry.journal_entry_no.like(f"{prefix}%")
-        ).order_by(JournalEntry.journal_entry_no.desc()).first()
+        ).order_by(
+            func.length(JournalEntry.journal_entry_no).desc(),
+            JournalEntry.journal_entry_no.desc(),
+        ).first()
 
-        if last and last.journal_entry_no.startswith(prefix):
+        if last and last[0].startswith(prefix):
             try:
-                seq = int(last.journal_entry_no.split("-")[-1]) + 1
+                seq = int(last[0].split("-")[-1]) + 1
             except ValueError:
                 seq = 1
         else:
@@ -355,11 +431,14 @@ class JournalEntryService:
         return entry_date.year, entry_date.month
 
     def _validate_period_open(self, fiscal_year: int, fiscal_period: int) -> None:
-        """Ensure the accounting period is open for posting."""
+        """Ensure the accounting period is open for posting.
+
+        Reads the period FOR SHARE so a concurrent close (FOR UPDATE) waits for
+        this posting to commit instead of closing over it."""
         period = self.db.query(AccountingPeriod).filter(
             AccountingPeriod.fiscal_year == fiscal_year,
             AccountingPeriod.period_number == fiscal_period,
-        ).first()
+        ).with_for_update(read=True).first()
 
         if period and period.status != "open":
             raise HTTPException(
@@ -367,27 +446,63 @@ class JournalEntryService:
                 detail=f"Accounting period {fiscal_year}-{fiscal_period} is {period.status}. Cannot post transactions."
             )
 
+    def _validate_line_accounts(self, lines, entry_type: str) -> None:
+        """Every line must hit an existing, active, postable (leaf) account.
+
+        Manual entries may not post to control accounts (receivables, payables,
+        inventory): those balances belong to their sub-ledgers and are changed
+        only through the source documents."""
+        account_ids = {line.account_id for line in lines}
+        accounts = {
+            a.id: a for a in self.db.query(ChartOfAccounts).filter(
+                ChartOfAccounts.id.in_(account_ids)
+            ).all()
+        }
+        missing = account_ids - set(accounts)
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Account IDs not found: {sorted(missing)}"
+            )
+        header_ids = {
+            pid for (pid,) in self.db.query(ChartOfAccounts.parent_account_id).filter(
+                ChartOfAccounts.parent_account_id.in_(account_ids)
+            ).distinct()
+        }
+        problems = []
+        for acc in accounts.values():
+            label = f"{acc.account_code} - {acc.account_name}"
+            # Year-end closing must zero every P&L account that holds a balance,
+            # deactivated or header, so it is exempt from both checks.
+            if entry_type == "Closing":
+                continue
+            if not acc.is_active:
+                problems.append(f"account {label} is inactive")
+            if acc.id in header_ids:
+                problems.append(f"account {label} is a header account; post to one of its sub-accounts")
+            if entry_type == "Manual" and acc.account_category in CONTROL_ACCOUNT_CATEGORIES:
+                problems.append(
+                    f"account {label} is a control account ({acc.account_category}); "
+                    f"change it through its source documents"
+                )
+        if problems:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot use " + "; ".join(sorted(problems)),
+            )
+
     def create_journal_entry(
-        self, data: schemas.JournalEntryCreate, created_by: int
+        self, data: schemas.JournalEntryCreate, created_by: int, commit: bool = True
     ) -> JournalEntry:
+        """Create a draft JE. ``commit=False`` only flushes, so a caller can make
+        several entries in one transaction (correction, year-end close)."""
         posting_date = data.posting_date or data.entry_date
         fiscal_year, fiscal_period = self._get_fiscal_period(posting_date)
 
         total_debit = sum(line.debit_amount for line in data.lines)
         total_credit = sum(line.credit_amount for line in data.lines)
 
-        # Validate all account IDs exist
-        account_ids = [line.account_id for line in data.lines]
-        existing_accounts = self.db.query(ChartOfAccounts.id).filter(
-            ChartOfAccounts.id.in_(account_ids)
-        ).all()
-        existing_ids = {a.id for a in existing_accounts}
-        missing = set(account_ids) - existing_ids
-        if missing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Account IDs not found: {missing}"
-            )
+        self._validate_line_accounts(data.lines, data.entry_type)
 
         je = JournalEntry(
             journal_entry_no=self._generate_je_number(),
@@ -426,6 +541,9 @@ class JournalEntryService:
             changes={"journal_entry_no": je.journal_entry_no, "entry_type": je.entry_type},
         )
 
+        if not commit:
+            self.db.flush()
+            return je
         self.db.commit()
         self.db.refresh(je)
         _attach_je_user_names(self.db, [je])
@@ -445,8 +563,12 @@ class JournalEntryService:
         field_values: dict = {}
         if data.entry_date and data.entry_date != je.entry_date:
             field_values["entry_date"] = {"old": je.entry_date.isoformat(), "new": data.entry_date.isoformat()}
+            # A posting date that simply followed the entry date keeps following
+            # it; the fiscal period always comes from the posting (GL) date.
+            if je.posting_date == je.entry_date:
+                je.posting_date = data.entry_date
             je.entry_date = data.entry_date
-            fiscal_year, fiscal_period = self._get_fiscal_period(data.entry_date)
+            fiscal_year, fiscal_period = self._get_fiscal_period(je.posting_date)
             je.fiscal_year = fiscal_year
             je.fiscal_period = fiscal_period
             changed_fields.add("entry_date")
@@ -460,6 +582,7 @@ class JournalEntryService:
             changed_fields.add("branch_code")
 
         if data.lines is not None:
+            self._validate_line_accounts(data.lines, je.entry_type)
             changed_fields.add("lines")
             # Replace all lines
             self.db.query(JournalEntryLine).filter(
@@ -558,12 +681,16 @@ class JournalEntryService:
         _attach_je_user_names(self.db, items)
         return items, total
 
-    def post_journal_entry(self, je_id: int, posted_by: int, posting_date: Optional[date] = None) -> JournalEntry:
+    def post_journal_entry(
+        self, je_id: int, posted_by: int, posting_date: Optional[date] = None, commit: bool = True
+    ) -> JournalEntry:
         """
         Post a journal entry - creates GL entries and updates account balances (Step 5-6).
-        
+
         Manual JE: Can only post from 'approved' status (requires approval workflow).
         Auto JE:   Can post from 'draft' status (system-generated, no approval needed).
+        ``commit=False`` flushes only; the caller commits (and the running-balance
+        refresh is left to it).
         """
         # Lock row to prevent double-post race condition
         self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
@@ -592,6 +719,11 @@ class JournalEntryService:
 
         # Validate period is open
         self._validate_period_open(je.fiscal_year, je.fiscal_period)
+
+        # Accounts may have been deactivated (or gained sub-accounts) since the
+        # entry was drafted.
+        if je.lines:
+            self._validate_line_accounts(je.lines, je.entry_type)
 
         # Defensive double-entry check at the actual posting boundary. Auto
         # entries post straight from draft without going through
@@ -634,6 +766,8 @@ class JournalEntryService:
                 created_by=posted_by,
             )
 
+        _cashbook_for_je(self.db, je, je.lines, je.posting_date, je.description, swap=False)
+
         je.status = "posted"
         je.posted_by = posted_by
         je.posted_at = tz.now()
@@ -644,6 +778,9 @@ class JournalEntryService:
             changes={"status": "posted"},
         )
 
+        if not commit:
+            self.db.flush()
+            return je
         self.db.commit()
 
         # Step 6: Update running balances for affected accounts
@@ -658,9 +795,12 @@ class JournalEntryService:
         return je
 
     def reverse_journal_entry(
-        self, je_id: int, reversed_by: int, reason: str, reversal_date: Optional[date] = None
+        self, je_id: int, reversed_by: int, reason: str, reversal_date: Optional[date] = None,
+        commit: bool = True,
     ) -> JournalEntry:
-        """Reverse a posted JE by creating a mirror JE with opposite debits/credits."""
+        """Reverse a posted JE by creating a mirror JE with opposite debits/credits.
+
+        The original keeps its GL rows and becomes status ``reversed``."""
         # Lock row to prevent double-reverse race condition
         self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         je = self.get_journal_entry(je_id)
@@ -676,6 +816,11 @@ class JournalEntryService:
             )
 
         rev_date = reversal_date or tz.today()
+        if rev_date < je.posting_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Reversal date {rev_date} is before the entry's posting date {je.posting_date}",
+            )
         fiscal_year, fiscal_period = self._get_fiscal_period(rev_date)
         self._validate_period_open(fiscal_year, fiscal_period)
 
@@ -721,7 +866,9 @@ class JournalEntryService:
                 account_id=line.account_id,
                 debit_amount=line.credit_amount,
                 credit_amount=line.debit_amount,
-                transaction_type="Adjustment",
+                # Undoing a year-end close is itself a closing movement: keep it
+                # out of the income statement like the entry it cancels.
+                transaction_type="Closing" if je.entry_type == "Closing" else "Adjustment",
                 reference_type="JE",
                 reference_id=reversal_je.id,
                 reference_no=reversal_je.journal_entry_no,
@@ -733,7 +880,10 @@ class JournalEntryService:
                 created_by=reversed_by,
             )
 
+        _cashbook_for_je(self.db, reversal_je, je.lines, rev_date, reversal_je.description, swap=True)
+
         # Mark original as reversed
+        je.status = "reversed"
         je.is_reversed = True
         je.reversed_by_je_id = reversal_je.id
 
@@ -748,6 +898,9 @@ class JournalEntryService:
             changes={"journal_entry_no": reversal_je.journal_entry_no, "reverses_je_id": je.id},
         )
 
+        if not commit:
+            self.db.flush()
+            return reversal_je
         self.db.commit()
 
         # Update running balances for affected accounts
@@ -820,9 +973,9 @@ class JournalEntryService:
             if credit < 0:
                 errors.append(f"Line {line.line_number}: Credit amount cannot be negative ({credit})")
 
-            # Check that exactly one of debit/credit is non-zero (best practice)
+            # Exactly one of debit/credit per line
             if debit > 0 and credit > 0:
-                warnings.append(f"Line {line.line_number}: Both debit and credit are set. Best practice is one per line.")
+                errors.append(f"Line {line.line_number}: Both debit and credit are set; a line is one or the other.")
             if debit == 0 and credit == 0:
                 warnings.append(f"Line {line.line_number}: Both debit and credit are zero - this line has no effect")
 
@@ -906,6 +1059,13 @@ class JournalEntryService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot approve journal entry in '{je.status}' status. Only submitted entries can be approved."
+            )
+        # Maker-checker: the person who prepared or submitted the entry cannot
+        # also approve it.
+        if approved_by is not None and approved_by in (je.created_by, je.submitted_by):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot approve a journal entry you created or submitted",
             )
 
         je.status = "approved"
@@ -1091,9 +1251,9 @@ class GeneralLedgerService:
         if filters.fiscal_period:
             query = query.filter(GeneralLedger.fiscal_period == filters.fiscal_period)
         if filters.date_from:
-            query = query.filter(GeneralLedger.transaction_date >= filters.date_from)
+            query = query.filter(GeneralLedger.posting_date >= filters.date_from)
         if filters.date_to:
-            query = query.filter(GeneralLedger.transaction_date <= filters.date_to)
+            query = query.filter(GeneralLedger.posting_date <= filters.date_to)
         if filters.reference_type:
             query = query.filter(GeneralLedger.reference_type == filters.reference_type)
         if filters.reference_no:
@@ -1154,7 +1314,15 @@ class GeneralLedgerService:
         """Generate trial balance report (optionally for one branch / a branch scope).
 
         The branch is the posting's branch (general_ledger.branch_code, copied
-        from journal_entries.branch_code when the JE posts)."""
+        from journal_entries.branch_code when the JE posts).
+
+        Balance-sheet accounts (Asset/Liability/Equity) are cumulative: they carry
+        every prior year's postings. Revenue/Expense accounts show the selected
+        year only; any prior-year profit that was never closed into equity is
+        shown on a separate retained-earnings line so the TB still balances."""
+        in_year = GeneralLedger.fiscal_year == fiscal_year
+        if fiscal_period:
+            in_year = and_(in_year, GeneralLedger.fiscal_period <= fiscal_period)
         query = self.db.query(
             GeneralLedger.account_id,
             ChartOfAccounts.account_code,
@@ -1166,15 +1334,33 @@ class GeneralLedgerService:
         ).join(
             ChartOfAccounts, GeneralLedger.account_id == ChartOfAccounts.id
         ).filter(
-            GeneralLedger.fiscal_year == fiscal_year
+            or_(
+                in_year,
+                and_(
+                    GeneralLedger.fiscal_year < fiscal_year,
+                    ChartOfAccounts.account_type.in_(BALANCE_SHEET_TYPES),
+                ),
+            )
         )
 
-        if fiscal_period:
-            query = query.filter(GeneralLedger.fiscal_period <= fiscal_period)
         if as_of_date:
             query = query.filter(GeneralLedger.posting_date <= as_of_date)
         for crit in _branch_criteria(GeneralLedger.branch_code, branch_code, branch_codes):
             query = query.filter(crit)
+
+        # Prior-year Revenue/Expense never closed into equity (no year-end close
+        # run): it belongs in retained earnings on this year's TB.
+        prior_pl = self.db.query(
+            func.coalesce(func.sum(GeneralLedger.debit_amount), 0),
+            func.coalesce(func.sum(GeneralLedger.credit_amount), 0),
+        ).join(
+            ChartOfAccounts, GeneralLedger.account_id == ChartOfAccounts.id
+        ).filter(
+            GeneralLedger.fiscal_year < fiscal_year,
+            ChartOfAccounts.account_type.in_(PROFIT_AND_LOSS_TYPES),
+            *([GeneralLedger.posting_date <= as_of_date] if as_of_date else []),
+            *_branch_criteria(GeneralLedger.branch_code, branch_code, branch_codes),
+        ).first()
 
         query = query.group_by(
             GeneralLedger.account_id,
@@ -1208,6 +1394,25 @@ class GeneralLedgerService:
             total_debit += debit
             total_credit += credit
 
+        prior_debit = Decimal(str(prior_pl[0])) if prior_pl else Decimal("0")
+        prior_credit = Decimal(str(prior_pl[1])) if prior_pl else Decimal("0")
+        if prior_debit != prior_credit:
+            retained = self.db.query(ChartOfAccounts).filter(
+                ChartOfAccounts.account_code == RETAINED_EARNINGS_CODE
+            ).first()
+            accounts.append(schemas.GLAccountSummary(
+                account_id=retained.id if retained else 0,
+                account_code=RETAINED_EARNINGS_CODE,
+                account_name="Retained Earnings (prior-year profit not closed)",
+                account_type="Equity",
+                normal_balance="Credit",
+                total_debit=prior_debit,
+                total_credit=prior_credit,
+                net_balance=prior_debit - prior_credit,
+            ))
+            total_debit += prior_debit
+            total_credit += prior_credit
+
         return schemas.TrialBalanceResponse(
             as_of_date=as_of_date or tz.today(),
             fiscal_year=fiscal_year,
@@ -1223,14 +1428,18 @@ class GeneralLedgerService:
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
     ) -> List[dict]:
-        """Get all GL entries for a specific account with running balance."""
+        """Get all GL entries for a specific account with running balance.
+
+        Dates are GL (posting) dates. When ``date_from`` is given, the running
+        balance starts from the account's balance before that date, shown as an
+        opening-balance row."""
         query = self.db.query(GeneralLedger).filter(
             GeneralLedger.account_id == account_id
         )
         if date_from:
-            query = query.filter(GeneralLedger.transaction_date >= date_from)
+            query = query.filter(GeneralLedger.posting_date >= date_from)
         if date_to:
-            query = query.filter(GeneralLedger.transaction_date <= date_to)
+            query = query.filter(GeneralLedger.posting_date <= date_to)
 
         entries = query.order_by(GeneralLedger.posting_date, GeneralLedger.id).all()
 
@@ -1238,11 +1447,35 @@ class GeneralLedgerService:
         account = self.db.query(ChartOfAccounts).filter(
             ChartOfAccounts.id == account_id
         ).first()
+        debit_normal = bool(account and account.normal_balance == "Debit")
 
         running_balance = Decimal("0")
         results = []
+        if date_from:
+            opening = self.db.query(
+                func.coalesce(func.sum(GeneralLedger.debit_amount), 0),
+                func.coalesce(func.sum(GeneralLedger.credit_amount), 0),
+            ).filter(
+                GeneralLedger.account_id == account_id,
+                GeneralLedger.posting_date < date_from,
+            ).first()
+            o_debit, o_credit = Decimal(str(opening[0])), Decimal(str(opening[1]))
+            running_balance = (o_debit - o_credit) if debit_normal else (o_credit - o_debit)
+            results.append({
+                "id": 0,
+                "transaction_date": date_from,
+                "posting_date": date_from,
+                "debit_amount": Decimal("0"),
+                "credit_amount": Decimal("0"),
+                "running_balance": running_balance,
+                "transaction_type": "Opening Balance",
+                "reference_type": None,
+                "reference_no": None,
+                "description": "Opening balance",
+                "branch_code": None,
+            })
         for entry in entries:
-            if account and account.normal_balance == "Debit":
+            if debit_normal:
                 running_balance += (entry.debit_amount or Decimal("0")) - (entry.credit_amount or Decimal("0"))
             else:
                 running_balance += (entry.credit_amount or Decimal("0")) - (entry.debit_amount or Decimal("0"))
@@ -1267,6 +1500,23 @@ class GeneralLedgerService:
     # Scenario 34: Income Statement & Balance Sheet
     # ─────────────────────────────────────────────────────────────────────
 
+    def _gl_sums_by_account(self, key, criteria) -> Dict[int, Tuple[Decimal, Decimal]]:
+        """Total debit/credit per account for the given GL criteria, scanned once.
+
+        Report sections (revenue, cost of sales, expenses, assets ...) all read the same
+        ledger slice; aggregating it once per request and sharing the result replaces one
+        full-ledger scan per section. Memoised on this service instance (one per request).
+        """
+        memo = self.__dict__.setdefault("_gl_sums_memo", {})
+        if key not in memo:
+            rows = self.db.query(
+                GeneralLedger.account_id,
+                func.coalesce(func.sum(GeneralLedger.debit_amount), 0),
+                func.coalesce(func.sum(GeneralLedger.credit_amount), 0),
+            ).filter(*criteria).group_by(GeneralLedger.account_id).all()
+            memo[key] = {r[0]: (Decimal(str(r[1])), Decimal(str(r[2]))) for r in rows}
+        return memo[key]
+
     def _sum_accounts_by_type(
         self,
         account_type: str,
@@ -1279,44 +1529,40 @@ class GeneralLedgerService:
         branch_codes: Optional[List[str]] = None,
     ) -> Tuple[List[schemas.IncomeStatementLineItem], Decimal]:
         """Sum GL entries for accounts of a given type, returning line items and total."""
-        query = self.db.query(
-            ChartOfAccounts.id,
-            ChartOfAccounts.account_code,
-            ChartOfAccounts.account_name,
-            ChartOfAccounts.normal_balance,
-            func.coalesce(func.sum(GeneralLedger.debit_amount), 0).label("total_debit"),
-            func.coalesce(func.sum(GeneralLedger.credit_amount), 0).label("total_credit"),
-        ).outerjoin(
-            GeneralLedger,
-            and_(
-                GeneralLedger.account_id == ChartOfAccounts.id,
+        sums = self._gl_sums_by_account(
+            ("is", fiscal_year, fiscal_period, date_from, date_to, branch_code, tuple(branch_codes or ())),
+            [
                 GeneralLedger.fiscal_year == fiscal_year,
                 *([GeneralLedger.fiscal_period <= fiscal_period] if fiscal_period else []),
                 *([GeneralLedger.posting_date >= date_from] if date_from else []),
                 *([GeneralLedger.posting_date <= date_to] if date_to else []),
                 *_branch_criteria(GeneralLedger.branch_code, branch_code, branch_codes),
-            )
+                # Year-end closing entries zero the P&L accounts; the statement
+                # reports the trading result, so they never count here.
+                _not_closing(GeneralLedger.transaction_type),
+            ],
+        )
+        # Inactive accounts are included: an account deactivated after it was
+        # posted to still carries real income/expense (zero rows are skipped).
+        query = self.db.query(
+            ChartOfAccounts.id,
+            ChartOfAccounts.account_code,
+            ChartOfAccounts.account_name,
+            ChartOfAccounts.normal_balance,
         ).filter(
             ChartOfAccounts.account_type == account_type,
-            ChartOfAccounts.is_active == True,
         )
 
         if category_filter:
             query = query.filter(ChartOfAccounts.account_category == category_filter)
 
-        query = query.group_by(
-            ChartOfAccounts.id,
-            ChartOfAccounts.account_code,
-            ChartOfAccounts.account_name,
-            ChartOfAccounts.normal_balance,
-        ).order_by(ChartOfAccounts.account_code)
+        query = query.order_by(ChartOfAccounts.account_code)
 
         rows = query.all()
         items = []
         total = Decimal("0")
         for row in rows:
-            debit = Decimal(str(row.total_debit))
-            credit = Decimal(str(row.total_credit))
+            debit, credit = sums.get(row.id, (Decimal("0"), Decimal("0")))
             # Sign by the SECTION (account type), not the account's own normal
             # balance: contra accounts (4030 Sales Returns, debit-normal
             # Revenue) must reduce revenue and contra-expenses must reduce
@@ -1352,18 +1598,20 @@ class GeneralLedgerService:
         Gross Profit - Operating Expenses (5xxx) = Operating Income
         Operating Income + Other Income - Other Expenses = Net Income
         """
+        self.__dict__.pop("_gl_sums_memo", None)  # fresh read per report
         # Determine period dates
         period_start = date_from
         period_end = date_to
         if not period_start and not period_end:
-            if fiscal_period:
-                period_rec = self.db.query(AccountingPeriod).filter(
-                    AccountingPeriod.fiscal_year == fiscal_year,
-                    AccountingPeriod.period_number == fiscal_period,
-                ).first()
-                if period_rec:
-                    period_start = period_rec.start_date
-                    period_end = period_rec.end_date
+            # Amounts are year-to-date (periods 1..N, or the whole year), so the
+            # label runs from the first period's start to period N's end.
+            periods = self.db.query(AccountingPeriod).filter(
+                AccountingPeriod.fiscal_year == fiscal_year,
+                *([AccountingPeriod.period_number <= fiscal_period] if fiscal_period else []),
+            ).order_by(AccountingPeriod.period_number).all()
+            if periods:
+                period_start = periods[0].start_date
+                period_end = periods[-1].end_date
 
         # Every section uses the same branch scope.
         _bs = {"branch_code": branch_code, "branch_codes": branch_codes}
@@ -1480,7 +1728,15 @@ class GeneralLedgerService:
         Assets = Liabilities + Equity
         Includes current-year net income in equity section.
         """
+        self.__dict__.pop("_gl_sums_memo", None)  # fresh read per report
         report_date = as_of_date or tz.today()
+        bs_sums = self._gl_sums_by_account(
+            ("bs", report_date, branch_code, tuple(branch_codes or ())),
+            [
+                GeneralLedger.posting_date <= report_date,
+                *_branch_criteria(GeneralLedger.branch_code, branch_code, branch_codes),
+            ],
+        )
 
         def _build_section(
             section_name: str,
@@ -1497,15 +1753,6 @@ class GeneralLedgerService:
                 ChartOfAccounts.normal_balance,
                 ChartOfAccounts.account_category,
                 ChartOfAccounts.is_active,
-                func.coalesce(func.sum(GeneralLedger.debit_amount), 0).label("total_debit"),
-                func.coalesce(func.sum(GeneralLedger.credit_amount), 0).label("total_credit"),
-            ).outerjoin(
-                GeneralLedger,
-                and_(
-                    GeneralLedger.account_id == ChartOfAccounts.id,
-                    GeneralLedger.posting_date <= report_date,
-                    *_branch_criteria(GeneralLedger.branch_code, branch_code, branch_codes),
-                )
             ).filter(
                 ChartOfAccounts.account_type == account_type,
             )
@@ -1515,23 +1762,20 @@ class GeneralLedgerService:
             if include_categories:
                 query = query.filter(ChartOfAccounts.account_category.in_(include_categories))
             if exclude_categories:
-                query = query.filter(~ChartOfAccounts.account_category.in_(exclude_categories))
+                # NULL-safe: SQL ``NOT IN`` is NULL for a NULL category, which
+                # would drop uncategorised accounts from every section.
+                query = query.filter(or_(
+                    ChartOfAccounts.account_category.is_(None),
+                    ~ChartOfAccounts.account_category.in_(exclude_categories),
+                ))
 
-            query = query.group_by(
-                ChartOfAccounts.id,
-                ChartOfAccounts.account_code,
-                ChartOfAccounts.account_name,
-                ChartOfAccounts.normal_balance,
-                ChartOfAccounts.account_category,
-                ChartOfAccounts.is_active,
-            ).order_by(ChartOfAccounts.account_code)
+            query = query.order_by(ChartOfAccounts.account_code)
 
             rows = query.all()
             items = []
             section_total = Decimal("0")
             for row in rows:
-                d = Decimal(str(row.total_debit))
-                c = Decimal(str(row.total_credit))
+                d, c = bs_sums.get(row.id, (Decimal("0"), Decimal("0")))
                 # Sign by account type (assets debit - credit, everything else
                 # credit - debit) so contra accounts (e.g. accumulated
                 # depreciation) reduce their section.
@@ -1631,7 +1875,12 @@ class GeneralLedgerService:
         Query full audit trail across JE and GL entries.
         Returns a unified, time-ordered view of all accounting activities.
         """
-        items = []
+        # Never materialise the whole ledger: the requested page lies within the top
+        # (skip + limit) rows of each source, so fetch only that many from each, merge,
+        # and build response objects for the final page only. Totals come from COUNT(*).
+        window = filters.skip + filters.limit
+        candidates = []  # (entry_date, created_at, source_rank, position, kind, row)
+        total = 0
 
         # ── Part A: Journal Entries ──
         if not filters.entry_type or filters.entry_type == "JE":
@@ -1653,7 +1902,60 @@ class GeneralLedgerService:
                     JournalEntry.description.ilike(s),
                 ))
 
-            for je in je_query.order_by(JournalEntry.entry_date.desc(), JournalEntry.id.desc()).all():
+            total += je_query.order_by(None).with_entities(func.count(JournalEntry.id)).scalar() or 0
+            je_rows = je_query.order_by(
+                JournalEntry.entry_date.desc(),
+                JournalEntry.created_at.desc().nullslast(),
+                JournalEntry.id.desc(),
+            ).limit(window).all()
+            for pos, je in enumerate(je_rows):
+                candidates.append((je.entry_date, je.created_at or datetime.min, 0, pos, "JE", je))
+
+        # ── Part B: GL Entries ──
+        if not filters.entry_type or filters.entry_type == "GL":
+            gl_query = self.db.query(
+                GeneralLedger,
+                ChartOfAccounts.account_code,
+                ChartOfAccounts.account_name,
+            ).join(
+                ChartOfAccounts, GeneralLedger.account_id == ChartOfAccounts.id
+            )
+            if filters.date_from:
+                gl_query = gl_query.filter(GeneralLedger.posting_date >= filters.date_from)
+            if filters.date_to:
+                gl_query = gl_query.filter(GeneralLedger.posting_date <= filters.date_to)
+            if filters.account_id:
+                gl_query = gl_query.filter(GeneralLedger.account_id == filters.account_id)
+            if filters.account_code:
+                gl_query = gl_query.filter(ChartOfAccounts.account_code == filters.account_code)
+            if filters.transaction_type:
+                gl_query = gl_query.filter(GeneralLedger.transaction_type == filters.transaction_type)
+            if filters.created_by:
+                gl_query = gl_query.filter(GeneralLedger.created_by == filters.created_by)
+            if filters.search:
+                s = f"%{filters.search}%"
+                gl_query = gl_query.filter(or_(
+                    GeneralLedger.description.ilike(s),
+                    GeneralLedger.reference_no.ilike(s),
+                    ChartOfAccounts.account_name.ilike(s),
+                ))
+
+            total += gl_query.order_by(None).with_entities(func.count(GeneralLedger.id)).scalar() or 0
+            gl_rows = gl_query.order_by(
+                GeneralLedger.transaction_date.desc(),
+                GeneralLedger.created_at.desc().nullslast(),
+                GeneralLedger.id.desc(),
+            ).limit(window).all()
+            for pos, (gl, acc_code, acc_name) in enumerate(gl_rows):
+                candidates.append((gl.transaction_date, gl.created_at or datetime.min, 1, pos, "GL", (gl, acc_code, acc_name)))
+
+        # Date desc, then created_at desc; ties keep JE-before-GL, then per-source order.
+        candidates.sort(key=lambda c: (c[0], c[1], -c[2], -c[3]), reverse=True)
+
+        items = []
+        for _d, _c, _rank, _pos, kind, row in candidates[filters.skip : filters.skip + filters.limit]:
+            if kind == "JE":
+                je = row
                 items.append(schemas.AuditTrailEntry(
                     id=je.id,
                     entry_type="JE",
@@ -1672,39 +1974,8 @@ class GeneralLedgerService:
                     posted_by=je.posted_by,
                     posted_at=je.posted_at,
                 ))
-
-        # ── Part B: GL Entries ──
-        if not filters.entry_type or filters.entry_type == "GL":
-            gl_query = self.db.query(
-                GeneralLedger,
-                ChartOfAccounts.account_code,
-                ChartOfAccounts.account_name,
-            ).join(
-                ChartOfAccounts, GeneralLedger.account_id == ChartOfAccounts.id
-            )
-            if filters.date_from:
-                gl_query = gl_query.filter(GeneralLedger.transaction_date >= filters.date_from)
-            if filters.date_to:
-                gl_query = gl_query.filter(GeneralLedger.transaction_date <= filters.date_to)
-            if filters.account_id:
-                gl_query = gl_query.filter(GeneralLedger.account_id == filters.account_id)
-            if filters.account_code:
-                gl_query = gl_query.filter(ChartOfAccounts.account_code == filters.account_code)
-            if filters.transaction_type:
-                gl_query = gl_query.filter(GeneralLedger.transaction_type == filters.transaction_type)
-            if filters.created_by:
-                gl_query = gl_query.filter(GeneralLedger.created_by == filters.created_by)
-            if filters.search:
-                s = f"%{filters.search}%"
-                gl_query = gl_query.filter(or_(
-                    GeneralLedger.description.ilike(s),
-                    GeneralLedger.reference_no.ilike(s),
-                    ChartOfAccounts.account_name.ilike(s),
-                ))
-
-            for gl, acc_code, acc_name in gl_query.order_by(
-                GeneralLedger.transaction_date.desc(), GeneralLedger.id.desc()
-            ).all():
+            else:
+                gl, acc_code, acc_name = row
                 items.append(schemas.AuditTrailEntry(
                     id=gl.id,
                     entry_type="GL",
@@ -1723,14 +1994,8 @@ class GeneralLedgerService:
                     created_at=gl.created_at,
                 ))
 
-        # Sort all items by date desc, then created_at desc
-        items.sort(key=lambda x: (x.entry_date, x.created_at or datetime.min), reverse=True)
-
-        total = len(items)
-        paged = items[filters.skip : filters.skip + filters.limit]
-
         return schemas.AuditTrailResponse(
-            items=paged,
+            items=items,
             total=total,
             date_from=filters.date_from,
             date_to=filters.date_to,
@@ -1761,32 +2026,46 @@ class GeneralLedgerService:
 
         correction_date = data.correction_date or tz.today()
 
-        reversal_je = je_service.reverse_journal_entry(
-            je_id=je_id,
-            reversed_by=corrected_by,
-            reason=f"Correction: {data.reason}",
-            reversal_date=correction_date,
-        )
+        # One transaction: either the original is reversed AND the corrected
+        # entry is posted, or nothing changes (no reversed original left behind
+        # with a stray draft when the corrected lines are rejected).
+        savepoint = self.db.begin_nested()
+        try:
+            reversal_je = je_service.reverse_journal_entry(
+                je_id=je_id,
+                reversed_by=corrected_by,
+                reason=f"Correction: {data.reason}",
+                reversal_date=correction_date,
+                commit=False,
+            )
 
-        # Step 2: Create the corrected JE
-        corrected_je = je_service.create_journal_entry(
-            schemas.JournalEntryCreate(
-                entry_date=correction_date,
-                posting_date=correction_date,
-                entry_type="Adjustment",
-                description=data.description or f"Correction of {original_je.journal_entry_no}: {data.reason}",
-                branch_code=original_je.branch_code,
-                lines=data.corrected_lines,
-            ),
-            created_by=corrected_by,
-        )
-
-        # Auto-post the correction (skip approval since it's a correction workflow)
-        corrected_je.status = "approved"
-        self.db.flush()
-        corrected_je = je_service.post_journal_entry(
-            corrected_je.id, posted_by=corrected_by
-        )
+            # Step 2: Create and post the corrected JE. The endpoint requires
+            # approver rights, so the correction is approved by its author.
+            corrected_je = je_service.create_journal_entry(
+                schemas.JournalEntryCreate(
+                    entry_date=correction_date,
+                    posting_date=correction_date,
+                    entry_type="Adjustment",
+                    description=data.description or f"Correction of {original_je.journal_entry_no}: {data.reason}",
+                    branch_code=original_je.branch_code,
+                    lines=data.corrected_lines,
+                ),
+                created_by=corrected_by,
+                commit=False,
+            )
+            corrected_je.status = "approved"
+            corrected_je.approved_by = corrected_by
+            corrected_je.approved_at = tz.now()
+            self.db.flush()
+            corrected_je = je_service.post_journal_entry(
+                corrected_je.id, posted_by=corrected_by, commit=False
+            )
+        except Exception:
+            savepoint.rollback()
+            raise
+        savepoint.commit()
+        self.db.commit()
+        _refresh_balances(self.db, [*original_je.lines, *corrected_je.lines], correction_date)
 
         return schemas.CorrectionResponse(
             original_je_id=original_je.id,
@@ -2055,8 +2334,23 @@ class AccountingPeriodService:
         3. Transfer 3200 → 3100 Retained Earnings
         """
         fiscal_year = data.fiscal_year
-        closing_date = data.closing_date or date(fiscal_year, 12, 31)
         warnings = []
+        je_service = JournalEntryService(self.db)
+
+        # The close is dated on the last day of the fiscal year, which is the
+        # last period's end when periods exist (a year starting in April ends
+        # in March), else 31 December.
+        last_period = self.db.query(AccountingPeriod).filter(
+            AccountingPeriod.fiscal_year == fiscal_year
+        ).order_by(AccountingPeriod.period_number.desc()).first()
+        closing_date = data.closing_date or (
+            last_period.end_date if last_period else date(fiscal_year, 12, 31)
+        )
+        if je_service._get_fiscal_period(closing_date)[0] != fiscal_year:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Closing date {closing_date} is not in fiscal year {fiscal_year}",
+            )
 
         # Get key accounts
         retained_earnings = self.db.query(ChartOfAccounts).filter(
@@ -2090,8 +2384,32 @@ class AccountingPeriodService:
                        f"(JE #{existing_close.journal_entry_no}). Reverse them first if re-closing."
             )
 
-        je_service = JournalEntryService(self.db)
-        gl_service = GeneralLedgerService(self.db)
+        # All three closing entries or none: a failure rolls back the savepoint.
+        savepoint = self.db.begin_nested()
+        try:
+            result = self._post_year_end_closing(
+                je_service, fiscal_year, closing_date, retained_earnings, current_year_pl,
+                closed_by, warnings,
+            )
+        except Exception:
+            savepoint.rollback()
+            raise
+        savepoint.commit()
+        self.db.commit()
+        touched = self.db.query(JournalEntryLine).filter(
+            JournalEntryLine.journal_entry_id.in_(
+                [i for i in (result.revenue_close_je_id, result.expense_close_je_id,
+                             result.retained_earnings_je_id) if i]
+            )
+        ).all()
+        _refresh_balances(self.db, touched, closing_date)
+        return result
+
+    def _post_year_end_closing(
+        self, je_service, fiscal_year, closing_date, retained_earnings, current_year_pl,
+        closed_by, warnings,
+    ) -> schemas.YearEndCloseResponse:
+        """Build and post the closing entries in the caller's transaction."""
 
         # ── Step 1: Sum all Revenue accounts for the year ──
         revenue_accounts = self.db.query(
@@ -2143,7 +2461,22 @@ class AccountingPeriodService:
         expense_je_id = None
         retained_je_id = None
 
-        fiscal_period = 12  # Closing always in period 12
+        def _create_and_post(description, lines):
+            je = je_service.create_journal_entry(
+                schemas.JournalEntryCreate(
+                    entry_date=closing_date,
+                    posting_date=closing_date,
+                    entry_type="Closing",
+                    description=description,
+                    lines=lines,
+                ),
+                created_by=closed_by,
+                commit=False,
+            )
+            # Closing entries are system-generated: no approval workflow.
+            je.status = "approved"
+            self.db.flush()
+            return je_service.post_journal_entry(je.id, posted_by=closed_by, commit=False)
 
         # ── Step 3: Create Revenue Closing JE ──
         if revenue_balances:
@@ -2169,20 +2502,9 @@ class AccountingPeriodService:
                 description="Year-end close: revenue transferred to Current Year P/L",
             ))
 
-            rev_je = je_service.create_journal_entry(
-                schemas.JournalEntryCreate(
-                    entry_date=closing_date,
-                    posting_date=closing_date,
-                    entry_type="Closing",
-                    description=f"Year-end closing: Revenue accounts → Current Year P/L (FY{fiscal_year})",
-                    lines=rev_lines,
-                ),
-                created_by=closed_by,
+            rev_je = _create_and_post(
+                f"Year-end closing: Revenue accounts → Current Year P/L (FY{fiscal_year})", rev_lines
             )
-            # Auto-post closing entries (skip approval workflow)
-            rev_je.status = "approved"
-            self.db.flush()
-            rev_je = je_service.post_journal_entry(rev_je.id, posted_by=closed_by)
             revenue_je_id = rev_je.id
 
         # ── Step 4: Create Expense Closing JE ──
@@ -2209,19 +2531,9 @@ class AccountingPeriodService:
                     description="Year-end close: transfer expense to P/L",
                 ))
 
-            exp_je = je_service.create_journal_entry(
-                schemas.JournalEntryCreate(
-                    entry_date=closing_date,
-                    posting_date=closing_date,
-                    entry_type="Closing",
-                    description=f"Year-end closing: Expense accounts → Current Year P/L (FY{fiscal_year})",
-                    lines=exp_lines,
-                ),
-                created_by=closed_by,
+            exp_je = _create_and_post(
+                f"Year-end closing: Expense accounts → Current Year P/L (FY{fiscal_year})", exp_lines
             )
-            exp_je.status = "approved"
-            self.db.flush()
-            exp_je = je_service.post_journal_entry(exp_je.id, posted_by=closed_by)
             expense_je_id = exp_je.id
 
         # ── Step 5: Transfer 3200 → 3100 Retained Earnings ──
@@ -2265,19 +2577,9 @@ class AccountingPeriodService:
                     ),
                 ]
 
-            ret_je = je_service.create_journal_entry(
-                schemas.JournalEntryCreate(
-                    entry_date=closing_date,
-                    posting_date=closing_date,
-                    entry_type="Closing",
-                    description=f"Year-end closing: Current Year P/L → Retained Earnings (FY{fiscal_year})",
-                    lines=ret_lines,
-                ),
-                created_by=closed_by,
+            ret_je = _create_and_post(
+                f"Year-end closing: Current Year P/L → Retained Earnings (FY{fiscal_year})", ret_lines
             )
-            ret_je.status = "approved"
-            self.db.flush()
-            ret_je = je_service.post_journal_entry(ret_je.id, posted_by=closed_by)
             retained_je_id = ret_je.id
         else:
             warnings.append("Net income is zero — no retained earnings transfer needed")
@@ -2352,6 +2654,8 @@ class CashFlowService:
          60, True, '["2110", "2120", "2130"]', "Change in salaries, EPF, ETF payable"),
         ("OP-022", "Gift Voucher Liabilities Changes", "Operating", "Increase/(Decrease) in Gift Voucher Liabilities",
          70, True, '["2510"]', "Change in gift vouchers outstanding"),
+        ("OP-090", "Other Working Capital Changes", "Operating", "Change in Other Current Assets & Liabilities",
+         90, True, '[]', "All other current assets and liabilities (advances, deposits, tax, payroll deductions)"),
         # Investing Activities
         ("IN-001", "Fixed Asset Purchases", "Investing", "Purchase of Property, Plant & Equipment",
          10, False, '["1310", "1320"]', "Cash paid for equipment and furniture purchases"),
@@ -2687,6 +2991,10 @@ class CashFlowService:
         if code == "OP-001":
             return self._calc_net_income(start_date, end_date)
 
+        # --- OP-090: every other current asset / liability (residual) ---
+        if code == "OP-090":
+            return self._calc_other_working_capital(start_date, end_date)
+
         # --- OP-002: Depreciation add-back (non-cash) ---
         if code == "OP-002":
             return self._calc_depreciation(category, start_date, end_date)
@@ -2722,60 +3030,70 @@ class CashFlowService:
             return []
 
     def _get_account_ids(self, account_codes: List[str]) -> List[int]:
-        """Resolve account codes to IDs."""
+        """Resolve account codes to IDs, including every sub-account of a header
+        (postings land on the leaves, e.g. loans on 2310 under header 2300)."""
         if not account_codes:
             return []
-        accounts = self.db.query(ChartOfAccounts.id).filter(
+        ids = {a.id for a in self.db.query(ChartOfAccounts.id).filter(
             ChartOfAccounts.account_code.in_(account_codes)
-        ).all()
-        return [a.id for a in accounts]
+        ).all()}
+        frontier = set(ids)
+        while frontier:
+            children = {a.id for a in self.db.query(ChartOfAccounts.id).filter(
+                ChartOfAccounts.parent_account_id.in_(frontier)
+            ).all()} - ids
+            ids |= children
+            frontier = children
+        return sorted(ids)
 
     def _calc_net_income(self, start_date: date, end_date: date) -> Decimal:
         """
-        Calculate net income = Revenue – Expenses for the period.
-        Revenue accounts (4xxx) have credit normal balance → net = credits – debits
-        Expense accounts (5xxx) have debit normal balance → net = debits – credits
-        Net Income = Revenue_net – Expense_net
+        Net income for the period = Revenue (credits – debits) – Expenses
+        (debits – credits), by account type, inactive accounts included and
+        year-end closing entries excluded (they zero P&L, they are not trading).
         """
-        # Revenue: accounts starting with '4'
-        rev_accounts = self.db.query(ChartOfAccounts.id).filter(
-            ChartOfAccounts.account_code.like("4%"),
-            ChartOfAccounts.is_active == True,
+        rows = self.db.query(
+            ChartOfAccounts.account_type,
+            func.coalesce(func.sum(GeneralLedger.credit_amount), 0)
+            - func.coalesce(func.sum(GeneralLedger.debit_amount), 0),
+        ).join(
+            GeneralLedger, GeneralLedger.account_id == ChartOfAccounts.id
+        ).filter(
+            ChartOfAccounts.account_type.in_(PROFIT_AND_LOSS_TYPES),
+            GeneralLedger.posting_date >= start_date,
+            GeneralLedger.posting_date <= end_date,
+            _not_closing(GeneralLedger.transaction_type),
+        ).group_by(ChartOfAccounts.account_type).all()
+        # credit - debit summed over Revenue and Expense is exactly Revenue - Expenses.
+        return sum((Decimal(str(net)) for _t, net in rows), Decimal("0"))
+
+    def _calc_other_working_capital(self, start_date: date, end_date: date) -> Decimal:
+        """Change in every current asset / liability that no active category maps
+        (cash, fixed assets and long-term debt excluded), so the indirect method
+        adds up to the actual change in cash."""
+        mapped: set = set()
+        for cat in self.db.query(CashFlowCategory).filter(CashFlowCategory.is_active == True).all():
+            mapped.update(self._get_account_ids(self._parse_account_codes(cat)))
+        excluded_categories = ["Cash", "Bank", "Fixed Asset", "Non-Current Asset", "Intangible Asset",
+                               "Long-term", "Long-term Liability", "Non-Current Liability"]
+        candidates = self.db.query(ChartOfAccounts.id).filter(
+            ChartOfAccounts.account_type.in_(["Asset", "Liability"]),
+            or_(ChartOfAccounts.account_category.is_(None),
+                ~ChartOfAccounts.account_category.in_(excluded_categories)),
         ).all()
-        rev_ids = [a.id for a in rev_accounts]
-
-        revenue = Decimal("0")
-        if rev_ids:
-            r = self.db.query(
-                func.coalesce(func.sum(GeneralLedger.credit_amount), 0) -
-                func.coalesce(func.sum(GeneralLedger.debit_amount), 0)
-            ).filter(
-                GeneralLedger.account_id.in_(rev_ids),
-                GeneralLedger.posting_date >= start_date,
-                GeneralLedger.posting_date <= end_date,
-            ).scalar()
-            revenue = Decimal(str(r)) if r else Decimal("0")
-
-        # Expenses: accounts starting with '5'
-        exp_accounts = self.db.query(ChartOfAccounts.id).filter(
-            ChartOfAccounts.account_code.like("5%"),
-            ChartOfAccounts.is_active == True,
-        ).all()
-        exp_ids = [a.id for a in exp_accounts]
-
-        expenses = Decimal("0")
-        if exp_ids:
-            e = self.db.query(
-                func.coalesce(func.sum(GeneralLedger.debit_amount), 0) -
-                func.coalesce(func.sum(GeneralLedger.credit_amount), 0)
-            ).filter(
-                GeneralLedger.account_id.in_(exp_ids),
-                GeneralLedger.posting_date >= start_date,
-                GeneralLedger.posting_date <= end_date,
-            ).scalar()
-            expenses = Decimal(str(e)) if e else Decimal("0")
-
-        return revenue - expenses
+        account_ids = [a.id for a in candidates if a.id not in mapped]
+        if not account_ids:
+            return Decimal("0")
+        change = self.db.query(
+            func.coalesce(func.sum(GeneralLedger.debit_amount), 0)
+            - func.coalesce(func.sum(GeneralLedger.credit_amount), 0)
+        ).filter(
+            GeneralLedger.account_id.in_(account_ids),
+            GeneralLedger.posting_date >= start_date,
+            GeneralLedger.posting_date <= end_date,
+        ).scalar()
+        # Debit-side growth (asset up / liability down) uses cash.
+        return -Decimal(str(change or 0))
 
     def _calc_depreciation(
         self, category: CashFlowCategory, start_date: date, end_date: date
@@ -2907,12 +3225,12 @@ class CashFlowService:
         total_debit = Decimal(str(result.d)) if result else Decimal("0")
         total_credit = Decimal(str(result.c)) if result else Decimal("0")
 
+        # Gross flows: the inflow line takes the credits (contribution, loan
+        # received) and the outflow line the debits (drawings, repayment), so a
+        # pair of categories on the same account never counts one movement twice.
         if category.is_inflow:
-            # Inflow: credits to equity/liability (e.g. owner contribution, loan received)
-            return total_credit - total_debit
-        else:
-            # Outflow: debits to equity/liability (e.g. owner withdrawal, loan repayment)
-            return -(total_debit - total_credit)
+            return total_credit
+        return -total_debit
 
     def _calc_generic(
         self, category: CashFlowCategory, start_date: date, end_date: date

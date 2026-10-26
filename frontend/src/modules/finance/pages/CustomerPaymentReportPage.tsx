@@ -54,6 +54,7 @@ import {
 import { Customer } from "@/modules/customers/types";
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { escapeHtml } from "@/utils/escapeHtml";
 
 type SortField = "date" | "customer_name" | "amount" | "branch_code" | "payment_method";
 type SortDir = "asc" | "desc";
@@ -266,7 +267,7 @@ export default function CustomerPaymentReportPage() {
     const html = `<!DOCTYPE html>
 <html>
 <head>
-  <title>Payment Receipt - ${item.document_no}</title>
+  <title>Payment Receipt - ${escapeHtml(item.document_no)}</title>
   <style>
     * { box-sizing: border-box; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; color: #333; max-width: 700px; margin: 0 auto; }
@@ -294,13 +295,13 @@ export default function CustomerPaymentReportPage() {
     <div class="value">${currencySymbol} ${fmtLKR(item.amount)}</div>
   </div>
   <div class="detail-grid">
-    <div class="detail-item"><div class="label">Document No.</div><div class="value">${item.document_no}</div></div>
+    <div class="detail-item"><div class="label">Document No.</div><div class="value">${escapeHtml(item.document_no)}</div></div>
     <div class="detail-item"><div class="label">Date</div><div class="value">${new Date(item.date).toLocaleDateString()}</div></div>
-    <div class="detail-item"><div class="label">Customer</div><div class="value">${item.customer_name}</div></div>
-    <div class="detail-item"><div class="label">Payment Method</div><div class="value">${item.payment_method || "-"}</div></div>
-    <div class="detail-item"><div class="label">Invoice(s)</div><div class="value">${item.invoice_refs || "-"}</div></div>
-    <div class="detail-item"><div class="label">Branch</div><div class="value">${item.branch_code || "-"}</div></div>
-    ${item.remarks ? `<div class="detail-item" style="grid-column: span 2;"><div class="label">Remarks</div><div class="value">${item.remarks}</div></div>` : ""}
+    <div class="detail-item"><div class="label">Customer</div><div class="value">${escapeHtml(item.customer_name)}</div></div>
+    <div class="detail-item"><div class="label">Payment Method</div><div class="value">${escapeHtml(item.payment_method || "-")}</div></div>
+    <div class="detail-item"><div class="label">Invoice(s)</div><div class="value">${escapeHtml(item.invoice_refs || "-")}</div></div>
+    <div class="detail-item"><div class="label">Branch</div><div class="value">${escapeHtml(item.branch_code || "-")}</div></div>
+    ${item.remarks ? `<div class="detail-item" style="grid-column: span 2;"><div class="label">Remarks</div><div class="value">${escapeHtml(item.remarks)}</div></div>` : ""}
   </div>
   <div class="footer">
     <p>Generated on ${new Date().toLocaleString()} | Tijaero ERP System</p>
@@ -355,7 +356,7 @@ export default function CustomerPaymentReportPage() {
 <body>
   <div class="header">
     <h1>Customer Payment Report</h1>
-    <div class="meta">${customerText} | ${dateRangeText}</div>
+    <div class="meta">${escapeHtml(customerText)} | ${escapeHtml(dateRangeText)}</div>
   </div>
   <div class="summary-grid">
     <div class="summary-card primary">
@@ -390,13 +391,13 @@ export default function CustomerPaymentReportPage() {
       ${sortedItems.map((item) => `
         <tr>
           <td>${new Date(item.date).toLocaleDateString()}</td>
-          <td>${item.customer_name}</td>
-          <td>${item.document_no}</td>
-          <td>${item.invoice_refs}</td>
-          <td>${item.payment_method}</td>
+          <td>${escapeHtml(item.customer_name)}</td>
+          <td>${escapeHtml(item.document_no)}</td>
+          <td>${escapeHtml(item.invoice_refs)}</td>
+          <td>${escapeHtml(item.payment_method)}</td>
           <td class="text-right"><strong>${fmtLKR(item.amount)}</strong></td>
-          <td>${item.branch_code}</td>
-          <td>${item.remarks || "-"}</td>
+          <td>${escapeHtml(item.branch_code)}</td>
+          <td>${escapeHtml(item.remarks || "-")}</td>
         </tr>
       `).join("")}
       <tr class="totals-row">

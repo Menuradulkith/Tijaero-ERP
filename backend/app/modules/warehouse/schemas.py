@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import date, datetime
 from typing import Optional, List
 
@@ -19,6 +19,29 @@ class ItemTransferNoteCreate(ItemTransferNoteBase):
     status: Optional[str] = "pending"
     sales_quote_id: Optional[int] = None
 
+    # Input rules live on the create schema only, so old rows still serialise in responses.
+    @field_validator("created_date")
+    @classmethod
+    def _date_within_a_year(cls, v: date) -> date:
+        today = date.today()
+        if v < date(today.year - 1, today.month, 1) or v > date(today.year + 1, today.month, 1):
+            raise ValueError("Transfer date must be within a year of today")
+        return v
+
+    @field_validator("remark")
+    @classmethod
+    def _remark_length(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 2000:
+            raise ValueError("Remark must be at most 2000 characters")
+        return v
+
+    @field_validator("from_location_id", "to_location_id")
+    @classmethod
+    def _location_id_range(cls, v: int) -> int:
+        if v < 1 or v > 2_147_483_647:
+            raise ValueError("Location id is out of range")
+        return v
+
 class ItemTransferNote(ItemTransferNoteBase, TijaeroBaseSchema):
     id: int
     added_date: datetime
@@ -27,6 +50,8 @@ class ItemTransferNote(ItemTransferNoteBase, TijaeroBaseSchema):
     from_location_name: Optional[str] = None
     to_location_name: Optional[str] = None
     sales_quote_id: Optional[int] = None
+    total_units: int = 0  # units across all lines (lots count by quantity)
+    created_by_name: Optional[str] = None
 
 # Item Transfer Note Items Schemas
 class ItemTransferNoteItemBase(BaseModel):
@@ -46,6 +71,8 @@ class ItemTransferNoteItem(ItemTransferNoteItemBase, TijaeroBaseSchema):
     created_date: datetime
     product_name: Optional[str] = None
     sales_stock_id: Optional[int] = None  # set once a lot line is allocated at approval
+    batch_no: Optional[str] = None  # of the allocated lot (batch-tracked products)
+    expiry_date: Optional[date] = None
 
 # Item Transfer Note Approved Schemas
 class ItemTransferNoteApprovedBase(BaseModel):
@@ -74,6 +101,12 @@ class ItemReceiveNote(ItemReceiveNoteBase, TijaeroBaseSchema):
     id: int
     recieved_user: Optional[int] = None
     recieved_date: Optional[datetime] = None
+    item_transfer_note_no: Optional[str] = None
+    from_location_name: Optional[str] = None
+    to_location_name: Optional[str] = None
+    total_units: int = 0  # units on the transfer note
+    received_units: int = 0  # of those, units already received
+    received_by_name: Optional[str] = None
 
 # Item Transfer Note with Items
 class ItemTransferNoteWithItems(ItemTransferNote):
@@ -127,9 +160,19 @@ class LotValidationResponse(BaseModel):
 
 
 # Receive Items Schemas
+class ReceiveLine(BaseModel):
+    """What the receiver found on one received line: units that arrived damaged and a line note.
+    Identify the line by `barcode` (serial unit) or `item_id` (batch / non-serial line)."""
+    barcode: Optional[str] = Field(default=None, max_length=255)
+    item_id: Optional[int] = Field(default=None, ge=1)
+    damaged_quantity: int = Field(default=0, ge=0, le=1_000_000)  # at most the line's received quantity
+    note: Optional[str] = Field(default=None, max_length=355)
+
+
 class ReceiveItemsRequest(BaseModel):
     barcodes: List[str] = []
     item_ids: List[int] = []  # lot lines (no barcode) are received whole, by item id
+    lines: List[ReceiveLine] = []  # damage / notes for lines being received now
     received_note: Optional[str] = None
     received_user_id: Optional[int] = None
 

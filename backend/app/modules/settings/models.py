@@ -41,6 +41,20 @@ class Settings(Base, AuditMixin):
     default_timezone = Column(String(50), default="Asia/Colombo")  # IANA timezone id
     tax_registration_number = Column(String(50))
 
+    # Printed on documents and reports (letterhead, footer, payment details)
+    company_logo = Column(Text)  # data:image/png|jpeg|webp;base64,...
+    company_website = Column(String(255))
+    business_registration_number = Column(String(50))
+    bank_name = Column(String(100))
+    bank_branch = Column(String(100))
+    bank_account_name = Column(String(150))
+    bank_account_number = Column(String(50))
+    bank_swift_code = Column(String(20))
+
+    @property
+    def has_company_logo(self) -> bool:
+        return bool(self.company_logo)
+
     # Passcode security settings
     # Mandatory monthly reset: admin can only lower (1–30 days), default is 30
     passcode_expiry_days = Column(Integer, nullable=False, default=30)

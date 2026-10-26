@@ -45,7 +45,7 @@ export default function LeaveApprovalsPage() {
   const canApprove = usePermission("leave_approvals", "approve");
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("from_date");
+  const [sortField, setSortField] = useState("created_desc");
   const [selectedLeave, setSelectedLeave] = useState<Leave | null>(null);
 
   const [approveDialog, setApproveDialog] = useState(false);

@@ -682,7 +682,9 @@ export default function CustomersPage() {
               tabs={detailTabs}
               activeTab={currentSection}
               onChange={(id) => setActiveSection(id as CustomerSection)}
+              appearance="segmented"
               showDivider={false}
+              sx={{ mx: 2, my: 1 }}
             />
           )
         }

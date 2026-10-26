@@ -64,9 +64,11 @@ import {
 // ConfirmDialog now uses TConfirmDialog from tijaero
 
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import { EntityLink, EntityPeekButton } from "@/components/tijaero/peek";
 import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
 import { addWorkingDays, todayIso } from "@/modules/purchasing/utils/workingDays";
 import { approvalsApi } from "@/modules/common/api";
+import { usePermission } from "@/auth/permissions";
 import ApproverAuthDialog from "../components/ApproverAuthDialog";
 import { useReferenceData, useDebounce } from "@/hooks";
 // OPTIMIZED: Removed individual imports for productsApi, branchApi - using aggregated endpoint
@@ -79,6 +81,7 @@ import { Product } from "@/modules/inventory/types";
 type POApprovalRow = PurchasingOrder & { supplier_display_name: string };
 
 export default function POApprovalsPage() {
+  const canApprove = usePermission("po_approvals", "approve") || usePermission("common", "update");
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
@@ -513,7 +516,7 @@ export default function POApprovalsPage() {
 
       {/* Approve/Reject, on the right like the Cancel / Next pairing on the
           PO creation wizard's toolbar. */}
-      {selectedOrder && selectedIsPending && (
+      {selectedOrder && selectedIsPending && canApprove && (
         <ActionToolbar
           hasSelectedItem
           isCreating={false}
@@ -598,7 +601,13 @@ export default function POApprovalsPage() {
 
             {/* Supplier Information */}
             <FormSection title="Supplier Information" columns={2}>
-              <TextField label="Company" size="small" value={supplier?.company_name || "N/A"} disabled />
+              <TextField
+                label="Company"
+                size="small"
+                value={supplier?.company_name || "N/A"}
+                disabled
+                InputProps={{ endAdornment: <EntityPeekButton entity="supplier" id={selectedOrder.first_suppliers_id} /> }}
+              />
               <TextField label="Contact No" size="small" value={supplier?.mobile_contact_number || ""} disabled />
               <TextField label="Email" size="small" value={supplier?.email || "N/A"} disabled />
             </FormSection>
@@ -623,7 +632,11 @@ export default function POApprovalsPage() {
                           ...modernTableStyles.bodyRow,
                           ...(index % 2 === 1 && { bgcolor: "grey.25" }),
                         }}>
-                          <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
+                          <TableCell>
+                            <EntityLink entity="product" id={item.product_id}>
+                              {product?.name || `Product #${item.product_id}`}
+                            </EntityLink>
+                          </TableCell>
                           <TableCell align="right">{item.quantity}</TableCell>
                           <TableCell align="right">{fmtLKR(item.unit_price)}</TableCell>
                           <TableCell align="right">{fmtLKR(item.quantity * item.unit_price)}</TableCell>

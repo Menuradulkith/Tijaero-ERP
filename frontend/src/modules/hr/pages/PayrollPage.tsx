@@ -31,6 +31,7 @@ import {
   showSuccessToast,
   useMasterDetailState,
   useTConfirmDialog,
+  canPrintDocument,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { payrollApi } from "@/modules/hr/api";
@@ -313,7 +314,7 @@ export default function PayrollPage() {
         chips={selectedItem && !isCreating && selectedItem.status ? [{ label: selectedItem.status.replace("_", " "), color: statusColor(selectedItem.status) }] : []}
         actions={
           !isCreating && !isEditing ? (
-            <TPrintButton documentType="payroll" documentId={selectedItem?.id || 0} tooltip="Print Payslip" onClick={() => setPrintDialogOpen(true)} />
+            <TPrintButton documentType="payroll" documentId={selectedItem?.id || 0} disabled={!canPrintDocument(selectedItem?.status, ["cancelled", "rejected"])} disabledReason="Cannot print: payroll is not approved yet" tooltip="Print Payslip" onClick={() => setPrintDialogOpen(true)} />
           ) : undefined
         }
       />

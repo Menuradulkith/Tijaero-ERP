@@ -119,7 +119,7 @@ class TestPartlyRedeemedVoucher:
         assert sale["2510"] == (D("100.00"), D("0"))
         forfeit = _je(db, "GiftVoucherForfeit", v["id"])
         assert forfeit["2510"] == (D("400.00"), D("0"))
-        assert forfeit["4100"] == (D("0"), D("400.00"))
+        assert forfeit["4190"] == (D("0"), D("400.00"))
         assert "4110" not in forfeit
         sold = _je(db, "GiftVoucherSale", v["id"])
         # 2510 over the voucher life: +500 on sale, -100 redeemed, -400 forfeited => 0
@@ -139,7 +139,7 @@ class TestServiceChargeAccount:
         inv = o.json()
         assert inv["service_charge_amount"] == 27.0
         je = _je(db, "Invoice", inv["id"])
-        assert je["4100"] == (D("0"), D("27.00"))
+        assert je["4190"] == (D("0"), D("27.00"))
         assert "4110" not in je
         assert je["1020"][0] == D("1027.00") and je["4010"][1] == D("1000.00")
 
@@ -154,7 +154,7 @@ class TestServiceChargeAccount:
         je = PurchaseExpensePayrollGL(db).post_customer_credit_settlement_to_gl(settlement, txns, user_id=1)
         assert je is not None
         lines = _je(db, "CustomerCreditSettlement", ref)
-        assert lines["4100"] == (D("0"), D("2.70")) and "4110" not in lines
+        assert lines["4190"] == (D("0"), D("2.70")) and "4110" not in lines
         assert lines["1020"][0] == D("102.70") and lines["1110"][1] == D("100.00")
 
 

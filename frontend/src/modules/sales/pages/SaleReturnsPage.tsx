@@ -780,7 +780,7 @@ export default function SaleReturnsPage() {
                 canDelete={canDelete && selectedReturn?.status === 'pending'}
                 canUpdate={selectedReturn?.status === 'pending'}
                 onNew={handleNewReturn}
-                onSave={handleSave}
+                onSave={isCreating && formStep < FORM_STEPS.length - 1 ? undefined : handleSave}
                 onCancel={handleCancel}
                 startActions={
                   isCreating && formStep === 1 ? (
@@ -817,7 +817,7 @@ export default function SaleReturnsPage() {
                         </Button>
                     ) : selectedReturn && !isCreating && !isEditing ? (
                         <>
-                            <Tooltip title={!canPrintDocument(selectedReturn.status, ["approved", "cancelled", "rejected"]) ? `Cannot email: return is ${(selectedReturn.status || "").replace(/_/g, " ")}` : "Send via Email"}>
+                            {canPrintDocument(selectedReturn.status, ["approved", "cancelled", "rejected"]) && (<Tooltip title={!canPrintDocument(selectedReturn.status, ["approved", "cancelled", "rejected"]) ? `Cannot email: return is ${(selectedReturn.status || "").replace(/_/g, " ")}` : "Send via Email"}>
                                 <span>
                                     <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
                                         disabled={!canPrintDocument(selectedReturn.status, ["approved", "cancelled", "rejected"])}
@@ -825,7 +825,7 @@ export default function SaleReturnsPage() {
                                         Email
                                     </Button>
                                 </span>
-                            </Tooltip>
+                            </Tooltip>)}
                             <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
                             <TPrintButton
                                 documentType="credit-note"

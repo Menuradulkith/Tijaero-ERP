@@ -84,7 +84,7 @@ class CustomerSupportService:
         if filters.date_to:
             query = query.filter(CustomerSupport.date <= filters.date_to)
         
-        return query.offset(filters.skip).limit(filters.limit).all()
+        return query.order_by(CustomerSupport.id.desc()).offset(filters.skip).limit(filters.limit).all()
     
     def update_support_ticket(self, ticket_id: int, ticket: schemas.CustomerSupportCreate) -> CustomerSupport:
         db_ticket = self.get_support_ticket(ticket_id)
@@ -207,7 +207,7 @@ class WarrantyClaimService:
         if filters.date_to:
             query = query.filter(WarrantyClaims.created_date <= filters.date_to)
         
-        return query.offset(filters.skip).limit(filters.limit).all()
+        return query.order_by(WarrantyClaims.id.desc()).offset(filters.skip).limit(filters.limit).all()
     
     def update_warranty_claim(self, claim_id: int, claim: schemas.WarrantyClaimCreate) -> WarrantyClaims:
         db_claim = self.get_warranty_claim(claim_id)

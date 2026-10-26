@@ -60,6 +60,7 @@ import {
 import { financialReportsApi } from "../api";
 import type { BalanceSheetResponse, BalanceSheetSection } from "../types";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { escapeHtml } from "@/utils/escapeHtml";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -185,13 +186,13 @@ export default function BalanceSheetPage() {
 
     const sectionHtml = (s: BalanceSheetSection) =>
       s.items.length
-        ? `<tr><td colspan="3" style="font-weight:700;padding-top:10px;color:#555">${s.section_name}</td></tr>` +
-          s.items.map((i) => `<tr><td style="padding-left:24px;font-family:monospace;color:#888">${i.account_code}</td><td>${i.account_name}</td><td style="text-align:right">${fmtLKR(Math.abs(Number(i.amount)))}</td></tr>`).join("") +
-          `<tr style="border-top:1px solid #ccc"><td></td><td style="font-weight:600">Total ${s.section_name}</td><td style="text-align:right;font-weight:700">${fmtLKR(Math.abs(Number(s.total)))}</td></tr>`
+        ? `<tr><td colspan="3" style="font-weight:700;padding-top:10px;color:#555">${escapeHtml(s.section_name)}</td></tr>` +
+          s.items.map((i) => `<tr><td style="padding-left:24px;font-family:monospace;color:#888">${escapeHtml(i.account_code)}</td><td>${escapeHtml(i.account_name)}</td><td style="text-align:right">${fmtLKR(Math.abs(Number(i.amount)))}</td></tr>`).join("") +
+          `<tr style="border-top:1px solid #ccc"><td></td><td style="font-weight:600">Total ${escapeHtml(s.section_name)}</td><td style="text-align:right;font-weight:700">${fmtLKR(Math.abs(Number(s.total)))}</td></tr>`
         : "";
     const subtotalRow = (label: string, val: number, bg = "#f5f5f5") =>
-      `<tr style="background:${bg};border-top:2px solid #ccc;border-bottom:2px solid #ccc"><td></td><td style="font-weight:800;font-size:14px">${label}</td><td style="text-align:right;font-weight:800;font-size:14px">${currencySymbol} ${fmtLKR(Math.abs(val))}</td></tr>`;
-    const groupHdr = (label: string) => `<tr style="background:#1976d2;color:white"><td colspan="3" style="font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:6px 8px">${label}</td></tr>`;
+      `<tr style="background:${bg};border-top:2px solid #ccc;border-bottom:2px solid #ccc"><td></td><td style="font-weight:800;font-size:14px">${escapeHtml(label)}</td><td style="text-align:right;font-weight:800;font-size:14px">${currencySymbol} ${fmtLKR(Math.abs(val))}</td></tr>`;
+    const groupHdr = (label: string) => `<tr style="background:#1976d2;color:white"><td colspan="3" style="font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:6px 8px">${escapeHtml(label)}</td></tr>`;
 
     win.document.write(`<!DOCTYPE html><html><head><title>Balance Sheet</title>
 <style>body{font-family:Segoe UI,sans-serif;padding:20px;max-width:800px;margin:0 auto}h1{color:#1976d2;text-align:center;border-bottom:2px solid #1976d2;padding-bottom:10px}

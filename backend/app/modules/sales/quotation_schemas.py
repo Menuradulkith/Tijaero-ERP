@@ -321,6 +321,7 @@ class SalesQuote(TijaeroBaseSchema, VersionedSchema):
     
     # Workflow date tracking
     submitted_date: Optional[datetime] = None
+    confirmed_date: Optional[datetime] = None
     po_created_date: Optional[datetime] = None
     approved_date: Optional[datetime] = None
     approved_by_customer: Optional[str] = None
@@ -570,7 +571,7 @@ class ReleaseReservationResponse(BaseModel):
 
 class RejectQuoteRequest(BaseModel):
     """Request to reject a quote"""
-    reason: OptStr(500) = None
+    reason: ReqStr(500)  # why the quote was rejected (required)
     cancel_linked_po: bool = False  # Whether to cancel the linked PO if one exists
 
 

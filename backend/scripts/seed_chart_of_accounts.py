@@ -58,6 +58,14 @@ COA_DATA = [
      "Amounts owed by customers for credit sales", "1100"),
     ("1120", "Customer Advances", "Asset", "Receivable", "Debit", True,
      "Advance payments made by customers (contra account)", "1100"),
+    ("1130", "Employee Advances & Loans", "Asset", "Employee Advance", "Debit", True,
+     "Salary advances and loans owed by employees, cleared by payroll repayments", "1100"),
+
+    # Supplier advances are money WE prepaid to suppliers (Dr on payment, Cr when
+    # applied to a GRN / invoice or refunded) -> a current asset, not a liability.
+    # Code 2020 is kept for compatibility with existing postings.
+    ("2020", "Supplier Advances", "Asset", "Prepayment", "Debit", True,
+     "Advance payments made to suppliers (prepayment, applied to later purchases)", "1100"),
 
     ("1200", "Inventory", "Asset", "Inventory", "Debit", False,
      "Parent account for inventory items", None),
@@ -82,8 +90,6 @@ COA_DATA = [
      "Parent account for payables", None),
     ("2010", "Trade Creditors", "Liability", "Payable", "Credit", True,
      "Amounts owed to suppliers for purchases", "2000"),
-    ("2020", "Supplier Advances", "Liability", "Payable", "Credit", True,
-     "Advance payments received from suppliers", "2000"),
 
     ("2100", "Payroll Liabilities", "Liability", "Payroll", "Credit", False,
      "Parent account for payroll-related liabilities", None),
@@ -145,6 +151,8 @@ COA_DATA = [
      "Parent account for non-operating income", None),
     ("4110", "Discount Received", "Revenue", "Other", "Credit", False,
      "Discounts received from suppliers", "4100"),
+    ("4190", "Miscellaneous Income", "Revenue", "Other", "Credit", True,
+     "Service charges, voucher breakage, settlement discounts and other income", "4100"),
 
     # ═══════════════════════════════════════════════════════════════════════════
     # EXPENSES

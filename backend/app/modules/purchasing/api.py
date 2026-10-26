@@ -17,7 +17,9 @@ from app.modules.common.models import Country
 from sqlalchemy.orm import Session
 
 from . import schemas, service
-from .models import PurchasingOrder, PurchasingOrderItems, GoodReceivedNote, Supplier, SupplierAdvancePayment
+from .lookup_access import SUPPLIER_LOOKUP_PERMISSIONS, trim_suppliers
+from .models import GoodReceivedItems, GoodReceivedRejection, PurchasingReturnItems
+from .models import PurchasingOrder, PurchasingOrderItems, GoodReceivedNote, Supplier, SupplierAdvancePayment, SupplierCreditsSettle, SupplierPayment
 
 # Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
 RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
@@ -35,6 +37,14 @@ def _ensure_order_branch(db: Session, user: User, order_id: int) -> None:
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Purchase order with id {order_id} not found")
     if not validate_branch_access(user, row.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {row.branch_code}")
+
+
+def _ensure_row_branch(db: Session, user: User, model, row_id: int) -> None:
+    """403 if the row belongs to a branch the user cannot access. A missing row falls
+    through so the service raises its usual 404."""
+    row = db.query(model.branch_code).filter(model.id == row_id).first()
+    if row and not validate_branch_access(user, row.branch_code):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {row.branch_code}")
 
 
@@ -176,14 +186,19 @@ def _get_sales_quote_no_map(db: Session, orders) -> Dict[int, str]:
 
 
 def _enrich_grns(db: Session, grns: List[Any]) -> List[Dict[str, Any]]:
-    """Add po_no and supplier_name to GRN list responses."""
+    """Add po_no, supplier_name, created_by_name and the PO's approver/date to GRN list responses."""
     if not grns:
         return []
+    from app.modules.common.models import Approvals
+
     po_ids = list({g.purchasingorders_id for g in grns if g.purchasingorders_id})
     po_map: Dict[int, Any] = {}
     if po_ids:
         pos = db.query(
-            PurchasingOrder.id, PurchasingOrder.purchasing_order_no, PurchasingOrder.first_suppliers_id
+            PurchasingOrder.id,
+            PurchasingOrder.purchasing_order_no,
+            PurchasingOrder.first_suppliers_id,
+            PurchasingOrder.approval_id,
         ).filter(PurchasingOrder.id.in_(po_ids)).all()
         po_map = {p.id: p for p in pos}
     supplier_ids = list({p.first_suppliers_id for p in po_map.values() if p.first_suppliers_id})
@@ -191,13 +206,65 @@ def _enrich_grns(db: Session, grns: List[Any]) -> List[Dict[str, Any]]:
     if supplier_ids:
         rows = db.query(Supplier.id, Supplier.company_name).filter(Supplier.id.in_(supplier_ids)).all()
         supplier_map = {r.id: r.company_name for r in rows}
+    approval_ids = list({p.approval_id for p in po_map.values() if p.approval_id})
+    approval_map: Dict[int, Any] = {}
+    if approval_ids:
+        rows = (
+            db.query(Approvals.id, Approvals.status, Approvals.status_changed_by, Approvals.updated_at)
+            .filter(Approvals.id.in_(approval_ids))
+            .all()
+        )
+        approval_map = {r.id: r for r in rows if str(r.status or "").lower() == "approved"}
+    user_ids = {g.created_by for g in grns if g.created_by} | {
+        a.status_changed_by for a in approval_map.values() if a.status_changed_by
+    }
+    user_name_map: Dict[int, str] = {}
+    if user_ids:
+        users = db.query(User).filter(User.id.in_(list(user_ids))).all()
+        user_name_map = {u.id: _user_display_name(u) for u in users}
+    from sqlalchemy import func
+
+    grn_nos = [g.good_received_no for g in grns if g.good_received_no]
+    received: Dict[str, Any] = {}
+    if grn_nos:
+        rows = (
+            db.query(
+                GoodReceivedItems.good_received_note,
+                func.coalesce(func.sum(GoodReceivedItems.quantity), 0),
+                func.coalesce(func.sum(GoodReceivedItems.quantity * PurchasingOrderItems.unit_price), 0),
+            )
+            .join(PurchasingOrderItems, PurchasingOrderItems.id == GoodReceivedItems.purchasing_order_items_id)
+            .filter(GoodReceivedItems.good_received_note.in_(grn_nos), GoodReceivedItems.active.is_(True))
+            .group_by(GoodReceivedItems.good_received_note)
+            .all()
+        )
+        received = {r[0]: (int(r[1]), r[2]) for r in rows}
+    rejected: Dict[int, int] = {}
+    rejected_rows = (
+        db.query(GoodReceivedRejection.good_received_note_id, func.coalesce(func.sum(GoodReceivedRejection.quantity), 0))
+        .filter(GoodReceivedRejection.good_received_note_id.in_([g.id for g in grns]))
+        .group_by(GoodReceivedRejection.good_received_note_id)
+        .all()
+    )
+    rejected = {r[0]: int(r[1]) for r in rejected_rows}
     results = []
     for g in grns:
         payload = schemas.GoodReceivedNote.model_validate(g).model_dump()
+        units, value = received.get(g.good_received_no, (0, 0))
+        payload["units_received"] = units
+        payload["total_value"] = value
+        payload["units_rejected"] = rejected.get(g.id, 0)
+        payload["created_by_name"] = user_name_map.get(g.created_by) if g.created_by else None
         po = po_map.get(g.purchasingorders_id)
         if po:
             payload["po_no"] = po.purchasing_order_no
             payload["supplier_name"] = supplier_map.get(po.first_suppliers_id)
+            approval = approval_map.get(po.approval_id) if po.approval_id else None
+            if approval:
+                payload["po_approved_by_name"] = (
+                    user_name_map.get(approval.status_changed_by) if approval.status_changed_by else None
+                )
+                payload["po_approved_date"] = approval.updated_at
         results.append(payload)
     return results
 
@@ -230,9 +297,23 @@ def _enrich_purchase_returns(db: Session, returns: List[Any]) -> List[Dict[str, 
     if user_ids:
         users = db.query(User).filter(User.id.in_(user_ids)).all()
         user_name_map = {u.id: _user_display_name(u) for u in users}
+    from sqlalchemy import func
+
+    totals = {
+        row[0]: (int(row[1]), row[2])
+        for row in db.query(
+            PurchasingReturnItems.purchasingreturn_id,
+            func.coalesce(func.sum(PurchasingReturnItems.quantity), 0),
+            func.coalesce(func.sum(PurchasingReturnItems.quantity * PurchasingReturnItems.return_price), 0),
+        )
+        .filter(PurchasingReturnItems.purchasingreturn_id.in_([r.id for r in returns]))
+        .group_by(PurchasingReturnItems.purchasingreturn_id)
+        .all()
+    }
     results = []
     for r in returns:
         payload = schemas.PurchasingReturn.model_validate(r).model_dump()
+        payload["total_quantity"], payload["total_amount"] = totals.get(r.id, (0, 0))
         payload["created_by_name"] = user_name_map.get(r.created_by) if r.created_by else None
         grn = grn_map.get(r.goodreceivednote_id)
         if grn:
@@ -361,7 +442,7 @@ def list_suppliers(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
+    current_user: User = Depends(require_any_permission(*SUPPLIER_LOOKUP_PERMISSIONS)),
 ):
     supplier_service = service.SupplierService(db)
     filters = schemas.SupplierListFilter(
@@ -372,7 +453,8 @@ def list_suppliers(
         skip=skip,
         limit=limit,
     )
-    return supplier_service.list_suppliers(filters)
+    # PO / GRN users without suppliers:view get a trimmed record (see lookup_access.py)
+    return trim_suppliers(current_user, supplier_service.list_suppliers(filters))
 
 
 
@@ -430,10 +512,11 @@ def remove_supplier_logo(
 )
 def list_supplier_payment_methods(
     supplier_id: RowId,
+    active_only: bool = Query(False, description="Only active methods (for pickers on other pages)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
 ):
-    return service.SupplierPaymentMethodService(db).list_payment_methods(supplier_id)
+    return service.SupplierPaymentMethodService(db).list_payment_methods(supplier_id, active_only=active_only)
 
 
 @router.post(
@@ -468,32 +551,17 @@ def update_supplier_payment_method(
     return service.SupplierPaymentMethodService(db).update_payment_method(supplier_id, method_id, payload)
 
 
-@router.delete(
-    "/suppliers/{supplier_id}/payment-methods/{method_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def delete_supplier_payment_method(
-    supplier_id: RowId,
-    method_id: RowId,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
-    ),
-):
-    service.SupplierPaymentMethodService(db).delete_payment_method(supplier_id, method_id)
-    return None
-
-
 @router.get(
     "/suppliers/{supplier_id}/contact-persons",
     response_model=List[schemas.SupplierContactPerson],
 )
 def list_supplier_contact_persons(
     supplier_id: RowId,
+    active_only: bool = Query(False, description="Only active contact persons (for popups on other pages)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
 ):
-    return service.SupplierContactPersonService(db).list_contacts(supplier_id)
+    return service.SupplierContactPersonService(db).list_contacts(supplier_id, active_only=active_only)
 
 
 @router.post(
@@ -528,22 +596,6 @@ def update_supplier_contact_person(
     return service.SupplierContactPersonService(db).update_contact(supplier_id, contact_id, payload)
 
 
-@router.delete(
-    "/suppliers/{supplier_id}/contact-persons/{contact_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def delete_supplier_contact_person(
-    supplier_id: RowId,
-    contact_id: RowId,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
-    ),
-):
-    service.SupplierContactPersonService(db).delete_contact(supplier_id, contact_id)
-    return None
-
-
 @router.get(
     "/suppliers/{supplier_id}/products",
     response_model=List[schemas.SupplierProduct],
@@ -551,7 +603,7 @@ def delete_supplier_contact_person(
 def list_supplier_products(
     supplier_id: RowId,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.SUPPLIER_VIEW)),
+    current_user: User = Depends(require_any_permission(*SUPPLIER_LOOKUP_PERMISSIONS)),
 ):
     return service.SupplierProductService(db).list_by_supplier(supplier_id)
 
@@ -1035,7 +1087,7 @@ def validate_lot_for_return(
 ):
     """Check that `quantity` units of a batch/none stock lot can go back to the supplier."""
     response, _ = service.PurchasingReturnService(db).validate_lot_for_return(
-        request.grn_id, request.sales_stock_id, request.quantity
+        request.grn_id, request.sales_stock_id, request.quantity, branch_code=request.branch_code
     )
     return response
 
@@ -1085,7 +1137,10 @@ def create_purchase_return(
     response_model=schemas.PurchasingReturnWithItems,
     dependencies=[Depends(require_permission(*Permissions.PURCHASE_RETURN_VIEW))],
 )
-def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
+def get_purchase_return(return_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from .models import PurchasingReturn
+
+    _ensure_row_branch(db, current_user, PurchasingReturn, return_id)
 
     return_service = service.PurchasingReturnService(db)
     return_record = return_service.get_return(return_id)
@@ -1130,6 +1185,7 @@ def get_purchase_return(return_id: int, db: Session = Depends(get_db)):
         "purchasing_return_no": return_record.purchasing_return_no,
         "branch_code": return_record.branch_code,
         "remark": return_record.remark,
+        "reason": return_record.reason,
         "goodreceivednote_id": return_record.goodreceivednote_id,
         "added_date": return_record.added_date,
         "status": return_record.status,
@@ -1149,51 +1205,36 @@ def list_purchase_returns(
     status_filter: Optional[str] = Query(
         None, description="Filter by status: draft, pending, approved, rejected"
     ),
+    branch_code: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
+    # Same branch scoping as the GRN list: a branch-limited user only sees the returns of their branches.
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to branch: {branch_code}",
+        )
     return_service = service.PurchasingReturnService(db)
-    returns = return_service.list_returns(skip, limit, status_filter)
+    returns = return_service.list_returns(
+        skip, limit, status_filter, branch_codes=user_branches, branch_code=branch_code
+    )
     return _enrich_purchase_returns(db, returns)
 
 
-@router.post(
-    "/grn", response_model=schemas.GoodReceivedNote, status_code=status.HTTP_201_CREATED
-)
-def create_grn(
-    grn: schemas.GoodReceivedNoteCreate,
-    allow_credit_override: bool = Query(
-        False,
-        description="Allow GRN creation even if credit limit exceeded (requires authorization)",
-    ),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.GRN_CREATE)),
-):
-    # Validate user has access to the specified branch
-    if not validate_branch_access(current_user, grn.branch_code):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Access denied to branch: {grn.branch_code}",
-        )
-    grn_service = service.GoodReceivedNoteService(db)
-    created = grn_service.create(grn, allow_credit_override=allow_credit_override, created_by=current_user.id)
-
-    # Notify the branch that stock was received against this GRN.
-    from app.modules.notifications import dispatcher as notify
-
-    notify.branch(
-        created.branch_code,
-        title="Goods Received",
-        message=f"GRN {created.good_received_no} was received into stock.",
-        notification_type=notify.INFO,
-        category=notify.PURCHASING,
-        action_url="/purchasing/grn",
-        exclude_user_id=current_user.id,
-    )
-    return created
+# A bare "header only" GRN-create endpoint used to live here
+# (service.GoodReceivedNoteService.create, untested and uncalled by any
+# frontend code). Unlike POST /grn-items + POST /inventory/sales-stock below
+# (the older two-step flow, which IS guarded and covered by
+# tests/test_purchasing_receipt_approval_audit.py), this one let a GRN header
+# post — PO status, credit balance, GL posting all ran — with no way to ever
+# attach items or stock to it, and no test ever exercised it. Removed; use
+# POST /grn/receive (one shot) or /grn-items + /inventory/sales-stock
+# (line by line) instead.
 
 
 @router.post(
@@ -1323,7 +1364,8 @@ def cancel_landed_cost(
     response_model=List[schemas.GoodReceivedRejectionOut],
     dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
 )
-def list_grn_rejections(grn_id: int, db: Session = Depends(get_db)):
+def list_grn_rejections(grn_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _grn_for_branch_check(db, current_user, grn_id)
     return service.GoodReceivedNoteService(db).list_rejections(grn_id)
 
 
@@ -1332,7 +1374,8 @@ def list_grn_rejections(grn_id: int, db: Session = Depends(get_db)):
     response_model=schemas.GoodReceivedNote,
     dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
 )
-def get_grn(grn_id: int, db: Session = Depends(get_db)):
+def get_grn(grn_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _grn_for_branch_check(db, current_user, grn_id)
 
     grn_service = service.GoodReceivedNoteService(db)
     return grn_service.get_by_id(grn_id)
@@ -1342,7 +1385,7 @@ def get_grn(grn_id: int, db: Session = Depends(get_db)):
     "/grn/{grn_id}/items",
     dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
 )
-def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
+def get_grn_items(grn_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Return all received items for a GRN (from sales_stock + company_assets)
     including warranty_month, product_name, and saved-to flags."""
     from app.modules.inventory.models import SalesStock, CompanyAssets
@@ -1350,8 +1393,9 @@ def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
 
     grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
     if not grn:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="GRN not found")
+    if not validate_branch_access(current_user, grn.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {grn.branch_code}")
 
     results = []
     seen_barcodes: set = set()
@@ -1485,6 +1529,11 @@ def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
 def create_grn_item(
     item: schemas.GoodReceivedItemCreate, db: Session = Depends(get_db)
 ):
+    """Receive one GRN line at a time (older two-step flow: post this, then
+    POST /inventory/sales-stock for each unit). Not used by the current
+    frontend — POST /grn/receive posts a whole receipt atomically — but kept
+    live: it's guarded and covered by
+    tests/test_purchasing_receipt_approval_audit.py::TestGrnItemGuards."""
     grn_service = service.GoodReceivedNoteService(db)
     try:
         return grn_service.create_item(item)
@@ -1552,7 +1601,8 @@ def create_credit_settlement(
     response_model=schemas.SupplierCreditsSettleWithTransactions,
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
 )
-def get_credit_settlement(settle_id: int, db: Session = Depends(get_db)):
+def get_credit_settlement(settle_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ensure_row_branch(db, current_user, SupplierCreditsSettle, settle_id)
     settle_service = service.SupplierCreditsSettleService(db)
     return settle_service.get_with_transactions(settle_id)
 
@@ -1587,7 +1637,8 @@ def get_supplier_credit_settlements(supplier_id: RowId, db: Session = Depends(ge
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_DELETE))],
 )
-def delete_credit_settlement(settle_id: int, db: Session = Depends(get_db)):
+def delete_credit_settlement(settle_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ensure_row_branch(db, current_user, SupplierCreditsSettle, settle_id)
     settle_service = service.SupplierCreditsSettleService(db)
     settle_service.delete(settle_id)
 
@@ -1602,6 +1653,7 @@ def verify_credit_settlement(
     current_user=Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_UPDATE)),
 ):
     """Verify a credit settlement"""
+    _ensure_row_branch(db, current_user, SupplierCreditsSettle, settle_id)
     settle_service = service.SupplierCreditsSettleService(db)
     return settle_service.verify_settlement(settle_id, verified_by=current_user.id)
 
@@ -1616,6 +1668,7 @@ def cancel_credit_settlement(
     current_user=Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_UPDATE)),
 ):
     """Cancel a credit settlement"""
+    _ensure_row_branch(db, current_user, SupplierCreditsSettle, settle_id)
     settle_service = service.SupplierCreditsSettleService(db)
     return settle_service.cancel_settlement(settle_id, verified_by=current_user.id)
 
@@ -1802,7 +1855,8 @@ def create_supplier_payment(
     response_model=schemas.SupplierPayment,
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
 )
-def get_supplier_payment(payment_id: int, db: Session = Depends(get_db)):
+def get_supplier_payment(payment_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ensure_row_branch(db, current_user, SupplierPayment, payment_id)
     payment_service = service.SupplierPaymentService(db)
     return payment_service.get_payment(payment_id)
 
@@ -1823,13 +1877,19 @@ def list_supplier_payments(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     from datetime import date as date_type
+
+    if branch_code and not validate_branch_access(current_user, branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
+    allowed_branches = None if current_user.is_superuser else [b.branch_code for b in current_user.branches]
 
     payment_service = service.SupplierPaymentService(db)
     filters = schemas.SupplierPaymentListFilter(
         supplier_id=supplier_id,
         branch_code=branch_code,
+        branch_codes=allowed_branches,
         payment_method=payment_method,
         payment_for=payment_for,
         status=status,
@@ -1850,7 +1910,9 @@ def update_supplier_payment(
     payment_id: int,
     payment_update: schemas.SupplierPaymentUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    _ensure_row_branch(db, current_user, SupplierPayment, payment_id)
     payment_service = service.SupplierPaymentService(db)
     return payment_service.update_payment(payment_id, payment_update)
 
@@ -1865,6 +1927,7 @@ def verify_supplier_payment(
         require_permission(*Permissions.SUPPLIER_PAYMENT_UPDATE)
     ),
 ):
+    _ensure_row_branch(db, current_user, SupplierPayment, payment_id)
     payment_service = service.SupplierPaymentService(db)
     return payment_service.verify_payment(payment_id, verified_by=current_user.id)
 
@@ -1879,6 +1942,7 @@ def cancel_supplier_payment(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_UPDATE)),
 ):
+    _ensure_row_branch(db, current_user, SupplierPayment, payment_id)
     payment_service = service.SupplierPaymentService(db)
     return payment_service.cancel_payment(
         payment_id,
@@ -1892,7 +1956,8 @@ def cancel_supplier_payment(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_DELETE))],
 )
-def delete_supplier_payment(payment_id: int, db: Session = Depends(get_db)):
+def delete_supplier_payment(payment_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ensure_row_branch(db, current_user, SupplierPayment, payment_id)
     payment_service = service.SupplierPaymentService(db)
     payment_service.delete_payment(payment_id)
     return None
@@ -2072,8 +2137,9 @@ def list_supplier_advances(
     response_model=schemas.SupplierAdvancePaymentWithApplications,
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_VIEW))],
 )
-def get_supplier_advance(advance_id: int, db: Session = Depends(get_db)):
+def get_supplier_advance(advance_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get supplier advance payment by ID with applications"""
+    _ensure_row_branch(db, current_user, SupplierAdvancePayment, advance_id)
     advance_service = service.SupplierAdvancePaymentService(db)
     return advance_service.get_advance(advance_id)
 
@@ -2087,8 +2153,10 @@ def update_supplier_advance(
     advance_id: int,
     data: schemas.SupplierAdvancePaymentUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Update a supplier advance payment (only active advances can be updated)"""
+    _ensure_row_branch(db, current_user, SupplierAdvancePayment, advance_id)
     advance_service = service.SupplierAdvancePaymentService(db)
     return advance_service.update_advance(advance_id, data)
 
@@ -2111,6 +2179,7 @@ def return_supplier_advance(
     The supplier sends back money that was advanced but not applied to any GRN.
     Posts a GL entry: Dr Bank/Cash, Cr Supplier Advances.
     """
+    _ensure_row_branch(db, current_user, SupplierAdvancePayment, advance_id)
     advance_service = service.SupplierAdvancePaymentService(db)
     return advance_service.return_advance(advance_id, data, user_id=current_user.id)
 
@@ -2120,8 +2189,9 @@ def return_supplier_advance(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_ADVANCE_DELETE))],
 )
-def delete_supplier_advance(advance_id: int, db: Session = Depends(get_db)):
+def delete_supplier_advance(advance_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Delete a supplier advance payment (only if no applications)"""
+    _ensure_row_branch(db, current_user, SupplierAdvancePayment, advance_id)
     advance_service = service.SupplierAdvancePaymentService(db)
     advance_service.delete_advance(advance_id)
     return None

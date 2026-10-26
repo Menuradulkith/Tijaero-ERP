@@ -44,7 +44,7 @@ import StoreIcon from "@mui/icons-material/Store";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
-import WarehouseIcon from "@mui/icons-material/Warehouse";
+import ForkliftIcon from "./ForkliftIcon";
 import {
   Box,
   Collapse,
@@ -499,7 +499,7 @@ const menuItems: MenuItem[] = [
   },
   {
     text: "Warehouse",
-    icon: <WarehouseIcon />,
+    icon: <ForkliftIcon />,
     path: "/warehouse",
     permission: PERMISSIONS.SALES_STOCK_VIEW,
     subItems: [

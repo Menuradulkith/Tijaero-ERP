@@ -26,6 +26,8 @@ export interface KpiSparkCardProps {
   /** Series for the sparkline */
   spark?: Array<{ value: number }>;
   onClick?: () => void;
+  /** Tighter padding, smaller icon, one-line title: for narrow cards (about 160px) */
+  compact?: boolean;
 }
 
 const PALETTE = {
@@ -47,6 +49,7 @@ export default function KpiSparkCard({
   trendLabel,
   spark,
   onClick,
+  compact = false,
 }: KpiSparkCardProps) {
   const theme = useTheme();
   const palette = PALETTE[color];
@@ -59,7 +62,7 @@ export default function KpiSparkCard({
       elevation={0}
       onClick={onClick}
       sx={{
-        p: 2.25,
+        p: compact ? 1.5 : 2.25,
         borderRadius: 3,
         border: "1px solid",
         borderColor: "divider",
@@ -77,9 +80,14 @@ export default function KpiSparkCard({
           : undefined,
       }}
     >
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1.5}>
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={compact ? 1 : 1.5}>
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.4 }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            noWrap={compact}
+            sx={{ fontWeight: 600, letterSpacing: 0.4, display: compact ? "block" : undefined }}
+          >
             {title.toUpperCase()}
           </Typography>
           <Typography
@@ -100,8 +108,8 @@ export default function KpiSparkCard({
             sx={{
               bgcolor: palette.soft,
               color: palette.main,
-              width: 44,
-              height: 44,
+              width: compact ? 34 : 44,
+              height: compact ? 34 : 44,
               borderRadius: 2,
             }}
           >

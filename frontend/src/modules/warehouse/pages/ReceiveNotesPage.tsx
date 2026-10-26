@@ -17,17 +17,23 @@ import {
   TableCell,
   Switch,
   FormControlLabel,
-  MenuItem,
+  Checkbox,
+  IconButton,
+  Tooltip,
 } from "@mui/material";
 import {
   QrCodeScanner as ScanIcon,
   ArrowBack as ArrowBackIcon,
   ArrowForward as ArrowForwardIcon,
-  Save as SaveIcon,
   CheckCircle as CheckCircleIcon,
   Search as SearchIcon,
+  Add as AddIcon,
+  MoveToInbox as MoveToInboxIcon,
 } from "@mui/icons-material";
 import { format } from "date-fns";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import { usePermission } from "@/auth/permissions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import useReferenceData from "@/hooks/useReferenceData";
 
@@ -35,8 +41,10 @@ import useReferenceData from "@/hooks/useReferenceData";
 import {
   TChip,
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
+  TBranchFilter,
+  TStatusFilter,
+  TDataGrid,
+  type TDataGridColumn,
   DetailPanelHeader,
   ActionToolbar,
   FormSection,
@@ -48,7 +56,6 @@ import {
   TStatusChip,
   TAlert,
   modernTableStyles,
-  getStatusProps,
 } from "@/components/tijaero";
 
 // API
@@ -57,6 +64,7 @@ import type {
   ItemReceiveNote,
   ItemTransferNoteItem,
   ItemTransferNoteWithItems,
+  ReceiveLine,
 } from "../types";
 
 interface ReceivedItem {
@@ -65,11 +73,14 @@ interface ReceivedItem {
   productName: string;
   barcode?: string;
   isLot?: boolean;  // batch/none line: no barcode, received whole by item id
+  lotLabel?: string;  // "Batch B-1 (exp ...)" / "Quantity", shown where serial lines show the barcode
+  kind?: "serial" | "batch" | "qty";  // how the line is received: scan a serial, confirm a batch lot, or confirm a quantity
   expectedQuantity: number;
   receivedQuantity: number;
   scannedSerials: string[];
   damageQuantity: number;
   notes: string;
+  alreadyReceived?: boolean;  // received on an earlier receipt: shown, locked, never sent again
 }
 
 interface ScanResult {
@@ -88,16 +99,21 @@ const STEPS = [
   "Review & Complete",
 ];
 
-const STATUS_OPTIONS = [
-  { value: "", label: "All Statuses" },
+// Matches received_approval_status (0 / 1) on the server filter.
+const STATUS_FILTER_OPTIONS = [
+  { value: null, label: "All" },
   { value: "pending", label: "Pending" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "completed", label: "Completed" },
+  { value: "approved", label: "Approved" },
 ];
+
+// A receive note as shown in the browse table, with the displayed numbers and status
+// attached so the grid's own column sort orders by what the user sees.
+type ReceiveNoteRow = ItemReceiveNote & { irn_no: string; itn_no: string; status_label: string };
 
 export default function ReceiveNotesPage() {
   const queryClient = useQueryClient();
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef(false);
 
   // Reference data
   const { filteredBranches } = useReferenceData(["branches"]);
@@ -107,7 +123,8 @@ export default function ReceiveNotesPage() {
   const [selectedIRN, setSelectedIRN] = useState<ItemReceiveNote | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const canCreateReceiveNote = usePermission("receive_notes", "create");
   const [branchFilter, setBranchFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -129,7 +146,7 @@ export default function ReceiveNotesPage() {
 
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
-    setStatusFilter("");
+    setStatusFilter(null);
     setBranchFilter("");
   }, []);
 
@@ -190,11 +207,13 @@ export default function ReceiveNotesPage() {
       transferNoteId: number;
       barcodes: string[];
       itemIds?: number[];
+      lines?: ReceiveLine[];
       notes: string;
     }) => {
       return receiveNotesApi.receiveItems(data.transferNoteId, {
         barcodes: data.barcodes,
         item_ids: data.itemIds,
+        lines: data.lines,
         received_note: data.notes,
       });
     },
@@ -224,7 +243,7 @@ export default function ReceiveNotesPage() {
     return items.filter(
       (irn: ItemReceiveNote) =>
         `IRN-${irn.id}`.toLowerCase().includes(lowerQuery) ||
-        `ITN-${irn.item_transfer_note_id}`.toLowerCase().includes(lowerQuery)
+        (irn.item_transfer_note_no || `ITN-${irn.item_transfer_note_id}`).toLowerCase().includes(lowerQuery)
     );
   }, [receiveNotesData, searchQuery]);
 
@@ -265,11 +284,18 @@ export default function ReceiveNotesPage() {
       productName: item.product_name || `Product #${item.product_id}`,
       barcode: item.barcode,
       isLot: !item.barcode && !!item.sales_stock_id,
+      lotLabel: item.barcode
+        ? undefined
+        : item.batch_no
+        ? `Batch ${item.batch_no}${item.expiry_date ? ` (exp ${item.expiry_date})` : ""}`
+        : "Quantity",
+      kind: item.barcode ? "serial" : item.batch_no ? "batch" : "qty",
       expectedQuantity: item.quantity ?? 1, // 1 per barcode; the lot size for batch/none lines
       receivedQuantity: item.item_recieved ? (item.quantity ?? 1) : 0,
       scannedSerials: item.item_recieved && item.barcode ? [item.barcode] : [],
       damageQuantity: 0,
-      notes: "",
+      notes: item.remark || "",
+      alreadyReceived: !!item.item_recieved,
     }));
     setReceivedItems(items);
     setActiveStep(1);
@@ -282,7 +308,9 @@ export default function ReceiveNotesPage() {
       (item) => item.barcode && item.barcode.toLowerCase() === barcodeInput.toLowerCase()
     );
 
-    if (matchedItem) {
+    if (matchedItem?.alreadyReceived) {
+      setScanResult({ success: false, message: `${barcodeInput} was already received on an earlier receipt` });
+    } else if (matchedItem) {
       setReceivedItems((prev) =>
         prev.map((item) =>
           item.transferItemId === matchedItem.transferItemId
@@ -320,14 +348,15 @@ export default function ReceiveNotesPage() {
     (transferItemId: number, quantity: number) => {
       setReceivedItems((prev) =>
         prev.map((item) =>
-          item.transferItemId === transferItemId
-            ? {
-                ...item,
+          item.transferItemId === transferItemId && !item.alreadyReceived
+            ? (() => {
                 // Lots are received whole (all or nothing); barcode items are 0/1.
-                receivedQuantity: item.isLot
+                const receivedQuantity = item.isLot
                   ? (quantity > 0 ? item.expectedQuantity : 0)
-                  : Math.max(0, Math.min(1, quantity)),
-              }
+                  : Math.max(0, Math.min(1, quantity));
+                // a line cannot have more damaged units than it received
+                return { ...item, receivedQuantity, damageQuantity: Math.min(item.damageQuantity, receivedQuantity) };
+              })()
             : item
         )
       );
@@ -339,8 +368,8 @@ export default function ReceiveNotesPage() {
     (transferItemId: number, quantity: number) => {
       setReceivedItems((prev) =>
         prev.map((item) =>
-          item.transferItemId === transferItemId
-            ? { ...item, damageQuantity: Math.max(0, quantity) }
+          item.transferItemId === transferItemId && !item.alreadyReceived
+            ? { ...item, damageQuantity: Math.max(0, Math.min(Math.floor(quantity) || 0, item.receivedQuantity)) }
             : item
         )
       );
@@ -352,7 +381,7 @@ export default function ReceiveNotesPage() {
     (transferItemId: number, notes: string) => {
       setReceivedItems((prev) =>
         prev.map((item) =>
-          item.transferItemId === transferItemId ? { ...item, notes } : item
+          item.transferItemId === transferItemId && !item.alreadyReceived ? { ...item, notes } : item
         )
       );
     },
@@ -361,29 +390,51 @@ export default function ReceiveNotesPage() {
 
   const handleReceiveAll = useCallback(() => {
     setReceivedItems((prev) =>
-      prev.map((item) => ({
-        ...item,
-        receivedQuantity: item.expectedQuantity,
-        scannedSerials: item.barcode ? [item.barcode] : item.scannedSerials,
-      }))
+      prev.map((item) =>
+        item.alreadyReceived
+          ? item
+          : {
+              ...item,
+              receivedQuantity: item.expectedQuantity,
+              scannedSerials: item.barcode ? [item.barcode] : item.scannedSerials,
+            }
+      )
     );
   }, []);
 
   const handleSubmit = useCallback(() => {
     if (!selectedITN) return;
-    const receivedBarcodes = receivedItems
+    // Only lines received now: ones from an earlier receipt are shown but never sent again.
+    const receivingNow = receivedItems.filter((item) => !item.alreadyReceived);
+    const receivedBarcodes = receivingNow
       .filter((item) => item.receivedQuantity > 0 && item.barcode)
       .map((item) => item.barcode as string);
-    const receivedLotIds = receivedItems
+    const receivedLotIds = receivingNow
       .filter((item) => item.isLot && item.receivedQuantity > 0)
       .map((item) => item.transferItemId);
 
-    receiveItemsMutation.mutate({
-      transferNoteId: selectedITN.id,
-      barcodes: receivedBarcodes,
-      itemIds: receivedLotIds,
-      notes,
-    });
+    // Damage and the per-line note entered in the table travel with the receipt (they used to be dropped).
+    const lines: ReceiveLine[] = receivingNow
+      .filter((item) => item.receivedQuantity > 0 && (item.damageQuantity > 0 || item.notes.trim()))
+      .map((item) => ({
+        ...(item.isLot ? { item_id: item.transferItemId } : { barcode: item.barcode }),
+        damaged_quantity: Math.min(item.damageQuantity, item.receivedQuantity),
+        note: item.notes.trim() || undefined,
+      }));
+
+    // A double click must not send the receipt twice; `isPending` only changes on the next render.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    receiveItemsMutation.mutate(
+      {
+        transferNoteId: selectedITN.id,
+        barcodes: receivedBarcodes,
+        itemIds: receivedLotIds,
+        lines,
+        notes,
+      },
+      { onSettled: () => { submittingRef.current = false; } }
+    );
   }, [selectedITN, receivedItems, notes, receiveItemsMutation]);
 
   const handleNext = useCallback(() => {
@@ -392,7 +443,7 @@ export default function ReceiveNotesPage() {
       return;
     }
     if (activeStep === 1) {
-      const hasReceivedItems = receivedItems.some((item) => item.receivedQuantity > 0);
+      const hasReceivedItems = receivedItems.some((item) => item.receivedQuantity > 0 && !item.alreadyReceived);
       if (!hasReceivedItems) {
         setScanResult({ success: false, message: "Please receive at least one item" });
         return;
@@ -414,50 +465,95 @@ export default function ReceiveNotesPage() {
     }
   }, [activeStep, useBarcodeScanning]);
 
-  // Render Master Panel (List)
-  const renderListItem = (irn: ItemReceiveNote) => {
-    const statusLabel = irn.received_approval_status === 1 ? "approved" : "pending";
-    const statusProps = getStatusProps(statusLabel, "orderStatus");
-    return (
-      <SelectableListItem
-        key={irn.id}
-        isSelected={selectedIRN?.id === irn.id}
-        onClick={() => handleSelectIRN(irn)}
-        primaryText={`IRN-${irn.id}`}
-        secondaryText={`Transfer: ITN-${irn.item_transfer_note_id} • ${
-          irn.recieved_date
-            ? format(new Date(irn.recieved_date), "dd MMM yyyy")
-            : "Not received"
-        }`}
-        statusChip={statusProps}
-      />
-    );
-  };
+  // Returns to the browse table from the detail / create view.
+  const handleBackToIRNs = useCallback(() => {
+    setSelectedIRN(null);
+    handleCancelCreate();
+  }, [handleCancelCreate]);
 
-  const masterPanel = (
-    <SearchableList
-      onSearchChange={setSearchQuery}
-      hideSearch
-    >
-      {isLoadingIRNs ? (
-        <Box sx={{ p: 1.5 }}>
-          <TLoadingSkeleton type="list" count={5} animation="wave" />
-        </Box>
-      ) : irnError ? (
+  const receiveNoteRows: ReceiveNoteRow[] = useMemo(
+    () =>
+      receiveNotes.map((irn: ItemReceiveNote) => ({
+        ...irn,
+        irn_no: `IRN-${irn.id}`,
+        itn_no: irn.item_transfer_note_no || `ITN-${irn.item_transfer_note_id}`,
+        status_label: irn.received_approval_status === 1 ? "approved" : "pending",
+      })),
+    [receiveNotes]
+  );
+
+  const receiveNoteColumns: TDataGridColumn<ReceiveNoteRow>[] = useMemo(
+    () => [
+      { field: "irn_no", header: "Receive Note", flex: 1, minWidth: 150 },
+      { field: "itn_no", header: "Transfer Note", flex: 1, minWidth: 150 },
+      { field: "from_location_name", header: "From", width: 150, valueGetter: (_v: unknown, row: ReceiveNoteRow) => row.from_location_name || "-" },
+      { field: "to_location_name", header: "To", width: 150, valueGetter: (_v: unknown, row: ReceiveNoteRow) => row.to_location_name || "-" },
+      {
+        field: "received_units",
+        header: "Received / Units",
+        width: 140,
+        align: "center",
+        headerAlign: "center",
+        valueGetter: (_v: unknown, row: ReceiveNoteRow) => `${row.received_units ?? 0} / ${row.total_units ?? 0}`,
+      },
+      { field: "received_by_name", header: "Received By", width: 150, valueGetter: (_v: unknown, row: ReceiveNoteRow) => row.received_by_name || "-" },
+      { field: "recieved_date", header: "Received Date", type: "date", width: 150 },
+      { field: "status_label", header: "Status", width: 140, align: "center", headerAlign: "center", type: "status", statusMap: "orderStatus" },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ReceiveNoteRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectIRN(params.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [handleSelectIRN]
+  );
+
+  // Browse mode: a full-width table of every receive note matching the current filters.
+  const receiveNoteTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {irnError && (
         <TAlert severity="error" sx={{ m: 1 }}>
           Failed to load receive notes
         </TAlert>
-      ) : receiveNotes.length === 0 ? (
-        <Box sx={{ p: 2, textAlign: "center" }}>
-          <Typography variant="body2" color="text.secondary">
-            No receive notes found
-          </Typography>
-        </Box>
-      ) : (
-        receiveNotes.map(renderListItem)
       )}
-    </SearchableList>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<ReceiveNoteRow>
+          rows={receiveNoteRows}
+          columns={receiveNoteColumns}
+          loading={isLoadingIRNs}
+          onRowClick={(row) => handleSelectIRN(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No receive notes found"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
   );
+
+  // Whether a single receive note (or the create wizard) is showing instead of the browse table.
+  const isReceiveNoteDetailMode = !!selectedIRN || isCreating;
+
+  // Serial lines are scanned; batch / quantity lines are confirmed by ticking them.
+  const hasSerialToReceive = receivedItems.some((i) => i.kind === "serial" && !i.alreadyReceived);
+  const hasLotToReceive = receivedItems.some((i) => i.kind !== "serial" && !i.alreadyReceived);
 
   // Render Step Content
   const renderStepContent = () => {
@@ -540,7 +636,18 @@ export default function ReceiveNotesPage() {
       case 1:
         return (
           <>
-            <FormSection title="Scanning Mode" columns={1}>
+            <FormSection title={hasSerialToReceive ? "Receive Method" : "Receive by Quantity"} columns={1}>
+              {!hasSerialToReceive && (
+                <TAlert severity="info" sx={{ mb: 1.5 }}>
+                  These items are batch / quantity tracked, so there is nothing to scan. Tick each line you have
+                  received and note any damaged units.
+                </TAlert>
+              )}
+              {hasSerialToReceive && hasLotToReceive && (
+                <TAlert severity="info" sx={{ mb: 1.5 }}>
+                  Scan the serial items. Batch / quantity lines are received by ticking them.
+                </TAlert>
+              )}
               <Box
                 sx={{
                   display: "flex",
@@ -549,16 +656,18 @@ export default function ReceiveNotesPage() {
                   flexWrap: "wrap",
                 }}
               >
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={useBarcodeScanning}
-                      onChange={(e) => setUseBarcodeScanning(e.target.checked)}
-                    />
-                  }
-                  label="Barcode Scanning"
-                />
-                {useBarcodeScanning && (
+                {hasSerialToReceive && (
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={useBarcodeScanning}
+                        onChange={(e) => setUseBarcodeScanning(e.target.checked)}
+                      />
+                    }
+                    label="Scan serial numbers"
+                  />
+                )}
+                {hasSerialToReceive && useBarcodeScanning && (
                   <TextField
                     inputRef={barcodeInputRef}
                     size="small"
@@ -608,6 +717,7 @@ export default function ReceiveNotesPage() {
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell>Product</TableCell>
+                      <TableCell>Tracking</TableCell>
                       <TableCell align="center">
                         Expected
                       </TableCell>
@@ -626,6 +736,21 @@ export default function ReceiveNotesPage() {
                         <TableCell>
                           <Typography variant="body2">{item.productName}</Typography>
                         </TableCell>
+                        <TableCell>
+                          {item.kind === "serial" ? (
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                              <TChip label="Serial" size="small" color="primary" />
+                              <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                                {item.barcode}
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                              <TChip label={item.kind === "batch" ? "Batch" : "Qty"} size="small" color={item.kind === "batch" ? "secondary" : "default"} />
+                              <Typography variant="body2">{item.kind === "batch" ? item.lotLabel : `${item.expectedQuantity} unit(s)`}</Typography>
+                            </Box>
+                          )}
+                        </TableCell>
                         <TableCell align="center">
                           <TChip
                             label={item.expectedQuantity}
@@ -634,23 +759,21 @@ export default function ReceiveNotesPage() {
                           />
                         </TableCell>
                         <TableCell align="center">
-                          <TextField
-                            type="number"
+                          {/* A serial unit or a lot is received whole: tick it (serials can also be scanned). */}
+                          <Checkbox
                             size="small"
-                            value={item.receivedQuantity}
+                            checked={item.receivedQuantity > 0}
+                            disabled={item.alreadyReceived}
                             onChange={(e) =>
-                              handleQuantityChange(
-                                item.transferItemId,
-                                parseInt(e.target.value) || 0
-                              )
+                              handleQuantityChange(item.transferItemId, e.target.checked ? item.expectedQuantity : 0)
                             }
-                            inputProps={{
-                              min: 0,
-                              max: item.expectedQuantity,
-                              style: { textAlign: "center", width: 60 },
-                            }}
-                            sx={{ width: 80 }}
+                            inputProps={{ "aria-label": `Received ${item.productName}` }}
                           />
+                          {item.receivedQuantity > 0 && item.expectedQuantity > 1 && (
+                            <Typography component="span" variant="caption" color="text.secondary">
+                              {item.receivedQuantity}
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell align="center">
                           <TextField
@@ -663,8 +786,10 @@ export default function ReceiveNotesPage() {
                                 parseInt(e.target.value) || 0
                               )
                             }
+                            disabled={item.alreadyReceived || item.receivedQuantity === 0}
                             inputProps={{
                               min: 0,
+                              max: item.receivedQuantity,
                               style: { textAlign: "center", width: 60 },
                             }}
                             sx={{ width: 80 }}
@@ -673,7 +798,8 @@ export default function ReceiveNotesPage() {
                         <TableCell>
                           <TextField
                             size="small"
-                            placeholder="Notes..."
+                            placeholder={item.alreadyReceived ? "Received earlier" : "Notes..."}
+                            disabled={item.alreadyReceived}
                             value={item.notes}
                             onChange={(e) =>
                               handleItemNotesChange(item.transferItemId, e.target.value)
@@ -870,7 +996,7 @@ export default function ReceiveNotesPage() {
               Transfer Note
             </Typography>
             <Typography variant="body1">
-              ITN-{selectedIRN.item_transfer_note_id}
+              {selectedIRN.item_transfer_note_no || `ITN-${selectedIRN.item_transfer_note_id}`}
             </Typography>
           </Box>
           <Box>
@@ -958,7 +1084,8 @@ export default function ReceiveNotesPage() {
                 <TableHead>
                   <TableRow sx={{ backgroundColor: "#f5f5f5" }}>
                     <TableCell sx={{ fontWeight: 600 }}>Product</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Barcode</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Serial / Batch</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Qty</TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>Received</TableCell>
                   </TableRow>
                 </TableHead>
@@ -966,7 +1093,11 @@ export default function ReceiveNotesPage() {
                   {relatedTransferNote.items.map((item, idx) => (
                     <TableRow key={idx}>
                       <TableCell>{item.product_name || "-"}</TableCell>
-                      <TableCell>{item.barcode || "-"}</TableCell>
+                      <TableCell>
+                        {item.barcode ||
+                          (item.batch_no ? `Batch ${item.batch_no}${item.expiry_date ? ` (exp ${item.expiry_date})` : ""}` : "Quantity only")}
+                      </TableCell>
+                      <TableCell>{item.quantity ?? 1}</TableCell>
                       <TableCell>
                         {item.item_recieved ? (
                           <Box
@@ -1040,6 +1171,7 @@ export default function ReceiveNotesPage() {
             ? `IRN-${selectedIRN.id}`
             : ""
         }
+        titleIcon={<MoveToInboxIcon color="primary" />}
         isCreating={isCreating}
         createTitle="New Item Receive Note"
         noSelectionTitle="Select a Receive Note"
@@ -1047,7 +1179,7 @@ export default function ReceiveNotesPage() {
           isCreating
             ? STEPS[activeStep]
             : selectedIRN
-            ? `Transfer: ITN-${selectedIRN.item_transfer_note_id}`
+            ? `Transfer: ${selectedIRN.item_transfer_note_no || `ITN-${selectedIRN.item_transfer_note_id}`}`
             : ""
         }
       />
@@ -1056,10 +1188,25 @@ export default function ReceiveNotesPage() {
         hasSelectedItem={!!selectedIRN}
         isCreating={isCreating}
         isEditing={false}
-        isSaving={false}
+        isSaving={receiveItemsMutation.isPending}
         isFormValid={true}
-        onNew={handleNewIRN}
+        canCreate={false}
+        onSave={isCreating && activeStep === STEPS.length - 1 ? handleSubmit : undefined}
         onCancel={isCreating ? handleCancelCreate : undefined}
+        startActions={
+          isCreating && activeStep > 0 ? (
+            <Button size="small" variant="outlined" onClick={handleBack} startIcon={<ArrowBackIcon />}>
+              Back
+            </Button>
+          ) : undefined
+        }
+        endActions={
+          isCreating && activeStep < STEPS.length - 1 ? (
+            <Button size="small" variant="contained" onClick={handleNext} endIcon={<ArrowForwardIcon />}>
+              Next
+            </Button>
+          ) : undefined
+        }
         canUpdate={false}
         canDelete={false}
       />
@@ -1096,47 +1243,6 @@ export default function ReceiveNotesPage() {
 
             {isCreating ? renderStepContent() : renderViewMode()}
 
-            {isCreating && (
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  mt: 3,
-                  pt: 2,
-                  borderTop: 1,
-                  borderColor: "divider",
-                }}
-              >
-                <Button
-                  variant="outlined"
-                  startIcon={<ArrowBackIcon />}
-                  onClick={handleBack}
-                  disabled={activeStep === 0}
-                >
-                  Back
-                </Button>
-
-                {activeStep === STEPS.length - 1 ? (
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    startIcon={<SaveIcon />}
-                    onClick={handleSubmit}
-                    disabled={receiveItemsMutation.isPending}
-                  >
-                    {receiveItemsMutation.isPending ? "Receiving..." : "Receive Items"}
-                  </Button>
-                ) : (
-                  <Button
-                    variant="contained"
-                    endIcon={<ArrowForwardIcon />}
-                    onClick={handleNext}
-                  >
-                    Next
-                  </Button>
-                )}
-              </Box>
-            )}
           </>
         )}
       </Box>
@@ -1147,73 +1253,69 @@ export default function ReceiveNotesPage() {
     <MasterDetailLayout
       title="Item Receive Notes"
       titleSlot={
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
-          <TextField
+        isReceiveNoteDetailMode ? (
+          <Button
             size="small"
-            placeholder="Search receive notes..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" color="action" />
-                </InputAdornment>
-              ),
-            }}
-            sx={{ width: 190, flexShrink: 0 }}
-          />
-          <Box sx={{ width: 150, flexShrink: 0 }}>
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={handleBackToIRNs}
+            sx={{ textTransform: "none" }}
+          >
+            Back to Item Receive Notes
+          </Button>
+        ) : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
-              select
               size="small"
-              label="Status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              fullWidth
-            >
-              {STATUS_OPTIONS.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Box>
-          <Box sx={{ width: 190, flexShrink: 0 }}>
-            <Autocomplete
-              size="small"
-              options={branches}
-              value={branches.find((b) => b.branch_code === branchFilter) || null}
-              isOptionEqualToValue={(option, value) => option.branch_code === value.branch_code}
-              getOptionLabel={(option) => `${option.branch_name} (${option.branch_code})`}
-              onChange={(_, value) => setBranchFilter(value?.branch_code || "")}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Receiving Branch"
-                  placeholder="Search branch"
-                />
-              )}
-              fullWidth
+              placeholder="Search receive notes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ width: 190, flexShrink: 0 }}
             />
+            <Box sx={{ width: 160, flexShrink: 0 }}>
+              <TStatusFilter options={STATUS_FILTER_OPTIONS} value={statusFilter} onChange={setStatusFilter} label="" placeholder="All Statuses" size="small" />
+            </Box>
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TBranchFilter
+                branches={branches}
+                value={branchFilter || null}
+                onChange={(value) => setBranchFilter(value || "")}
+                label=""
+                placeholder="All Branches"
+                size="small"
+              />
+            </Box>
+            {(searchQuery || statusFilter || branchFilter) && (
+              <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
+            )}
           </Box>
-          {(searchQuery || statusFilter || branchFilter) && (
-            <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
-              Clear
+        )
+      }
+      onRefresh={() => refetchIRNs()}
+      isLoading={isLoadingIRNs}
+      headerActions={
+        isReceiveNoteDetailMode ? undefined : (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mr: 1 }}>
+          {canCreateReceiveNote && (
+            <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNewIRN}>
+              Add Receive Note
             </Button>
           )}
-        </Box>
-      }
-      masterPanel={masterPanel}
-      detailPanel={detailPanel}
-      onRefresh={() => refetchIRNs()}
-      headerActions={
         <TExportButton
           filename="item_receive_notes"
           headers={["Receive Note", "Transfer Note", "Received Date", "Status", "Note"]}
           rows={() =>
             receiveNotes.map((irn: ItemReceiveNote) => [
               `IRN-${irn.id}`,
-              `ITN-${irn.item_transfer_note_id}`,
+              irn.item_transfer_note_no || `ITN-${irn.item_transfer_note_id}`,
               irn.recieved_date || "",
               irn.received_approval_status === 1 ? "approved" : "pending",
               irn.received_note || "",
@@ -1221,7 +1323,10 @@ export default function ReceiveNotesPage() {
           }
           disabled={receiveNotes.length === 0}
         />
+        </Box>
+        )
       }
+      {...(isReceiveNoteDetailMode ? { children: detailPanel } : { children: receiveNoteTablePanel })}
     />
   );
 }

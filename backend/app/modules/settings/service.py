@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 from zoneinfo import ZoneInfo, available_timezones
 
+from app.core.ttl_cache import TTLCache
 from app.core import timezone as tz
 from app.core.security import get_password_hash, verify_password
 from fastapi import HTTPException, status
@@ -372,9 +373,19 @@ class CurrencyService:
         return settings
 
 
+_timezone_cache = TTLCache(3600)
+
+
 def list_timezones() -> List[schemas.TimezoneOption]:
     """Return every IANA timezone with its current UTC offset, for the
-    Settings > Company Configuration timezone dropdown."""
+    Settings > Company Configuration timezone dropdown.
+
+    Offsets only move at daylight-saving changes, so the ~600-zone computation (slow
+    on a cold start) is shared per worker for an hour."""
+    return _timezone_cache.get_or_compute("all", _compute_timezones)
+
+
+def _compute_timezones() -> List[schemas.TimezoneOption]:
     now = datetime.now()
     options = []
     for name in sorted(available_timezones()):

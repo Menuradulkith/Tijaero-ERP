@@ -1,4 +1,5 @@
 """Product catalog (products, categories, brands, price tiers): validation, uniqueness, route fixes."""
+import re
 import uuid
 
 import pytest
@@ -13,14 +14,14 @@ def _u() -> str:
 
 @pytest.fixture
 def cat(superclient):
-    r = superclient.post(f"{B}/categories/", json={"name": f"QA Cat {_u()}", "category_code": f"QC{_u()}"})
+    r = superclient.post(f"{B}/categories/", json={"name": f"QA Cat {_u()}"})
     assert r.status_code == 201, r.text
     return r.json()
 
 
 @pytest.fixture
 def brand(superclient):
-    r = superclient.post(f"{B}/brands/", json={"brand_name": f"QA Brand {_u()}", "brand_code": _u()[:4]})
+    r = superclient.post(f"{B}/brands/", json={"brand_name": f"QA Brand {_u()}"})
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -28,7 +29,7 @@ def brand(superclient):
 def _prod(cat, brand, **kw):
     u = _u()
     return {
-        "name": f"QA Prod {u}", "item_code": f"QP{u}", "item_type": "inventory", "unit_of_measure": "pcs",
+        "name": f"QA Prod {u}", "item_type": "inventory", "tracking_type": "serial", "unit_of_measure": "pcs",
         "cost_price": 100, "selling_price": 150, "category_id": cat["id"], "items_brand_id": brand["id"], **kw,
     }
 
@@ -47,7 +48,7 @@ class TestNegativePricesAndPoisonedRows:
         body = _prod(cat, brand, **{field: -5})
         assert superclient.post(f"{B}/products/", json=body).status_code == 422
         # nothing was committed by the failed request
-        assert superclient.get(f"{B}/products/search", params={"q": body["item_code"]}).json() == []
+        assert superclient.get(f"{B}/products/search", params={"q": body["name"]}).json() == []
 
     @pytest.mark.parametrize("field", ["cost_price", "website_price", "selling_price", "minimum_selling_price"])
     def test_prices_above_the_column_limit_are_422_not_500(self, superclient, cat, brand, field):
@@ -90,35 +91,43 @@ def test_sales_ledger_integration_imports():
 class TestNamesAndCodes:
     @pytest.mark.parametrize("value", ["", "   "])
     def test_blank_values_rejected(self, superclient, cat, brand, value):
-        for field in ("name", "item_code"):
-            assert superclient.post(f"{B}/products/", json=_prod(cat, brand, **{field: value})).status_code == 422
-        assert superclient.post(f"{B}/categories/", json={"name": value, "category_code": "x"}).status_code == 422
-        assert superclient.post(f"{B}/categories/", json={"name": "x", "category_code": value}).status_code == 422
-        assert superclient.post(f"{B}/brands/", json={"brand_name": value, "brand_code": "x"}).status_code == 422
-        assert superclient.post(f"{B}/brands/", json={"brand_name": "x", "brand_code": value}).status_code == 422
+        assert superclient.post(f"{B}/products/", json=_prod(cat, brand, name=value)).status_code == 422
+        assert superclient.post(f"{B}/categories/", json={"name": value}).status_code == 422
+        assert superclient.post(f"{B}/brands/", json={"brand_name": value}).status_code == 422
 
     def test_values_are_trimmed(self, superclient, cat, brand):
         u = _u()
-        p = superclient.post(f"{B}/products/", json=_prod(cat, brand, name=f"  Trim {u} ", item_code=f" T{u} ")).json()
-        assert p["name"] == f"Trim {u}" and p["item_code"] == f"T{u}"
+        p = superclient.post(f"{B}/products/", json=_prod(cat, brand, name=f"  Trim {u} ")).json()
+        assert p["name"] == f"Trim {u}"
+        assert re.match(r"^ITM\d{6}$", p["item_code"])
 
-    def test_item_code_with_trailing_space_is_a_duplicate(self, superclient, cat, brand, product):
-        r = superclient.post(f"{B}/products/", json=_prod(cat, brand, item_code=product["item_code"] + " "))
-        assert r.status_code in (400, 409)
-        r = superclient.post(f"{B}/products/", json=_prod(cat, brand, item_code=product["item_code"].lower()))
-        assert r.status_code in (400, 409)
+    def test_item_codes_are_generated_and_unique_even_for_near_duplicate_requests(self, superclient, cat, brand, product):
+        """item_code is no longer user input, so it can't collide — every
+        create gets its own generated, distinct code."""
+        r = superclient.post(f"{B}/products/", json=_prod(cat, brand))
+        assert r.status_code == 201
+        assert r.json()["item_code"] != product["item_code"]
 
-    def test_category_and_brand_variants_with_spaces_are_duplicates(self, superclient, cat, brand):
-        assert superclient.post(f"{B}/categories/", json={"name": f" {cat['name'].upper()} ", "category_code": f"X{_u()}"}).status_code == 409
-        assert superclient.post(f"{B}/categories/", json={"name": f"N{_u()}", "category_code": f"{cat['category_code'].lower()} "}).status_code == 409
-        assert superclient.post(f"{B}/brands/", json={"brand_name": f" {brand['brand_name'].lower()}", "brand_code": _u()[:4]}).status_code == 409
-        assert superclient.post(f"{B}/brands/", json={"brand_name": f"N{_u()}", "brand_code": f" {brand['brand_code'].upper()}"}).status_code == 409
+    def test_category_and_brand_name_variants_with_spaces_are_duplicates(self, superclient, cat, brand):
+        assert superclient.post(f"{B}/categories/", json={"name": f" {cat['name'].upper()} "}).status_code == 409
+        assert superclient.post(f"{B}/brands/", json={"brand_name": f" {brand['brand_name'].lower()}"}).status_code == 409
+
+    def test_generated_codes_match_their_expected_shape(self, superclient, cat, brand, product):
+        assert re.match(r"^CAT\d{4}$", cat["category_code"])
+        assert re.match(r"^\d{4}$", brand["brand_code"])
+        assert re.match(r"^ITM\d{6}$", product["item_code"])
 
     def test_length_limits(self, superclient, cat, brand):
         assert superclient.post(f"{B}/products/", json=_prod(cat, brand, name="n" * 256)).status_code == 422
         assert superclient.post(f"{B}/products/", json=_prod(cat, brand, description="d" * 5001)).status_code == 422
-        assert superclient.post(f"{B}/categories/", json={"name": "x", "category_code": "y", "description": "d" * 5001}).status_code == 422
-        assert superclient.post(f"{B}/brands/", json={"brand_name": "x", "brand_code": "ABCDE"}).status_code == 422
+        assert superclient.post(f"{B}/categories/", json={"name": "x", "description": "d" * 5001}).status_code == 422
+        assert superclient.post(f"{B}/brands/", json={"brand_name": "n" * 256}).status_code == 422
+
+    def test_tracking_type_is_required(self, superclient, cat, brand):
+        body = _prod(cat, brand)
+        body.pop("tracking_type")
+        assert superclient.post(f"{B}/products/", json=body).status_code == 422
+        assert superclient.post(f"{B}/products/", json={**body, "tracking_type": ""}).status_code == 422
 
     @pytest.mark.parametrize("bad", ["", "  ", "<script>x</script>", "a;b", "x" * 31])
     def test_item_type_must_be_a_short_safe_identifier(self, superclient, cat, brand, bad):
@@ -138,11 +147,11 @@ class TestUpdateNulls:
     def test_product_update_rejects_null_and_blank(self, superclient, product, body):
         assert superclient.put(f"{B}/products/{product['id']}", json=body).status_code == 422
 
-    @pytest.mark.parametrize("body", [{"name": None}, {"category_code": "   "}, {"category_code": None}, {"active": None}])
+    @pytest.mark.parametrize("body", [{"name": None}, {"active": None}])
     def test_category_update_rejects_null_and_blank(self, superclient, cat, body):
         assert superclient.put(f"{B}/categories/{cat['id']}", json=body).status_code == 422
 
-    @pytest.mark.parametrize("body", [{"brand_name": None}, {"brand_code": " "}, {"brand_code": None}, {"active": None}])
+    @pytest.mark.parametrize("body", [{"brand_name": None}, {"active": None}])
     def test_brand_update_rejects_null_and_blank(self, superclient, brand, body):
         assert superclient.put(f"{B}/brands/{brand['id']}", json=body).status_code == 422
 
@@ -216,7 +225,7 @@ class TestInactiveReferences:
         assert superclient.put(f"{B}/products/{product['id']}", json={"description": "still editable"}).status_code == 200
 
     def test_moving_a_product_into_an_inactive_category_is_rejected(self, superclient, product):
-        other = superclient.post(f"{B}/categories/", json={"name": f"QA Off {_u()}", "category_code": f"QO{_u()}"}).json()
+        other = superclient.post(f"{B}/categories/", json={"name": f"QA Off {_u()}"}).json()
         superclient.put(f"{B}/categories/{other['id']}", json={"active": False})
         assert superclient.put(f"{B}/products/{product['id']}", json={"category_id": other["id"]}).status_code == 400
 
@@ -238,11 +247,13 @@ class TestIdsAndRoutes:
         assert superclient.get(f"{B}/products/2147483647").status_code == 404
 
     def test_export_csv_route_is_reachable_and_neutralises_formulas(self, superclient, cat, brand):
-        u = _u()
-        superclient.post(f"{B}/products/", json=_prod(cat, brand, name='=HYPERLINK("http://evil","x")', item_code=f"CSV{u}", description="@SUM(1+1)"))
+        created = superclient.post(
+            f"{B}/products/",
+            json=_prod(cat, brand, name='=HYPERLINK("http://evil","x")', description="@SUM(1+1)"),
+        ).json()
         r = superclient.get(f"{B}/products/export-csv", params={"active_only": False})
         assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
-        row = next(line for line in r.text.splitlines() if f"CSV{u}" in line)
+        row = next(line for line in r.text.splitlines() if created["item_code"] in line)
         assert "'=HYPERLINK" in row and "'@SUM" in row
         assert ",=HYPERLINK" not in row and ',"=HYPERLINK' not in row
 

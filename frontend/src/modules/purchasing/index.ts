@@ -2,7 +2,6 @@ export * from "./api";
 export * from "./types";
 
 // Pages
-export { default as CreditSettlementPage } from "./pages/CreditSettlementPage";
 export { default as GoodReceivedNotesPage } from "./pages/GoodReceivedNotesPage";
 export { default as POApprovalsPage } from "./pages/POApprovalsPage";
 export { default as PurchaseOrdersPage } from "./pages/PurchaseOrdersPage";

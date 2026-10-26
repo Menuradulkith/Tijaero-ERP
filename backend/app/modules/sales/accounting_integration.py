@@ -91,7 +91,7 @@ ACCT_CREDIT_NOTES = "2530"
 ACCT_CASH_SALES = "4010"
 ACCT_CREDIT_SALES = "4020"
 ACCT_SALES_RETURNS = "4030"
-ACCT_OTHER_INCOME = "4100"  # "Other Income" (4110 is "Discount Received" in the chart)
+ACCT_OTHER_INCOME = "4190"  # Miscellaneous Income, leaf under header 4100 "Other Income"
 ACCT_COGS = "5010"
 ACCT_DISCOUNT_EXPENSE = "5160"
 
@@ -143,23 +143,23 @@ class SalesAccountingIntegration:
         preventing duplicate numbers when 1000+ records hit concurrently.
         Lock is auto-released on COMMIT/ROLLBACK.
         """
-        from sqlalchemy import text
-        today = tz.today()
-        full_prefix = f"{prefix}-{today.strftime('%Y%m')}-"
-        # Advisory lock keyed on prefix — same pattern as cashbook
-        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": full_prefix})
-        last = self.db.query(JournalEntry).filter(
-            JournalEntry.journal_entry_no.like(f"{full_prefix}%")
-        ).order_by(JournalEntry.journal_entry_no.desc()).first()
+        # Delegate to the gateway: it takes the max of the NUMERIC suffix (a
+        # string DESC sort re-issued "...-10000" after "...-9999").
+        return self._gl._generate_je_number(prefix)
 
-        if last and last.journal_entry_no.startswith(full_prefix):
-            try:
-                seq = int(last.journal_entry_no.split("-")[-1]) + 1
-            except (ValueError, IndexError):
-                seq = 1
-        else:
-            seq = 1
-        return f"{full_prefix}{seq:04d}"
+    def _unit_cost_for_invoice_item(self, item) -> Optional[Decimal]:
+        """Cost basis the sale's COGS used for one invoice line: the selected
+        price tier's cost first, then the product's legacy cost_price."""
+        if item.price_tier_id:
+            tier = self.db.query(ProductPriceTier).filter(
+                ProductPriceTier.id == item.price_tier_id
+            ).first()
+            if tier and tier.cost_price is not None:
+                return Decimal(str(tier.cost_price))
+        product = self.db.query(Product).filter(Product.id == item.product_id).first()
+        if product and product.cost_price is not None:
+            return Decimal(str(product.cost_price))
+        return None
 
     def _check_already_posted(
         self,
@@ -458,23 +458,8 @@ class SalesAccountingIntegration:
 
         total_cost = Decimal("0")
         for item in items:
-            cost_to_use = None
-            
-            # Try to get cost from the selected price tier first
-            if item.price_tier_id:
-                tier = self.db.query(ProductPriceTier).filter(
-                    ProductPriceTier.id == item.price_tier_id
-                ).first()
-                if tier and tier.cost_price is not None:
-                    cost_to_use = tier.cost_price
-            
-            # Fallback to legacy product cost_price
-            if cost_to_use is None:
-                product = self.db.query(Product).filter(
-                    Product.id == item.product_id
-                ).first()
-                if product and product.cost_price is not None:
-                    cost_to_use = product.cost_price
+            # Price-tier cost first, then the legacy product cost_price.
+            cost_to_use = self._unit_cost_for_invoice_item(item)
 
             if cost_to_use is not None:
                 item_cost = Decimal(str(cost_to_use)) * Decimal(str(item.quantity))
@@ -610,7 +595,7 @@ class SalesAccountingIntegration:
             credit_note (credit sale)-> 1110 Trade Debtors  (reduces what customer owes)
             credit_note (cash sale)  -> 2530 Customer Credit Notes Outstanding (liability)
         """
-        if self._check_already_posted(sale_return.id, reference_type="SaleReturn"):
+        if self._check_already_posted(sale_return.id, "SaleReturn", reference_type="SaleReturn"):
             return None
 
         invoice = self.db.query(Invoice).filter(
@@ -694,17 +679,39 @@ class SalesAccountingIntegration:
         # were routed to Company Assets and must NOT inflate inventory here.
         # Without this, returned goods' cost stayed in COGS permanently and
         # inventory was understated (gross-margin misstatement).
+        # Same cost basis as the original sale's COGS (post_cogs_to_gl): the
+        # invoice line's price-tier cost when it had one, else product cost.
+        # Restoring at product.cost_price while the sale relieved inventory at
+        # the tier cost left a permanent 1210/5010 difference per return.
         restocked_cost = Decimal("0")
+        invoice_items = None
         for ri in (sale_return.items or []):
             if not getattr(ri, "restocked", False):
                 continue
-            product = (
-                self.db.query(Product).filter(Product.id == ri.product_id).first()
-                if ri.product_id else None
-            )
-            if product and product.cost_price:
+            inv_item = None
+            inv_item_id = getattr(ri, "invoice_item_id", None)
+            if inv_item_id:
+                inv_item = self.db.query(InvoiceItems).filter(InvoiceItems.id == inv_item_id).first()
+            if inv_item is None and ri.product_id:
+                if invoice_items is None:
+                    invoice_items = self.db.query(InvoiceItems).filter(
+                        InvoiceItems.invoice_id == invoice.id
+                    ).order_by(InvoiceItems.id).all()
+                inv_item = next((it for it in invoice_items if it.product_id == ri.product_id), None)
+            if inv_item is not None:
+                unit_cost = self._unit_cost_for_invoice_item(inv_item)
+            else:
+                product = (
+                    self.db.query(Product).filter(Product.id == ri.product_id).first()
+                    if ri.product_id else None
+                )
+                unit_cost = (
+                    Decimal(str(product.cost_price))
+                    if product and product.cost_price is not None else None
+                )
+            if unit_cost:
                 qty = Decimal(str(getattr(ri, "quantity", 1) or 1))
-                restocked_cost += Decimal(str(product.cost_price)) * qty
+                restocked_cost += unit_cost * qty
         if restocked_cost > 0:
             lines.append({
                 "account_code": ACCT_FINISHED_GOODS,
@@ -719,10 +726,12 @@ class SalesAccountingIntegration:
                 "description": f"COGS reversed on return {sale_return.sale_return_no}",
             })
 
+        # "SaleReturn" is the posting marker: keep it literally in the
+        # description so the locked re-check in GLPostingService finds it.
         description = (
             f"Auto GL - Sale Return | Return: {sale_return.sale_return_no} | "
             f"Invoice: {invoice.invoice_no} | Refund: {total_refund} | "
-            f"Invoice ID: {sale_return.id}"
+            f"SaleReturn ID: {sale_return.id}"
         )
 
         je = self._create_je_and_post(

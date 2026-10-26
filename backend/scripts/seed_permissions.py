@@ -422,6 +422,15 @@ def seed_permissions():
         # Settings
         {"name": "view_settings", "resource": "settings", "action": "view", "description": "View system and company settings"},
         {"name": "update_settings", "resource": "settings", "action": "update", "description": "Update system and company settings"},
+        # Print templates (document layouts)
+        {"name": "view_print_templates", "resource": "print_templates", "action": "view", "description": "View document print templates"},
+        {"name": "create_print_templates", "resource": "print_templates", "action": "create", "description": "Create document print templates"},
+        {"name": "update_print_templates", "resource": "print_templates", "action": "update", "description": "Change document print templates and defaults"},
+        {"name": "delete_print_templates", "resource": "print_templates", "action": "delete", "description": "Delete document print templates"},
+        {"name": "edit_html_print_templates", "resource": "print_templates", "action": "edit_html", "description": "Write custom HTML for print templates (trusted admins only)"},
+        # Report Center saved reports
+        {"name": "share_saved_reports", "resource": "saved_reports", "action": "share", "description": "Share saved reports with everyone who can run them"},
+        {"name": "manage_saved_reports", "resource": "saved_reports", "action": "manage", "description": "Edit or delete other users' shared saved reports"},
     ]
     
     # Create permissions

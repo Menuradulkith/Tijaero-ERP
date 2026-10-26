@@ -1,0 +1,40 @@
+
+=== 10 users, 30s, think=1.0s -> 243 req, 8.1 req/s, ok=243
+endpoint              n   p50ms   p95ms   p99ms  status
+customer_paged       25      38     366     386  {200: 25}
+health               31       8     264     274  {200: 31}
+invoice_detail       28      70     401     406  {200: 28}
+invoice_list         77     109     391     485  {200: 77}
+product_paged        26     121     487     499  {200: 26}
+product_search       28      44     177     252  {200: 28}
+sales_stats          28    1614    2208    2214  {200: 28}
+
+=== 25 users, 30s, think=1.0s -> 481 req, 16.0 req/s, ok=481
+endpoint              n   p50ms   p95ms   p99ms  status
+customer_paged       55      86     204     623  {200: 55}
+health               54      22     335     337  {200: 54}
+invoice_detail       59     107     592     691  {200: 59}
+invoice_list        117     184     592     621  {200: 117}
+product_paged        67     290     667     669  {200: 67}
+product_search       65     112     599     631  {200: 65}
+sales_stats          64    2963    3781    4035  {200: 64}
+
+=== 50 users, 30s, think=1.0s -> 592 req, 19.7 req/s, ok=592
+endpoint              n   p50ms   p95ms   p99ms  status
+customer_paged       69    1110    2125    2233  {200: 69}
+health               79     356    1114    1734  {200: 79}
+invoice_detail       64     779    1982    2112  {200: 64}
+invoice_list        158    1083    2101    2460  {200: 158}
+product_paged        68    1526    2483    3125  {200: 68}
+product_search       69     912    2036    2496  {200: 69}
+sales_stats          85    5510    7072    7900  {200: 85}
+
+=== 100 users, 30s, think=1.0s -> 711 req, 23.7 req/s, ok=711
+endpoint              n   p50ms   p95ms   p99ms  status
+customer_paged       94    2984    4039    4634  {200: 94}
+health               98    2462    3263    3702  {200: 98}
+invoice_detail       93    2908    3946    4239  {200: 93}
+invoice_list        177    3312    4109    4499  {200: 177}
+product_paged        78    3535    4541    4927  {200: 78}
+product_search       87    3176    4137    4462  {200: 87}
+sales_stats          84    7744    8709    9452  {200: 84}

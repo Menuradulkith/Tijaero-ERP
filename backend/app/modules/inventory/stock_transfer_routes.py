@@ -1,4 +1,5 @@
 """Stock Transfer API Endpoints"""
+import logging
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,6 +12,8 @@ from app.modules.inventory.stock_transfer_service import StockTransferService
 from app.modules.inventory import stock_transfer_schemas as schemas
 from app.modules.inventory.models import SalesStock, CompanyAssets
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/inventory/stock-transfers",
@@ -62,10 +65,13 @@ async def transfer_sales_stock_to_company_asset(
         return result
     except HTTPException:
         raise
-    except Exception as e:
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception:
+        logger.exception("Transfer failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Transfer failed: {str(e)}"
+            detail="Transfer failed. Please try again or contact support."
         )
 
 
@@ -110,10 +116,13 @@ async def transfer_company_asset_to_sales_stock(
         return result
     except HTTPException:
         raise
-    except Exception as e:
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception:
+        logger.exception("Transfer failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Transfer failed: {str(e)}"
+            detail="Transfer failed. Please try again or contact support."
         )
 
 
@@ -193,10 +202,11 @@ async def get_stock_transfer_history(
                 for t in transfers
             ]
         }
-    except Exception as e:
+    except Exception:
+        logger.exception("Failed to retrieve transfer history")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve transfer history: {str(e)}"
+            detail="Failed to retrieve transfer history. Please try again or contact support."
         )
 
 
@@ -238,8 +248,11 @@ async def reverse_stock_transfer(
         return result
     except HTTPException:
         raise
-    except Exception as e:
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception:
+        logger.exception("Reversal failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Reversal failed: {str(e)}"
+            detail="Reversal failed. Please try again or contact support."
         )

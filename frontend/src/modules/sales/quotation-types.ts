@@ -33,7 +33,7 @@ export interface SalesQuoteItem {
   warrenty_month: string;
   created_date: string;
   is_price_estimate: boolean;
-  stock_status?: string; // 'in_stock', 'needs_procurement', 'needs_transfer', or null
+  stock_status?: string; // 'in_stock', 'needs_procurement', or null
   description?: string;
   remark?: string;
   discount_percentage: number;
@@ -103,6 +103,7 @@ export interface SalesQuote {
 
   // Workflow date tracking
   submitted_date?: string;
+  confirmed_date?: string;
   po_created_date?: string;
   approved_date?: string;
   approved_by_customer?: string;

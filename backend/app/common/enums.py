@@ -75,6 +75,7 @@ class StockStatus(str, Enum):
     TRANSFER_PENDING = "transfer_pending"
     IN_TRANSIT = "in_transit"
     DAMAGED = "damaged"
+    FROZEN = "frozen"  # quality/admin hold — on hand but blocked from sale
     CANCELLED = "cancelled"  # received on a GRN that was later cancelled
 
 

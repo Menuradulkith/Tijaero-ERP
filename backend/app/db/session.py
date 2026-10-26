@@ -3,6 +3,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 from app.core.config import settings
 from app.core.audit_context import current_user_id
+import os
 import time
 import logging
 
@@ -25,8 +26,12 @@ engine = create_engine(
     _get_database_url(),
     poolclass=QueuePool,
     pool_pre_ping=True,       # Verify connections before use
-    pool_size=20,             # Base pool size (matches the ~40 request threads together with overflow)
-    max_overflow=20,          # Additional connections when needed
+    # Per *worker process*: total DB connections = workers x (pool_size + max_overflow),
+    # which must stay below Postgres max_connections (default 100). With gunicorn -w 4
+    # the 20+20 defaults can open 160 and fail under load: set DB_POOL_SIZE /
+    # DB_MAX_OVERFLOW (e.g. 10 / 10 for 4 workers).
+    pool_size=int(os.getenv("DB_POOL_SIZE", "20")),
+    max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "20")),
     pool_timeout=10,          # Fail fast (503) instead of holding a request for 30 s
     pool_recycle=1800,        # Recycle connections every 30 min
     echo=False,               # Disable SQL logging in production

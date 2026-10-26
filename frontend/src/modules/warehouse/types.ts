@@ -13,6 +13,8 @@ export interface ItemTransferNote {
   // Extended properties from relationships
   from_location_name?: string;
   to_location_name?: string;
+  total_units?: number;
+  created_by_name?: string | null;
 }
 
 export interface ItemTransferNoteCreate {
@@ -46,6 +48,8 @@ export interface ItemTransferNoteItem {
   created_date: string;
   quantity: number;  // units on this line (1 for barcode items)
   sales_stock_id?: number | null;  // set once a lot line is allocated at approval
+  batch_no?: string | null;  // of the allocated lot
+  expiry_date?: string | null;
   // Extended properties
   product_name?: string;
   product_item_code?: string;
@@ -86,6 +90,12 @@ export interface ItemReceiveNote {
   received_note?: string;
   recieved_user?: number;
   recieved_date?: string;
+  item_transfer_note_no?: string | null;
+  from_location_name?: string | null;
+  to_location_name?: string | null;
+  total_units?: number;
+  received_units?: number;
+  received_by_name?: string | null;
 }
 
 export interface ItemReceiveNoteCreate {
@@ -130,9 +140,18 @@ export interface LotValidationResponse {
   available_quantity: number;
 }
 
+// Damage / note the receiver found on one line being received (barcode for a serial unit, item_id for a lot).
+export interface ReceiveLine {
+  barcode?: string;
+  item_id?: number;
+  damaged_quantity: number;  // never more than the line's received quantity
+  note?: string;
+}
+
 export interface ReceiveItemsRequest {
   barcodes?: string[];
   item_ids?: number[];  // lot lines (no barcode) are received whole, by item id
+  lines?: ReceiveLine[];
   received_note?: string;
   received_user_id?: number;
 }

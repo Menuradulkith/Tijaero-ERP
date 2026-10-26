@@ -84,7 +84,7 @@ export default function PayrollApprovalsPage() {
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("payroll_month");
+  const [sortField, setSortField] = useState("created_desc");
   const [filterStatus, setFilterStatus] = useState<string>("pending_approval");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<PayrollBatch | null>(null);

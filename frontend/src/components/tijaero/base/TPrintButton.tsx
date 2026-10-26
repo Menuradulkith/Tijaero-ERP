@@ -109,6 +109,19 @@ export const PENDING_APPROVAL_STATUSES = [
 ];
 
 /**
+ * Statuses a document is in once approval is behind it. Only these can be printed or
+ * emailed (the backend enforces the same list: app/common/document_guard.py).
+ */
+export const APPROVED_OR_LATER_STATUSES = [
+  "approved", "partial_approved", "partially_approved",
+  "completed", "partially_completed", "short_closed",
+  "processed", "partially_processed", "so_created",
+  "paid", "posted", "verified", "recorded", "salary_paid", "statutory_paid",
+  "submitted", "under_review", "sent", "accepted",
+  "dispatched", "in_transit", "partially_received", "received", "delivered", "closed",
+];
+
+/**
  * Determine if a document can be printed based on status.
  * Any document in a pending-approval state is blocked by default.
  *
@@ -121,8 +134,11 @@ export function canPrintDocument(
   additionalBlockedStatuses: string[] = [],
 ): boolean {
   if (!status) return false;
+  const s = status.toLowerCase();
   const blocked = [...PENDING_APPROVAL_STATUSES, ...additionalBlockedStatuses];
-  return !blocked.includes(status.toLowerCase());
+  if (blocked.includes(s)) return false;
+  // Only documents that have passed approval may be printed or emailed
+  return APPROVED_OR_LATER_STATUSES.includes(s);
 }
 
 /**
@@ -169,7 +185,10 @@ export const TPrintButton: React.FC<TPrintButtonProps> = ({
     }
   };
 
-  const tooltipTitle = disabled ? disabledReason : tooltip;
+  // Documents that cannot be printed (not approved, rejected, being edited...) get no button at all
+  if (disabled) return null;
+
+  const tooltipTitle = tooltip;
 
   return (
     <Tooltip title={tooltipTitle}>

@@ -25,7 +25,7 @@ export default function PurchasingRoutes() {
       <Route path="invoices/outstanding-grns" element={<ProtectedRoute resource="purchase_orders" action="view"><OutstandingGRNsPage /></ProtectedRoute>} />
       <Route path="returns" element={<ProtectedRoute resource="purchase_returns" action="view"><PurchaseReturnsPage /></ProtectedRoute>} />
       {/* Approvals - parent hub and sub-routes */}
-      <Route path="approvals" element={<PurchasingApprovalsPage />} />
+      <Route path="approvals" element={<ProtectedRoute resource="po_approvals" action="view"><PurchasingApprovalsPage /></ProtectedRoute>} />
       <Route path="approvals/po-approvals" element={<ProtectedRoute resource="po_approvals" action="view"><POApprovalsPage /></ProtectedRoute>} />
       <Route path="approvals/return-approvals" element={<ProtectedRoute resource="purchase_return_approvals" action="view"><PurchaseReturnApprovalsPage /></ProtectedRoute>} />
       {/* Legacy routes for backward compatibility */}

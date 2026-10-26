@@ -208,6 +208,8 @@ class SupplierContactPerson(Base, AuditMixin):
     passport_no = Column(String(50))
     email = Column(String(75))
     phone = Column(String(20))
+    # Contact persons are never deleted, only deactivated.
+    active = Column(Boolean, nullable=False, default=True, server_default="true")
 
     supplier = relationship("Supplier", back_populates="contact_persons")
 
@@ -425,7 +427,8 @@ class PurchasingReturn(Base, AuditMixin):
     id = Column(Integer, primary_key=True, index=True)
     purchasing_return_no = Column(String(200), nullable=False, unique=True)
     branch_code = Column(String(200), nullable=False)
-    remark = Column(Text)
+    remark = Column(Text)  # free-text comment entered with the return
+    reason = Column(String(50), nullable=True)  # one of PURCHASE_RETURN_REASONS (schemas.py)
     status = Column(String(30), nullable=False, default="draft")
     added_date = Column(Date, nullable=False)
     approved_date = Column(TIMESTAMP, nullable=True)

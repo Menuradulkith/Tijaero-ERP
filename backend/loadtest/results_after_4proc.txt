@@ -1,0 +1,20 @@
+
+=== 50 users, 30s, think=1.0s -> 983 req, 32.8 req/s, ok=983
+endpoint              n   p50ms   p95ms   p99ms  status
+customer_paged      106     212    1775    3712  {200: 106}
+health              132     104     758    1045  {200: 132}
+invoice_detail      142     277    2023    2446  {200: 142}
+invoice_list        232     408    1582    3829  {200: 232}
+product_paged       122     333    1991    3471  {200: 122}
+product_search      117     281    2197    2362  {200: 117}
+sales_stats         132     201    5250    5999  {200: 132}
+
+=== 100 users, 30s, think=1.0s -> 997 req, 33.2 req/s, ok=995
+endpoint              n   p50ms   p95ms   p99ms  status
+customer_paged      137    1370    4936    7096  {200: 137}
+health              125     925    5420    6634  {200: 125}
+invoice_detail      136    1590    5410    6690  {200: 136}
+invoice_list        257    1661    5001    8330  {200: 257}
+product_paged        98    1382    4260    6614  {200: 98}
+product_search      128    1414    5392    7726  {200: 126, 'ReadError': 2}
+sales_stats         116    1222    5803    7194  {200: 116}

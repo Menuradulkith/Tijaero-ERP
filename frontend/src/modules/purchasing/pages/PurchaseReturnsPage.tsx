@@ -25,7 +25,9 @@ import {
   CircularProgress,
   IconButton,
   InputAdornment,
+  MenuItem,
   Paper,
+  Radio,
   Step,
   StepLabel,
   Stepper,
@@ -41,7 +43,7 @@ import {
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatDateTimeReadable } from "@/utils/formatters";
+import { formatDate, formatDateTimeReadable } from "@/utils/formatters";
 
 // Import tijaero components
 import {
@@ -75,10 +77,13 @@ import {
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
+import { usePermission } from "@/auth/permissions";
 import { goodReceivedItemsApi, goodReceivedNotesApi, purchaseOrdersApi, purchaseReturnsApi, suppliersApi } from "@/modules/purchasing/api";
+import { EntityPeekButton } from "@/components/tijaero/peek";
 // OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import {
   GoodReceivedNote,
+  PURCHASE_RETURN_REASONS,
   PurchasingOrder,
   PurchasingReturn,
   PurchasingReturnCreate,
@@ -112,6 +117,7 @@ const INITIAL_FORM_DATA: PurchasingReturnCreate = {
   purchasing_return_no: "",
   branch_code: "HQ",
   remark: "",
+  reason: "",
   goodreceivednote_id: 0,
   items: [],
 };
@@ -129,6 +135,7 @@ const resetFormFromReturn = (ret: PurchasingReturn | PurchasingReturnWithItems):
   purchasing_return_no: ret.purchasing_return_no,
   branch_code: ret.branch_code,
   remark: ret.remark || "",
+  reason: ret.reason || "",
   goodreceivednote_id: ret.goodreceivednote_id,
   items: "items" in ret && ret.items ? ret.items.map(item => ({
     product_id: item.product_id,
@@ -375,15 +382,44 @@ export default function PurchaseReturnsPage() {
 
   const { data: grns } = useQuery({
     queryKey: ["goodReceivedNotes"],
-    queryFn: () => goodReceivedNotesApi.getAll(),
-    enabled: isCreating || isEditing,
+    queryFn: () => goodReceivedNotesApi.getAll({ limit: 100000 }),
+    enabled: isCreating || isEditing || !!selectedReturn,
   });
 
   const { data: purchaseOrders } = useQuery({
     queryKey: ["purchaseOrders"],
-    queryFn: () => purchaseOrdersApi.getAll(),
-    enabled: isCreating || isEditing,
+    queryFn: () => purchaseOrdersApi.getAll({ limit: 100000 }),
+    enabled: isCreating || isEditing || !!selectedReturn,
   });
+
+  // A return is raised in two picks: the PO first, then one of its GRNs.
+  const [selectedPoId, setSelectedPoId] = useState<number | null>(null);
+  useEffect(() => {
+    if (isCreating) setSelectedPoId(null);
+  }, [isCreating]);
+
+  const returnableGrns = useMemo(
+    () => (grns || []).filter((g: GoodReceivedNote) => g.status !== "cancelled"),
+    [grns]
+  );
+  const formGrn = grns?.find((g: GoodReceivedNote) => g.id === formData.goodreceivednote_id);
+  const activePoId = selectedPoId ?? formGrn?.purchasingorders_id ?? null;
+  // Only fully or partially completed POs that have a GRN to return against.
+  // An existing return keeps showing its own PO even if that PO's status has since moved on.
+  const returnablePos = useMemo(() => {
+    const poIds = new Set(returnableGrns.map((g: GoodReceivedNote) => g.purchasingorders_id));
+    return (purchaseOrders || []).filter(
+      (o: PurchasingOrder) =>
+        poIds.has(o.id) &&
+        (o.status === "completed" || o.status === "partially_completed" || o.id === activePoId)
+    );
+  }, [returnableGrns, purchaseOrders, activePoId]);
+  const grnTableRows = useMemo(() => {
+    if (isCreating) {
+      return activePoId ? returnableGrns.filter((g: GoodReceivedNote) => g.purchasingorders_id === activePoId) : [];
+    }
+    return formGrn ? [formGrn] : [];
+  }, [isCreating, activePoId, returnableGrns, formGrn]);
 
   // Load suppliers for filter and form
   useEffect(() => {
@@ -473,6 +509,13 @@ export default function PurchaseReturnsPage() {
     return supplier ? supplier.company_name : "Unknown Supplier";
   }, [grns, purchaseOrders, suppliers]);
 
+  // The supplier of the return's PO, for the supplier peek (falls back to the GRN's PO).
+  const peekSupplierId = useMemo(() => {
+    const grn = grns?.find((g: GoodReceivedNote) => g.id === formData.goodreceivednote_id);
+    const poId = activePoId ?? grn?.purchasingorders_id;
+    return purchaseOrders?.find((o: PurchasingOrder) => o.id === poId)?.first_suppliers_id;
+  }, [grns, purchaseOrders, formData.goodreceivednote_id, activePoId]);
+
   // getStatusColor is now imported from common components and uses RETURN_STATUS_OPTIONS
 
   // Batch/none lots received on the selected GRN (returned by quantity, no barcode).
@@ -510,6 +553,7 @@ export default function PurchaseReturnsPage() {
         grn_id: formData.goodreceivednote_id,
         sales_stock_id: lotStockId,
         quantity: quantity + alreadyAdded,
+        branch_code: formData.branch_code,
       });
       if (!response.valid) {
         setLotError(response.message);
@@ -580,14 +624,21 @@ export default function PurchaseReturnsPage() {
         if (response.warranty_expired) {
           const expiryDate = response.warranty_expiry_date || "unknown";
           const warrantyMonths = response.warranty_month || "?";
-          const proceed = window.confirm(
-            `⚠️ WARRANTY EXPIRED\n\n` +
-            `Product: ${response.product_name || barcode}\n` +
-            `Warranty: ${warrantyMonths} months (expired on ${expiryDate})\n\n` +
-            `The warranty period for this item has passed. ` +
-            `The supplier may reject this return.\n\n` +
-            `Do you still want to add this item to the return?`
-          );
+          // In-app dialog (window.confirm is blocked in embedded browsers and gives no focus handling)
+          const proceed = await confirmDialog.confirm({
+            title: "⚠️ Warranty expired",
+            message:
+              `Product: ${response.product_name || barcode}\n` +
+              `Warranty: ${warrantyMonths} months (expired on ${expiryDate})\n\n` +
+              `The warranty period for this item has passed. ` +
+              `The supplier may reject this return.\n\n` +
+              `Do you still want to add this item to the return?`,
+            confirmText: "Add anyway",
+            cancelText: "Cancel",
+            confirmColor: "warning",
+          });
+          // the dialog took the focus: give it back so the next scan lands in the barcode box
+          setTimeout(() => barcodeInputRef.current?.focus(), 0);
           if (!proceed) {
             setBarcodeInput("");
             barcodeInputRef.current?.focus();
@@ -634,8 +685,10 @@ export default function PurchaseReturnsPage() {
       setValidationError(handleApiError(error, "Failed to validate barcode"));
     } finally {
       setIsValidating(false);
+      // the box is disabled while validating, so focus is dropped: hand it back for the next scan
+      setTimeout(() => barcodeInputRef.current?.focus(), 0);
     }
-  }, [formData.goodreceivednote_id, formData.branch_code, grns, lineItems, getGRNNumberById]);
+  }, [formData.goodreceivednote_id, formData.branch_code, grns, lineItems, getGRNNumberById, confirmDialog]);
 
   const handleBarcodeKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
@@ -694,7 +747,10 @@ export default function PurchaseReturnsPage() {
   }, [isCreating, formData, lineItems, createMutation]);
 
   // Completely prevent deletion of approved returns - delete button won't show
-  const canDelete = selectedReturn?.status !== "approved";
+  const canCreateReturn = usePermission("purchase_returns", "create");
+  const canUpdateReturn = usePermission("purchase_returns", "update");
+  const canDeleteReturn = usePermission("purchase_returns", "delete");
+  const canDelete = canDeleteReturn && selectedReturn?.status !== "approved";
 
   const handleDelete = useCallback(async () => {
     if (selectedReturn) {
@@ -770,7 +826,11 @@ export default function PurchaseReturnsPage() {
   // Step 1 validation
   // When creating, purchasing_return_no is auto-generated (nextReturnNumber) and not stored in formData until submit
   const effectiveReturnNumber = isCreating ? nextReturnNumber : formData.purchasing_return_no;
-  const isStep1Valid = effectiveReturnNumber && formData.goodreceivednote_id > 0;
+  const isStep1Valid =
+    effectiveReturnNumber &&
+    formData.goodreceivednote_id > 0 &&
+    !!formData.reason &&
+    (formData.reason !== "Other" || !!formData.remark?.trim());
 
   // Full form validation
   const isFormValid = isStep1Valid && lineItems.length > 0;
@@ -834,6 +894,10 @@ export default function PurchaseReturnsPage() {
         header: "Branch",
         width: 170,
       },
+      { field: "reason", header: "Reason", width: 150, valueGetter: (_v: unknown, row: PurchaseReturnRow) => row.reason || "-" },
+      { field: "total_quantity", header: "Units", width: 90, type: "number" },
+      { field: "total_amount", header: `Amount (${currencySymbol})`, width: 130, type: "currency" },
+      { field: "created_by_name", header: "Requested By", width: 150, valueGetter: (_v: unknown, row: PurchaseReturnRow) => row.created_by_name || "-" },
       {
         field: "added_date",
         header: "Date",
@@ -873,7 +937,7 @@ export default function PurchaseReturnsPage() {
         ),
       },
     ],
-    [getGRNNumber, getSupplierName, handleSelectReturnWithItems]
+    [getGRNNumber, getSupplierName, handleSelectReturnWithItems, currencySymbol]
   );
 
   // Browse mode: a full-width table of every return (shown when nothing is
@@ -921,10 +985,13 @@ export default function PurchaseReturnsPage() {
         isSaving={isSaving}
         isFormValid={!!isFormValid}
         canDelete={canDelete}
+        canCreate={canCreateReturn}
+        canDuplicate={canCreateReturn}
+        canUpdate={canUpdateReturn}
         onNew={handleNewReturn}
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
-        onSave={handleSave}
+        onSave={isCreating && formStep < FORM_STEPS.length - 1 ? undefined : handleSave}
         onCancel={() => handleCancel(filteredReturns)}
         startActions={
           isCreating && formStep === 1 ? (
@@ -951,7 +1018,7 @@ export default function PurchaseReturnsPage() {
             </Button>
           ) : selectedReturn && !isCreating && !isEditing ? (
             <>
-              <Tooltip title={!canPrintDocument(selectedReturn.status, ["cancelled", "rejected"]) ? `Cannot email: return is ${(selectedReturn.status || "").replace(/_/g, " ")}` : "Send via Email"}>
+              {canPrintDocument(selectedReturn.status, ["cancelled", "rejected"]) && (<Tooltip title={!canPrintDocument(selectedReturn.status, ["cancelled", "rejected"]) ? `Cannot email: return is ${(selectedReturn.status || "").replace(/_/g, " ")}` : "Send via Email"}>
                 <span>
                   <Button size="small" variant="outlined" color="primary" startIcon={<EmailIcon />}
                     disabled={!canPrintDocument(selectedReturn.status, ["cancelled", "rejected"])}
@@ -959,7 +1026,7 @@ export default function PurchaseReturnsPage() {
                     Email
                   </Button>
                 </span>
-              </Tooltip>
+              </Tooltip>)}
               <TPrintButton
               documentType="purchase-return"
               documentId={selectedReturn.id}
@@ -1001,29 +1068,34 @@ export default function PurchaseReturnsPage() {
                   />
                   <Autocomplete
                     size="small"
-                    options={grns || []}
-                    getOptionLabel={(option: GoodReceivedNote) => option.good_received_no || `GRN-${option.id}`}
-                    value={grns?.find((g: GoodReceivedNote) => g.id === formData.goodreceivednote_id) || null}
-                    onChange={(_, newValue: GoodReceivedNote | null) => {
-                      if (newValue) {
-                        setFormData({
-                          ...formData,
-                          goodreceivednote_id: newValue.id,
-                          branch_code: newValue.branch_code
-                        });
-                      } else {
-                        setFormData({ ...formData, goodreceivednote_id: 0 });
-                      }
+                    options={returnablePos}
+                    getOptionLabel={(option: PurchasingOrder) =>
+                      option.supplier_name
+                        ? `${option.purchasing_order_no} - ${option.supplier_name}`
+                        : option.purchasing_order_no || `PO-${option.id}`
+                    }
+                    value={returnablePos.find((o: PurchasingOrder) => o.id === activePoId) || null}
+                    onChange={(_, newValue: PurchasingOrder | null) => {
+                      // Changing the PO clears the GRN pick: the GRN must belong to the PO.
+                      setSelectedPoId(newValue ? newValue.id : null);
+                      setFormData({ ...formData, goodreceivednote_id: 0 });
                       handleBlur('goodreceivednote_id');
                     }}
-                    disabled={!isEditing && !isCreating}
+                    disabled={!isCreating}
                     renderInput={(params) => (
                       <TextField
                         {...params}
-                        label="Good Received Note"
+                        label="Purchase Order"
                         required
-                        error={hasError('goodreceivednote_id')}
-                        helperText={getFieldError('goodreceivednote_id')}
+                        InputProps={{
+                          ...params.InputProps,
+                          endAdornment: (
+                            <>
+                              <EntityPeekButton entity="purchase-order" id={activePoId} />
+                              {params.InputProps.endAdornment}
+                            </>
+                          ),
+                        }}
                       />
                     )}
                   />
@@ -1040,13 +1112,103 @@ export default function PurchaseReturnsPage() {
                     value={getSupplierName({ goodreceivednote_id: formData.goodreceivednote_id } as PurchasingReturn)}
                     disabled
                     helperText="Auto-filled from GRN"
+                    InputProps={{
+                      endAdornment: <EntityPeekButton entity="supplier" hideTabs={["payment"]} id={peekSupplierId} />,
+                    }}
                   />
                 </FormSection>
 
-                <FormSection title="Remarks" columns={1}>
-                  <TRemarkField
-                    label="Remarks"
+                <FormSection title="Good Received Note" columns={1}>
+                  {!activePoId && isCreating ? (
+                    <Typography variant="body2" color="text.secondary">
+                      Select a Purchase Order to see its Good Received Notes.
+                    </Typography>
+                  ) : (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={modernTableStyles.headerRow}>
+                          <TableCell padding="checkbox" />
+                          <TableCell>GRN No</TableCell>
+                          <TableCell>PO No</TableCell>
+                          <TableCell>Supplier</TableCell>
+                          <TableCell>Created By</TableCell>
+                          <TableCell>Created Date</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell>Approved By</TableCell>
+                          <TableCell>Approved Date</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {grnTableRows.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={9} sx={modernTableStyles.emptyCell}>
+                              {isCreating ? "No Good Received Notes for this Purchase Order" : "Loading..."}
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          grnTableRows.map((g: GoodReceivedNote) => {
+                            const selected = g.id === formData.goodreceivednote_id;
+                            return (
+                              <TableRow
+                                key={g.id}
+                                hover={isCreating}
+                                selected={selected}
+                                onClick={
+                                  isCreating
+                                    ? () => {
+                                        setFormData({ ...formData, goodreceivednote_id: g.id, branch_code: g.branch_code });
+                                        handleBlur('goodreceivednote_id');
+                                      }
+                                    : undefined
+                                }
+                                sx={{ cursor: isCreating ? "pointer" : "default" }}
+                              >
+                                <TableCell padding="checkbox">
+                                  <Radio size="small" checked={selected} disabled={!isCreating} />
+                                </TableCell>
+                                <TableCell>{g.good_received_no}</TableCell>
+                                <TableCell>{g.po_no || "-"}</TableCell>
+                                <TableCell>{g.supplier_name || "-"}</TableCell>
+                                <TableCell>{g.created_by_name || "-"}</TableCell>
+                                <TableCell>{g.created_date ? formatDate(g.created_date) : "-"}</TableCell>
+                                <TableCell><TStatusChip status={g.status || "posted"} /></TableCell>
+                                <TableCell>{g.po_approved_by_name || "-"}</TableCell>
+                                <TableCell>{g.po_approved_date ? formatDate(g.po_approved_date) : "-"}</TableCell>
+                              </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  )}
+                  {hasError('goodreceivednote_id') && (
+                    <Typography variant="caption" color="error">
+                      {getFieldError('goodreceivednote_id')}
+                    </Typography>
+                  )}
+                </FormSection>
+
+                <FormSection title="Reason & Comment" columns={1}>
+                  <TextField
+                    select
+                    label="Reason"
                     size="small"
+                    required
+                    value={formData.reason || ""}
+                    onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+                    disabled={!isEditing && !isCreating}
+                    error={touched.reason && !formData.reason}
+                    helperText={touched.reason && !formData.reason ? "Reason is required" : undefined}
+                    onBlur={() => handleBlur('reason')}
+                  >
+                    {PURCHASE_RETURN_REASONS.map((r) => (
+                      <MenuItem key={r} value={r}>{r}</MenuItem>
+                    ))}
+                  </TextField>
+                  <TRemarkField
+                    label="Comment"
+                    size="small"
+                    required={formData.reason === "Other"}
                     value={formData.remark}
                     onChange={(value) => setFormData({ ...formData, remark: value })}
                     disabled={!isEditing && !isCreating}
@@ -1322,7 +1484,7 @@ export default function PurchaseReturnsPage() {
                         )}
                         <TableRow sx={{ bgcolor: "action.hover" }}>
                           <TableCell colSpan={isEditing || isCreating ? 5 : 5} align="right">
-                            <Typography fontWeight="bold">Total Return:</Typography>
+                            <Typography fontWeight="bold">{`Total Return (${currencySymbol}):`}</Typography>
                           </TableCell>
                           <TableCell align="right">
                             <Typography fontWeight="bold">{fmtLKR(calculateTotal() || 0)}</Typography>
@@ -1427,7 +1589,7 @@ export default function PurchaseReturnsPage() {
           ? { children: detailPanel }
           : { children: returnTablePanel })}
         headerActions={
-          isReturnDetailMode ? undefined : (
+          isReturnDetailMode || !canCreateReturn ? undefined : (
             <Button
               variant="contained"
               size="small"

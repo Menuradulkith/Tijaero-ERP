@@ -179,13 +179,8 @@ class ProductService:
         return products
 
     def create_product(self, db: Session, product: schemas.ProductCreate, user_id: int) -> schemas.Product:
-        existing = repository.product_repository.get_by_item_code(db, product.item_code)
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Product with item_code {product.item_code} already exists"
-            )
-
+        # item_code is generated server-side (ProductRepository.create), so
+        # there's no user-supplied code to pre-check for a duplicate here.
         existing_name = repository.product_repository.get_by_name(db, product.name)
         if existing_name:
             raise HTTPException(
@@ -437,12 +432,8 @@ class CategoryService:
         return {"items": rows, "total": total, "page": page, "size": size, "pages": -(-total // size)}
 
     def create_category(self, db: Session, category: schemas.CategoryCreate, user_id: int) -> schemas.Category:
-        existing = repository.category_repository.get_by_code(db, category.category_code)
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Category with code '{category.category_code}' already exists"
-            )
+        # category_code is generated server-side (CategoryRepository.create),
+        # so there's no user-supplied code to pre-check for a duplicate here.
         existing_name = repository.category_repository.get_by_name(db, category.name)
         if existing_name:
             raise HTTPException(
@@ -464,7 +455,7 @@ class CategoryService:
             db.rollback()
             raise _duplicate_error(
                 exc, CATEGORY_UNIQUE_MESSAGES,
-                f"Category with name '{category.name}' or code '{category.category_code}' already exists",
+                f"Category with name '{category.name}' already exists",
             )
         db.refresh(created)
         _attach_user_names(db, [created])
@@ -478,13 +469,6 @@ class CategoryService:
                 detail=f"Category with id {category_id} not found"
             )
         ensure_not_stale(curr_category.updated_at, category.expected_updated_at, f"Category '{curr_category.name}'", category.expected_version)
-        if category.category_code:
-            existing_code = repository.category_repository.get_by_code(db, category.category_code)
-            if existing_code and existing_code.id != category_id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Category with code '{category.category_code}' already exists"
-                )
         if category.name:
             existing_name = repository.category_repository.get_by_name(db, category.name)
             if existing_name and existing_name.id != category_id:
@@ -539,12 +523,8 @@ class BrandService:
         return {"items": rows, "total": total, "page": page, "size": size, "pages": -(-total // size)}
 
     def create_brand(self, db: Session, brand: schemas.BrandCreate, user_id: Optional[int] = None) -> schemas.Brand:
-        existing = repository.brand_repository.get_by_code(db, brand.brand_code)
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Brand with code '{brand.brand_code}' already exists"
-            )
+        # brand_code is generated server-side (BrandRepository.create), so
+        # there's no user-supplied code to pre-check for a duplicate here.
         existing_name = repository.brand_repository.get_by_name(db, brand.brand_name)
         if existing_name:
             raise HTTPException(
@@ -566,7 +546,7 @@ class BrandService:
             db.rollback()
             raise _duplicate_error(
                 exc, BRAND_UNIQUE_MESSAGES,
-                f"Brand with name '{brand.brand_name}' or code '{brand.brand_code}' already exists",
+                f"Brand with name '{brand.brand_name}' already exists",
             )
         db.refresh(created)
         _attach_user_names(db, [created])
@@ -580,13 +560,6 @@ class BrandService:
                 detail=f"Brand with id {brand_id} not found"
             )
         ensure_not_stale(curr_brand.updated_at, brand.expected_updated_at, f"Brand '{curr_brand.brand_name}'", brand.expected_version)
-        if brand.brand_code:
-            existing_code = repository.brand_repository.get_by_code(db, brand.brand_code)
-            if existing_code and existing_code.id != brand_id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Brand with code '{brand.brand_code}' already exists"
-                )
         if brand.brand_name:
             existing_name = repository.brand_repository.get_by_name(db, brand.brand_name)
             if existing_name and existing_name.id != brand_id:

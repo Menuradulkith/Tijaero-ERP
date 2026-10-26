@@ -58,6 +58,7 @@ import type {
   IncomeStatementLineItem,
 } from "../types";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { escapeHtml } from "@/utils/escapeHtml";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -187,13 +188,13 @@ export default function IncomeStatementPage() {
 
     const sectionHtml = (s: IncomeStatementSection, isExp = false) =>
       s.items.length
-        ? `<tr><td colspan="3" style="font-weight:700;padding-top:12px;color:#1976d2">${s.section_name}</td></tr>` +
-          s.items.map((i) => `<tr><td style="padding-left:24px;font-family:monospace;color:#888">${i.account_code}</td><td>${i.account_name}</td><td style="text-align:right">${fmtLKR(Math.abs(Number(i.amount)))}</td></tr>`).join("") +
-          `<tr style="border-top:1px solid #ccc"><td></td><td style="font-weight:600">Total ${s.section_name}</td><td style="text-align:right;font-weight:700;color:${isExp ? "#c62828" : "#2e7d32"}">${fmtLKR(Math.abs(Number(s.total)))}</td></tr>`
+        ? `<tr><td colspan="3" style="font-weight:700;padding-top:12px;color:#1976d2">${escapeHtml(s.section_name)}</td></tr>` +
+          s.items.map((i) => `<tr><td style="padding-left:24px;font-family:monospace;color:#888">${escapeHtml(i.account_code)}</td><td>${escapeHtml(i.account_name)}</td><td style="text-align:right">${fmtLKR(Math.abs(Number(i.amount)))}</td></tr>`).join("") +
+          `<tr style="border-top:1px solid #ccc"><td></td><td style="font-weight:600">Total ${escapeHtml(s.section_name)}</td><td style="text-align:right;font-weight:700;color:${isExp ? "#c62828" : "#2e7d32"}">${fmtLKR(Math.abs(Number(s.total)))}</td></tr>`
         : "";
 
     const subtotalRow = (label: string, val: number, bold = false) =>
-      `<tr style="background:#f5f5f5"><td></td><td style="font-weight:${bold ? 800 : 600};font-size:${bold ? "14px" : "13px"}">${label}</td><td style="text-align:right;font-weight:${bold ? 800 : 700};font-size:${bold ? "14px" : "13px"};color:${val >= 0 ? "#2e7d32" : "#c62828"}">${val < 0 ? "(" : ""}${currencySymbol} ${fmtLKR(Math.abs(val))}${val < 0 ? ")" : ""}</td></tr>`;
+      `<tr style="background:#f5f5f5"><td></td><td style="font-weight:${bold ? 800 : 600};font-size:${bold ? "14px" : "13px"}">${escapeHtml(label)}</td><td style="text-align:right;font-weight:${bold ? 800 : 700};font-size:${bold ? "14px" : "13px"};color:${val >= 0 ? "#2e7d32" : "#c62828"}">${val < 0 ? "(" : ""}${currencySymbol} ${fmtLKR(Math.abs(val))}${val < 0 ? ")" : ""}</td></tr>`;
 
     win.document.write(`<!DOCTYPE html><html><head><title>Income Statement</title>
 <style>body{font-family:Segoe UI,sans-serif;padding:20px;max-width:800px;margin:0 auto}h1{color:#1976d2;text-align:center;border-bottom:2px solid #1976d2;padding-bottom:10px}

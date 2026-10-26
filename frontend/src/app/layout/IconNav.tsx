@@ -1,4 +1,4 @@
-import { hasAnyModuleAccess, hasModuleAccess } from "@/auth/permissions";
+import { hasAnyModuleAccess, hasModuleAccess, hasPermission } from "@/auth/permissions";
 import { TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 import { useAuthStore } from "@/state/authStore";
 import { useFormGuardStore } from "@/state/formGuardStore";
@@ -22,6 +22,28 @@ import {
 } from "@mui/material";
 import { useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+
+// Page-level VIEW permission per searchable path — mirrors the route guards so
+// search never lists a page the user would be denied on (or hides one they can
+// open). Paths not listed fall back to the module-level check.
+const PAGE_PERMISSIONS: Record<string, { resource: string; action: string }> = {
+  "/sales/customers": { resource: "customers", action: "view" },
+  "/sales/dashboard": { resource: "sales_dashboard", action: "view" },
+  "/sales/orders": { resource: "sales_orders", action: "view" },
+  "/sales/returns": { resource: "sales_returns", action: "view" },
+  "/purchasing/suppliers": { resource: "suppliers", action: "view" },
+  "/purchasing/orders": { resource: "purchase_orders", action: "view" },
+  "/purchasing/approvals/po-approvals": { resource: "po_approvals", action: "view" },
+  "/purchasing/grn": { resource: "grn", action: "view" },
+  "/purchasing/returns": { resource: "purchase_returns", action: "view" },
+  "/purchasing/approvals/return-approvals": { resource: "purchase_return_approvals", action: "view" },
+  "/purchasing/payments": { resource: "supplier_payments", action: "view" },
+  "/finance/supplier-payment-report": { resource: "supplier_payments", action: "view" },
+  "/purchasing/payment-approvals": { resource: "payment_approvals", action: "view" },
+  "/product-catalogs": { resource: "products", action: "view" },
+  "/product-catalogs/categories": { resource: "categories", action: "view" },
+  "/product-catalogs/brands": { resource: "brands", action: "view" },
+};
 
 interface IconNavProps {
   width: number;
@@ -229,6 +251,8 @@ export default function IconNav({
     return allPages.filter((page) => {
       // Dashboard is only visible if the user can access at least one module
       if (page.module === "/dashboard") return hasAnyModuleAccess(user);
+      const pagePerm = PAGE_PERMISSIONS[page.path];
+      if (pagePerm) return hasPermission(user, pagePerm.resource, pagePerm.action);
       return hasModuleAccess(user, page.module);
     });
   }, [user]);

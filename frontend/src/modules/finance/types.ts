@@ -243,6 +243,18 @@ export type CashbookEntryType =
   | "expense"
   | "bank_deposit"
   | "voucher_sale"
+  | "voucher_refund"
+  | "sale_return_refund"
+  | "purchase_return"
+  | "supplier_advance_return"
+  | "grn_payment"
+  | "landed_cost"
+  | "payroll"
+  | "statutory_payment"
+  | "reimbursement"
+  | "commission_payment"
+  | "petty_cash"
+  | "journal_entry"
   | "adjustment";
 
 export interface CashbookEntry {

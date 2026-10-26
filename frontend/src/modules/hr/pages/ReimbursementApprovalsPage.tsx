@@ -79,7 +79,7 @@ export default function ReimbursementApprovalsPage() {
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("claim_date");
+  const [sortField, setSortField] = useState("created_desc");
   const [filterStatus, setFilterStatus] = useState<string>("pending");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [selectedReimbursement, setSelectedReimbursement] = useState<Reimbursement | null>(null);

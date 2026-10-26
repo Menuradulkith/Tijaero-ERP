@@ -88,6 +88,89 @@ export const settingsApi = {
     return response.data;
   },
 
+  // Print Templates
+  getPrintDocumentTypes: async () => {
+    const response = await apiClient.get<types.PrintDocumentType[]>("/reporting/print-templates/document-types");
+    return response.data;
+  },
+
+  getPrintTemplates: async (documentType?: string) => {
+    const response = await apiClient.get<types.PrintTemplateSummary[]>("/reporting/print-templates", {
+      params: documentType ? { document_type: documentType } : undefined,
+    });
+    return response.data;
+  },
+
+  getPrintTemplate: async (id: number) => {
+    const response = await apiClient.get<types.PrintTemplateDetail>(`/reporting/print-templates/${id}`);
+    return response.data;
+  },
+
+  createPrintTemplate: async (data: types.PrintTemplatePayload & { document_type: string; is_default: boolean }) => {
+    const response = await apiClient.post<types.PrintTemplateDetail>("/reporting/print-templates", data);
+    return response.data;
+  },
+
+  updatePrintTemplate: async (id: number, data: types.PrintTemplatePayload & { expected_version: number }) => {
+    const response = await apiClient.put<types.PrintTemplateDetail>(`/reporting/print-templates/${id}`, data);
+    return response.data;
+  },
+
+  deletePrintTemplate: async (id: number) => {
+    await apiClient.delete(`/reporting/print-templates/${id}`);
+  },
+
+  setDefaultPrintTemplate: async (id: number, isDefault: boolean) => {
+    const action = isDefault ? "set-default" : "unset-default";
+    const response = await apiClient.post<types.PrintTemplateDetail>(`/reporting/print-templates/${id}/${action}`);
+    return response.data;
+  },
+
+  getPrintTemplateVersions: async (id: number) => {
+    const response = await apiClient.get<types.PrintTemplateVersion[]>(`/reporting/print-templates/${id}/versions`);
+    return response.data;
+  },
+
+  restorePrintTemplateVersion: async (id: number, version: number) => {
+    const response = await apiClient.post<types.PrintTemplateDetail>(
+      `/reporting/print-templates/${id}/versions/${version}/restore`,
+    );
+    return response.data;
+  },
+
+  getPrintSampleDocuments: async (documentType: string) => {
+    const response = await apiClient.get<types.PrintSampleDocument[]>("/reporting/print-templates/sample-documents", {
+      params: { document_type: documentType },
+    });
+    return response.data;
+  },
+
+  /** Rendered HTML of an unsaved template against a real document. */
+  previewPrintTemplate: async (
+    data: types.PrintTemplatePayload & { document_type: string; document_id: number | null },
+    signal?: AbortSignal,
+  ) => {
+    const response = await apiClient.post<string>("/reporting/print-templates/preview", data, {
+      responseType: "text",
+      signal,
+    });
+    return {
+      html: response.data,
+      fallbackError: (response.headers["x-print-template-fallback"] as string | undefined) ?? null,
+    };
+  },
+
+  // Company logo (printed on documents and report exports)
+  getCompanyLogo: async () => {
+    const response = await apiClient.get<{ logo: string | null }>("/settings/company/logo");
+    return response.data;
+  },
+
+  updateCompanyLogo: async (logo: string | null) => {
+    const response = await apiClient.put<{ logo: string | null }>("/settings/company/logo", { logo });
+    return response.data;
+  },
+
   // Company Settings
   getCompanySettings: async () => {
     const response =

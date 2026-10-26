@@ -125,27 +125,29 @@ class TestCategoryCRUD:
         from app.modules.products import schemas
 
         svc = CategoryService()
-        cat = svc.create_category(db, schemas.CategoryCreate(name="Electronics", category_code=_uid("CAT")), user_id=1)
+        cat = svc.create_category(db, schemas.CategoryCreate(name="Electronics"), user_id=1)
         assert cat.id is not None
         assert cat.name == "Electronics"
+        assert cat.category_code is not None
 
-    def test_duplicate_category_code_rejected(self, db):
+    def test_category_codes_are_generated_and_sequential(self, db):
+        """category_code is no longer user input — it's assigned server-side,
+        so two back-to-back creates must get distinct, increasing codes."""
         from app.modules.products.service import CategoryService
         from app.modules.products import schemas
 
         svc = CategoryService()
-        code = _uid("CAT")
-        svc.create_category(db, schemas.CategoryCreate(name="A", category_code=code), user_id=1)
-        with pytest.raises(HTTPException) as exc:
-            svc.create_category(db, schemas.CategoryCreate(name="B", category_code=code), user_id=1)
-        assert exc.value.status_code == 409
+        first = svc.create_category(db, schemas.CategoryCreate(name="A"), user_id=1)
+        second = svc.create_category(db, schemas.CategoryCreate(name="B"), user_id=1)
+        assert first.category_code != second.category_code
+        assert second.category_code > first.category_code
 
     def test_get_category(self, db):
         from app.modules.products.service import CategoryService
         from app.modules.products import schemas
 
         svc = CategoryService()
-        cat = svc.create_category(db, schemas.CategoryCreate(name="Audio", category_code=_uid("CAT")), user_id=1)
+        cat = svc.create_category(db, schemas.CategoryCreate(name="Audio"), user_id=1)
         fetched = svc.get_category(db, cat.id)
         assert fetched.name == "Audio"
 
@@ -162,7 +164,7 @@ class TestCategoryCRUD:
         from app.modules.products import schemas
 
         svc = CategoryService()
-        cat = svc.create_category(db, schemas.CategoryCreate(name="Old", category_code=_uid("CAT")), user_id=1)
+        cat = svc.create_category(db, schemas.CategoryCreate(name="Old"), user_id=1)
         updated = svc.update_category(db, cat.id, schemas.CategoryUpdate(name="New"), user_id=1)
         assert updated.name == "New"
 
@@ -178,27 +180,29 @@ class TestBrandCRUD:
         from app.modules.products import schemas
 
         svc = BrandService()
-        brand = svc.create_brand(db, schemas.BrandCreate(brand_name="Sony", brand_code=_uid("")[:4]))
+        brand = svc.create_brand(db, schemas.BrandCreate(brand_name="Sony"))
         assert brand.id is not None
         assert brand.brand_name == "Sony"
+        assert brand.brand_code is not None
 
-    def test_duplicate_brand_code_rejected(self, db):
+    def test_brand_codes_are_generated_and_sequential(self, db):
+        """brand_code is no longer user input — it's assigned server-side,
+        so two back-to-back creates must get distinct, increasing codes."""
         from app.modules.products.service import BrandService
         from app.modules.products import schemas
 
         svc = BrandService()
-        code = _uid("")[:4]
-        svc.create_brand(db, schemas.BrandCreate(brand_name="A", brand_code=code))
-        with pytest.raises(HTTPException) as exc:
-            svc.create_brand(db, schemas.BrandCreate(brand_name="B", brand_code=code))
-        assert exc.value.status_code == 409
+        first = svc.create_brand(db, schemas.BrandCreate(brand_name="A"))
+        second = svc.create_brand(db, schemas.BrandCreate(brand_name="B"))
+        assert first.brand_code != second.brand_code
+        assert second.brand_code > first.brand_code
 
     def test_get_brand(self, db):
         from app.modules.products.service import BrandService
         from app.modules.products import schemas
 
         svc = BrandService()
-        brand = svc.create_brand(db, schemas.BrandCreate(brand_name="LG", brand_code=_uid("")[:4]))
+        brand = svc.create_brand(db, schemas.BrandCreate(brand_name="LG"))
         fetched = svc.get_brand(db, brand.id)
         assert fetched.brand_name == "LG"
 

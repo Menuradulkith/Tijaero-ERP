@@ -36,17 +36,18 @@ class TestProductsAPI:
     def test_create_category(self, superclient):
         r = superclient.post(
             f"{self.PREFIX}/categories/",
-            json={"name": "TVs", "category_code": _uid("CAT"), "active": True},
+            json={"name": "TVs", "active": True},
         )
         assert r.status_code == 201
         data = r.json()
         assert data["name"] == "TVs"
         assert data["id"] is not None
+        assert data["category_code"]
 
     def test_list_categories(self, superclient):
         superclient.post(
             f"{self.PREFIX}/categories/",
-            json={"name": "Audio", "category_code": _uid("CAT")},
+            json={"name": "Audio"},
         )
         r = superclient.get(f"{self.PREFIX}/categories/")
         assert r.status_code == 200
@@ -55,7 +56,7 @@ class TestProductsAPI:
     def test_get_category_by_id(self, superclient):
         cr = superclient.post(
             f"{self.PREFIX}/categories/",
-            json={"name": "Phones", "category_code": _uid("CAT")},
+            json={"name": "Phones"},
         )
         cat_id = cr.json()["id"]
         r = superclient.get(f"{self.PREFIX}/categories/{cat_id}")
@@ -69,7 +70,7 @@ class TestProductsAPI:
     def test_update_category(self, superclient):
         cr = superclient.post(
             f"{self.PREFIX}/categories/",
-            json={"name": "Old", "category_code": _uid("CAT")},
+            json={"name": "Old"},
         )
         cat_id = cr.json()["id"]
         r = superclient.put(
@@ -81,22 +82,16 @@ class TestProductsAPI:
     def test_create_brand(self, superclient):
         r = superclient.post(
             f"{self.PREFIX}/brands/",
-            json={"brand_name": "Sony", "brand_code": _uid("")[:4]},
+            json={"brand_name": "Sony"},
         )
         assert r.status_code == 201
         assert r.json()["brand_name"] == "Sony"
+        assert r.json()["brand_code"]
 
-    def test_duplicate_brand_code_409(self, superclient):
-        code = _uid("")[:4]
-        superclient.post(
-            f"{self.PREFIX}/brands/",
-            json={"brand_name": "A", "brand_code": code},
-        )
-        r = superclient.post(
-            f"{self.PREFIX}/brands/",
-            json={"brand_name": "B", "brand_code": code},
-        )
-        assert r.status_code == 409
+    def test_brand_codes_are_generated_and_unique(self, superclient):
+        a = superclient.post(f"{self.PREFIX}/brands/", json={"brand_name": "A"}).json()
+        b = superclient.post(f"{self.PREFIX}/brands/", json={"brand_name": "B"}).json()
+        assert a["brand_code"] != b["brand_code"]
 
     def test_get_brand_404(self, superclient):
         r = superclient.get(f"{self.PREFIX}/brands/999999")
@@ -106,18 +101,17 @@ class TestProductsAPI:
         # Create prerequisites
         cat = superclient.post(
             f"{self.PREFIX}/categories/",
-            json={"name": "ProdCat", "category_code": _uid("CAT")},
+            json={"name": "ProdCat"},
         ).json()
         brand = superclient.post(
             f"{self.PREFIX}/brands/",
-            json={"brand_name": "ProdBrand", "brand_code": _uid("")[:4]},
+            json={"brand_name": "ProdBrand"},
         ).json()
         r = superclient.post(
             f"{self.PREFIX}/products/",
             json={
                 "name": "Widget",
-                "item_code": _uid("ITM"),
-                "item_type": "general",
+                "item_type": "general", "tracking_type": "serial",
                 "cost_price": 100,
                 "category_id": cat["id"],
                 "items_brand_id": brand["id"],
@@ -125,23 +119,22 @@ class TestProductsAPI:
         )
         assert r.status_code == 201
         assert r.json()["name"] == "Widget"
+        assert r.json()["item_code"]
 
-    def test_create_product_duplicate_item_code_rejected(self, superclient):
+    def test_create_product_duplicate_name_rejected(self, superclient):
         cat = superclient.post(
             f"{self.PREFIX}/categories/",
-            json={"name": "DupCat", "category_code": _uid("CAT")},
+            json={"name": "DupCat"},
         ).json()
         brand = superclient.post(
             f"{self.PREFIX}/brands/",
-            json={"brand_name": "DupBr", "brand_code": _uid("")[:4]},
+            json={"brand_name": "DupBr"},
         ).json()
-        code = _uid("ITM")
         superclient.post(
             f"{self.PREFIX}/products/",
             json={
                 "name": "First",
-                "item_code": code,
-                "item_type": "general",
+                "item_type": "general", "tracking_type": "serial",
                 "cost_price": 100,
                 "category_id": cat["id"],
                 "items_brand_id": brand["id"],
@@ -150,9 +143,8 @@ class TestProductsAPI:
         r = superclient.post(
             f"{self.PREFIX}/products/",
             json={
-                "name": "Second",
-                "item_code": code,
-                "item_type": "general",
+                "name": "First",
+                "item_type": "general", "tracking_type": "serial",
                 "cost_price": 100,
                 "category_id": cat["id"],
                 "items_brand_id": brand["id"],
@@ -163,18 +155,17 @@ class TestProductsAPI:
     def test_update_product_price_below_cost_rejected(self, superclient):
         cat = superclient.post(
             f"{self.PREFIX}/categories/",
-            json={"name": "PCat", "category_code": _uid("CAT")},
+            json={"name": "PCat"},
         ).json()
         brand = superclient.post(
             f"{self.PREFIX}/brands/",
-            json={"brand_name": "PBr", "brand_code": _uid("")[:4]},
+            json={"brand_name": "PBr"},
         ).json()
         prod = superclient.post(
             f"{self.PREFIX}/products/",
             json={
                 "name": "Expensive",
-                "item_code": _uid("ITM"),
-                "item_type": "general",
+                "item_type": "general", "tracking_type": "serial",
                 "cost_price": 500,
                 "category_id": cat["id"],
                 "items_brand_id": brand["id"],

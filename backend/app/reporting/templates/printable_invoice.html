@@ -155,7 +155,7 @@
   <script>
     // ── Background control ────────────────────────────────────
     const isBackgroundEnabled = '{{ options.show_header|lower }}' === 'true';
-    const bgImage = '{{ company.logo | safe }}';
+    const bgImage = {{ stationery | tojson }};
     const fallbackBgImage = 'Invoice_background_blue.jpg';
     const resolvedBgImage = bgImage ? bgImage : fallbackBgImage;
 
@@ -171,7 +171,7 @@
       branch:         '{{ branch.branch_name }} Stock',
       invoiceNo:      '{{ invoice.invoiceNo }}',
       soNo:           '{{ invoice.soNo }}',
-      ourVatNumber:   '{{ invoice.pageType }}' === 'TAX INVOICE' ? '108124245-7000' : '',
+      ourVatNumber:   '{{ invoice.pageType }}' === 'TAX INVOICE' ? {{ company.tax_registration_number | tojson }} : '',
       date:           '{{ invoice.date }}',
       time:           '{{ invoice.time }}',
       terms:          '{{ invoice.terms }}',

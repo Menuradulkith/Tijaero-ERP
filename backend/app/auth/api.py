@@ -1,5 +1,6 @@
-from app.auth import schemas, service, token_revocation
+from app.auth import schemas, service, token_revocation, user_access
 from app.auth.dependencies import get_current_active_user
+from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.core.config import settings
 from app.core.security import (
@@ -9,7 +10,7 @@ from app.core.security import (
     decode_token,
     get_password_marker,
 )
-from app.core.simple_rate_limit import rate_limit
+from app.core.simple_rate_limit import LOGIN_RATE_LIMIT_PER_MIN, rate_limit
 from app.db.session import get_db
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -70,7 +71,7 @@ def _issue_tokens(user, response: Response, db: Session) -> dict:
         "passcode_expired=true in the response signals that the user's passcode "
         "has expired and they should visit Profile → Security to set a new one."
     ),
-    dependencies=[Depends(rate_limit(5))],
+    dependencies=[Depends(rate_limit(LOGIN_RATE_LIMIT_PER_MIN))],
     responses={
         200: {"description": "Successfully authenticated"},
         401: {"description": "Invalid credentials"},
@@ -117,7 +118,7 @@ def login(
         "Returns structured error codes (PASSCODE_EXPIRED, PASSCODE_LOCKED, "
         "PASSCODE_INVALID) so the UI can react appropriately."
     ),
-    dependencies=[Depends(rate_limit(5))],
+    dependencies=[Depends(rate_limit(LOGIN_RATE_LIMIT_PER_MIN))],
     responses={
         200: {"description": "Successfully authenticated via passcode"},
         401: {"description": "Invalid, expired, or locked passcode"},
@@ -329,6 +330,16 @@ def logout(
         429: {"description": "Too many requests (Rate limited)"},
     },
 )
-def register(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
-    """Create a new user account. Requires admin authentication and USER_CREATE permission."""
-    return service.auth_service.create_user(db, user_in)
+def register(
+    user_in: schemas.UserCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.USER_CREATE)),
+):
+    """Create a new user account. Requires admin authentication and USER_CREATE permission.
+
+    Applies the same escalation guards as POST /users/: the caller can only hand
+    out groups and branches within their own reach.
+    """
+    user_access.assert_can_assign_groups(db, current_user, user_in.group_ids)
+    user_access.assert_can_assign_branches(db, current_user, user_in.branch_ids)
+    return service.auth_service.create_user(db, user_in, created_by=current_user.id)

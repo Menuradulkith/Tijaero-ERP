@@ -229,12 +229,20 @@ class TestTransferNoteCreate:
 
 
 class TestTransferNoteEditDelete:
-    def _create(self, db, make_branch, make_location):
+    def _create(self, db, make_branch, make_location, make_sales_stock=None):
         branch = make_branch()
         from_loc = make_location(branch=branch)
         to_loc = make_location(branch=branch)
         svc = ItemTransferNoteService(db)
         itn = svc.create_transfer_note(_itn_payload(branch=branch, from_loc=from_loc, to_loc=to_loc))
+        if make_sales_stock is not None:  # an approvable note needs at least one item
+            stock = make_sales_stock(branch=branch, location=from_loc, barcode=_uid("TBC"))
+            ItemTransferNoteItemService(db).create_item(
+                wh_schemas.ItemTransferNoteItemCreate(
+                    product_id=stock.product_id, barcode=stock.barcode,
+                    branch_code=branch.branch_code, itemtransfernote_id=itn.id,
+                )
+            )
         return svc, itn, branch, from_loc, to_loc
 
     def test_update_pending_allowed(self, db, make_branch, make_location):
@@ -245,10 +253,10 @@ class TestTransferNoteEditDelete:
         assert updated.remark == "edited"
         assert updated.item_transfer_note == itn.item_transfer_note
 
-    def test_cannot_edit_after_approval(self, db, make_branch, make_location):
+    def test_cannot_edit_after_approval(self, db, make_branch, make_location, make_sales_stock):
         from fastapi import HTTPException
 
-        svc, itn, branch, from_loc, to_loc = self._create(db, make_branch, make_location)
+        svc, itn, branch, from_loc, to_loc = self._create(db, make_branch, make_location, make_sales_stock)
         svc.approve_transfer_note(itn.id, user_id=1)
         with pytest.raises(HTTPException) as exc:
             svc.update_transfer_note(itn.id, _itn_payload(branch=branch, from_loc=from_loc, to_loc=to_loc))
@@ -262,10 +270,10 @@ class TestTransferNoteEditDelete:
         with pytest.raises(HTTPException):
             svc.get_transfer_note(itn.id)
 
-    def test_cannot_delete_after_approval(self, db, make_branch, make_location):
+    def test_cannot_delete_after_approval(self, db, make_branch, make_location, make_sales_stock):
         from fastapi import HTTPException
 
-        svc, itn, *_ = self._create(db, make_branch, make_location)
+        svc, itn, *_ = self._create(db, make_branch, make_location, make_sales_stock)
         svc.approve_transfer_note(itn.id, user_id=1)
         with pytest.raises(HTTPException) as exc:
             svc.delete_transfer_note(itn.id)

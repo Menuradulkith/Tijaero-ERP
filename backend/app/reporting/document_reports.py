@@ -1,5 +1,5 @@
 import base64
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Literal, Optional
 from collections import OrderedDict
@@ -39,6 +39,9 @@ from fastapi import HTTPException
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.orm import Session, joinedload
 
+from app.modules.reporting.models import DocumentTemplate
+from app.reporting import documents, print_templates
+
 
 def _format_address(line1, line2, city, state, postal_code) -> str:
     """Join a structured address's parts into a single printable line,
@@ -49,58 +52,70 @@ def _format_address(line1, line2, city, state, postal_code) -> str:
 
 class DocumentReportService:
 
-    def __init__(self, db: Session):
+    def __init__(
+        self,
+        db: Session,
+        template_id: Optional[int] = None,
+        preview_template: Optional[DocumentTemplate] = None,
+    ):
+        """`template_id` picks a print template instead of the default one;
+        `preview_template` renders with an unsaved template (template editor preview)."""
         self.db = db
         template_dir = Path(__file__).parent / "templates"
         self.env = Environment(
             loader=FileSystemLoader(str(template_dir)), autoescape=True
         )
+        documents.register_filters(self.env)
+        self.template_id = template_id
+        self.preview_template = preview_template
+        self.last_render: Optional[print_templates.RenderResult] = None
+        self._resolved: dict = {}
 
-    def _get_header_data_uri(self) -> str:
-        """Read logo.svg from templates dir and return as a base64 data URI."""
+    def _resolve_template(self, doc_key: str, branch_code: Optional[str]) -> print_templates.ResolvedTemplate:
+        if self.preview_template is not None:
+            return print_templates.ResolvedTemplate(
+                self.preview_template,
+                print_templates.effective_settings(self.preview_template.settings),
+            )
+        key = (doc_key, branch_code)
+        if key not in self._resolved:
+            self._resolved[key] = print_templates.resolve(
+                self.db, doc_key, branch_code, self.template_id
+            )
+        return self._resolved[key]
+
+    def _layout_flag(self, doc_key: str, branch_code: Optional[str], flag: str, value: Optional[bool]) -> bool:
+        """A section switch for a print: the request's value, else the template's."""
+        if value is not None:
+            return value
+        return bool(self._resolve_template(doc_key, branch_code).settings[flag])
+
+    def _render(self, doc_key: str, **context) -> str:
+        """Render a document through its print template (see print_templates.py)."""
+        branch_code = (context.get("branch") or {}).get("branch_code") or None
+        context.setdefault("stationery", self._stationery_data_uri() if doc_key == "invoice" else "")
+        context.setdefault("generated_at", tz.now().strftime("%Y-%m-%d %H:%M"))
+        result = print_templates.render(
+            self.env,
+            print_templates.DOCUMENT_TYPES[doc_key],
+            context,
+            self._resolve_template(doc_key, branch_code),
+            preview=self.preview_template,
+        )
+        self.last_render = result
+        return result.html
+
+    def _stationery_data_uri(self) -> str:
+        """The pre-printed invoice stationery image (background of printable_invoice.html)."""
         try:
-            logo_path = Path(__file__).parent / "templates" / "Invoice_background_blue.jpg"
-            svg_bytes = logo_path.read_bytes()
-            b64 = base64.b64encode(svg_bytes).decode("utf-8")
-            return f"data:image/jpeg;base64,{b64}"
-        except Exception:
+            path = Path(__file__).parent / "templates" / "Invoice_background_blue.jpg"
+            return "data:image/jpeg;base64," + base64.b64encode(path.read_bytes()).decode("utf-8")
+        except OSError:
             return ""
 
     def _get_company_info(self) -> dict:
-        logo = self._get_header_data_uri()
-        try:
-            settings = self.db.query(Settings).first()
-            if settings:
-                currency = (
-                    self.db.query(Currency)
-                    .filter(Currency.code == settings.default_currency)
-                    .first()
-                )
-                return {
-                    "name": settings.company_name or "TIJAEROERP",
-                    "tagline": "Solutions",
-                    "logo": logo,
-                    "address": settings.company_address
-                    or "Ground Floor, Galle Road, Colombo 04.",
-                    "phone": settings.company_telephone_number or "0112081667",
-                    "fax": settings.company_fax_number or "0112081667",
-                    "email": settings.company_email or "info@tijaeroerp.com",
-                    "currency_code": currency.code if currency else "LKR",
-                    "currency_symbol": currency.symbol if currency else "Rs.",
-                }
-        except Exception:
-            self.db.rollback()
-        return {
-            "name": "TIJAEROERP",
-            "tagline": "Solutions",
-            "logo": logo,
-            "address": "Ground Floor, Galle Road, Colombo 04.",
-            "phone": "0112081667",
-            "fax": "0112081667",
-            "email": "info@tijaeroerp.com",
-            "currency_code": "LKR",
-            "currency_symbol": "Rs.",
-        }
+        """Company details from Company Settings (no made-up defaults: empty stays empty)."""
+        return documents.company_profile(self.db)
 
     def _get_branch_info(self, branch_code: str) -> dict:
         branch = self.db.query(Branch).filter(Branch.branch_code == branch_code).first()
@@ -191,9 +206,9 @@ class DocumentReportService:
     def generate_purchase_order_report(
         self,
         po_id: int,
-        show_header: bool = True,
-        show_discount: bool = True,
-        show_signatures: bool = True,
+        show_header: Optional[bool] = None,
+        show_discount: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
         custom_remarks: Optional[str] = None,
     ) -> str:
         po = (
@@ -226,6 +241,7 @@ class DocumentReportService:
                         product.name if product else f"Product #{item.product_id}"
                     ),
                     "description": getattr(item, "description", "") or "",
+                    "remark": item.remark or "",
                     "quantity": item.quantity,
                     "unit_price": item.unit_price or 0,
                     "total": item_total,
@@ -233,8 +249,9 @@ class DocumentReportService:
             )
             subtotal += item_total
 
-        template = self.env.get_template("purchase_order.html")
-        return template.render(
+        return self._render(
+            "purchase-order",
+            doc=documents.build_purchase_order(self.db, po, self.db.get(Supplier, po.first_suppliers_id) if po.first_suppliers_id else None, documents.branch_profile(self.db, po.branch_code), company),
             company=company,
             po={
                 "id": po.id,
@@ -265,9 +282,9 @@ class DocumentReportService:
     def generate_grn_report(
         self,
         grn_id: int,
-        show_header: bool = True,
-        show_discount: bool = True,
-        show_signatures: bool = True,
+        show_header: Optional[bool] = None,
+        show_discount: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
         custom_remarks: Optional[str] = None,
     ) -> str:
 
@@ -324,17 +341,18 @@ class DocumentReportService:
                     "product_id": stock.product_id,
                     "product_name": product_name,
                     "barcode": stock.barcode,
-                    "quantity": 1,
+                    "quantity": stock.quantity or 1,
                     "unit_price": unit_price,
                     "warranty_month": stock.warranty_month or "-",
                     "status": stock.status,
                 }
             )
-            total_quantity += 1
-            total_value += unit_price
+            total_quantity += stock.quantity or 1
+            total_value += unit_price * (stock.quantity or 1)
 
-        template = self.env.get_template("grn.html")
-        return template.render(
+        return self._render(
+            "grn",
+            doc=documents.build_grn(self.db, grn, po, self.db.get(Supplier, supplier_id) if supplier_id else None, documents.branch_profile(self.db, grn.branch_code), company),
             company=company,
             grn={
                 "id": grn.id,
@@ -366,9 +384,9 @@ class DocumentReportService:
     def generate_purchase_return_report(
         self,
         return_id: int,
-        show_header: bool = True,
-        show_discount: bool = True,
-        show_signatures: bool = True,
+        show_header: Optional[bool] = None,
+        show_discount: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
         custom_remarks: Optional[str] = None,
     ) -> str:
 
@@ -461,8 +479,9 @@ class DocumentReportService:
             total_quantity += qty
             total_value += unit_price * qty
 
-        template = self.env.get_template("purchase_return.html")
-        return template.render(
+        return self._render(
+            "purchase-return",
+            doc=documents.build_purchase_return(self.db, purchase_return, grn, po, self.db.get(Supplier, supplier_id) if supplier_id else None, documents.branch_profile(self.db, purchase_return.branch_code), company),
             company=company,
             return_data={
                 "id": purchase_return.id,
@@ -504,9 +523,9 @@ class DocumentReportService:
     def generate_quotation_report(
         self,
         quote_id: int,
-        show_header: bool = True,
-        show_discount: bool = True,
-        show_signatures: bool = True,
+        show_header: Optional[bool] = None,
+        show_discount: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
         custom_remarks: Optional[str] = None,
     ) -> str:
         quote = (
@@ -566,8 +585,9 @@ class DocumentReportService:
 
         final_total = subtotal - total_discount
 
-        template = self.env.get_template("quotation.html")
-        return template.render(
+        return self._render(
+            "quotation",
+            doc=documents.build_quotation(self.db, quote, self.db.get(Customer, quote.customer_id) if quote.customer_id else None, company, show_discount=self._layout_flag("quotation", quote.branch_code, "show_discount", show_discount)),
             company=company,
             quote={
                 "id": quote.id,
@@ -600,9 +620,9 @@ class DocumentReportService:
     def generate_invoice_report(
         self,
         invoice_id: int,
-        show_header: bool = True,
-        show_discount: bool = True,
-        show_signatures: bool = True,
+        show_header: Optional[bool] = None,
+        show_discount: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
         custom_remarks: Optional[str] = None,
     ) -> str:
         invoice = (
@@ -627,6 +647,7 @@ class DocumentReportService:
         ).first()
         agent_commission_amount = commission.commission_amount if commission else 0
 
+        show_discount = self._layout_flag("invoice", invoice.branch_code, "show_discount", show_discount)
         item_arrangement = OrderedDict()
 
         for item in invoice.items:
@@ -712,8 +733,9 @@ class DocumentReportService:
         _adj("Credit note", credit_note_amount, -1)
         _adj("Advance", advance_amount, -1)
 
-        template = self.env.get_template("printable_invoice.html")
-        return template.render(
+        return self._render(
+            "invoice",
+            doc=documents.build_invoice(self.db, invoice, self.db.get(Customer, invoice.customer_id) if invoice.customer_id else None, company, show_discount=show_discount),
             company=company,
             invoice={
                 "pageType":       'TAX INVOICE' if invoice.is_tax_invoice else '',
@@ -769,90 +791,48 @@ class DocumentReportService:
     def generate_payroll_report(
         self,
         period: Optional[str] = None,
-        show_header: bool = True,
-        show_discount: bool = True,
-        show_signatures: bool = True,
+        show_header: Optional[bool] = None,
+        show_discount: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
         custom_remarks: Optional[str] = None,
     ) -> str:
-        # Fetch active employees with their salary profile
-        employees = (
-            self.db.query(Employee)
-            .options(joinedload(Employee.salary_profile), joinedload(Employee.user))
-            .all()
-        )
-
-        if not period:
-            period = tz.now().strftime("%B %Y")
+        """Payroll summary of the payroll run for a month (`period` = YYYY-MM, default this month)."""
+        today = tz.today()
+        year, month = today.year, today.month
+        if period:
+            try:
+                year, month = (int(x) for x in period.strip()[:7].split("-"))
+                date(year, month, 1)
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=422, detail="period must be YYYY-MM")
 
         company = self._get_company_info()
-
-        emp_data = []
-        total_salary = 0
-        total_deductions = 0
-        total_net_pay = 0
-
-        for emp in employees:
-            profile = emp.salary_profile
-            basic = (
-                float(profile.basic_salary) if profile and profile.basic_salary else 0.0
-            )
-
-            # Simple calculation for demo/standardization purposes as per requested template style
-            # In a real system, this would come from a calculated payroll run
-            allowances = 0.0
-            if profile:
-                allowances += float(profile.add_1_value or 0)
-                allowances += float(profile.add_2_value or 0)
-
-            # Assuming no deductions for basic report unless in profile?
-            # Profile doesn't have deductions, only additions.
-            # We'll stick to basic + allowances for now.
-            deductions = 0.0
-
-            net_pay = basic + allowances - deductions
-
-            emp_name = "Unknown"
-            if emp.user and emp.user.full_name:
-                emp_name = emp.user.full_name
-            elif emp.user and emp.user.username:
-                emp_name = emp.user.username
-
-            emp_data.append(
-                {
-                    "name": emp_name,
-                    "salary": basic,
-                    "allowances": allowances,
-                    "deductions": deductions,
-                    "net_pay": net_pay,
-                }
-            )
-
-            total_salary += basic
-            total_deductions += deductions
-            total_net_pay += net_pay
-
-        template = self.env.get_template("payroll.html")
-        return template.render(
+        doc = documents.build_payroll(self.db, year, month, company)
+        rows = doc["lines"]
+        return self._render(
+            "payroll",
+            doc=doc,
             company=company,
-            period=period,
-            employees=emp_data,
-            total_salary=total_salary,
-            total_deductions=total_deductions,
-            total_net_pay=total_net_pay,
+            period=doc["number"],
+            employees=[{"name": r["description"], "salary": float(r["basic"]), "allowances": float(r["allowances"]),
+                        "deductions": float(r["epf"] + r["apit"] + r["other"]), "net_pay": float(r["net"])} for r in rows],
+            total_salary=float(sum((r["basic"] for r in rows), 0)),
+            total_deductions=float(sum((r["epf"] + r["apit"] + r["other"] for r in rows), 0)),
+            total_net_pay=float(sum((r["net"] for r in rows), 0)),
             options={
                 "show_header": show_header,
                 "show_discount": show_discount,
                 "show_signatures": show_signatures,
                 "custom_remarks": custom_remarks,
             },
-            generated_at=tz.now().strftime("%Y-%m-%d %H:%M:%S"),
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M"),
         )
 
     def generate_credit_note_report(
         self,
         sale_return_id: int,
-        show_header: bool = True,
-        show_signatures: bool = True,
+        show_header: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
         custom_remarks: Optional[str] = None,
     ) -> str:
         """Generate a credit note report for a sale return."""
@@ -928,8 +908,9 @@ class DocumentReportService:
 
             subtotal += total_amount
 
-        template = self.env.get_template("credit_note.html")
-        return template.render(
+        return self._render(
+            "credit-note",
+            doc=documents.build_credit_note(self.db, sale_return, self.db.get(Customer, sale_return.invoice.customer_id) if sale_return.invoice and sale_return.invoice.customer_id else None, company),
             company=company,
             credit_note={
                 "id": sale_return.id,
@@ -972,8 +953,8 @@ class DocumentReportService:
     def generate_expense_report(
         self,
         expense_id: int,
-        show_header: bool = True,
-        show_signatures: bool = True,
+        show_header: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
         custom_remarks: Optional[str] = None,
     ) -> str:
         """Generate a printable expense report."""
@@ -987,8 +968,9 @@ class DocumentReportService:
         company = self._get_company_info()
         branch = self._get_branch_info(expense.branch_code)
 
-        template = self.env.get_template("expense.html")
-        return template.render(
+        return self._render(
+            "expense",
+            doc=documents.build_expense(self.db, expense, documents.branch_profile(self.db, expense.branch_code), company),
             company=company,
             expense={
                 "id": expense.id,
@@ -1033,8 +1015,8 @@ class DocumentReportService:
     def generate_itn_report(
         self,
         itn_id: int,
-        show_header: bool = True,
-        show_signatures: bool = True,
+        show_header: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
         custom_remarks: Optional[str] = None,
     ) -> str:
         """Generate a printable Item Transfer Note report."""
@@ -1077,15 +1059,16 @@ class DocumentReportService:
                         product.name if product else f"Product #{item.product_id}"
                     ),
                     "barcode": item.barcode or "",
-                    "quantity": 1,
+                    "quantity": item.quantity or 1,
                     "uom": getattr(product, "uom", "") or "" if product else "",
                     "remarks": item.remark or "",
                 }
             )
-            total_quantity += 1
+            total_quantity += item.quantity or 1
 
-        template = self.env.get_template("item_transfer_note.html")
-        return template.render(
+        return self._render(
+            "item-transfer-note",
+            doc=documents.build_item_transfer_note(self.db, itn, documents.branch_profile(self.db, from_loc.branch_code if from_loc else itn.branch_code), documents.branch_profile(self.db, to_loc.branch_code if to_loc else None), from_loc, to_loc, company),
             company=company,
             itn={
                 "id": itn.id,
@@ -1120,8 +1103,8 @@ class DocumentReportService:
     def generate_voucher_report(
         self,
         voucher_id: int,
-        show_header: bool = True,
-        show_signatures: bool = True,
+        show_header: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
         custom_remarks: Optional[str] = None,
     ) -> str:
         """Generate a printable gift voucher report."""
@@ -1172,8 +1155,9 @@ class DocumentReportService:
                 voucher.date + relativedelta(months=voucher.valid_period_in_months)
             )
 
-        template = self.env.get_template("voucher.html")
-        return template.render(
+        return self._render(
+            "voucher",
+            doc=documents.build_voucher(self.db, voucher, usage_history, documents._date(expiry_date), documents.branch_profile(self.db, voucher.branch_code), company),
             company=company,
             voucher={
                 "id": voucher.id,
@@ -1205,8 +1189,8 @@ class DocumentReportService:
     def generate_journal_entry_report(
         self,
         je_id: int,
-        show_header: bool = True,
-        show_signatures: bool = True,
+        show_header: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
         custom_remarks: Optional[str] = None,
     ) -> str:
         """Generate a printable journal entry report."""
@@ -1246,8 +1230,9 @@ class DocumentReportService:
                 }
             )
 
-        template = self.env.get_template("journal_entry.html")
-        return template.render(
+        return self._render(
+            "journal-entry",
+            doc=documents.build_journal_entry(self.db, je, documents.branch_profile(self.db, je.branch_code), company),
             company=company,
             je={
                 "id": je.id,
@@ -1275,6 +1260,10 @@ class DocumentReportService:
         )
 
 
-def get_document_report_service(db: Session) -> DocumentReportService:
+def get_document_report_service(
+    db: Session,
+    template_id: Optional[int] = None,
+    preview_template: Optional[DocumentTemplate] = None,
+) -> DocumentReportService:
 
-    return DocumentReportService(db)
+    return DocumentReportService(db, template_id=template_id, preview_template=preview_template)

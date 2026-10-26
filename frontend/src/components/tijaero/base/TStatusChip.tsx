@@ -48,6 +48,10 @@ export const STATUS_MAPS = {
     cancelled: { label: "Cancelled", color: "error" as StatusColor },
     completed: { label: "Completed", color: "success" as StatusColor },
     closed: { label: "Closed", color: "default" as StatusColor },
+    dispatched: { label: "Dispatched", color: "info" as StatusColor },
+    in_transit: { label: "In Transit", color: "info" as StatusColor },
+    partially_received: { label: "Partially Received", color: "info" as StatusColor },
+    received: { label: "Received", color: "success" as StatusColor },
   },
 
   // Purchase order status
@@ -268,6 +272,23 @@ export const STATUS_MAPS = {
     paid: { label: "Paid", color: "primary" as StatusColor },
     completed: { label: "Completed", color: "success" as StatusColor },
     cancelled: { label: "Cancelled", color: "error" as StatusColor },
+  },
+
+  // Sales stock unit status (app.common.enums.StockStatus)
+  salesStockStatus: {
+    available: { label: "Available", color: "success" as StatusColor },
+    reserved: { label: "Reserved", color: "warning" as StatusColor },
+    sold: { label: "Sold", color: "info" as StatusColor },
+    returned: { label: "Returned", color: "warning" as StatusColor },
+    returned_to_supplier: { label: "Returned to Supplier", color: "info" as StatusColor },
+    returned_non_restockable: { label: "Returned (Non-restockable)", color: "error" as StatusColor },
+    return_pending: { label: "Return Pending", color: "warning" as StatusColor },
+    transferred: { label: "Transferred", color: "info" as StatusColor },
+    transfer_pending: { label: "Transfer Pending", color: "warning" as StatusColor },
+    in_transit: { label: "In Transit", color: "info" as StatusColor },
+    damaged: { label: "Damaged", color: "error" as StatusColor },
+    frozen: { label: "Frozen (Hold)", color: "warning" as StatusColor },
+    cancelled: { label: "Cancelled (GRN)", color: "default" as StatusColor },
   },
 
   // Payroll batch status

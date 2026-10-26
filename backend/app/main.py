@@ -147,9 +147,19 @@ API calls are rate-limited to ensure fair usage.
 _fastapi_app = app
 app.openapi = custom_openapi
 
-# Keep in-flight requests below the DB pool (pool_size + max_overflow = 40).
+# Keep in-flight requests below the DB pool (pool_size + max_overflow, per worker).
+# Derived from the same DB_POOL_SIZE / DB_MAX_OVERFLOW settings the engine uses, so
+# shrinking the pool for multi-worker deployments cannot leave the cap above it.
+# Override explicitly with ADMISSION_MAX_CONCURRENT.
+import os as _os  # noqa: E402
 from app.core.admission import AdmissionControlMiddleware  # noqa: E402
-app.add_middleware(AdmissionControlMiddleware, max_concurrent=32, queue_timeout=15.0)
+_pool_total = int(_os.getenv("DB_POOL_SIZE", "20")) + int(_os.getenv("DB_MAX_OVERFLOW", "20"))
+_admission_max = int(_os.getenv("ADMISSION_MAX_CONCURRENT", str(max(4, _pool_total - 8))))
+app.add_middleware(
+    AdmissionControlMiddleware,
+    max_concurrent=_admission_max,
+    queue_timeout=float(_os.getenv("ADMISSION_QUEUE_TIMEOUT", "15")),
+)
 
 from app.core.nul_guard import RejectNulMiddleware  # noqa: E402
 app.add_middleware(RejectNulMiddleware)
@@ -163,6 +173,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Print-Template", "X-Print-Template-Fallback", "Content-Disposition"],
 )
 
 # GZip compression for responses > 500 bytes (improves network performance)
@@ -290,6 +301,14 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
     if isinstance(exc, SAPoolTimeout):
         # Connection pool exhausted: tell clients to retry rather than report a server fault.
         logging.error("Database pool exhausted: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            headers={"Retry-After": "2"},
+            content={"detail": "The server is busy. Please try again in a moment."},
+        )
+    if "too many clients" in str(exc).lower():
+        # Postgres max_connections reached (workers x pool > server limit): retryable.
+        logging.error("Database connection limit reached: %s", exc)
         return JSONResponse(
             status_code=503,
             headers={"Retry-After": "2"},

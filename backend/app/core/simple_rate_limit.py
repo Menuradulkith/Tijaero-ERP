@@ -2,10 +2,18 @@
 Simple in-memory rate limiter for FastAPI using Depends.
 Avoids dependency hell with slowapi/limits/pkg_resources.
 """
+import os
+import threading
 from collections import defaultdict
 from datetime import datetime, timedelta
+
 from fastapi import Request, HTTPException
-import threading
+
+from app.core.audit_context import current_user_id
+
+# Limits are enforced per worker process (in memory), so with N workers the
+# effective limit is up to N x the configured value.
+LOGIN_RATE_LIMIT_PER_MIN = int(os.getenv("LOGIN_RATE_LIMIT_PER_MIN", "20"))
 
 
 class _RateLimiter:
@@ -30,11 +38,20 @@ class _RateLimiter:
 _limiter = _RateLimiter()
 
 
-def rate_limit(requests_per_minute: int):
-    """Return a FastAPI Depends-compatible dependency that enforces a per-IP rate limit."""
+def rate_limit(requests_per_minute: int, per_user: bool = False):
+    """Return a FastAPI Depends-compatible dependency that enforces a rate limit.
+
+    Keyed per client IP by default. With ``per_user=True`` an authenticated caller is
+    keyed by user id instead, so colleagues behind one office/NAT address do not share
+    a budget (unauthenticated callers still fall back to the IP).
+    """
     def dependency(request: Request):
-        client_ip = request.client.host if request.client else "unknown"
-        key = f"{client_ip}:{request.url.path}"
+        uid = current_user_id.get() if per_user else None
+        if uid is not None:
+            who = f"user:{uid}"
+        else:
+            who = request.client.host if request.client else "unknown"
+        key = f"{who}:{request.url.path}"
         if not _limiter.is_allowed(key, requests_per_minute):
             raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
     return dependency

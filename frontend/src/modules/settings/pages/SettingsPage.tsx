@@ -6,6 +6,7 @@ import PreferencesSettings from "../components/PreferencesSettings";
 import NotificationsSettings from "../components/NotificationsSettings";
 import EmailTemplatesSettings from "../components/EmailTemplatesSettings";
 import EmailLogsSettings from "../components/EmailLogsSettings";
+import PrintTemplatesSettings from "../components/PrintTemplatesSettings";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -34,6 +35,8 @@ export default function SettingsPage() {
   // Email templates and logs are company-wide: the API only serves them to
   // users holding the settings permission, so the tabs are hidden otherwise.
   const canSeeEmail = usePermission("settings", "view");
+  const canSeePrint = usePermission("print_templates", "view");
+  const printTabIndex = canSeeEmail ? 5 : 3;
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
@@ -45,7 +48,7 @@ export default function SettingsPage() {
         Settings
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-        Manage your profile, preferences, and notifications
+        Manage your profile, preferences, notifications and document layouts
       </Typography>
 
       <Paper>
@@ -60,6 +63,7 @@ export default function SettingsPage() {
           <Tab label="Notifications" />
           {canSeeEmail && <Tab label="Email Templates" />}
           {canSeeEmail && <Tab label="Email Logs" />}
+          {canSeePrint && <Tab label="Print Templates" />}
         </Tabs>
 
         <TabPanel value={tabValue} index={0}>
@@ -79,6 +83,11 @@ export default function SettingsPage() {
         {canSeeEmail && (
           <TabPanel value={tabValue} index={4}>
             <EmailLogsSettings />
+          </TabPanel>
+        )}
+        {canSeePrint && (
+          <TabPanel value={tabValue} index={printTabIndex}>
+            <PrintTemplatesSettings />
           </TabPanel>
         )}
       </Paper>

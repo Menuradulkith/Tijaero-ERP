@@ -2,7 +2,6 @@
 M1 half-up rounding + footing documents, M2 zero-price / zero-total orders, M3 partial payment_status,
 M4 cancelled credit order owes nothing, M5 settlement payment_date, M7 order total bound,
 M8 POST /customers/{id}/credit-settlements, M9 printed invoice foots."""
-import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -282,37 +281,40 @@ class TestCustomerCreditSettlements:
 
 
 # ---------------------------------------------------------------- M9
-def _print_data(superclient, oid):
+def _print_totals(db, superclient, oid):
+    """Totals printed on the standard invoice layout ({label: amount}), after checking it prints."""
+    from app.modules.customers.models import Customer
+    from app.modules.sales.models import Invoice
+    from app.reporting import documents
+
     r = superclient.get(f"/api/v1/reporting/documents/invoice/{oid}")
     assert r.status_code == 200, r.text
-    html = r.text
-    grab = lambda key: re.search(key + r":\s+'([^']*)'", html).group(1)  # noqa: E731
-    adj = re.search(r"adjustments:\s+(\[.*?\]),\n", html, re.S).group(1)
-    import json
-    return {"subTotal": D(grab("subTotal")), "netTotal": D(grab("netTotal")), "vat": D(grab("vat") or "0"),
-            "adjustments": json.loads(adj)}
+    inv = db.get(Invoice, oid)
+    doc = documents.build_invoice(db, inv, db.get(Customer, inv.customer_id), documents.company_profile(db))
+    totals = {t["label"]: t["value"] for t in doc["totals"]}
+    for value in totals.values():
+        assert f"{value:,.2f}" in r.text  # every figure is on the printout
+    return totals
 
 
 class TestPrintFoots:
-    def test_header_discount_lines_discount_total(self, superclient, superuser, shop):
+    def test_header_discount_lines_discount_total(self, db, superclient, superuser, shop):
         o = _post(superclient, shop, superuser[0].id, price=250, discount_percent=10, cash_amount=225)
-        d = _print_data(superclient, o["id"])
-        assert d["subTotal"] == D("250.00") and d["netTotal"] == D("225.00")
-        assert d["adjustments"] == [{"label": "Discount", "amount": "-25.00"}]
+        t = _print_totals(db, superclient, o["id"])
+        assert t["Lines total"] == D("250.00") and t["Discount"] == D("25.00") and t["Total"] == D("225.00")
 
     def test_credit_note_line(self, db, superclient, superuser, shop):
         from app.modules.customers.models import CustomerCreditNotes
         db.add(CustomerCreditNotes(customer_id=shop[1].id, date=datetime.utcnow(), amount=D("100"), remark="QA"))
         db.flush()
         o = _post(superclient, shop, superuser[0].id, price=200, cash_amount=100, credit_note_amount=100)
-        d = _print_data(superclient, o["id"])
-        assert d["subTotal"] == D("200.00") and d["netTotal"] == D("100.00")
-        assert d["adjustments"] == [{"label": "Credit note", "amount": "-100.00"}]
-        assert d["subTotal"] - D("100.00") == d["netTotal"]
+        t = _print_totals(db, superclient, o["id"])
+        assert t["Lines total"] == D("200.00") and t["Credit note"] == D("100.00")
+        assert t["Total"] - t["Credit note"] == t["Amount payable"] == D("100.00")
 
-    def test_discount_tax_and_foots(self, superclient, superuser, shop):
+    def test_discount_tax_and_foots(self, db, superclient, superuser, shop):
         o = _post(superclient, shop, superuser[0].id, price=250, discount_percent=10, tax_rate=10, cash_amount=247.5)
-        d = _print_data(superclient, o["id"])
-        # 250 - 25 discount + 22.50 tax = 247.50
-        assert d["subTotal"] == D("250.00") and d["vat"] == D("22.50") and d["netTotal"] == D("247.50")
-        assert d["subTotal"] - D("25.00") + d["vat"] == d["netTotal"]
+        t = _print_totals(db, superclient, o["id"])
+        # 250 - 25 discount = 225 excl. VAT, + 22.50 VAT = 247.50
+        assert t["Lines total"] - t["Discount"] == t["Value excluding VAT"] == D("225.00")
+        assert t["VAT @ 10%"] == D("22.50") and t["Total including VAT"] == D("247.50")

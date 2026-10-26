@@ -221,7 +221,7 @@ class AuthService:
         expr = expr.desc() if order == "desc" else expr.asc()
         rows = (
             query.options(selectinload(models.User.branches), selectinload(models.User.groups), joinedload(models.User.primary_branch))
-            .order_by(expr, models.User.id)
+            .order_by(*((expr, models.User.id) if sort_by else (models.User.id.desc(),)))
             .offset(page * size)
             .limit(size)
             .all()
@@ -480,7 +480,7 @@ class GroupService:
     def get_groups(
         self, db: Session, skip: int = 0, limit: int = 100
     ) -> List[models.Group]:
-        return db.query(models.Group).offset(skip).limit(limit).all()
+        return db.query(models.Group).order_by(models.Group.id.desc()).offset(skip).limit(limit).all()
 
     def get_group(self, db: Session, group_id: int, for_update: bool = False) -> Optional[models.Group]:
         query = db.query(models.Group).filter(models.Group.id == group_id)

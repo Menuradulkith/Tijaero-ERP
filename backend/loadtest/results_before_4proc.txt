@@ -1,0 +1,30 @@
+
+=== 50 users, 30s, think=1.0s -> 366 req, 12.2 req/s, ok=366
+endpoint              n   p50ms   p95ms   p99ms  status
+customer_paged       49     523    1031    6993  {200: 49}
+health               51      66    1666    2313  {200: 51}
+invoice_detail       48     492    1708    2660  {200: 48}
+invoice_list         84     726    1632    3732  {200: 84}
+product_paged        47    1453    3211    3856  {200: 47}
+product_search       33     449    1101    1567  {200: 33}
+sales_stats          54   21069   29771   30191  {200: 54}
+
+=== 100 users, 30s, think=1.0s -> 562 req, 18.7 req/s, ok=562
+endpoint              n   p50ms   p95ms   p99ms  status
+customer_paged       92    2084    9268   12215  {200: 92}
+health               68    1268    6978    8251  {200: 68}
+invoice_detail       52    2146    6767    8143  {200: 52}
+invoice_list        139    2818    7589   10913  {200: 139}
+product_paged        74    3960    9528   10538  {200: 74}
+product_search       68    3047    7879   11359  {200: 68}
+sales_stats          69   28413   40511   48123  {200: 69}
+
+=== 200 users, 30s, think=1.0s -> 585 req, 19.5 req/s, ok=565
+endpoint              n   p50ms   p95ms   p99ms  status
+customer_paged       73    7864   25657   29418  {200: 72, 'ReadError': 1}
+health               74    5064   18951   31139  {200: 74}
+invoice_detail       71    7802   25338   29394  {200: 71}
+invoice_list        148    8256   23095   28097  {200: 141, 'ReadError': 1, 'ReadTimeout': 6}
+product_paged        76    8585   27803   31946  {200: 71, 'ReadTimeout': 5}
+product_search       77    7900   22239   34444  {200: 76, 'ReadTimeout': 1}
+sales_stats          66   22794   41652   47708  {200: 60, 'ReadTimeout': 6}

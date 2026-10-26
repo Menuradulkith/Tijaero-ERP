@@ -176,7 +176,7 @@ class ChequePaymentRepository:
         if filters.date_to:
             query = query.filter(models.ChequePayments.cheque_date <= filters.date_to)
         
-        return query.order_by(models.ChequePayments.cheque_date.desc()).offset(filters.skip).limit(filters.limit).all()
+        return query.order_by(models.ChequePayments.id.desc()).offset(filters.skip).limit(filters.limit).all()
 
 class ExpenseRepository:
     def __init__(self, db: Session):

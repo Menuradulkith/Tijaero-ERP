@@ -86,7 +86,7 @@ class TestListAndPaging:
         names = []
         for pg in range(3):
             names += [x["company_name"] for x in superclient.get(f"{B}/suppliers/paged", params={"q": tag, "size": 2, "page": pg}).json()["items"]]
-        assert names == sorted(names) and len(set(names)) == 5
+        assert names == sorted(names, reverse=True) and len(set(names)) == 5  # default: newest first
         d = superclient.get(f"{B}/suppliers/paged", params={"q": tag, "sort_by": "company_name", "order": "desc", "size": 1}).json()
         assert d["items"][0]["company_name"].endswith("4")
         assert superclient.get(f"{B}/suppliers/paged", params={"sort_by": "x; drop table supplier"}).status_code == 200

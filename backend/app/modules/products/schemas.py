@@ -14,8 +14,6 @@ from app.modules.products.price_tier_schemas import MAX_PRICE, PriceTierOut
 # whole list endpoint return 500.
 _Id = Annotated[int, Field(ge=1, le=2_147_483_647)]
 _Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
-_Code255 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
-_BrandCode = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4)]
 _Memo = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
 _Description = Annotated[str, StringConstraints(strip_whitespace=True, max_length=5000)]
 _Model = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
@@ -44,24 +42,25 @@ class CategoryBase(BaseModel):
     description: Optional[str] = None
     active: bool = True
 
-class CategoryCreate(CategoryBase):
+class CategoryCreate(BaseModel):
+    # category_code is generated server-side (see CategoryRepository.create) —
+    # it isn't user input, mirroring item_code's immutability on Product.
     name: _Name
-    category_code: _Code255
     memo: Optional[_Memo] = None
     description: Optional[_Description] = None
+    active: bool = True
 
     _v_blank = field_validator("memo", "description", mode="before")(_blank_to_none)
 
 class CategoryUpdate(BaseModel):
     name: Optional[_Name] = None
-    category_code: Optional[_Code255] = None
     memo: Optional[_Memo] = None
     description: Optional[_Description] = None
     active: Optional[bool] = None
 
     _v_blank = field_validator("memo", "description", mode="before")(_blank_to_none)
 
-    @field_validator("name", "category_code", "active")
+    @field_validator("name", "active")
     @classmethod
     def _required_not_null(cls, value):
         if value is None:
@@ -88,22 +87,23 @@ class BrandBase(BaseModel):
     description: Optional[str] = None
     active: bool = True
 
-class BrandCreate(BrandBase):
+class BrandCreate(BaseModel):
+    # brand_code is generated server-side (see BrandRepository.create) — it
+    # isn't user input, mirroring item_code's immutability on Product.
     brand_name: _Name
-    brand_code: _BrandCode
     description: Optional[_Description] = None
+    active: bool = True
 
     _v_blank = field_validator("description", mode="before")(_blank_to_none)
 
 class BrandUpdate(BaseModel):
     brand_name: Optional[_Name] = None
-    brand_code: Optional[_BrandCode] = None
     description: Optional[_Description] = None
     active: Optional[bool] = None
 
     _v_blank = field_validator("description", mode="before")(_blank_to_none)
 
-    @field_validator("brand_name", "brand_code", "active")
+    @field_validator("brand_name", "active")
     @classmethod
     def _required_not_null(cls, value):
         if value is None:
@@ -143,12 +143,13 @@ class ProductBase(BaseModel):
     image_url: Optional[str] = None
 
 class ProductCreate(BaseModel):
+    # item_code is generated server-side (see ProductRepository.create) and
+    # is immutable afterwards — never part of create or update input.
     name: _Name
-    item_code: _Code255
     model: Optional[_Model] = None
     item_type: _ItemType
     unit_of_measure: _Uom = "pcs"
-    tracking_type: _TrackingType = "serial"
+    tracking_type: _TrackingType  # required: no default is assumed
     over_receipt_tolerance_pct: _Tolerance = 0
     under_receipt_tolerance_pct: _Tolerance = 0
     description: Optional[_Description] = None

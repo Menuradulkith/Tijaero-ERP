@@ -235,7 +235,7 @@ export default function SupplierPaymentsPage() {
 
   // Selection state
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("company_name");
+  const [sortField, setSortField] = useState("created_at");
 
   // View state
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
@@ -533,7 +533,7 @@ export default function SupplierPaymentsPage() {
     loadPayableInvoices(supplier.id);
     // Fetch payment methods saved on the supplier's profile
     suppliersApi
-      .getPaymentMethods(supplier.id)
+      .getPaymentMethods(supplier.id, true)
       .then(setSavedPaymentAccounts)
       .catch(() => setSavedPaymentAccounts([]));
     // Fetch previous payment data to auto-populate payment form

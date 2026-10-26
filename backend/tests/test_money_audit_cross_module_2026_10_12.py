@@ -243,7 +243,7 @@ class TestFinanceLedger:
         assert v.status_code in (200, 201), v.text
         books(db).assert_balanced("bank deposit")
 
-    def test_manual_journal_entry_post_and_reverse(self, db, superclient):
+    def test_manual_journal_entry_post_and_reverse(self, db, superclient, superuser, make_user, api):
         from app.modules.finance.accounting_models import ChartOfAccounts
         cash = db.query(ChartOfAccounts).filter(ChartOfAccounts.account_code == "1010").one()
         sales = db.query(ChartOfAccounts).filter(ChartOfAccounts.account_code == "4010").one()
@@ -253,8 +253,10 @@ class TestFinanceLedger:
                       {"line_number": 2, "account_id": sales.id, "debit_amount": "0", "credit_amount": "123.45"}]})
         assert je.status_code in (200, 201), je.text
         jid = je.json()["id"]
-        for step in ("submit", "approve", "post"):
-            r = superclient.post(f"{F}/accounting/journal-entries/{jid}/{step}", json={})
+        # Maker-checker: a second user approves.
+        _checker, checker_token = make_user(is_superuser=True)
+        for step, token in (("submit", superuser[1]), ("approve", checker_token), ("post", superuser[1])):
+            r = api(token).post(f"{F}/accounting/journal-entries/{jid}/{step}", json={})
             assert r.status_code in (200, 201), (step, r.text)
         assert books(db).net("1010") == D("123.45")
         rv = superclient.post(f"{F}/accounting/journal-entries/{jid}/reverse", json={"reason": "audit"})

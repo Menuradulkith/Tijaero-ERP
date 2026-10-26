@@ -15,6 +15,7 @@ import {
   SalesStock,
   SalesStockCreate,
   SalesStockPaginated,
+  StockSummaryPaginated,
   StockTrackingEvent,
   CompanyAsset,
   CompanyAssetCreate,
@@ -285,6 +286,23 @@ export const salesStockApi = {
     return response.data;
   },
 
+  getStockSummary: async (params?: {
+    branch_code?: string;
+    brand_id?: number;
+    search?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<StockSummaryPaginated>(
+      "/inventory/sales-stock/stock-summary",
+      { params }
+    );
+    return response.data;
+  },
+
+  /** Older line-by-line receiving flow (pair with goodReceivedItemsApi.create).
+   * Not used by GoodReceivedNotesPage, which posts a whole receipt atomically
+   * via goodReceivedNotesApi.receive — kept for callers that still need it. */
   create: async (data: SalesStockCreate) => {
     const response = await apiClient.post<SalesStock>(
       "/inventory/sales-stock",
@@ -342,14 +360,6 @@ export const salesStockApi = {
 export const companyAssetsApi = {
   getAll: async (params?: { branch_code?: string; product_id?: number; status?: string; source?: string }) => {
     const response = await apiClient.get<CompanyAsset[]>("/inventory/company-assets", { params });
-    return response.data;
-  },
-
-  create: async (data: CompanyAssetCreate) => {
-    const response = await apiClient.post<CompanyAsset>(
-      "/inventory/company-assets",
-      data
-    );
     return response.data;
   },
 

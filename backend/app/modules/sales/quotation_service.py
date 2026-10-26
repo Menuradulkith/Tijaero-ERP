@@ -288,6 +288,11 @@ class SalesQuoteService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot edit quote in '{quote.status}' status"
             )
+        if quote.approval or quote.status == QuoteStatus.APPROVED.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An approved quotation can't be edited; create a revision instead.",
+            )
         from app.common.concurrency import ensure_not_stale
         ensure_not_stale(quote.updated_at, None, f"Quotation {quote.quote_no}", quote_data.expected_version)
 
@@ -429,48 +434,6 @@ class SalesQuoteService:
 
         return updated
 
-    def delete_quote(self, db: Session, quote_id: int, user_id: Optional[int] = None) -> bool:
-        """Delete a quote"""
-        quote = self.repository.get_by_id(db, quote_id)
-
-        if not quote:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Quote with ID {quote_id} not found"
-            )
-
-        # Only prevent deletion of converted or cancelled quotes
-        if quote.status in [QuoteStatus.COMPLETED.value, QuoteStatus.CANCELLED.value]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete quote in '{quote.status}' status."
-            )
-
-        # A quotation that has already led to a PO, a sales order or a stock reservation is part of
-        # the trail: cancel it instead of deleting it.
-        converted = [i for i in (quote.items or []) if i.item_status not in ("pending", "cancelled", None)]
-        if quote.linked_po_id or quote.converted_to_invoice_id or converted:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot delete: this quotation already has a purchase order, sales order or processed items. Cancel it instead.",
-            )
-        self._cancel_pending_approval(db, quote, user_id, "Quotation deleted")
-        quote_no_for_log = quote.quote_no
-        deleted = self.repository.delete(db, quote_id)
-        if deleted:
-            from app.common.audit import log_audit
-            log_audit(
-                db,
-                user_id=user_id or 0,
-                action="delete",
-                entity_type="sales_quote",
-                entity_id=quote_id,
-                changes={"quote_no": quote_no_for_log},
-            )
-            db.commit()
-        return deleted
-
-    # ==================== Status Management ====================
 
     def update_status(
         self,
@@ -732,6 +695,9 @@ class SalesQuoteService:
                 detail=f"Quote with ID {quote_id} not found"
             )
         
+        if not (reason or "").strip():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A rejection reason is required")
+        reason = reason.strip()
         if quote.status == QuoteStatus.PENDING_APPROVAL.value:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -809,6 +775,26 @@ class SalesQuoteService:
             )
         quote.submitted_date = tz.now()
         return self.repository.update(db, quote)
+
+    def confirm_quote(self, db: Session, quote_id: int, user_id: Optional[int] = None) -> SalesQuote:
+        """The customer accepted the quote that was sent to them. Like mark_as_sent this is not a
+        header-status change: it stamps confirmed_date, which opens up PO/SO creation."""
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).with_for_update().first()
+        if not quote:
+            raise HTTPException(status_code=404, detail=f"Quote {quote_id} not found")
+        if quote.status in (QuoteStatus.REJECTED.value, QuoteStatus.CANCELLED.value,
+                            QuoteStatus.REVISED.value, QuoteStatus.COMPLETED.value):
+            raise HTTPException(status_code=400, detail=f"Cannot confirm a quotation that is '{quote.status}'")
+        if not quote.approval or not quote.submitted_date:
+            raise HTTPException(status_code=400, detail="Only an approved quotation that was sent to the customer can be confirmed")
+        if quote.confirmed_date:
+            raise HTTPException(status_code=400, detail="This quotation is already confirmed")
+        quote.confirmed_date = tz.now()
+        updated = self.repository.update(db, quote)
+        from app.common.audit import log_audit
+        log_audit(db, user_id=user_id or 0, action="confirm", entity_type="sales_quote", entity_id=updated.id, changes={})
+        db.commit()
+        return updated
 
     def mark_as_accepted(self, db: Session, quote_id: int) -> SalesQuote:
         """Mark quote as accepted by customer"""
@@ -940,8 +926,9 @@ class SalesQuoteService:
         elif progressed > 0:
             # At least one item has moved beyond pending → work in progress
             quote.status = QuoteStatus.PARTIALLY_PROCESSED.value
-        elif quote.status == QuoteStatus.PARTIALLY_PROCESSED.value and progressed == 0:
-            # everything that had been ordered was cancelled / rejected: back to the approved state
+        elif quote.status in (QuoteStatus.PARTIALLY_PROCESSED.value, QuoteStatus.COMPLETED.value) and progressed == 0:
+            # everything that had been ordered was cancelled / rejected (a cancelled sales order reopens a
+            # completed quotation too): back to the approved state
             quote.status = QuoteStatus.APPROVED.value if quote.approval else quote.status
         # else: no work started yet — leave header as DRAFT / SENT
 
@@ -1140,8 +1127,11 @@ class SalesQuoteService:
             # convention as the normal barcode-less POS sale path, so every
             # unit stays traceable/restorable on approve/cancel/return.
             for unit in units:
-                unit.status = StockStatus.SOLD
-                unit.is_active = False
+                # The order is still waiting for approval (same rule as the normal order path): the units
+                # are held, not sold; approving the order turns them into sold. The quote-item link is
+                # dropped so a held unit can never be picked up again for another order of this quotation.
+                unit.status = StockStatus.RESERVED
+                unit.reserved_for_quote_item_id = None
                 db.add(InvoiceItems(
                     invoice_id=invoice.id,
                     product_id=qi.product_id,
@@ -1857,7 +1847,15 @@ class SalesQuoteService:
             ).group_by(SalesStock.branch_code).all()
 
             branch_qtys = {branch: qty for branch, qty in branch_counts}
-            current_branch_available = branch_qtys.get(quote.branch_code, 0)
+            # Units already reserved for this very line (e.g. procured stock that was
+            # received and reserved for the quotation) are covered — they must not make
+            # the line look short and offer a transfer from another branch.
+            reserved_for_item = db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
+                SalesStock.reserved_for_quote_item_id == item.id,
+                SalesStock.status == 'reserved',
+                SalesStock.is_active == True,
+            ).scalar() or 0
+            current_branch_available = branch_qtys.get(quote.branch_code, 0) + reserved_for_item
 
             other_branches = [
                 {"branch_code": branch, "available_quantity": qty}
@@ -1871,12 +1869,8 @@ class SalesQuoteService:
             
             # Update item stock_status if requested
             if update_items:
-                if is_sufficient:
-                    item.stock_status = 'in_stock'
-                elif other_branches:
-                    item.stock_status = 'needs_transfer'
-                else:
-                    item.stock_status = 'needs_procurement'
+                # Quotations only lead to a PO or an SO — transfers (ITN) are raised from the ITN page.
+                item.stock_status = 'in_stock' if is_sufficient else 'needs_procurement'
             
             # Get product name
             from app.modules.products.models import Product
@@ -1891,7 +1885,7 @@ class SalesQuoteService:
                 "current_branch_available": current_branch_available,
                 "is_sufficient": is_sufficient,
                 "other_branches": other_branches,
-                "stock_status": 'in_stock' if is_sufficient else ('needs_transfer' if other_branches else 'needs_procurement'),
+                "stock_status": 'in_stock' if is_sufficient else 'needs_procurement',
                 # Partial availability: only the shortfall needs to be
                 # purchased, not the full requested quantity — e.g. customer
                 # wants 100, 40 are already in stock, so only 60 to purchase.

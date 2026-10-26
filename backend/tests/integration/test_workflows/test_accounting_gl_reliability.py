@@ -658,8 +658,8 @@ class TestDayEndReconciliation:
 
     def test_clean_day_is_balanced(self, db):
         branch = _branch()
+        # The GL posting writes its own cashbook row (GL-driven cashbook).
         self._post_cash_sale(db, branch, "100")
-        _make_cashbook(db, branch_code=branch, money_in="100")
 
         recon = ReconciliationService(db).day_end(OPEN_DATE, branch_code=branch)
 
@@ -678,8 +678,8 @@ class TestDayEndReconciliation:
     def test_cash_mismatch_flagged(self, db):
         branch = _branch()
         self._post_cash_sale(db, branch, "100")
-        # Cashbook says 150 came in but the GL only moved 100 -> mismatch.
-        _make_cashbook(db, branch_code=branch, money_in="150")
+        # An extra 50 in the cashbook that the GL never moved -> mismatch.
+        _make_cashbook(db, branch_code=branch, money_in="50")
 
         recon = ReconciliationService(db).day_end(OPEN_DATE, branch_code=branch)
 
@@ -759,8 +759,10 @@ class TestPostingFailureOutbox:
         ref_id = int(_uid(), 16) % 1_000_000
 
         # 1. Posting fails because an account is missing — recorded durably.
+        # A type with no source document to rebuild from, so retry replays the
+        # stored payload (real invoices are regenerated from the invoice).
         result = svc.post(
-            reference_type="Invoice",
+            reference_type="QAOutbox",
             reference_id=ref_id,
             reference_no=f"INV-{ref_id}",
             lines=[

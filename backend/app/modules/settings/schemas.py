@@ -228,6 +228,13 @@ class CompanySettingsBase(BaseModel):
     default_currency: str = "LKR"
     default_timezone: str = "Asia/Colombo"
     tax_registration_number: Optional[str] = None
+    company_website: Optional[str] = None
+    business_registration_number: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_branch: Optional[str] = None
+    bank_account_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    bank_swift_code: Optional[str] = None
     # Passcode expiry: mandatory monthly cap — admin can lower (1-30), never disable
     passcode_expiry_days: int = Field(default=30, ge=1, le=30)
 
@@ -264,6 +271,13 @@ class CompanySettingsUpdate(BaseModel):
     default_currency: Optional[str] = None
     default_timezone: Optional[str] = Field(default=None, max_length=50)
     tax_registration_number: OptStr(50) = None
+    company_website: OptStr(255) = None
+    business_registration_number: OptStr(50) = None
+    bank_name: OptStr(100) = None
+    bank_branch: OptStr(100) = None
+    bank_account_name: OptStr(150) = None
+    bank_account_number: OptStr(50) = None
+    bank_swift_code: OptStr(20) = None
     # Passcode expiry: range 1-30 (mandatory monthly cap)
     passcode_expiry_days: Optional[int] = Field(default=None, ge=1, le=30)
 
@@ -296,6 +310,15 @@ class CompanySettingsUpdate(BaseModel):
 
 class CompanySettings(CompanySettingsBase, TijaeroBaseSchema):
     id: int
+    # The logo itself is served by GET /settings/company/logo: this response is read on
+    # every page load and must stay small.
+    has_company_logo: bool = False
+
+
+class CompanyLogo(BaseModel):
+    """Company logo printed on documents and reports (PNG/JPEG/WebP, inline, up to ~1 MB)."""
+
+    logo: Optional[str] = Field(None, max_length=1_500_000, pattern=r"^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$")
 
 
 # Currency Schemas

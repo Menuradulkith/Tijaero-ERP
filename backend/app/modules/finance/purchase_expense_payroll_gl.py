@@ -71,6 +71,7 @@ from decimal import Decimal
 from datetime import date, datetime
 from typing import Optional, List, Dict, Any
 import logging
+import re
 from app.core import timezone as tz
 
 from app.modules.finance.accounting_models import (
@@ -89,6 +90,7 @@ logger = logging.getLogger(__name__)
 ACCT_CASH_ON_HAND = "1010"
 ACCT_BANK_ACCOUNT = "1020"
 ACCT_TRADE_DEBTORS = "1110"
+ACCT_EMPLOYEE_ADVANCES = "1130"  # Asset - salary advances and loans owed by employees
 ACCT_FINISHED_GOODS = "1210"
 ACCT_SUPPLIER_ADVANCES = "2020"
 ACCT_TRADE_CREDITORS = "2010"
@@ -111,14 +113,40 @@ EXPENSE_CATEGORY_MAP = {
     "rent": "5120",
     "travel": "5140",
     "salaries": "5110",
-    "office_supplies": "5100",
-    "maintenance": "5100",
-    "marketing": "5100",
-    "insurance": "5100",
-    "miscellaneous": "5100",
+    # Leaf accounts only — 5100 "Operating Expenses" is a header (parent of 5110-5190).
+    "office_supplies": "5180",
+    "maintenance": "5181",
+    "marketing": "5182",
+    "insurance": "5183",
+    "miscellaneous": "5190",
     "freight": "5020",
     "commission": "5150",
+    # Values the UI actually sends (frontend EXPENSE_CATEGORIES) and label spellings.
+    "travel_transportation": "5140",
+    "travel_expenses": "5140",
+    "transport": "5140",
+    "utilities_expenses": "5130",
+    "salary_expenses": "5110",
+    "commissions": "5150",
+    "maintenance_repairs": "5181",
+    "repairs_maintenance": "5181",
+    "repairs": "5181",
+    "marketing_advertising": "5182",
+    "advertising": "5182",
+    "other_expenses": "5190",
+    "other": "5190",
 }
+
+
+def expense_account_for_category(category: Optional[str]) -> str:
+    """Leaf expense account for an expense category / reimbursement type.
+    Tolerates label spellings ("Office Supplies", "Maintenance & Repairs")."""
+    key = re.sub(r"[^a-z0-9]+", "_", (category or "miscellaneous").lower()).strip("_")
+    return EXPENSE_CATEGORY_MAP.get(key, ACCT_MISC_EXPENSE)
+
+
+# Fallback for an unmapped expense category / reimbursement type (leaf, not header 5100).
+ACCT_MISC_EXPENSE = "5190"
 
 
 def normalize_po_payment_method(method: Optional[str]) -> str:
@@ -199,9 +227,13 @@ class PurchaseExpensePayrollGL:
         full_prefix = f"{prefix}-{today.strftime('%Y%m')}-"
         # Advisory lock keyed on prefix — same pattern as cashbook
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": full_prefix})
+        # Highest number, not highest string ("-10000" sorts below "-9999").
         last = self.db.query(JournalEntry).filter(
             JournalEntry.journal_entry_no.like(f"{full_prefix}%")
-        ).order_by(JournalEntry.journal_entry_no.desc()).first()
+        ).order_by(
+            func.length(JournalEntry.journal_entry_no).desc(),
+            JournalEntry.journal_entry_no.desc(),
+        ).first()
 
         if last and last.journal_entry_no.startswith(full_prefix):
             try:
@@ -212,12 +244,15 @@ class PurchaseExpensePayrollGL:
             seq = 1
         return f"{full_prefix}{seq:04d}"
 
-    def _check_already_posted(self, reference_id: int, description_marker: str) -> bool:
+    def _check_already_posted(
+        self, reference_id: int, description_marker: str, reference_type: Optional[str] = None
+    ) -> bool:
         """Has this exact transaction already been posted to GL?
 
         Matches on the integer ``reference_id`` recorded on the JE lines (so
         ``GRN ID: 5`` no longer also matches 50/500) further constrained by the
         description marker to tell apart different posting types sharing an id.
+        A reversed entry no longer counts, so the source can be posted again.
         """
         q = (
             self.db.query(JournalEntry.id)
@@ -225,9 +260,12 @@ class PurchaseExpensePayrollGL:
             .filter(
                 JournalEntryLine.reference_id == reference_id,
                 JournalEntry.entry_type == "Auto",
+                JournalEntry.status != "reversed",
                 JournalEntry.description.ilike(f"%{description_marker}%"),
             )
         )
+        if reference_type:
+            q = q.filter(JournalEntryLine.reference_type == reference_type)
         return self.db.query(q.exists()).scalar()
 
     def _create_je_and_post(
@@ -406,6 +444,10 @@ class PurchaseExpensePayrollGL:
                 JournalEntryLine.reference_id == grn.id,
                 JournalEntry.entry_type == "Auto",
                 ~JournalEntry.description.ilike("%GRN Cancel ID%"),
+                # A receipt JE already reversed by hand must not be mirrored again
+                # (that would take the amount out of inventory twice).
+                JournalEntry.status != "reversed",
+                func.coalesce(JournalEntry.is_reversed, False).is_(False),
             )
             .all()
         )
@@ -480,6 +522,10 @@ class PurchaseExpensePayrollGL:
                 JournalEntryLine.reference_id == voucher.id,
                 JournalEntry.entry_type == "Auto",
                 ~JournalEntry.description.ilike("%LCV Cancel ID%"),
+                # A receipt JE already reversed by hand must not be mirrored again
+                # (that would take the amount out of inventory twice).
+                JournalEntry.status != "reversed",
+                func.coalesce(JournalEntry.is_reversed, False).is_(False),
             )
             .all()
         )
@@ -843,8 +889,7 @@ class PurchaseExpensePayrollGL:
             return None
 
         # Map expense category to COA account
-        category = (expense.expense_category or "miscellaneous").lower().strip()
-        expense_account = EXPENSE_CATEGORY_MAP.get(category, "5100")
+        expense_account = expense_account_for_category(expense.expense_category)
 
         # If expense has an explicit account_code, use that
         if expense.account_code:
@@ -895,6 +940,82 @@ class PurchaseExpensePayrollGL:
             )
         return je
 
+    def expense_posted_accounts(self, expense) -> Dict[str, Decimal]:
+        """Net debit currently booked per *expense-type* account for this expense's
+        Auto JEs (payment + any reclassifications). Empty when nothing is posted."""
+        rows = (
+            self.db.query(
+                ChartOfAccounts.account_code,
+                func.coalesce(func.sum(JournalEntryLine.debit_amount), 0)
+                - func.coalesce(func.sum(JournalEntryLine.credit_amount), 0),
+            )
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .join(ChartOfAccounts, ChartOfAccounts.id == JournalEntryLine.account_id)
+            .filter(
+                JournalEntryLine.reference_type == "Expense",
+                JournalEntryLine.reference_id == expense.id,
+                JournalEntry.entry_type == "Auto",
+                JournalEntry.status != "reversed",
+                func.coalesce(JournalEntry.is_reversed, False).is_(False),
+                ChartOfAccounts.account_type == "Expense",
+            )
+            .group_by(ChartOfAccounts.account_code)
+            .all()
+        )
+        return {code: Decimal(str(net)) for code, net in rows if Decimal(str(net)) != 0}
+
+    def post_expense_reclass_to_gl(
+        self, expense, new_account: str, user_id: int
+    ) -> Optional[JournalEntry]:
+        """Move an already-posted expense to ``new_account``:
+        Dr <new account> / Cr <account(s) it is currently booked on>, same amount.
+
+        Returns None when the expense has no posted GL entry or already sits on
+        ``new_account``. Raises ``ValueError`` if the posting fails (caller decides)."""
+        booked = self.expense_posted_accounts(expense)
+        moves = {code: amt for code, amt in booked.items() if code != new_account and amt > 0}
+        if not moves:
+            return None
+        total = sum(moves.values(), Decimal("0"))
+        lines = [{
+            "account_code": new_account,
+            "debit": total,
+            "credit": Decimal("0"),
+            "description": f"Reclassified to {new_account} - {expense.expenses_no}",
+        }]
+        for code, amt in sorted(moves.items()):
+            lines.append({
+                "account_code": code,
+                "debit": Decimal("0"),
+                "credit": amt,
+                "description": f"Reclassified from {code} - {expense.expenses_no}",
+            })
+        old = ",".join(sorted(moves))
+        # Distinct marker (and no "Expense ID:" text) so it never satisfies the
+        # payment posting's idempotency check, and one JE per distinct move.
+        marker = f"ExpReclass {expense.id}: {old}->{new_account}"
+        result = self._gl.post(
+            reference_type="Expense",
+            reference_id=expense.id,
+            reference_no=expense.expenses_no,
+            lines=lines,
+            entry_date=tz.today(),
+            description=(
+                f"Auto GL - Expense Reclassification | Expense: {expense.expenses_no} | "
+                f"Amount: {total} | {marker}"
+            ),
+            branch_code=expense.branch_code,
+            user_id=user_id,
+            transaction_type="Expense",
+            je_prefix="JE-EXP",
+            source_module="finance",
+            marker=marker,
+            record_failure=False,
+        )
+        if result.failed:
+            raise ValueError(result.error_message or "Expense reclassification could not be posted")
+        return result.journal_entry
+
     # ═══════════════════════════════════════════════════════════════════════
     # SCENARIO 32: PAYROLL
     # ═══════════════════════════════════════════════════════════════════════
@@ -904,7 +1025,8 @@ class PurchaseExpensePayrollGL:
         Post payroll batch to GL when salary payments are processed.
         
         Creates a single consolidated journal entry for the entire batch:
-        Dr  5110  Salaries Expense .......... total_gross_salary
+        Dr  5110  Salaries Expense .......... gross - salary advances paid - late deductions
+        Dr  1130  Employee Advances ......... salary advances paid with this payroll
         Dr  5210  EPF Employer Expense ...... total_employer_epf
         Dr  5220  ETF Employer Expense ...... total_employer_etf
         Cr  2110  Salaries Payable .......... total_net_salary
@@ -912,7 +1034,8 @@ class PurchaseExpensePayrollGL:
         Cr  1010/1020 Cash / Bank ........... total_net_salary
         Cr  2120  EPF Payable ............... employee_epf + employer_epf
         Cr  2130  ETF Payable ............... employee_etf + employer_etf
-        Cr  2140  Other Payroll Deductions .. stamp + late + advance + loan + other
+        Cr  1130  Employee Advances ......... advance + loan repayments withheld
+        Cr  2140  Other Payroll Deductions .. stamp duty + other deductions
         Cr  2150  APIT Payable .............. total_apit
         """
         from app.modules.hr.models import PayrollBatch
@@ -945,6 +1068,7 @@ class PurchaseExpensePayrollGL:
         total_late = Decimal("0")
         total_advance_repay = Decimal("0")
         total_loan_repay = Decimal("0")
+        total_advance_paid = Decimal("0")
         total_other = Decimal("0")
         total_apit = Decimal("0")
 
@@ -959,25 +1083,39 @@ class PurchaseExpensePayrollGL:
             total_late += Decimal(str(p.less_late_deductions or 0))
             total_advance_repay += Decimal(str(p.less_salary_advance_repayment or 0))
             total_loan_repay += Decimal(str(p.less_loan_repayment or 0))
+            total_advance_paid += Decimal(str(p.add_salary_advance or 0))
             total_other += Decimal(str(p.less_other_deductions or 0))
             total_apit += Decimal(str(p.less_apit or 0))
 
         # Combined EPF/ETF totals
         total_epf = total_epf_employee + total_epf_employer
         total_etf = total_etf_employee + total_etf_employer
-        total_other_deductions = total_stamp + total_late + total_advance_repay + total_loan_repay + total_other
+        # Withheld for a third party (stamp duty, other) -> liability. Advance and
+        # loan repayments clear what the employee owes (asset 1130). A late
+        # deduction is simply pay that is not earned -> it reduces salary cost.
+        total_other_deductions = total_stamp + total_other
+        total_employee_repay = total_advance_repay + total_loan_repay
+        salary_expense = total_gross - total_advance_paid - total_late
 
         period_str = f"{batch.payroll_year}-{batch.payroll_month:02d}"
 
         lines = []
 
         # DEBIT side: Expenses
-        if total_gross > 0:
+        if salary_expense > 0:
             lines.append({
                 "account_code": ACCT_SALARIES_EXPENSE,
-                "debit": total_gross,
+                "debit": salary_expense,
                 "credit": Decimal("0"),
-                "description": f"Gross salary - {period_str}",
+                "description": f"Salary expense (gross less advances and late deductions) - {period_str}",
+            })
+
+        if total_advance_paid > 0:
+            lines.append({
+                "account_code": ACCT_EMPLOYEE_ADVANCES,
+                "debit": total_advance_paid,
+                "credit": Decimal("0"),
+                "description": f"Salary advances paid to employees - {period_str}",
             })
 
         if total_epf_employer > 0:
@@ -1053,7 +1191,15 @@ class PurchaseExpensePayrollGL:
                 "account_code": ACCT_OTHER_PAYROLL_DEDUCTIONS,
                 "debit": Decimal("0"),
                 "credit": total_other_deductions,
-                "description": f"Payroll deductions (stamp, late, advances, loans) - {period_str}",
+                "description": f"Payroll deductions (stamp duty, other) - {period_str}",
+            })
+
+        if total_employee_repay > 0:
+            lines.append({
+                "account_code": ACCT_EMPLOYEE_ADVANCES,
+                "debit": Decimal("0"),
+                "credit": total_employee_repay,
+                "description": f"Advance and loan repayments withheld - {period_str}",
             })
 
         if total_apit > 0:
@@ -1330,7 +1476,7 @@ class PurchaseExpensePayrollGL:
 
         # Map reimbursement type to expense account
         reimbursement_type = getattr(reimbursement, "reimbursement_type", "general") or "general"
-        expense_account = EXPENSE_CATEGORY_MAP.get(reimbursement_type.lower(), "5100")
+        expense_account = expense_account_for_category(reimbursement_type)
 
         # Determine credit account based on payment method
         payment_method = getattr(reimbursement, "payment_method", "bank") or "bank"
@@ -1383,6 +1529,97 @@ class PurchaseExpensePayrollGL:
     # ═══════════════════════════════════════════════════════════════════════
     # CUSTOMER ADVANCE PAYMENT RECEIPT GL (Gap B2)
     # ═══════════════════════════════════════════════════════════════════════
+
+    def post_statutory_payment_to_gl(self, batch, user_id: int) -> Optional[JournalEntry]:
+        """Statutory (EPF/ETF) payment of a payroll batch.
+
+        Dr 2120 EPF Payable (employee + employer) / Dr 2130 ETF Payable
+        Cr 1020 Bank
+        """
+        from app.modules.hr.models import EmployeePayroll
+
+        marker = f"StatutoryPayment BatchID: {batch.id}"
+        if self._check_already_posted(batch.id, marker, reference_type="StatutoryPayment"):
+            return None
+        payroll_records = self.db.query(EmployeePayroll).filter(
+            EmployeePayroll.payroll_batch_no == batch.batch_no
+        ).all()
+        total_epf = (
+            sum((Decimal(str(pr.less_epf_employee or 0)) for pr in payroll_records), Decimal("0"))
+            + Decimal(str(batch.total_employer_epf or 0))
+        )
+        total_etf = Decimal(str(batch.total_employer_etf or 0))  # ETF is employer-only (Sri Lanka)
+        lines = []
+        if total_epf > 0:
+            lines.append({"account_code": "2120", "debit": total_epf, "credit": Decimal("0"),
+                          "description": f"EPF paid - Batch {batch.batch_no}"})
+        if total_etf > 0:
+            lines.append({"account_code": "2130", "debit": total_etf, "credit": Decimal("0"),
+                          "description": f"ETF paid - Batch {batch.batch_no}"})
+        total_statutory = total_epf + total_etf
+        if total_statutory <= 0:
+            return None
+        lines.append({"account_code": "1020", "debit": Decimal("0"), "credit": total_statutory,
+                      "description": f"Statutory payment - Batch {batch.batch_no}"})
+        return self._create_je_and_post(
+            entry_date=batch.statutory_payment_date or tz.today(),
+            description=(
+                f"Auto GL - Statutory Payment | Batch: {batch.batch_no} | "
+                f"EPF: {total_epf} | ETF: {total_etf} | {marker}"
+            ),
+            lines=lines,
+            branch_code=None,
+            user_id=user_id,
+            je_prefix="JE-STT",
+            transaction_type="Payroll",
+            reference_type="StatutoryPayment",
+            reference_id=batch.id,
+            reference_no=batch.batch_no,
+        )
+
+    def post_customer_credit_note_to_gl(self, note, user_id: int) -> Optional[JournalEntry]:
+        """Customer credit note issued.
+
+        Dr 4030 Sales Returns          (reduces revenue)
+        Cr 2530 Customer Credit Notes  (liability - owed back to the customer)
+        """
+        amount = Decimal(str(getattr(note, "amount", 0) or 0))
+        if amount <= 0:
+            return None
+        marker = f"CustomerCreditNote ID: {note.id}"
+        if self._check_already_posted(note.id, marker, reference_type="CustomerCreditNote"):
+            return None
+        note_date = getattr(note, "date", None)
+        if note_date is not None and hasattr(note_date, "date"):
+            note_date = note_date.date()  # 'date' column is a TIMESTAMP
+        return self._create_je_and_post(
+            entry_date=note_date or tz.today(),
+            description=(
+                f"Auto GL - Customer Credit Note Issued | Customer ID: "
+                f"{note.customer_id} | Amount: {amount} | {marker}"
+            ),
+            lines=[
+                {
+                    "account_code": ACCT_SALES_RETURNS,
+                    "debit": amount,
+                    "credit": Decimal("0"),
+                    "description": f"Customer credit note issued (CN #{note.id})",
+                },
+                {
+                    "account_code": ACCT_CUSTOMER_CREDIT_NOTES,
+                    "debit": Decimal("0"),
+                    "credit": amount,
+                    "description": f"Liability - credit note owed to customer #{note.customer_id}",
+                },
+            ],
+            branch_code=getattr(note, "branch_code", None),
+            user_id=user_id,
+            je_prefix="JE-CCN",
+            transaction_type="Sales",
+            reference_type="CustomerCreditNote",
+            reference_id=note.id,
+            reference_no=f"CN-{note.id}",
+        )
 
     def post_customer_advance_receipt_to_gl(
         self, advance, user_id: int
@@ -1535,7 +1772,7 @@ class PurchaseExpensePayrollGL:
         # Credit Card Payment Surcharge to Other Income
         if total_service_charge > 0:
             lines.append({
-                "account_code": "4100",  # Other Income (4110 is "Discount Received")
+                "account_code": "4190",  # Miscellaneous Income (leaf under header 4100)
                 "debit": Decimal("0"),
                 "credit": total_service_charge,
                 "description": f"Card payment surcharge - {settlement.customer_credits_settle_no}",
