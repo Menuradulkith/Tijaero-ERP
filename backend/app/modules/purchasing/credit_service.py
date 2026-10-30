@@ -981,6 +981,9 @@ class SupplierCreditService:
             }
         
         status = self.get_supplier_credit_status(db, supplier_id, exclude_po_id=exclude_po_id)
+        # The status mixes Decimal and float figures; this check works in float throughout
+        for key in ("available_credit", "max_credit_limit", "total_exposure"):
+            status[key] = float(status[key] or 0)
         
         # Check if PO value exceeds AVAILABLE CREDIT
         # available_credit = max_credit_limit - total_exposure (outstanding + pending)
@@ -1162,6 +1165,7 @@ class SupplierCreditService:
             for po in db.query(PurchasingOrder).filter(PurchasingOrder.id.in_(po_ids)).all()
         }
 
+        requested_per_grn: Dict[int, Decimal] = {}
         for trans in settlement_data.transactions:
             grn = grns_by_id.get(trans.good_received_id)
             if not grn:
@@ -1180,7 +1184,9 @@ class SupplierCreditService:
             # Re-calculate remaining AFTER acquiring the GRN lock so the value
             # cannot be stale from a concurrent in-flight settlement.
             remaining = self._get_grn_remaining_payable(db, grn.id)
-            if trans.payment_amount > remaining:
+            # Several lines of one request may hit the same GRN: count them together.
+            requested_per_grn[grn.id] = requested_per_grn.get(grn.id, Decimal("0")) + Decimal(str(trans.payment_amount))
+            if requested_per_grn[grn.id] > remaining:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Payment amount {trans.payment_amount} exceeds remaining payable {remaining} for GRN {grn.good_received_no}"
@@ -1284,18 +1290,29 @@ class SupplierCreditService:
         supplier = db.query(Supplier).filter(Supplier.id == po.first_suppliers_id).first()
 
         from app.modules.purchasing.models import PurchasingOrderItems
+        # The value of THIS receipt (not the whole PO).
         total_amount = db.query(
-            func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+            func.coalesce(func.sum(PurchasingOrderItems.unit_price * GoodReceivedItems.quantity), 0)
+        ).join(
+            GoodReceivedItems,
+            GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id
         ).filter(
-            PurchasingOrderItems.purchasingorders_id == grn.purchasingorders_id
+            PurchasingOrderItems.purchasingorders_id == grn.purchasingorders_id,
+            GoodReceivedItems.good_received_note == grn.good_received_no,
+            GoodReceivedItems.active == True
         ).scalar() or Decimal("0")
-        
-        transactions = db.query(SupplierCreditsSettleTransaction).filter(
-            SupplierCreditsSettleTransaction.good_received_id == grn_id
+
+        transactions = db.query(SupplierCreditsSettleTransaction).join(
+            SupplierCreditsSettle,
+            SupplierCreditsSettleTransaction.supplier_credit_settle_id == SupplierCreditsSettle.id
+        ).filter(
+            SupplierCreditsSettleTransaction.good_received_id == grn_id,
+            or_(SupplierCreditsSettle.status.is_(None), SupplierCreditsSettle.status != "cancelled"),
         ).order_by(SupplierCreditsSettleTransaction.created_date).all()
-        
+
         total_paid = sum(t.payment_amount for t in transactions)
-        remaining = total_amount - total_paid
+        # What is still owed, net of advances, approved returns and invoice payments.
+        remaining = self._get_grn_remaining_payable(db, grn_id)
         
         due_date = self.calculate_due_date(grn.good_received_date, supplier.credit_days)
         
@@ -1411,85 +1428,113 @@ class SupplierCreditService:
                 detail=f"Supplier {supplier_id} not found"
             )
 
-        po_ids = db.query(PurchasingOrder.id).filter(
-            PurchasingOrder.first_suppliers_id == supplier_id
-        ).all()
-        po_ids = [p[0] for p in po_ids]
-        
-        grn_query = db.query(GoodReceivedNote).filter(
-            GoodReceivedNote.purchasingorders_id.in_(po_ids)
+        from datetime import datetime as _dt
+        from app.modules.purchasing.models import (
+            PurchasingOrderItems, PurchasingReturn, PurchasingReturnItems,
         )
-        if from_date:
-            grn_query = grn_query.filter(GoodReceivedNote.good_received_date >= from_date)
-        if to_date:
-            grn_query = grn_query.filter(GoodReceivedNote.good_received_date <= to_date)
-        
-        grns = grn_query.order_by(GoodReceivedNote.good_received_date).all()
 
-        settle_query = db.query(SupplierCreditsSettle).filter(
-            SupplierCreditsSettle.suppliers_id == supplier_id
-        )
-        if from_date:
-            settle_query = settle_query.filter(SupplierCreditsSettle.created_date >= from_date)
-        if to_date:
-            settle_query = settle_query.filter(SupplierCreditsSettle.created_date <= to_date)
-        
-        settlements = settle_query.order_by(SupplierCreditsSettle.created_date).all()
+        def _d(v):
+            return v.date() if isinstance(v, _dt) else v
 
-        from app.modules.purchasing.models import PurchasingOrderItems
-        
-        lines = []
-        running_balance = Decimal("0")
+        def _in_range(d):
+            return (not from_date or d >= from_date) and (not to_date or d <= to_date)
 
-        for grn in grns:
-            total = db.query(
-                func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+        po_ids = [p[0] for p in db.query(PurchasingOrder.id).filter(PurchasingOrder.first_suppliers_id == supplier_id).all()]
+        grns = db.query(GoodReceivedNote).filter(
+            GoodReceivedNote.purchasingorders_id.in_(po_ids),
+            or_(GoodReceivedNote.status.is_(None), GoodReceivedNote.status != "cancelled"),
+        ).order_by(GoodReceivedNote.good_received_date, GoodReceivedNote.id).all() if po_ids else []
+        grn_by_id = {g.id: g for g in grns}
+
+        # What each GRN is worth (this receipt only, at the PO price).
+        values = {}
+        if grns:
+            for grn_no, val in db.query(
+                GoodReceivedItems.good_received_note,
+                func.coalesce(func.sum(PurchasingOrderItems.unit_price * GoodReceivedItems.quantity), 0),
+            ).join(
+                PurchasingOrderItems, GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id
             ).filter(
-                PurchasingOrderItems.purchasingorders_id == grn.purchasingorders_id
-            ).scalar() or Decimal("0")
-            
-            due_date = self.calculate_due_date(grn.good_received_date, supplier.credit_days)
-            running_balance += total
-            
-            lines.append({
-                "date": grn.good_received_date,
-                "type": "PURCHASE",
-                "reference": grn.good_received_no,
+                GoodReceivedItems.good_received_note.in_([g.good_received_no for g in grns]),
+                GoodReceivedItems.active == True,
+            ).group_by(GoodReceivedItems.good_received_note).all():
+                values[grn_no] = Decimal(str(val))
+
+        # (sort_date, order, line): purchases first on a day, then what reduces the payable.
+        events = []
+        for grn in grns:
+            events.append((_d(grn.good_received_date), 0, {
+                "date": _d(grn.good_received_date), "type": "PURCHASE", "reference": grn.good_received_no,
                 "description": f"GRN {grn.good_received_no} - Invoice: {grn.supplier_invoice_no}",
-                "debit": float(total),
-                "credit": 0,
-                "balance": float(running_balance),
-                "due_date": due_date
-            })
+                "debit": values.get(grn.good_received_no, Decimal("0")), "credit": Decimal("0"),
+                "due_date": self.calculate_due_date(grn.good_received_date, supplier.credit_days),
+            }))
 
-        for settlement in settlements:
-            transactions = db.query(SupplierCreditsSettleTransaction).filter(
-                SupplierCreditsSettleTransaction.supplier_credit_settle_id == settlement.id
-            ).all()
-            
-            total_payment = sum(t.payment_amount for t in transactions)
-            running_balance -= total_payment
-            
-            lines.append({
-                "date": settlement.created_date.date() if hasattr(settlement.created_date, 'date') else settlement.created_date,
-                "type": "PAYMENT",
-                "reference": settlement.supplier_credits_settle_no,
+        for settlement in db.query(SupplierCreditsSettle).filter(
+            SupplierCreditsSettle.suppliers_id == supplier_id,
+            or_(SupplierCreditsSettle.status.is_(None), SupplierCreditsSettle.status != "cancelled"),
+        ).order_by(SupplierCreditsSettle.created_date).all():
+            total_payment = sum(
+                (Decimal(str(t.payment_amount)) for t in db.query(SupplierCreditsSettleTransaction).filter(
+                    SupplierCreditsSettleTransaction.supplier_credit_settle_id == settlement.id
+                ).all()), Decimal("0"))
+            events.append((_d(settlement.created_date), 1, {
+                "date": _d(settlement.created_date), "type": "PAYMENT", "reference": settlement.supplier_credits_settle_no,
                 "description": f"Payment made - {settlement.supplier_credits_settle_no}",
-                "debit": 0,
-                "credit": float(total_payment),
-                "balance": float(running_balance),
-                "due_date": None
-            })
+                "debit": Decimal("0"), "credit": total_payment, "due_date": None,
+            }))
 
-        lines.sort(key=lambda x: x["date"])
-        running_balance = Decimal("0")
-        for line in lines:
-            if line["type"] == "PURCHASE":
-                running_balance += Decimal(str(line["debit"]))
-            else:
-                running_balance -= Decimal(str(line["credit"]))
+        for app_row, adv_no in db.query(SupplierAdvanceApplication, SupplierAdvancePayment.advance_no).join(
+            SupplierAdvancePayment, SupplierAdvanceApplication.advance_id == SupplierAdvancePayment.id
+        ).filter(SupplierAdvancePayment.supplier_id == supplier_id).order_by(SupplierAdvanceApplication.id).all():
+            target = grn_by_id.get(app_row.grn_id)
+            events.append((_d(app_row.application_date), 1, {
+                "date": _d(app_row.application_date), "type": "ADVANCE", "reference": adv_no,
+                "description": f"Advance {adv_no} applied" + (f" to {target.good_received_no}" if target else ""),
+                "debit": Decimal("0"), "credit": Decimal(str(app_row.applied_amount)), "due_date": None,
+            }))
+
+        if grns:
+            for ret in db.query(PurchasingReturn).filter(
+                PurchasingReturn.goodreceivednote_id.in_(list(grn_by_id.keys())), PurchasingReturn.status == "approved"
+            ).order_by(PurchasingReturn.id).all():
+                amt = db.query(
+                    func.coalesce(func.sum(PurchasingReturnItems.return_price * PurchasingReturnItems.quantity), 0)
+                ).filter(PurchasingReturnItems.purchasingreturn_id == ret.id).scalar() or Decimal("0")
+                when = _d(ret.approved_date or ret.added_date)
+                events.append((when, 1, {
+                    "date": when, "type": "RETURN", "reference": ret.purchasing_return_no,
+                    "description": f"Purchase return {ret.purchasing_return_no}",
+                    "debit": Decimal("0"), "credit": Decimal(str(amt)), "due_date": None,
+                }))
+
+        for alloc, pay_no, pay_date in db.query(
+            PurchaseInvoicePayment, SupplierPayment.payment_no, SupplierPayment.payment_date
+        ).join(SupplierPayment, PurchaseInvoicePayment.supplier_payment_id == SupplierPayment.id).join(
+            PurchaseInvoice, PurchaseInvoicePayment.purchase_invoice_id == PurchaseInvoice.id
+        ).filter(
+            PurchaseInvoice.supplier_id == supplier_id,
+            PurchaseInvoice.status != "cancelled",
+            or_(SupplierPayment.status.is_(None), SupplierPayment.status != "cancelled"),
+        ).order_by(PurchaseInvoicePayment.id).all():
+            events.append((_d(pay_date), 1, {
+                "date": _d(pay_date), "type": "PAYMENT", "reference": pay_no, "description": f"Invoice payment - {pay_no}",
+                "debit": Decimal("0"), "credit": Decimal(str(alloc.allocated_amount)), "due_date": None,
+            }))
+
+        events.sort(key=lambda e: (e[0], e[1]))
+        lines, running_balance = [], Decimal("0")
+        for _, _, line in events:
+            running_balance += line["debit"] - line["credit"]
             line["balance"] = float(running_balance)
-        
+            line["debit"], line["credit"] = float(line["debit"]), float(line["credit"])
+            if _in_range(line["date"]):
+                lines.append(line)
+
+        unapplied_advance = db.query(func.coalesce(func.sum(SupplierAdvancePayment.remaining_amount), 0)).filter(
+            SupplierAdvancePayment.supplier_id == supplier_id
+        ).scalar() or Decimal("0")
+
         return {
             "supplier_id": supplier_id,
             "supplier_name": supplier.company_name,
@@ -1499,6 +1544,7 @@ class SupplierCreditService:
             "credit_days": supplier.credit_days,
             "max_credit_limit": supplier.max_credit_limit,
             "current_balance": float(running_balance),
+            "unapplied_advance": float(unapplied_advance),
             "statement_lines": lines
         }
 

@@ -529,7 +529,10 @@ def build_purchase_order(db: Session, po, supplier, branch: dict, company: dict)
                      "details": lines(it.remark, f"Warranty: {it.warrenty_month} months" if it.warrenty_month and str(it.warrenty_month) != "0" else None),
                      "price": money(it.unit_price), "amount": amount})
     credit_days = getattr(supplier, "credit_days", None)
-    terms = f"Credit, {credit_days} days" if po.payment_method == "credit" and credit_days else label(po.payment_method)
+    if (po.payment_method or "").lower() == "credit":
+        terms = f"{credit_days} days credit" if credit_days else "Due on receipt"
+    else:  # older POs that were raised with a payment method
+        terms = label(po.payment_method)
     return _doc(
         key="purchase-order", title="PURCHASE ORDER", number=po.purchasing_order_no, currency=company["currency_code"],
         status=label(po.status) if po.status not in ("approved", "completed", "partially_received", "received") else None,
@@ -821,6 +824,154 @@ def build_payroll(db: Session, year: int, month: int, company: dict) -> dict:
 # --------------------------------------------------------------------------- #
 # Template filters (built-in layouts and admins' custom HTML)
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Manufacturing
+# --------------------------------------------------------------------------- #
+def _minutes(value: Any) -> str:
+    m = Decimal(str(value or 0))
+    if m <= 0:
+        return "-"
+    hours, rest = divmod(int(m.quantize(Decimal("1"), rounding=ROUND_HALF_UP)), 60)
+    return f"{hours} h {rest:02d} min" if hours else f"{rest} min"
+
+
+def _order_meta(db: Session, order, bom) -> list:
+    quote = order.quote_item.quote if getattr(order, "quote_item", None) else None
+    return [
+        ("Order no.", order.order_no),
+        ("Product", f"{order.product.item_code} - {order.product.name}" if order.product else None),
+        ("BOM", f"{bom.bom_no} (v{bom.version})" if bom else None),
+        ("Quantity", f"{order.planned_quantity} {order.product.unit_of_measure if order.product else ''}".strip()),
+        ("Planned start", _date(order.planned_start_date)),
+        ("Planned end", _date(order.planned_end_date)),
+        ("Priority", label(order.priority)),
+        ("Status", label(order.status)),
+        ("Made to order for", f"{quote.quote_no} - {quote.customer.customer_name}" if quote and quote.customer else None),
+        ("Reference", order.source_reference if not quote else None),
+        ("Released", _date(order.released_at)),
+        ("Released by", user_name(db, order.released_by)),
+    ]
+
+
+def build_production_order(db: Session, order, bom, branch: dict, location_name: Optional[str], company: dict,
+                            outputs: list) -> dict:
+    """Production (work) order: what to make, the components to pick and the routing."""
+    rows = []
+    for i, m in enumerate(order.materials, start=1):
+        code, desc, unit = _product_label(m.product, m.product_id)
+        rows.append({"no": i, "code": code, "description": desc, "unit": unit,
+                     "details": lines("Backflushed on output" if m.issue_method == "backflush" else None,
+                                      f"Scrap allowance {Decimal(str(m.scrap_pct)).normalize()}%" if m.scrap_pct else None),
+                     "per_unit": Decimal(str(m.quantity_per_unit)).normalize(), "qty": m.required_quantity,
+                     "issued": m.issued_quantity})
+    operations = [{"seq": op.sequence, "operation": op.name,
+                   "work_center": f"{op.work_center.code} - {op.work_center.name}" if op.work_center else "",
+                   "planned": _minutes(op.planned_minutes), "actual": _minutes(op.actual_minutes),
+                   "done": op.completed_quantity, "status": label(op.status)} for op in order.operations]
+    planned = money(order.planned_material_cost) + money(order.planned_labor_cost) + money(order.planned_overhead_cost)
+    actual = money(order.actual_material_cost) + money(order.actual_labor_cost) + money(order.actual_overhead_cost)
+    sections = [{
+        "title": "Operations (routing)", "compact": False,
+        "columns": [{"key": "seq", "label": "Seq"}, {"key": "operation", "label": "Operation"},
+                    {"key": "work_center", "label": "Work center"},
+                    {"key": "planned", "label": "Planned time", "align": "right"},
+                    {"key": "actual", "label": "Actual time", "align": "right"},
+                    {"key": "done", "label": "Qty done", "type": "qty", "align": "right"},
+                    {"key": "status", "label": "Status"}],
+        "rows": operations,
+    }]
+    if outputs:
+        sections.append({
+            "title": "Output received", "compact": False,
+            "columns": [{"key": "date", "label": "Date", "type": "date"}, {"key": "qty", "label": "Good", "type": "qty", "align": "right"},
+                        {"key": "scrap", "label": "Scrap", "type": "qty", "align": "right"},
+                        {"key": "lot", "label": "Batch / serials"}, {"key": "location", "label": "Location"}],
+            "rows": outputs,
+        })
+    sections.append({
+        # Not compact: compact sections sit beside a totals block, which this document has none of
+        "title": "Cost summary", "compact": False,
+        "columns": [{"key": "element", "label": "Cost"}, {"key": "planned", "label": "Planned", "type": "money", "align": "right"},
+                    {"key": "actual", "label": "Actual", "type": "money", "align": "right"}],
+        "rows": [
+            {"element": "Material", "planned": money(order.planned_material_cost), "actual": money(order.actual_material_cost)},
+            {"element": "Labour", "planned": money(order.planned_labor_cost), "actual": money(order.actual_labor_cost)},
+            {"element": "Overhead", "planned": money(order.planned_overhead_cost), "actual": money(order.actual_overhead_cost)},
+            {"element": "Total", "planned": planned, "actual": actual},
+        ],
+    })
+    produced = f"{order.produced_quantity} of {order.planned_quantity}" + (f", scrap {order.scrapped_quantity}" if order.scrapped_quantity else "")
+    production_at = branch_party(branch, "Production at")
+    if location_name:
+        production_at["lines"] = [f"Output to: {location_name}"] + production_at["lines"]
+    return _doc(
+        key="production-order", title="PRODUCTION ORDER", number=order.order_no, currency=company["currency_code"],
+        status=label(order.status) if order.status != "released" else None,
+        meta=_order_meta(db, order, bom) + [("Produced", produced if order.produced_quantity or order.scrapped_quantity else None)],
+        parties=[production_at],
+        columns=[{"key": "no", "label": "#", "type": "int", "align": "center"},
+                 {"key": "code", "label": "Item code", "type": "text"},
+                 {"key": "description", "label": "Component", "type": "text", "wide": True},
+                 {"key": "per_unit", "label": "Per unit", "type": "qty", "align": "right"},
+                 {"key": "qty", "label": "Required", "type": "qty", "align": "right"},
+                 {"key": "issued", "label": "Issued", "type": "qty", "align": "right"},
+                 {"key": "unit", "label": "Unit", "type": "text"}],
+        lines=rows,
+        empty_message="This BOM has no components.",
+        sections=sections,
+        notes=[("Remarks", order.remark)],
+        signatures=["Prepared by", "Materials issued by", "Approved by"],
+    )
+
+
+def build_job_card(db: Session, order, bom, branch: dict, company: dict) -> dict:
+    """Job card (shop traveller): one row per operation with space for the operator to
+    record start, finish, quantities and sign off; the components to pick below."""
+    rows = []
+    for op in order.operations:
+        rows.append({"no": op.sequence, "code": op.work_center.code if op.work_center else "",
+                     "description": op.name,
+                     "details": lines(op.work_center.name if op.work_center else None,
+                                      f"Done so far: {op.completed_quantity}" if op.completed_quantity else None),
+                     "planned": _minutes(op.planned_minutes), "qty": order.planned_quantity,
+                     # write-in blanks for the operator
+                     "start": "__:__", "finish": "__:__", "good": "_____", "scrap": "_____", "sign": "__________"})
+    components = []
+    for m in order.materials:
+        code, desc, unit = _product_label(m.product, m.product_id)
+        components.append({"code": code, "component": desc, "qty": m.required_quantity, "unit": unit,
+                           "method": "Backflush" if m.issue_method == "backflush" else "Issue",
+                           "issued": m.issued_quantity})
+    return _doc(
+        key="job-card", title="JOB CARD", number=order.order_no, currency=company["currency_code"],
+        status=label(order.status) if order.status not in ("released", "in_progress") else None,
+        meta=_order_meta(db, order, bom),
+        parties=[branch_party(branch, "Production at")],
+        columns=[{"key": "no", "label": "Seq", "type": "int", "align": "center"},
+                 {"key": "code", "label": "Work center", "type": "text"},
+                 {"key": "description", "label": "Operation", "type": "text", "wide": True},
+                 {"key": "planned", "label": "Planned", "type": "text", "align": "right"},
+                 {"key": "qty", "label": "Qty", "type": "qty", "align": "right"},
+                 {"key": "start", "label": "Start", "type": "text"},
+                 {"key": "finish", "label": "Finish", "type": "text"},
+                 {"key": "good", "label": "Good", "type": "text"},
+                 {"key": "scrap", "label": "Scrap", "type": "text"},
+                 {"key": "sign", "label": "Operator", "type": "text"}],
+        lines=rows,
+        empty_message="This order has no routing operations.",
+        sections=[{
+            "title": "Components to pick", "compact": False,
+            "columns": [{"key": "code", "label": "Item code"}, {"key": "component", "label": "Component"},
+                        {"key": "qty", "label": "Required", "type": "qty", "align": "right"},
+                        {"key": "issued", "label": "Issued", "type": "qty", "align": "right"},
+                        {"key": "unit", "label": "Unit"}, {"key": "method", "label": "Method"}],
+            "rows": components,
+        }],
+        notes=[("Instructions", order.remark)],
+        signatures=["Supervisor", "Quality check", "Completed by"],
+    )
+
+
 def _fmt_money(value: Any) -> str:
     if value is None or value == "":
         return ""

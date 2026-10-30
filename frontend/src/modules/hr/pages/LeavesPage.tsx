@@ -324,17 +324,7 @@ export default function LeavesPage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<Leave>) => (
-          <TStatusChip
-            status={params.row.status}
-            size="small"
-            customMap={{
-              [params.row.status.toLowerCase()]: {
-                label: params.row.status,
-                color: statusColor(params.row.status),
-              },
-            }}
-            sx={{ textTransform: "capitalize" }}
-          />
+          <TStatusChip status={params.row.status} statusMap="leaveStatus" size="small" />
         ),
       },
       {

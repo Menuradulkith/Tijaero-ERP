@@ -10,7 +10,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import type { GridPaginationModel } from "@mui/x-data-grid";
-import { MasterDetailLayout, TDataGrid, type TDataGridColumn, handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { MasterDetailLayout, TDataGrid, type TDataGridColumn, handleApiError, showErrorToast, showSuccessToast , TStatusFilter } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { fetchAllPages } from "@/utils/fetchAllPages";
 import { employeeCoreApi, hrOrgApi, leaveAllocationApi, type LeaveAllocation } from "@/modules/hr/core-api";
@@ -86,12 +86,18 @@ export default function LeaveBalancesPage() {
         titleSlot={(
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1 }}>
             <TextField size="small" type="number" label="Year" value={year} onChange={(e) => setYear(Number(e.target.value) || thisYear)} sx={{ width: 100 }} inputProps={{ min: 2000, max: 2100 }} />
-            <TextField select size="small" label="Leave type" value={typeId} onChange={(e) => setTypeId(e.target.value === "" ? "" : Number(e.target.value))} sx={{ width: 190 }}>
-              <MenuItem value=""><em>All</em></MenuItem>{types.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
-            </TextField>
-            <TextField select size="small" label="Employee" value={employeePk} onChange={(e) => setEmployeePk(e.target.value === "" ? "" : Number(e.target.value))} sx={{ width: 230 }}>
-              <MenuItem value=""><em>All</em></MenuItem>{(emps?.items ?? []).map((e) => <MenuItem key={e.id} value={e.id}>{e.full_name ?? e.employee_id} ({e.employee_id})</MenuItem>)}
-            </TextField>
+            <Box sx={{ width: 190, flexShrink: 0 }}>
+              <TStatusFilter
+                options={[{ value: null, label: "All Leave Types" }, ...types.map((t) => ({ value: String(t.id), label: t.name }))]}
+                value={typeId === "" ? null : String(typeId)} onChange={(v) => setTypeId(v ? Number(v) : "")}
+                label="" placeholder="All Leave Types" size="small" />
+            </Box>
+            <Box sx={{ width: 240, flexShrink: 0 }}>
+              <TStatusFilter
+                options={[{ value: null, label: "All Employees" }, ...(emps?.items ?? []).map((e) => ({ value: String(e.id), label: `${e.full_name ?? e.employee_id} (${e.employee_id})` }))]}
+                value={employeePk === "" ? null : String(employeePk)} onChange={(v) => setEmployeePk(v ? Number(v) : "")}
+                label="" placeholder="All Employees" size="small" />
+            </Box>
           </Box>
         )}
         headerActions={(
@@ -112,7 +118,7 @@ export default function LeaveBalancesPage() {
               rows={data?.items ?? []} columns={columns} loading={isFetching} onRowClick={openEdit} emptyMessage="No allocations for these filters — use Generate for year"
               pageSizeOptions={[10, 25, 50, 100]} autoHeight={false} height="100%" exportFileName={`leave-balances-${year}`}
               serverPagination={{ rowCount: data?.total ?? 0, paginationModel: paging, onPaginationModelChange: setPaging }}
-              exportAllRows={() => fetchAllPages((p) => leaveAllocationApi.list({ ...params(0, 200), page: p, size: 200 }))}
+              exportAllRows={() => fetchAllPages((p) => leaveAllocationApi.list({ ...params(0, 200), page: p + 1, size: 200 }))}
             />
           </Box>
         </Box>

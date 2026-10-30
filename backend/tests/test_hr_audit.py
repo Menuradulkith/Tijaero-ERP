@@ -60,7 +60,7 @@ class TestPermissions:
 # ───────────────────────────── deductions ─────────────────────────────
 class TestDeductions:
     @pytest.mark.parametrize("patch", [
-        {"amount": 0}, {"amount": -5}, {"amount": 10 ** 12}, {"amount": "NaN"}, {"reason": "  "}, {"reason": "r" * 501},
+        {"amount": 0}, {"amount": -5}, {"amount": 10 ** 12}, {"amount": "NaN"}, {"amount": "abc"}, {"amount": ""}, {"amount": "1,5"}, {"amount": "0x10"}, {"amount": [1]}, {"amount": {}}, {"amount": "1e40"}, {"reason": "  "}, {"reason": "r" * 501},
         {"deduction_period": "2026-13"}, {"deduction_period": "26-01"}, {"late_deductions": -1}, {"employee_id": 0}, {"employee_id": 2 ** 40},
         {"amount": 100, "loan_repayment": 80, "late_deductions": 80},
     ])
@@ -193,7 +193,7 @@ class TestReimbursements:
 # ───────────────────────────── salary profiles ─────────────────────────────
 class TestSalaryProfiles:
     @pytest.mark.parametrize("patch", [
-        {"basic_salary": 0}, {"basic_salary": -1}, {"basic_salary": 10 ** 12}, {"add_1_value": 100, "add_1_name": ""},
+        {"basic_salary": 0}, {"basic_salary": -1}, {"basic_salary": 10 ** 12}, {"basic_salary": "abc"}, {"basic_salary": "1e40"}, {"add_1_value": 100, "add_1_name": ""},
         {"add_2_value": -4, "add_2_name": "x"}, {"designation": "d" * 201}, {"effective_from_date": "1900-01-01"}, {"benefits": "b" * 2001},
     ])
     def test_validation(self, superclient, emp, patch):

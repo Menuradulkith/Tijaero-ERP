@@ -237,8 +237,9 @@ export default function POApprovalsPage() {
   // browse-table row have in common. Returns false if the user backs out.
   const runPreApproveChecks = useCallback(
     async (order: { id: number; payment_method?: string; first_suppliers_id: number }, totalAmount: number) => {
-      const isCreditPayment = order.payment_method?.toLowerCase() === "credit";
-      if (isCreditPayment && order.first_suppliers_id) {
+      // Every PO is owed to the supplier: check the supplier's credit limit whenever it has one.
+      const hasCreditLimit = (supplierMap.get(order.first_suppliers_id)?.max_credit_limit ?? 0) > 0;
+      if (hasCreditLimit && order.first_suppliers_id) {
         try {
           const creditCheck = await purchaseOrdersApi.checkCredit(order.first_suppliers_id, totalAmount, order.id);
           if (creditCheck.requires_approval) {
@@ -587,15 +588,12 @@ export default function POApprovalsPage() {
                 disabled
               />
               <TextField label="Branch" size="small" value={selectedOrder.branch_code} disabled />
-              <TextField label="Payment Method" size="small" value={selectedOrder.payment_method} disabled />
-              {selectedOrder.payment_method?.toLowerCase() === "credit" && (
-                <TextField
-                  label="Payment Term"
-                  size="small"
-                  value={getPaymentTermsLabel(supplier?.credit_days)}
-                  disabled
-                />
-              )}
+              <TextField
+                label="Payment Term"
+                size="small"
+                value={getPaymentTermsLabel(supplier?.credit_days)}
+                disabled
+              />
               <TextField label="Status" size="small" value={selectedOrder.status} disabled />
             </FormSection>
 

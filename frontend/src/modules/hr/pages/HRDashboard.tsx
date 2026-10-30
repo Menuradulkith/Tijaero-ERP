@@ -227,7 +227,7 @@ export default function HRDashboard() {
             value={stats.pendingLeavesCount}
             icon={<LeaveIcon />}
             color="warning"
-            onClick={() => navigate("/hr/leave-approvals")}
+            onClick={() => navigate("/hr/approvals/leave-approvals")}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={4} lg={2}>
@@ -509,7 +509,7 @@ export default function HRDashboard() {
                 transition: "all 0.2s",
                 "&:hover": { bgcolor: "action.hover", transform: "translateY(-2px)" },
               }}
-              onClick={() => navigate("/hr/payroll-approvals")}
+              onClick={() => navigate("/hr/approvals/payroll-approvals")}
             >
               <ApproveIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
               <Typography variant="body2" fontWeight="500">

@@ -517,6 +517,8 @@ export default function QuotationApprovalsPage() {
                               <TChip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : itemStatus === "po_created" ? (
                               <TChip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
+                            ) : itemStatus === "mo_created" ? (
+                              <TChip label="MO Created" color="secondary" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : itemStatus === "itn_created" ? (
                               <TChip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                             ) : itemStatus === "procurement" ? (

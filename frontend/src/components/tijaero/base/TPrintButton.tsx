@@ -38,7 +38,9 @@ export type TPrintDocumentType =
   | "payroll"
   | "expense"
   | "item-transfer-note"
-  | "voucher";
+  | "voucher"
+  | "production-order"
+  | "job-card";
 
 export interface TPrintButtonProps {
   /** Document type for generating report URL */

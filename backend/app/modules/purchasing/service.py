@@ -1473,10 +1473,14 @@ def _check_quote_item_open(quote_item, quantity: int) -> None:
             detail=f"Quotation item {quote_item.id} cannot be ordered (status: {quote_item.item_status}).",
         )
     remaining = quote_item.quantity - (quote_item.converted_qty or 0)
+    # units a make-to-order production order is already making for the line
+    from sqlalchemy.orm import object_session
+    from app.modules.manufacturing.planning import quote_coverage
+    remaining -= quote_coverage(object_session(quote_item), [quote_item.id]).get(quote_item.id, 0)
     if remaining <= 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Quotation item {quote_item.id} already has a purchase order for its full quantity.",
+            detail=f"Quotation item {quote_item.id} already has a purchase or production order for its full quantity.",
         )
     if quantity > remaining:
         raise HTTPException(
@@ -3380,14 +3384,10 @@ class SupplierCreditsSettleService:
 
         from app.modules.purchasing.credit_service import SupplierCreditService
 
-        # Lock supplier row to prevent concurrent credit balance overwrites
-        self.db.query(models.Supplier).filter(
-            models.Supplier.id == settle.suppliers_id
-        ).with_for_update().first()
-
-        created_settle = self.repo.create(settle)
-
         credit_service = SupplierCreditService()
+        # Validated creation: locks the supplier and GRN rows and refuses a payment that exceeds what is
+        # still owed on the GRN (counting other pending settlements, advances and returns).
+        created_settle = credit_service.create_credit_settlement(self.db, settle)
         credit_service.update_supplier_credit_balance(self.db, settle.suppliers_id)
         log_audit(
             self.db,
@@ -3641,6 +3641,7 @@ class SupplierCreditsSettleService:
             )
         
         from datetime import datetime
+        was_verified = settle.status == "verified"  # only a verified settlement has a ledger entry to undo
         settle.status = DocumentStatus.CANCELLED
         settle.verified_by = verified_by
         settle.verified_date = tz.now()
@@ -3655,6 +3656,28 @@ class SupplierCreditsSettleService:
         self.db.commit()
         self.db.refresh(settle)
         
+        if was_verified:
+            # Put the payment back in the ledger and the cashbook (non-blocking: a failure is recorded for retry).
+            try:
+                from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+                PurchaseExpensePayrollGL(self.db).post_credit_settlement_cancel_to_gl(settle, user_id=verified_by or 0)
+                self.db.commit()
+            except Exception as gl_err:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning("GL reversal for cancelled settlement %s failed: %s", settle.supplier_credits_settle_no, gl_err)
+                self.db.rollback()
+                record_gl_commit_failure(
+                    self.db,
+                    reference_type="CreditSettle",
+                    reference_id=settle.id,
+                    reference_no=settle.supplier_credits_settle_no,
+                    transaction_type="Payment",
+                    marker="Cancel",
+                    description=f"Credit settlement cancel GL commit failed ({settle.supplier_credits_settle_no})",
+                    error=gl_err,
+                    user_id=verified_by or 0,
+                )
+
         return settle
 
 
@@ -4012,12 +4035,6 @@ class SupplierAdvancePaymentService:
                     detail="Advance payment can only be created for approved purchase orders"
                 )
 
-            if (order.payment_method or "").lower() == "credit":
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Advance payment is only allowed for non-credit purchase orders"
-                )
-
             has_grn = self.db.query(models.GoodReceivedNote.id).filter(
                 models.GoodReceivedNote.purchasingorders_id == order.id
             ).first()
@@ -4269,6 +4286,25 @@ class SupplierAdvancePaymentService:
                 detail=f"Application amount ({data.applied_amount}) exceeds available balance ({advance.remaining_amount})"
             )
         
+        if data.grn_id:
+            # Lock order is always advance -> GRN (apply_to_grn takes the advance next), so concurrent
+            # applications queue up instead of deadlocking.
+            self.db.query(models.SupplierAdvancePayment).filter(
+                models.SupplierAdvancePayment.id == data.advance_id
+            ).with_for_update().first()
+            # An advance can only settle what the GRN still owes (after payments, returns and other advances).
+            from app.modules.purchasing.credit_service import SupplierCreditService
+
+            self.db.query(models.GoodReceivedNote).filter(
+                models.GoodReceivedNote.id == data.grn_id
+            ).with_for_update().first()
+            grn_remaining = SupplierCreditService()._get_grn_remaining_payable(self.db, data.grn_id)
+            if Decimal(str(data.applied_amount)) > grn_remaining:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Application amount ({data.applied_amount}) exceeds what is still owed on the GRN ({grn_remaining})",
+                )
+
         # Lock and update the advance balance FIRST (apply_to_grn re-validates
         # under the row lock and raises if the balance was already consumed by
         # a concurrent application). Only once that succeeds do we create the

@@ -87,6 +87,7 @@ export const STATUS_MAPS = {
   priority: {
     low: { label: "Low", color: "default" as StatusColor },
     medium: { label: "Medium", color: "info" as StatusColor },
+    normal: { label: "Normal", color: "info" as StatusColor },
     high: { label: "High", color: "warning" as StatusColor },
     urgent: { label: "Urgent", color: "error" as StatusColor },
     critical: { label: "Critical", color: "error" as StatusColor },
@@ -289,6 +290,75 @@ export const STATUS_MAPS = {
     damaged: { label: "Damaged", color: "error" as StatusColor },
     frozen: { label: "Frozen (Hold)", color: "warning" as StatusColor },
     cancelled: { label: "Cancelled (GRN)", color: "default" as StatusColor },
+  },
+
+  // HR employee lifecycle status
+  employeeLifecycle: {
+    active: { label: "Active", color: "success" as StatusColor },
+    probation: { label: "Probation", color: "info" as StatusColor },
+    notice_period: { label: "Notice Period", color: "warning" as StatusColor },
+    resigned: { label: "Resigned", color: "default" as StatusColor },
+    terminated: { label: "Terminated", color: "error" as StatusColor },
+    retired: { label: "Retired", color: "default" as StatusColor },
+    inactive: { label: "Inactive", color: "default" as StatusColor },
+  },
+
+  // HR leave request status
+  leaveStatus: {
+    pending: { label: "Pending", color: "warning" as StatusColor },
+    approved: { label: "Approved", color: "success" as StatusColor },
+    rejected: { label: "Rejected", color: "error" as StatusColor },
+    cancelled: { label: "Cancelled", color: "default" as StatusColor },
+  },
+
+  // HR daily attendance status
+  attendanceStatus: {
+    present: { label: "Present", color: "success" as StatusColor },
+    late: { label: "Late", color: "warning" as StatusColor },
+    absent: { label: "Absent", color: "error" as StatusColor },
+    leave: { label: "On Leave", color: "info" as StatusColor },
+  },
+
+  // HR payroll record status
+  // Manufacturing: production order lifecycle
+  productionOrder: {
+    draft: { label: "Draft", color: "default" as StatusColor },
+    released: { label: "Released", color: "info" as StatusColor },
+    in_progress: { label: "In Progress", color: "primary" as StatusColor },
+    completed: { label: "Completed", color: "success" as StatusColor },
+    closed: { label: "Closed", color: "secondary" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
+  },
+
+  // Manufacturing: bill of materials lifecycle
+  bomStatus: {
+    draft: { label: "Draft", color: "default" as StatusColor },
+    active: { label: "Active", color: "success" as StatusColor },
+    archived: { label: "Archived", color: "default" as StatusColor },
+  },
+
+  // Manufacturing: routing operation / job card status
+  operationStatus: {
+    pending: { label: "Pending", color: "default" as StatusColor },
+    in_progress: { label: "In Progress", color: "primary" as StatusColor },
+    completed: { label: "Completed", color: "success" as StatusColor },
+  },
+
+  // Manufacturing: component availability of a production order
+  materialAvailability: {
+    ready: { label: "Ready", color: "success" as StatusColor },
+    partial: { label: "Partial", color: "warning" as StatusColor },
+    shortage: { label: "Shortage", color: "error" as StatusColor },
+    issued: { label: "Issued", color: "info" as StatusColor },
+  },
+
+  payrollRecordStatus: {
+    draft: { label: "Draft", color: "default" as StatusColor },
+    pending_approval: { label: "Pending Approval", color: "warning" as StatusColor },
+    approved: { label: "Approved", color: "info" as StatusColor },
+    paid: { label: "Paid", color: "success" as StatusColor },
+    rejected: { label: "Rejected", color: "error" as StatusColor },
+    cancelled: { label: "Cancelled", color: "error" as StatusColor },
   },
 
   // Payroll batch status

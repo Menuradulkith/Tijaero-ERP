@@ -28,8 +28,10 @@ class SalesStockBase(BaseModel):
     barcode: Optional[str] = None
     branch_code: str
     location_id: Optional[int] = None  # good_received_locations_id from GRN
-    good_received_note_id: int
-    purchasing_order_items_id: int
+    # None for manufactured stock (received from a production order, not a GRN)
+    good_received_note_id: Optional[int] = None
+    purchasing_order_items_id: Optional[int] = None
+    production_order_id: Optional[int] = None
     warranty_month: Optional[str] = None  # From PO item or entered in GRN
     status: StockStatus = StockStatus.AVAILABLE
     # Units this row represents: 1 for serial stock, lot size for batch/none.
@@ -38,6 +40,9 @@ class SalesStockBase(BaseModel):
     expiry_date: Optional[date] = None
 
 class SalesStockCreate(SalesStockBase):
+    # Stock created through this schema is always received on a GRN line
+    good_received_note_id: int
+    purchasing_order_items_id: int
     quantity: int = Field(default=1, ge=1)
 
 class SalesStock(SalesStockBase, TijaeroBaseSchema):

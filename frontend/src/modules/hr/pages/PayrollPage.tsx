@@ -242,17 +242,7 @@ export default function PayrollPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<EmployeePayroll>) =>
           params.row.status ? (
-            <TStatusChip
-              status={params.row.status}
-              size="small"
-              customMap={{
-                [params.row.status.toLowerCase()]: {
-                  label: params.row.status.replace("_", " "),
-                  color: statusColor(params.row.status),
-                },
-              }}
-              sx={{ height: 20, fontSize: "0.65rem", textTransform: "capitalize" }}
-            />
+            <TStatusChip status={params.row.status} statusMap="payrollRecordStatus" size="small" />
           ) : (
             "-"
           ),

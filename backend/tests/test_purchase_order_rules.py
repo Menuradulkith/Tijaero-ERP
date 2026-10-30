@@ -10,7 +10,7 @@ A = "/api/v1/common/approvals"
 def _body(branch, supplier, product, **kw):
     today = date.today().isoformat()
     b = {
-        "branch_code": branch.branch_code, "payment_method": "Non-credit", "purchasing_order_date": today,
+        "branch_code": branch.branch_code, "purchasing_order_date": today,
         "good_received_note_date": today, "first_suppliers_id": supplier.id,
         "items": [{"product_id": product.id, "quantity": 2, "unit_price": 10, "warrenty_month": "12"}],
     }
@@ -34,9 +34,23 @@ def _item(world, **kw):
     return {"product_id": world["product"].id, "quantity": 2, "unit_price": 10, "warrenty_month": "12", **kw}
 
 
+class TestNoPaymentMethodOnPO:
+    @pytest.mark.parametrize("sent", ["cash", "Non-credit", "bank", "bitcoin", " ", None])
+    def test_whatever_is_sent_the_po_is_payable_to_the_supplier(self, superclient, world, sent):
+        r = superclient.post(f"{P}/orders", json=_body(world["branch"], world["supplier"], world["product"], payment_method=sent))
+        assert r.status_code == 201, r.text
+        assert r.json()["payment_method"] == "credit"
+
+    def test_no_payment_method_needed_and_update_ignores_it(self, superclient, world, po):
+        assert po["payment_method"] == "credit"
+        r = superclient.patch(f"{P}/orders/{po['id']}", json={"payment_method": "cash", "remarks": "x"})
+        assert r.status_code == 200, r.text
+        assert r.json()["payment_method"] == "credit"
+
+
 class TestCreateValidation:
     @pytest.mark.parametrize("patch", [
-        {"items": []}, {"payment_method": "bitcoin"}, {"payment_method": " "}, {"payment_method": "P" * 31},
+        {"items": []},
         {"purchasing_order_date": "1999-01-01"}, {"purchasing_order_date": "2999-01-01"}, {"purchasing_order_date": "2026-02-30"},
         {"credit_date": -1}, {"credit_date": 2 ** 40}, {"remarks": "R" * 2001}, {"purchasing_invoice_no": "I" * 201},
         {"first_suppliers_id": 2 ** 40}, {"first_suppliers_id": 0}, {"branch_code": " "}, {"branch_code": "B" * 201},
@@ -88,7 +102,7 @@ class TestUpdateRules:
         assert superclient.get(f"{P}/orders/{po['id']}").json()["status"] == "pending_approval"
 
     @pytest.mark.parametrize("patch", [
-        {"branch_code": None}, {"payment_method": " "}, {"payment_method": "bitcoin"}, {"items": []}, {"items": [{"product_id": 1, "quantity": -1, "unit_price": 1, "warrenty_month": "1"}]},
+        {"branch_code": None}, {"items": []}, {"items": [{"product_id": 1, "quantity": -1, "unit_price": 1, "warrenty_month": "1"}]},
         {"credit_date": -1}, {"first_suppliers_id": 2 ** 40}, {"purchasing_order_date": "x"}, {"remarks": "R" * 2001}, {"purchasing_order_date": None},
     ])
     def test_rejected(self, superclient, po, patch):

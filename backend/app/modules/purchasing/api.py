@@ -2022,7 +2022,6 @@ def get_eligible_advance_pos(
         .outerjoin(POI, POI.purchasingorders_id == PO.id)
         .filter(
             PO.status == "approved",
-            PO.payment_method != "credit",
             ~grn_exists,
         )
         .group_by(PO.id, PO.purchasing_order_no, PO.first_suppliers_id, PO.branch_code)

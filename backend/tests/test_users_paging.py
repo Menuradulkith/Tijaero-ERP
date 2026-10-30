@@ -72,7 +72,7 @@ class TestPagedList:
         names = []
         for pg in range(3):
             names += [x["username"] for x in self.get(superclient, q=tag, size=3, page=pg)["items"]]
-        assert len(names) == 7 and len(set(names)) == 7 and names == sorted(names)
+        assert len(names) == 7 and len(set(names)) == 7 and names == sorted(names, reverse=True)  # default: newest first
         assert self.get(superclient, q=tag, size=3, page=3)["items"] == []
 
     def test_filters_and_sort(self, superclient, seeded):

@@ -24,12 +24,17 @@ APPROVED_OR_LATER = frozenset({
 })
 
 
-def is_printable_status(value: Optional[str]) -> bool:
-    return (value or "").strip().lower() in APPROVED_OR_LATER
+# A production order goes to the shop floor once released; drafts and cancelled orders stay in.
+PRODUCTION_PRINTABLE = frozenset({"released", "in_progress", "completed", "closed"})
 
 
-def ensure_printable_status(value: Optional[str], label: str = "document") -> None:
-    if not is_printable_status(value):
+def is_printable_status(value: Optional[str], document_type: Optional[str] = None) -> bool:
+    allowed = PRODUCTION_PRINTABLE if document_type in ("production-order", "job-card") else APPROVED_OR_LATER
+    return (value or "").strip().lower() in allowed
+
+
+def ensure_printable_status(value: Optional[str], label: str = "document", document_type: Optional[str] = None) -> None:
+    if not is_printable_status(value, document_type):
         shown = (str(getattr(value, "value", value)) or "unknown").replace("_", " ")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -40,6 +45,7 @@ def ensure_printable_status(value: Optional[str], label: str = "document") -> No
 def _registry():
     from app.modules.finance.accounting_models import JournalEntry
     from app.modules.finance.models import Expenses
+    from app.modules.manufacturing.models import MfgProductionOrder
     from app.modules.purchasing.models import GoodReceivedNote, PurchasingOrder, PurchasingReturn
     from app.modules.sales.models import Invoice, SaleReturn
     from app.modules.sales.quotation_models import SalesQuote
@@ -58,6 +64,8 @@ def _registry():
         "expense": (Expenses, "status", "expense"),
         "item-transfer-note": (ItemTransferNote, "status", "item transfer note"),
         "journal-entry": (JournalEntry, "status", "journal entry"),
+        "production-order": (MfgProductionOrder, "status", "production order"),
+        "job-card": (MfgProductionOrder, "status", "production order"),
     }
 
 
@@ -81,4 +89,4 @@ def ensure_document_printable(db: Session, document_type: str, document_id: int,
     branch_code = getattr(row, "branch_code", None)
     if branch_code and not validate_branch_access(user, branch_code):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{label.capitalize()} not found")
-    ensure_printable_status(getattr(row, attr, None), label)
+    ensure_printable_status(getattr(row, attr, None), label, document_type)

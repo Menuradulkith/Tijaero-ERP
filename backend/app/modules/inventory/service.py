@@ -534,6 +534,7 @@ class SalesStockService:
                 "location_id": item.location_id,
                 "good_received_note_id": item.good_received_note_id,
                 "purchasing_order_items_id": item.purchasing_order_items_id,
+                "production_order_id": item.production_order_id,
                 "warranty_month": item.warranty_month,
                 "status": item.status,
                 "reserved_for_quote_item_id": item.reserved_for_quote_item_id,

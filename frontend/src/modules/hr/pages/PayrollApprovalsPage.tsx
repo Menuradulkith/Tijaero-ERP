@@ -29,6 +29,8 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -40,9 +42,9 @@ import {
   handleApiError,
   MasterDetailLayout,
   modernTableStyles,
-  SearchableList,
-  SelectableListItem,
-  type SortOption,
+  TDataGrid,
+  type TDataGridColumn,
+  TStatusFilter,
   TBranchFilter,
   TStatCard,
   TStatusChip,
@@ -69,13 +71,6 @@ const STATUS_FILTER_OPTIONS = [
   { value: "completed", label: "Completed" },
 ];
 
-const SORT_OPTIONS: SortOption[] = [
-  { value: "payroll_month", label: "Payroll Period" },
-  { value: "batch_no", label: "Batch No" },
-  { value: "total_net_salary", label: "Net Salary" },
-  { value: "created_desc", label: "Date (Newest)" },
-];
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function PayrollApprovalsPage() {
@@ -84,7 +79,6 @@ export default function PayrollApprovalsPage() {
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("created_desc");
   const [filterStatus, setFilterStatus] = useState<string>("pending_approval");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<PayrollBatch | null>(null);
@@ -115,7 +109,7 @@ export default function PayrollApprovalsPage() {
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────────────
 
-  const { data: batches = [], isLoading } = useQuery({
+  const { data: batches = [], isLoading, refetch } = useQuery({
     queryKey: ["payroll-approvals", filterStatus, filterBranch],
     queryFn: () =>
       payrollBatchApi.getAll({
@@ -148,26 +142,9 @@ export default function PayrollApprovalsPage() {
           b.description?.toLowerCase().includes(q)
       );
     }
-    filtered.sort((a, b) => {
-      if (sortField === "total_net_salary")
-        return Number(b.total_net_salary || 0) - Number(a.total_net_salary || 0);
-      if (sortField === "batch_no")
-        return (b.batch_no || "").localeCompare(a.batch_no || "");
-      if (sortField === "created_desc")
-        return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
-      // Default: sort by year then month descending
-      if (b.payroll_year !== a.payroll_year)
-        return (b.payroll_year || 0) - (a.payroll_year || 0);
-      return (b.payroll_month || 0) - (a.payroll_month || 0);
-    });
+    filtered.sort((a, b) => new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime() || (b.id || 0) - (a.id || 0));
     return filtered;
-  }, [batches, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filteredBatches.length > 0 && !selectedBatch) {
-      setSelectedBatch(filteredBatches[0]);
-    }
-  }, [filteredBatches, selectedBatch]);
+  }, [batches, searchQuery]);
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
@@ -221,45 +198,32 @@ export default function PayrollApprovalsPage() {
 
   // ─── Master Panel ──────────────────────────────────────────────────────────
 
-  const masterPanel = (
-    <Box>
-      <SearchableList
-        items={filteredBatches}
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
-        hideSearch
-        sortOptions={SORT_OPTIONS}
-        sortField={sortField}
-        onSortChange={setSortField}
-        isLoading={isLoading}
-        renderItem={(b: PayrollBatch, isSelected: boolean) => (
-          <SelectableListItem
-            key={b.id}
-            id={b.id}
-            isSelected={isSelected}
-            onClick={() => setSelectedBatch(b)}
-            primaryText={b.batch_no}
-            secondaryText={
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Typography variant="caption" color="text.secondary">
-                  {formatPeriod(b.payroll_month, b.payroll_year)} • {b.total_employees || 0} employees
-                </Typography>
-                <Typography variant="caption" fontWeight={600}>
-                  {currencySymbol} {fmtLKR(b.total_net_salary || 0)}
-                </Typography>
-              </Box>
-            }
-            statusChip={{
-              ...getStatusProps(b.status, "payrollStatus"),
-              size: "small" as const,
-            }}
-          />
-        )}
-      >
-        {!isLoading && filteredBatches.length === 0 && (
-          <EmptyState message="No payroll batches match your filters" />
-        )}
-      </SearchableList>
+  const columns: TDataGridColumn<PayrollBatch>[] = useMemo(
+    () => [
+      { field: "batch_no", header: "Batch No", width: 170 },
+      { field: "payroll_month", header: "Period", width: 160, renderCell: (p: GridRenderCellParams<PayrollBatch>) => formatPeriod(p.row.payroll_month, p.row.payroll_year) },
+      { field: "total_employees", header: "Employees", width: 110, align: "right", headerAlign: "right", renderCell: (p: GridRenderCellParams<PayrollBatch>) => p.row.total_employees || 0 },
+      { field: "total_net_salary", header: "Net Salary", flex: 1, minWidth: 150, align: "right", headerAlign: "right", renderCell: (p: GridRenderCellParams<PayrollBatch>) => `${currencySymbol} ${fmtLKR(p.row.total_net_salary || 0)}` },
+      { field: "status", header: "Status", width: 160, renderCell: (p: GridRenderCellParams<PayrollBatch>) => <TStatusChip status={p.row.status} statusMap="payrollStatus" size="small" /> },
+    ],
+    [currencySymbol]
+  );
+
+  const tablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<PayrollBatch>
+          rows={filteredBatches}
+          columns={columns}
+          loading={isLoading}
+          onRowClick={(row) => setSelectedBatch(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No payroll batches match your filters"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
     </Box>
   );
 
@@ -431,6 +395,11 @@ export default function PayrollApprovalsPage() {
         title="Payroll Approvals"
         icon={<AccountBalanceWalletIcon />}
         titleSlot={
+          selectedBatch ? (
+            <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={() => setSelectedBatch(null)} sx={{ textTransform: "none" }}>
+              Back to Payroll Approvals
+            </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -444,9 +413,9 @@ export default function PayrollApprovalsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 190, flexShrink: 0 }}
+              sx={{ width: 230, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
-            <Box sx={{ width: 170, flexShrink: 0 }}>
+            <Box sx={{ width: 170, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
               <TBranchFilter
                 branches={branches}
                 value={filterBranch}
@@ -456,29 +425,29 @@ export default function PayrollApprovalsPage() {
                 size="small"
               />
             </Box>
-            <TextField
-              select
-              size="small"
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              sx={{ width: 170, flexShrink: 0 }}
-            >
-              {STATUS_FILTER_OPTIONS.map((opt) => (
-                <MenuItem key={opt.value} value={opt.value || ""}>
-                  {opt.label}
-                </MenuItem>
-              ))}
-            </TextField>
+            <Box sx={{ width: 180, flexShrink: 0 }}>
+              <TStatusFilter
+                options={[{ value: null, label: "All Statuses" }, ...(STATUS_FILTER_OPTIONS).filter((opt) => opt.value).map((opt) => ({ value: opt.value as string, label: opt.label }))]}
+                value={filterStatus || null}
+                onChange={(v) => setFilterStatus(v ?? "")}
+                label=""
+                placeholder="All Statuses"
+                size="small"
+              />
+            </Box>
             {(searchQuery || filterStatus || filterBranch) && (
               <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
                 Clear
               </Button>
             )}
           </Box>
+          )
         }
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
-      />
+        isLoading={isLoading}
+        onRefresh={() => refetch?.()}
+      >
+        {selectedBatch ? detailPanel : tablePanel}
+      </MasterDetailLayout>
 
       {/* Reject Dialog */}
       <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>

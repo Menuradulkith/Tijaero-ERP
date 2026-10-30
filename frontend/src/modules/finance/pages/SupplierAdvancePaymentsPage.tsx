@@ -448,7 +448,7 @@ export default function SupplierAdvancePaymentsPage() {
     if (isCreating && !savingRef.current) {
       const selectedPO = eligibleAdvancePOs.find((po) => po.po_id === formData.purchasing_order_id);
       if (!selectedPO) {
-        showErrorToast("Please select an approved non-credit PO without GRN");
+        showErrorToast("Please select an approved PO without a GRN");
         return;
       }
 
@@ -683,7 +683,7 @@ export default function SupplierAdvancePaymentsPage() {
                   handleBlur("purchasing_order_id");
                 }}
                 disabled={!isEditing && !isCreating}
-                noOptionsText="No approved non-credit pre-GRN POs found"
+                noOptionsText="No approved pre-GRN POs found"
                 renderInput={(params) => (
                   <TextField
                     {...params}

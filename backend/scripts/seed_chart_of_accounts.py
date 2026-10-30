@@ -73,6 +73,8 @@ COA_DATA = [
      "Stock of finished goods ready for sale", "1200"),
     ("1220", "Goods in Transit", "Asset", "Inventory", "Debit", True,
      "Inventory currently in transit from suppliers", "1200"),
+    ("1230", "Work in Progress", "Asset", "Inventory", "Debit", True,
+     "Materials, labour and overhead on open production orders", "1200"),
 
     ("1300", "Fixed Assets", "Asset", "Fixed Asset", "Debit", False,
      "Parent account for fixed/non-current assets", None),
@@ -163,6 +165,10 @@ COA_DATA = [
      "Cost of goods purchased for resale", "5000"),
     ("5020", "Freight & Shipping", "Expense", "COGS", "Debit", False,
      "Freight and shipping costs for purchased goods", "5000"),
+    ("5030", "Production Variance", "Expense", "COGS", "Debit", True,
+     "Difference between actual production cost and the standard cost of output", "5000"),
+    ("5040", "Production Labour & Overhead Absorbed", "Expense", "COGS", "Debit", True,
+     "Labour and overhead charged to production orders at work-center rates (credit balance)", "5000"),
 
     ("5100", "Operating Expenses", "Expense", "Operating", "Debit", False,
      "Parent account for operating expenses", None),

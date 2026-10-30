@@ -77,6 +77,7 @@ class StockStatus(str, Enum):
     DAMAGED = "damaged"
     FROZEN = "frozen"  # quality/admin hold — on hand but blocked from sale
     CANCELLED = "cancelled"  # received on a GRN that was later cancelled
+    CONSUMED = "consumed"  # issued to a production order as a component
 
 
 class AssetStatus(str, Enum):
@@ -151,3 +152,29 @@ class SupplierPaymentMethodType(str, Enum):
     LETTER_OF_CREDIT = "letter_of_credit"
     CREDIT_CARD = "credit_card"
     DIGITAL_WALLET = "digital_wallet"
+
+
+class BOMStatus(str, Enum):
+    """Bill of materials lifecycle: only an active BOM can be used on a production order."""
+    DRAFT = "draft"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class ProductionOrderStatus(str, Enum):
+    """Production (manufacturing) order lifecycle, the common shape of Odoo / ERPNext /
+    Business Central / SAP B1: materials can be issued and output recorded only once the
+    order is released; closing settles the WIP balance to the variance account."""
+    DRAFT = "draft"
+    RELEASED = "released"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CLOSED = "closed"
+    CANCELLED = "cancelled"
+
+
+class MaterialIssueMethod(str, Enum):
+    """MANUAL: issued to the order by a material issue. BACKFLUSH: consumed automatically
+    in proportion to the output recorded."""
+    MANUAL = "manual"
+    BACKFLUSH = "backflush"

@@ -19,7 +19,7 @@ import type { GridPaginationModel } from "@mui/x-data-grid";
 import {
   MasterDetailLayout, TDataGrid, type TDataGridColumn, handleApiError, showErrorToast, showSuccessToast, TConfirmDialog, useTConfirmDialog,
 } from "@/components/tijaero";
-import { FormSection } from "@/components/tijaero";
+import { FormSection, TBranchFilter, TStatusChip, TStatusFilter } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { useDebounce } from "@/hooks";
 import { fetchAllPages } from "@/utils/fetchAllPages";
@@ -42,10 +42,7 @@ const STATUS_META: Record<EmployeeStatus, { label: string; color: "success" | "i
   retired: { label: "Retired", color: "default" },
   inactive: { label: "Inactive", color: "default" },
 };
-const StatusChip = ({ status }: { status: string }) => {
-  const m = STATUS_META[status as EmployeeStatus] ?? { label: status, color: "default" as const };
-  return <Chip size="small" label={m.label} color={m.color} variant={m.color === "default" ? "outlined" : "filled"} />;
-};
+const StatusChip = ({ status }: { status: string }) => <TStatusChip status={status} statusMap="employeeLifecycle" size="small" />;
 
 const SECTIONS = ["personal", "job", "bank", "family", "qualifications", "documents", "checklist", "leave"] as const;
 type Section = (typeof SECTIONS)[number];
@@ -136,7 +133,7 @@ export default function EmployeesPage() {
 
   // users that can still be linked (the users page creates an employee record automatically, so this is rare)
   const { data: allUsers = [] } = useQuery({ queryKey: ["hr", "users-light"], queryFn: () => usersApi.getUsers(1, 5000), enabled: creating });
-  const { data: linked } = useQuery({ queryKey: ["hr", "employees", "linked"], queryFn: () => fetchAllPages((p) => employeeCoreApi.paged({ page: p, size: 200 })), enabled: creating });
+  const { data: linked } = useQuery({ queryKey: ["hr", "employees", "linked"], queryFn: () => fetchAllPages((p) => employeeCoreApi.paged({ page: p + 1, size: 200 })), enabled: creating });
   const linkedUserIds = useMemo(() => new Set((linked ?? []).map((e) => e.user_id)), [linked]);
   const availableUsers = useMemo(() => allUsers.filter((u) => !linkedUserIds.has(u.id)), [allUsers, linkedUserIds]);
 
@@ -243,7 +240,7 @@ export default function EmployeesPage() {
         exportFileName="employees"
         serverPagination={{ rowCount: list?.total ?? 0, paginationModel: paging, onPaginationModelChange: setPaging }}
         onServerSortChange={setSort}
-        exportAllRows={() => fetchAllPages((p) => employeeCoreApi.paged({ ...pageParams(0, 200), page: p, size: 200 }))}
+        exportAllRows={() => fetchAllPages((p) => employeeCoreApi.paged({ ...pageParams(0, 200), page: p + 1, size: 200 }))}
       />
     </Box>
   );
@@ -596,18 +593,24 @@ export default function EmployeesPage() {
           <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={backToList} sx={{ textTransform: "none" }}>Back to Employees</Button>
         ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
-            <TextField size="small" placeholder="Search name, ID, email..." value={search} onChange={(e) => setSearch(e.target.value)} sx={{ width: 230 }}
+            <TextField size="small" placeholder="Search name, ID, email..." value={search} onChange={(e) => setSearch(e.target.value)}
+              sx={{ width: 230, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" color="action" /></InputAdornment> }} />
-            <TextField select size="small" label="Department" value={department} onChange={(e) => setDepartment(e.target.value === "" ? "" : Number(e.target.value))} sx={{ width: 170 }}>
-              <MenuItem value=""><em>All</em></MenuItem>{departments.map((d) => <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>)}
-            </TextField>
-            <TextField select size="small" label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)} sx={{ width: 150 }}>
-              <MenuItem value=""><em>All</em></MenuItem>{branchList.map((b) => <MenuItem key={b.branch_code} value={b.branch_code}>{b.branch_code}</MenuItem>)}
-            </TextField>
-            <TextField select size="small" label="Status" value={status} onChange={(e) => setStatus(e.target.value)} sx={{ width: 150 }}>
-              <MenuItem value="live">In service</MenuItem><MenuItem value="">All</MenuItem>
-              {Object.entries(STATUS_META).map(([k, m]) => <MenuItem key={k} value={k}>{m.label}</MenuItem>)}
-            </TextField>
+            <Box sx={{ width: 200, flexShrink: 0 }}>
+              <TStatusFilter
+                options={[{ value: null, label: "All Departments" }, ...departments.map((d) => ({ value: String(d.id), label: d.name }))]}
+                value={department === "" ? null : String(department)} onChange={(v) => setDepartment(v ? Number(v) : "")}
+                label="" placeholder="All Departments" size="small" />
+            </Box>
+            <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
+              <TBranchFilter branches={branchList} value={branch || null} onChange={(v) => setBranch(v ?? "")} label="" placeholder="All Branches" size="small" />
+            </Box>
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TStatusFilter
+                options={[{ value: null, label: "All Statuses" }, { value: "live", label: "In service" }, ...Object.entries(STATUS_META).map(([k, m]) => ({ value: k, label: m.label }))]}
+                value={status === "" ? null : status} onChange={(v) => setStatus(v ?? "")}
+                label="" placeholder="All Statuses" size="small" />
+            </Box>
             {(search || department || branch || status !== "live") && (
               <Button size="small" sx={{ textTransform: "none" }} onClick={() => { setSearch(""); setDepartment(""); setBranch(""); setStatus("live"); }}>Clear</Button>
             )}

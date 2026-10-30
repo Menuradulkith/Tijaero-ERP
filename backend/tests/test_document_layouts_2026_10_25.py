@@ -149,7 +149,7 @@ class TestCompanyDetails:
         assert api(token).put("/api/v1/settings/company/logo", json={"logo": LOGO}).status_code == 403
 
     def test_details_print_on_documents_and_reports(self, superclient, db):
-        po_id = _sample(db, "select id from purchasing_orders order by id desc limit 1")
+        po_id = _sample(db, "select id from purchasing_orders where status in ('approved','completed','partially_completed') order by id desc limit 1")
         r = superclient.put("/api/v1/settings/company", json={"business_registration_number": "PV 12345", "company_website": "www.example.lk"})
         assert r.status_code == 200
         superclient.put("/api/v1/settings/company/logo", json={"logo": LOGO})

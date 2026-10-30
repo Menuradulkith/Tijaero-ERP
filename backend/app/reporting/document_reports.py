@@ -1260,6 +1260,78 @@ class DocumentReportService:
         )
 
 
+    # ── Manufacturing ────────────────────────────────────────────────────────
+    def _production_order(self, order_id: int):
+        from app.modules.manufacturing.models import MfgBOM, MfgProductionOrder
+
+        order = self.db.query(MfgProductionOrder).filter(MfgProductionOrder.id == order_id).first()
+        if not order:
+            raise HTTPException(status_code=404, detail=f"Production order #{order_id} not found")
+        bom = self.db.query(MfgBOM).filter(MfgBOM.id == order.bom_id).first()
+        return order, bom
+
+    def _order_context(self, order, show_header, show_signatures, custom_remarks) -> dict:
+        return dict(
+            order={
+                "id": order.id, "order_no": order.order_no, "status": order.status,
+                "product_name": order.product.name if order.product else "",
+                "planned_quantity": order.planned_quantity, "produced_quantity": order.produced_quantity,
+                "planned_start_date": str(order.planned_start_date), "planned_end_date": str(order.planned_end_date),
+                "branch_code": order.branch_code,
+            },
+            branch=self._get_branch_info(order.branch_code),
+            options={"show_header": show_header, "show_signatures": show_signatures, "custom_remarks": custom_remarks},
+        )
+
+    def generate_production_order_report(
+        self,
+        order_id: int,
+        show_header: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
+        custom_remarks: Optional[str] = None,
+    ) -> str:
+        """Printable production (work) order: components, routing, output and cost summary."""
+        from app.modules.manufacturing.models import MfgProductionOutput
+
+        order, bom = self._production_order(order_id)
+        company = self._get_company_info()
+        location = self.db.query(Locations).filter(Locations.id == order.location_id).first() if order.location_id else None
+        outputs = []
+        for o in (self.db.query(MfgProductionOutput).filter(MfgProductionOutput.order_id == order.id)
+                  .order_by(MfgProductionOutput.id).all()):
+            serials = [b for (b,) in self.db.query(SalesStock.barcode).filter(
+                SalesStock.production_order_id == order.id, SalesStock.added_date == o.receipt_date,
+                SalesStock.barcode.isnot(None)).order_by(SalesStock.id)]
+            lot = o.batch_no or (f"{serials[0]} ... {serials[-1]}" if len(serials) > 2 else ", ".join(serials))
+            loc = self.db.query(Locations).filter(Locations.id == o.location_id).first() if o.location_id else None
+            outputs.append({"date": o.receipt_date, "qty": o.quantity, "scrap": o.scrap_quantity,
+                            "lot": lot or "-", "location": loc.name if loc else ""})
+        return self._render(
+            "production-order",
+            doc=documents.build_production_order(self.db, order, bom, documents.branch_profile(self.db, order.branch_code),
+                                                 location.name if location else None, company, outputs),
+            company=company,
+            **self._order_context(order, show_header, show_signatures, custom_remarks),
+        )
+
+    def generate_job_card_report(
+        self,
+        order_id: int,
+        show_header: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
+        custom_remarks: Optional[str] = None,
+    ) -> str:
+        """Printable job card (shop traveller) for a production order's operations."""
+        order, bom = self._production_order(order_id)
+        company = self._get_company_info()
+        return self._render(
+            "job-card",
+            doc=documents.build_job_card(self.db, order, bom, documents.branch_profile(self.db, order.branch_code), company),
+            company=company,
+            **self._order_context(order, show_header, show_signatures, custom_remarks),
+        )
+
+
 def get_document_report_service(
     db: Session,
     template_id: Optional[int] = None,

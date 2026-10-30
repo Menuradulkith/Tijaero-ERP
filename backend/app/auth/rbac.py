@@ -79,6 +79,31 @@ class Permissions:
     AI_ASSISTANT_VIEW = ("ai_assistant", "view")
 
     # ═══════════════════════════════════════════════════════════════════
+    # MANUFACTURING — per sub-page
+    # ═══════════════════════════════════════════════════════════════════
+    MANUFACTURING_DASHBOARD_VIEW = ("manufacturing_dashboard", "view")
+    WORK_CENTER_VIEW = ("work_centers", "view")
+    WORK_CENTER_CREATE = ("work_centers", "create")
+    WORK_CENTER_UPDATE = ("work_centers", "update")
+    WORK_CENTER_DELETE = ("work_centers", "delete")
+    BOM_VIEW = ("boms", "view")
+    BOM_CREATE = ("boms", "create")
+    BOM_UPDATE = ("boms", "update")
+    BOM_DELETE = ("boms", "delete")
+    PRODUCTION_ORDER_VIEW = ("production_orders", "view")
+    PRODUCTION_ORDER_CREATE = ("production_orders", "create")
+    PRODUCTION_ORDER_UPDATE = ("production_orders", "update")
+    PRODUCTION_ORDER_DELETE = ("production_orders", "delete")
+    # Release / complete / close / cancel
+    PRODUCTION_ORDER_APPROVE = ("production_orders", "approve")
+    # Material issue / return, output receipt, job-card time logs
+    SHOP_FLOOR_VIEW = ("shop_floor", "view")
+    SHOP_FLOOR_UPDATE = ("shop_floor", "update")
+    MRP_VIEW = ("mrp", "view")
+    # Reordering rules; firming MRP suggestions into purchase / production orders
+    MRP_UPDATE = ("mrp", "update")
+
+    # ═══════════════════════════════════════════════════════════════════
     # SALES — per sub-page
     # ═══════════════════════════════════════════════════════════════════
     SALES_DASHBOARD_VIEW = ("sales_dashboard", "view")

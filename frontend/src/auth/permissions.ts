@@ -76,6 +76,31 @@ export const PERMISSIONS = {
   SALES_TRACK_VIEW: { resource: "sales_track", action: "view" },
 
   // ═══════════════════════════════════════════════════════════════════
+  // MANUFACTURING — per sub-page permissions
+  // ═══════════════════════════════════════════════════════════════════
+  MANUFACTURING_DASHBOARD_VIEW: { resource: "manufacturing_dashboard", action: "view" },
+  WORK_CENTERS_VIEW: { resource: "work_centers", action: "view" },
+  WORK_CENTERS_CREATE: { resource: "work_centers", action: "create" },
+  WORK_CENTERS_UPDATE: { resource: "work_centers", action: "update" },
+  WORK_CENTERS_DELETE: { resource: "work_centers", action: "delete" },
+  BOMS_VIEW: { resource: "boms", action: "view" },
+  BOMS_CREATE: { resource: "boms", action: "create" },
+  BOMS_UPDATE: { resource: "boms", action: "update" },
+  BOMS_DELETE: { resource: "boms", action: "delete" },
+  PRODUCTION_ORDERS_VIEW: { resource: "production_orders", action: "view" },
+  PRODUCTION_ORDERS_CREATE: { resource: "production_orders", action: "create" },
+  PRODUCTION_ORDERS_UPDATE: { resource: "production_orders", action: "update" },
+  PRODUCTION_ORDERS_DELETE: { resource: "production_orders", action: "delete" },
+  // Release / complete / close / cancel
+  PRODUCTION_ORDERS_APPROVE: { resource: "production_orders", action: "approve" },
+  // Material issue / return, output, job-card time
+  SHOP_FLOOR_VIEW: { resource: "shop_floor", action: "view" },
+  SHOP_FLOOR_UPDATE: { resource: "shop_floor", action: "update" },
+  MRP_VIEW: { resource: "mrp", action: "view" },
+  // Reordering rules; creating purchase / production orders from MRP
+  MRP_UPDATE: { resource: "mrp", action: "update" },
+
+  // ═══════════════════════════════════════════════════════════════════
   // PURCHASING — per sub-page permissions
   // ═══════════════════════════════════════════════════════════════════
   // Purchasing Dashboard
@@ -530,6 +555,7 @@ export const MODULE_PERMISSIONS: Record<
   "/dashboard": PERMISSIONS.DASHBOARD_VIEW,
   "/sales": PERMISSIONS.SALES_DASHBOARD_VIEW,
   "/purchasing": PERMISSIONS.PURCHASING_DASHBOARD_VIEW,
+  "/manufacturing": PERMISSIONS.MANUFACTURING_DASHBOARD_VIEW,
   "/product-catalogs": PERMISSIONS.PRODUCTS_VIEW,
   "/finance": PERMISSIONS.FINANCE_DASHBOARD_VIEW,
   "/hr": PERMISSIONS.HR_DASHBOARD_VIEW,

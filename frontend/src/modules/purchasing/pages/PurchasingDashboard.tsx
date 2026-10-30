@@ -66,22 +66,6 @@ import { useReferenceData, BranchRef } from "@/hooks";
 import { purchasingStatsApi } from "@/modules/purchasing/api";
 import { useCurrencyStore } from "@/state/currencyStore";
 
-const PAYMENT_LABELS: Record<string, string> = {
-  cash: "Cash",
-  cheque: "Cheque",
-  bank_transfer: "Bank Transfer",
-  credit: "Credit",
-  card: "Card",
-};
-
-const PAYMENT_COLORS: Record<string, string> = {
-  cash: "#10b981",
-  cheque: "#8b5cf6",
-  bank_transfer: "#0ea5e9",
-  credit: "#f59e0b",
-  card: "#2563eb",
-};
-
 export default function PurchasingDashboard() {
   const navigate = useNavigate();
   const theme = useTheme();
@@ -135,17 +119,6 @@ export default function PurchasingDashboard() {
       { label: "Completed", value: stats.completed_pos, color: "#0284c7" },
       { label: "Rejected", value: stats.rejected_pos, color: "#dc2626" },
     ].filter((s) => s.value > 0);
-  }, [stats]);
-
-  const paymentSlices = useMemo<BreakdownSlice[]>(() => {
-    if (!stats || !stats.payment_methods) return [];
-    return Object.entries(stats.payment_methods)
-      .filter(([_, v]) => (v as number) > 0)
-      .map(([k, v]) => ({
-        label: PAYMENT_LABELS[k] || k,
-        value: v as number,
-        color: PAYMENT_COLORS[k] || "#64748b",
-      }));
   }, [stats]);
 
   if (isError) {
@@ -360,8 +333,8 @@ export default function PurchasingDashboard() {
           </DashboardPanel>
         </Grid>
 
-        {/* ─── Daily orders + Payment methods ─────────────────── */}
-        <Grid item xs={12} lg={7}>
+        {/* ─── Daily orders ─────────────────── */}
+        <Grid item xs={12}>
           <DashboardPanel title="Daily Order Volume" subtitle="Last 7 days">
             {stats.daily_orders.length === 0 ? (
               <Box sx={{ textAlign: "center", py: 5, color: "text.secondary" }}>
@@ -386,18 +359,6 @@ export default function PurchasingDashboard() {
                 </BarChart>
               </ResponsiveContainer>
             )}
-          </DashboardPanel>
-        </Grid>
-
-        <Grid item xs={12} lg={5}>
-          <DashboardPanel title="Payment Methods" subtitle="POs by tender">
-            <BreakdownDonut
-              data={paymentSlices}
-              centerLabel="Total POs"
-              centerValue={stats.total_pos.toLocaleString()}
-              formatValue={(v) => `${v} PO${v !== 1 ? "s" : ""}`}
-              height={220}
-            />
           </DashboardPanel>
         </Grid>
 

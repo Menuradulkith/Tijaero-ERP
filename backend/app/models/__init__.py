@@ -54,6 +54,19 @@ from app.modules.finance.accounting_models import (
 from app.modules.hr.models import Reimbursements, ReimbursementItem, SalaryDeductions, PayrollBatch
 from app.modules.hr.sales_commission_models import MonthlyBranchSalesSummary, SalesOfficerMonthlyCommission
 from app.modules.inventory.models import CompanyAssets, SalesStock
+from app.modules.manufacturing.models import (  # noqa: F401
+    MfgBOM,
+    MfgBOMItem,
+    MfgBOMOperation,
+    MfgMaterialTransaction,
+    MfgProductionOrder,
+    MfgProductionOrderMaterial,
+    MfgProductionOrderOperation,
+    MfgProductionOutput,
+    MfgReorderRule,
+    MfgTimeLog,
+    MfgWorkCenter,
+)
 from app.modules.marketing.models import AdvanceReceipt, WebPosts
 from app.modules.notifications.models import Notification, NotificationRecipient
 from app.modules.products.models import Category, ItemsBrand, MinimumPrice, Product

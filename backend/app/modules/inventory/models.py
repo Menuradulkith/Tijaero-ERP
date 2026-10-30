@@ -45,8 +45,13 @@ class SalesStock(Base, AuditMixin):
     expiry_date = Column(Date, nullable=True)
     branch_code = Column(String(200), nullable=False, index=True)
     location_id = Column(Integer, ForeignKey("good_received_locations.id"), nullable=True)
-    good_received_note_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=False)
-    purchasing_order_items_id = Column(Integer, ForeignKey("purchasing_order_items.id"), nullable=False)
+    # Purchased stock comes from a GRN line; manufactured stock has no GRN and carries
+    # production_order_id instead.
+    good_received_note_id = Column(Integer, ForeignKey("good_received_note.id"), nullable=True)
+    purchasing_order_items_id = Column(Integer, ForeignKey("purchasing_order_items.id"), nullable=True)
+    production_order_id = Column(Integer, ForeignKey("mfg_production_orders.id"), nullable=True, index=True)
+    # Set while the units are consumed by (issued to) a production order
+    consumed_by_production_order_id = Column(Integer, ForeignKey("mfg_production_orders.id"), nullable=True, index=True)
     warranty_month = Column(String(30), nullable=True)  
     status = Column(String(50), nullable=False, default="available", index=True)  
     is_active = Column(Boolean, nullable=False, default=True)  

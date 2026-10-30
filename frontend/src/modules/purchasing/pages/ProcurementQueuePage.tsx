@@ -220,7 +220,6 @@ export default function ProcurementQueuePage() {
     return {
       purchasing_order_no: "",
       branch_code: group.branchCode,
-      payment_method: "Non-credit",
       purchasing_order_date: settings.orderDate,
       good_received_note_date: computeDefaultDeliveryDate(supplier, settings.orderDate),
       remarks: `PO for Quotation ${group.quoteNo}`,
