@@ -691,6 +691,18 @@ class PurchaseExpensePayrollGL:
             branch_code = grn.branch_code if grn else None
             debit_account = ACCT_FINISHED_GOODS
             debit_desc = f"Advance applied to inventory - GRN {grn_no}"
+            po_method = None
+            if grn is not None:
+                from app.modules.purchasing.models import PurchasingOrder
+
+                po_method = self.db.query(PurchasingOrder.payment_method).filter(
+                    PurchasingOrder.id == grn.purchasingorders_id
+                ).scalar()
+            if normalize_po_payment_method(po_method) == "credit":
+                # The GRN already put the goods into inventory against Trade Creditors, so the advance
+                # settles that payable: Dr 2010 Trade Creditors / Cr 2020 Supplier Advances.
+                debit_account = ACCT_TRADE_CREDITORS
+                debit_desc = f"Advance applied to payable - GRN {grn_no}"
             credit_desc = f"Advance consumed - GRN {grn_no}"
             ref_no = grn_no
             marker_ref = f"GRN: {grn_no}"
@@ -813,6 +825,53 @@ class PurchaseExpensePayrollGL:
         if je:
             logger.info(f"✅ GL Posted: Credit Settlement {settlement.supplier_credits_settle_no} → JE {je.journal_entry_no}")
         return je
+
+    def post_credit_settlement_cancel_to_gl(self, settlement, user_id: int) -> Optional[JournalEntry]:
+        """Reverse the entry of a verified credit settlement that is cancelled afterwards (mirror image:
+        swap Dr/Cr of every line of the original JE). No-op when the settlement never posted (still pending)."""
+        if self._gl.already_posted("CreditSettle", settlement.id, "Cancel") is not None:
+            return None
+        rows = (
+            self.db.query(JournalEntryLine, ChartOfAccounts.account_code)
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .join(ChartOfAccounts, ChartOfAccounts.id == JournalEntryLine.account_id)
+            .filter(
+                JournalEntryLine.reference_type == "CreditSettle",
+                JournalEntryLine.reference_id == settlement.id,
+                JournalEntry.entry_type == "Auto",
+                ~JournalEntry.description.ilike("%Settlement Cancel ID%"),
+                JournalEntry.status != "reversed",
+                func.coalesce(JournalEntry.is_reversed, False).is_(False),
+            )
+            .all()
+        )
+        if not rows:
+            return None
+        lines = [
+            {
+                "account_code": code,
+                "debit": Decimal(str(line.credit_amount or 0)),
+                "credit": Decimal(str(line.debit_amount or 0)),
+                "description": f"Reversal of credit settlement {settlement.supplier_credits_settle_no}",
+            }
+            for line, code in rows
+        ]
+        return self._create_je_and_post(
+            entry_date=tz.today(),
+            description=(
+                f"Auto GL - Credit Settlement Cancelled | Settle: {settlement.supplier_credits_settle_no} | "
+                f"Settlement Cancel ID: {settlement.id}"
+            ),
+            lines=lines,
+            branch_code=settlement.branch_code,
+            user_id=user_id,
+            je_prefix="JE-PUR",
+            transaction_type="Payment",
+            reference_type="CreditSettle",
+            reference_id=settlement.id,
+            reference_no=settlement.supplier_credits_settle_no,
+            marker="Cancel",
+        )
 
     def post_supplier_payment_to_gl(self, payment, user_id: int) -> Optional[JournalEntry]:
         """

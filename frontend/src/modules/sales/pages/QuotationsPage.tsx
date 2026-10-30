@@ -628,13 +628,15 @@ export default function QuotationsPage() {
   const procurementCandidates = useMemo((): ProcurementCandidate[] => {
     if (!selectedQuoteDetails?.items) return [];
     return selectedQuoteDetails.items
-      .filter(item => !['completed', 'cancelled', 'so_created', 'po_created', 'itn_created'].includes(item.item_status))
+      // mo_created: a production order is making it
+      .filter(item => !['completed', 'cancelled', 'so_created', 'po_created', 'mo_created', 'itn_created'].includes(item.item_status))
       .filter(item => !queuedQuoteItemIds.has(item.id))
       .filter(item => {
         // Prefer a live stock check result; fall back to the stored value.
         const liveStock = stockAvailability.find(sa => sa.product_id === item.product_id);
         const stockStatus = liveStock
-          ? (liveStock.is_sufficient ? 'in_stock'
+          ? (liveStock.is_sufficient ? 'in_stock'
+
               : 'needs_procurement')
           : item.stock_status;
         return stockStatus === 'needs_procurement';
@@ -1522,7 +1524,8 @@ export default function QuotationsPage() {
                   const liveStock = stockAvailability.find(sa => sa.product_id === item.product_id);
                   // Derive stock status: live check overrides stored value
                   const stockStatus = liveStock
-                    ? (liveStock.is_sufficient ? 'in_stock'
+                    ? (liveStock.is_sufficient ? 'in_stock'
+
                         : 'needs_procurement')
                     : item.stock_status;
                   const itemStatus = item.item_status ?? 'pending';
@@ -1552,6 +1555,8 @@ export default function QuotationsPage() {
                             <TChip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'po_created' ? (
                             <TChip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : itemStatus === 'mo_created' ? (
+                            <TChip label="MO Created" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'itn_created' ? (
                             <TChip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'procurement' ? (
@@ -2400,7 +2405,8 @@ export default function QuotationsPage() {
                     const itemStatus = quoteItem?.item_status ?? 'pending';
                     const currentAvailable = item.current_branch_available ?? item.available_quantity;
                     // Derive stockStatus from live check
-                    const stockStatus = item.is_sufficient ? 'in_stock'
+                    const stockStatus = item.is_sufficient ? 'in_stock'
+
                       : 'needs_procurement';
                     return (
                       <TableRow key={index} sx={modernTableStyles.bodyRow}>
@@ -2436,6 +2442,8 @@ export default function QuotationsPage() {
                             <TChip label="SO Created" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'po_created' ? (
                             <TChip label="PO Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                          ) : itemStatus === 'mo_created' ? (
+                            <TChip label="MO Created" color="secondary" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'itn_created' ? (
                             <TChip label="ITN Created" color="info" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                           ) : itemStatus === 'procurement' ? (

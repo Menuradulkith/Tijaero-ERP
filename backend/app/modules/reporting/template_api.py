@@ -146,6 +146,8 @@ _SAMPLE_SOURCES = {
     "expense": ("app.modules.finance.models", "Expenses", "expenses_no"),
     "item-transfer-note": ("app.modules.warehouse.models", "ItemTransferNote", "item_transfer_note"),
     "journal-entry": ("app.modules.finance.accounting_models", "JournalEntry", "journal_entry_no"),
+    "production-order": ("app.modules.manufacturing.models", "MfgProductionOrder", "order_no"),
+    "job-card": ("app.modules.manufacturing.models", "MfgProductionOrder", "order_no"),
     "voucher": ("app.modules.customers.models", "CustomerGiftVoucher", "barcode_no"),
 }
 
@@ -175,7 +177,7 @@ def list_sample_documents(
     rows = q.order_by(model.id.desc()).limit(200).all()
     out = []
     for row in rows:
-        if status_attr and not is_printable_status(getattr(row, status_attr, None)):
+        if status_attr and not is_printable_status(getattr(row, status_attr, None), doc.key):
             continue
         out.append({
             "id": row.id,

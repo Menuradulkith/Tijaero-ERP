@@ -31,6 +31,8 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
@@ -45,9 +47,9 @@ import {
   REIMBURSEMENT_PAYMENT_METHODS,
   REIMBURSEMENT_TYPES,
   REIMBURSEMENT_STATUS_FILTER_OPTIONS,
-  SearchableList,
-  SelectableListItem,
-  type SortOption,
+  TDataGrid,
+  type TDataGridColumn,
+  TStatusFilter,
   TBranchFilter,
   TStatusChip,
   showErrorToast,
@@ -64,13 +66,6 @@ import { useCurrencyStore } from "@/state/currencyStore";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-const SORT_OPTIONS: SortOption[] = [
-  { value: "claim_date", label: "Claim Date" },
-  { value: "total_amount", label: "Amount" },
-  { value: "reimbursement_no", label: "Reimbursement No" },
-  { value: "created_desc", label: "Date (Newest)" },
-];
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function ReimbursementApprovalsPage() {
@@ -79,7 +74,6 @@ export default function ReimbursementApprovalsPage() {
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("created_desc");
   const [filterStatus, setFilterStatus] = useState<string>("pending");
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [selectedReimbursement, setSelectedReimbursement] = useState<Reimbursement | null>(null);
@@ -114,7 +108,7 @@ export default function ReimbursementApprovalsPage() {
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────────────
 
-  const { data: reimbursements = [], isLoading } = useQuery({
+  const { data: reimbursements = [], isLoading, refetch } = useQuery({
     queryKey: ["reimbursement-approvals", filterStatus, filterBranch],
     queryFn: () =>
       reimbursementsApi.getAll({
@@ -149,30 +143,9 @@ export default function ReimbursementApprovalsPage() {
           r.description?.toLowerCase().includes(q)
       );
     }
-    filtered.sort((a, b) => {
-      if (sortField === "total_amount") {
-        const diff = Number(b.total_amount) - Number(a.total_amount);
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      if (sortField === "reimbursement_no") {
-        const diff = (b.reimbursement_no || "").localeCompare(a.reimbursement_no || "");
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      if (sortField === "created_desc") {
-        const diff = new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
-        return diff !== 0 ? diff : (b.id || 0) - (a.id || 0);
-      }
-      const timeDiff = new Date(b.claim_date || "").getTime() - new Date(a.claim_date || "").getTime();
-      return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
-    });
+    filtered.sort((a, b) => new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime() || (b.id || 0) - (a.id || 0));
     return filtered;
-  }, [reimbursements, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filteredReimbursements.length > 0 && !selectedReimbursement) {
-      setSelectedReimbursement(filteredReimbursements[0]);
-    }
-  }, [filteredReimbursements, selectedReimbursement]);
+  }, [reimbursements, searchQuery]);
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
@@ -272,45 +245,32 @@ export default function ReimbursementApprovalsPage() {
 
   // ─── Master Panel ──────────────────────────────────────────────────────────
 
-  const masterPanel = (
-    <Box>
-      <SearchableList
-        items={filteredReimbursements}
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
-        hideSearch
-        sortOptions={SORT_OPTIONS}
-        sortField={sortField}
-        onSortChange={setSortField}
-        isLoading={isLoading}
-        renderItem={(r: Reimbursement, isSelected: boolean) => (
-          <SelectableListItem
-            key={r.id}
-            id={r.id}
-            isSelected={isSelected}
-            onClick={() => setSelectedReimbursement(r)}
-            primaryText={r.reimbursement_no}
-            secondaryText={
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Typography variant="caption" color="text.secondary">
-                  {r.employee_name || r.employee_id}
-                </Typography>
-                <Typography variant="caption" fontWeight={600}>
-                  {currencySymbol} {fmtLKR(r.total_amount)}
-                </Typography>
-              </Box>
-            }
-            statusChip={{
-              ...getStatusProps(r.status, "reimbursementStatus"),
-              size: "small" as const,
-            }}
-          />
-        )}
-      >
-        {!isLoading && filteredReimbursements.length === 0 && (
-          <EmptyState message="No reimbursements match your filters" />
-        )}
-      </SearchableList>
+  const columns: TDataGridColumn<Reimbursement>[] = useMemo(
+    () => [
+      { field: "reimbursement_no", header: "Reimbursement No", width: 180 },
+      { field: "employee_name", header: "Employee", flex: 1, minWidth: 180, renderCell: (p: GridRenderCellParams<Reimbursement>) => p.row.employee_name || p.row.employee_id },
+      { field: "claim_date", header: "Claim Date", width: 130, renderCell: (p: GridRenderCellParams<Reimbursement>) => (p.row.claim_date ? format(new Date(p.row.claim_date), "MMM dd, yyyy") : "—") },
+      { field: "total_amount", header: "Amount", width: 150, align: "right", headerAlign: "right", renderCell: (p: GridRenderCellParams<Reimbursement>) => `${currencySymbol} ${fmtLKR(p.row.total_amount)}` },
+      { field: "status", header: "Status", width: 160, renderCell: (p: GridRenderCellParams<Reimbursement>) => <TStatusChip status={p.row.status} statusMap="reimbursementStatus" size="small" /> },
+    ],
+    [currencySymbol]
+  );
+
+  const tablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<Reimbursement>
+          rows={filteredReimbursements}
+          columns={columns}
+          loading={isLoading}
+          onRowClick={(row) => setSelectedReimbursement(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No reimbursements match your filters"
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
     </Box>
   );
 
@@ -481,6 +441,11 @@ export default function ReimbursementApprovalsPage() {
         title="Reimbursement Approvals"
         icon={<ReceiptIcon />}
         titleSlot={
+          selectedReimbursement ? (
+            <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={() => setSelectedReimbursement(null)} sx={{ textTransform: "none" }}>
+              Back to Reimbursement Approvals
+            </Button>
+          ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
@@ -494,9 +459,9 @@ export default function ReimbursementApprovalsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 190, flexShrink: 0 }}
+              sx={{ width: 230, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
-            <Box sx={{ width: 170, flexShrink: 0 }}>
+            <Box sx={{ width: 170, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
               <TBranchFilter
                 branches={branches}
                 value={filterBranch}
@@ -506,29 +471,29 @@ export default function ReimbursementApprovalsPage() {
                 size="small"
               />
             </Box>
-            <TextField
-              select
-              size="small"
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              sx={{ width: 170, flexShrink: 0 }}
-            >
-              {REIMBURSEMENT_STATUS_FILTER_OPTIONS.map((opt) => (
-                <MenuItem key={opt.value} value={opt.value || ""}>
-                  {opt.label}
-                </MenuItem>
-              ))}
-            </TextField>
+            <Box sx={{ width: 180, flexShrink: 0 }}>
+              <TStatusFilter
+                options={[{ value: null, label: "All Statuses" }, ...(REIMBURSEMENT_STATUS_FILTER_OPTIONS).filter((opt) => opt.value).map((opt) => ({ value: opt.value as string, label: opt.label }))]}
+                value={filterStatus || null}
+                onChange={(v) => setFilterStatus(v ?? "")}
+                label=""
+                placeholder="All Statuses"
+                size="small"
+              />
+            </Box>
             {(searchQuery || filterStatus || filterBranch) && (
               <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
                 Clear
               </Button>
             )}
           </Box>
+          )
         }
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
-      />
+        isLoading={isLoading}
+        onRefresh={() => refetch?.()}
+      >
+        {selectedReimbursement ? detailPanel : tablePanel}
+      </MasterDetailLayout>
 
       {/* Reject Dialog */}
       <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>

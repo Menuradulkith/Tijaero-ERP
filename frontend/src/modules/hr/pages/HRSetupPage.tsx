@@ -9,7 +9,7 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import { MasterDetailLayout, TDataGrid, type TDataGridColumn, handleApiError, showErrorToast, showSuccessToast, TConfirmDialog, useTConfirmDialog } from "@/components/tijaero";
+import { MasterDetailLayout, TDataGrid, type TDataGridColumn, handleApiError, showErrorToast, showSuccessToast, TConfirmDialog, useTConfirmDialog, TStatusChip } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import {
   hrOrgApi, employeeCoreApi, type Department, type Designation, type EmploymentType, type Holiday, type HolidayList, type HolidayType,
@@ -19,9 +19,7 @@ import MasterTab, { type FieldDef } from "@/modules/hr/components/MasterTab";
 
 import CancelIcon from "@mui/icons-material/Cancel";
 import SaveIcon from "@mui/icons-material/Save";
-const ActiveChip = ({ active }: { active: boolean }) => (
-  <Chip size="small" label={active ? "Active" : "Inactive"} color={active ? "success" : "default"} variant={active ? "filled" : "outlined"} />
-);
+const ActiveChip = ({ active }: { active: boolean }) => <TStatusChip status={active} statusMap="activeInactive" size="small" />;
 const yesNo = (v: boolean) => (v ? "Yes" : "No");
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const offDays = (s: string) => (s ? s.split(",").map((d) => DAYS[Number(d)]).join(", ") : "None");

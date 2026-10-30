@@ -393,7 +393,7 @@ export interface PurchasingOrderCreate {
   purchasing_order_no: string;
   purchasing_invoice_no?: string;
   branch_code: string;
-  payment_method: string;
+  payment_method?: string;
   purchasing_order_date: string;
   good_received_note_date: string;
   /** Optional "needed by" date for the whole order. */

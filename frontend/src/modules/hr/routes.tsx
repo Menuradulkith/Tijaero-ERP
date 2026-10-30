@@ -18,6 +18,7 @@ import SalesCommissionsPage from "./pages/SalesCommissionsPage";
 import HRSetupPage from "./pages/HRSetupPage";
 import LeaveBalancesPage from "./pages/LeaveBalancesPage";
 import HRReportsPage from "./pages/HRReportsPage";
+import HRApprovalsPage from "./pages/HRApprovalsPage";
 
 export default function HRRoutes() {
   return (
@@ -29,15 +30,19 @@ export default function HRRoutes() {
       <Route path="reports" element={<ProtectedRoute resource="hr_reports" action="view"><HRReportsPage /></ProtectedRoute>} />
       <Route path="attendance" element={<ProtectedRoute resource="attendance" action="view"><AttendancePage /></ProtectedRoute>} />
       <Route path="leaves" element={<ProtectedRoute resource="leaves" action="view"><LeavesPage /></ProtectedRoute>} />
-      <Route path="leave-approvals" element={<ProtectedRoute resource="leave_approvals" action="view"><LeaveApprovalsPage /></ProtectedRoute>} />
+      <Route path="approvals" element={<HRApprovalsPage />} />
+      <Route path="approvals/leave-approvals" element={<ProtectedRoute resource="leave_approvals" action="view"><LeaveApprovalsPage /></ProtectedRoute>} />
+      <Route path="leave-approvals" element={<Navigate to="/hr/approvals/leave-approvals" replace />} />
       <Route path="payroll" element={<ProtectedRoute resource="payroll" action="view"><PayrollPage /></ProtectedRoute>} />
       <Route path="payroll-processing" element={<ProtectedRoute resource="payroll_processing" action="view"><PayrollProcessingPage /></ProtectedRoute>} />
-      <Route path="payroll-approvals" element={<ProtectedRoute resource="payroll_approvals" action="view"><PayrollApprovalsPage /></ProtectedRoute>} />
+      <Route path="approvals/payroll-approvals" element={<ProtectedRoute resource="payroll_approvals" action="view"><PayrollApprovalsPage /></ProtectedRoute>} />
+      <Route path="payroll-approvals" element={<Navigate to="/hr/approvals/payroll-approvals" replace />} />
       <Route path="sales-commissions" element={<ProtectedRoute resource="hr_sales_commissions" action="view"><SalesCommissionsPage /></ProtectedRoute>} />
       <Route path="promotions" element={<ProtectedRoute resource="promotions" action="view"><PromotionsPage /></ProtectedRoute>} />
       <Route path="salary-profiles" element={<ProtectedRoute resource="salary_profiles" action="view"><SalaryProfilesPage /></ProtectedRoute>} />
       <Route path="reimbursements" element={<ProtectedRoute resource="reimbursements" action="view"><ReimbursementsPage /></ProtectedRoute>} />
-      <Route path="reimbursement-approvals" element={<ProtectedRoute resource="reimbursement_approvals" action="view"><ReimbursementApprovalsPage /></ProtectedRoute>} />
+      <Route path="approvals/reimbursement-approvals" element={<ProtectedRoute resource="reimbursement_approvals" action="view"><ReimbursementApprovalsPage /></ProtectedRoute>} />
+      <Route path="reimbursement-approvals" element={<Navigate to="/hr/approvals/reimbursement-approvals" replace />} />
       <Route path="deductions" element={<ProtectedRoute resource="deductions" action="view"><DeductionsPage /></ProtectedRoute>} />
       <Route path="assets" element={<ProtectedRoute resource="hr_assets" action="view"><EmployeeAssetsPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="." replace />} />

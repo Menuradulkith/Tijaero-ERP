@@ -37,7 +37,7 @@ export interface SalesQuoteItem {
   description?: string;
   remark?: string;
   discount_percentage: number;
-  item_status: 'pending' | 'so_created' | 'procurement' | 'po_created' | 'itn_created' | 'completed' | 'cancelled';  // per-item conversion status
+  item_status: 'pending' | 'so_created' | 'procurement' | 'po_created' | 'mo_created' | 'itn_created' | 'completed' | 'cancelled';  // per-item conversion status
   converted_qty: number;  // units already converted to SO
 }
 

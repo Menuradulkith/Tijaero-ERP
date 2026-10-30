@@ -49,6 +49,24 @@ def after_cursor_execute(conn, cursor, statement, parameters, context, executema
         logger.warning(f"Slow query ({total:.2f}s): {statement[:200]}...")
 
 
+@event.listens_for(Session, "do_orm_execute")
+def refresh_rows_taken_with_a_lock(state):
+    """SELECT ... FOR UPDATE must hand back the row as it is NOW.
+
+    Without this, a row that was already loaded earlier in the same request (to pre-check a balance, say)
+    is returned from the identity map with its stale attributes: the lock is taken, but the check that
+    follows runs on old numbers, so two concurrent requests can both pass it (e.g. an advance applied
+    three times over). populate_existing re-reads the locked row (pending changes are flushed first)."""
+    stmt = state.statement
+    if state.is_select and getattr(stmt, "_for_update_arg", None) is not None:
+        session = state.session
+        # The app's sessions run with autoflush off: write pending changes first, otherwise re-reading a row
+        # that has unflushed edits would silently throw those edits away.
+        if session.dirty or session.new:
+            session.flush()
+        state.update_execution_options(populate_existing=True)
+
+
 @event.listens_for(Session, "before_flush")
 def before_flush(session, flush_context, instances):
     """Stamp the ERP's configured local time and audit user on every insert/update.

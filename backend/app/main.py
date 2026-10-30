@@ -314,6 +314,14 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
             headers={"Retry-After": "2"},
             content={"detail": "The server is busy. Please try again in a moment."},
         )
+    if "deadlock detected" in str(exc).lower() or "could not serialize access" in str(exc).lower():
+        # Two requests collided on the same rows and Postgres rolled one back: nothing was saved, retry is safe.
+        logging.warning("Database deadlock/serialization failure (client told to retry): %s", exc)
+        return JSONResponse(
+            status_code=409,
+            headers={"Retry-After": "1"},
+            content={"detail": "Another change to the same records was in progress. Nothing was saved - please try again."},
+        )
     logging.error(f"Database Error: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,

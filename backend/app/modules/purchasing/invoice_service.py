@@ -166,10 +166,75 @@ class PurchaseInvoiceService:
                     detail=f"GRN {grn.good_received_no} does not belong to this supplier"
                 )
 
+        # ---- three-way match: what is invoiced must be what was received, at the PO price ----
+        from app.modules.purchasing.models import GoodReceivedItems, PurchasingOrderItems
+
+        cent = Decimal("0.01")
+        requested: Dict[tuple, Decimal] = {}
+        for item in data.items:
+            grn = grns_by_id[item.grn_id]
+            if abs(Decimal(str(item.line_total)) - Decimal(str(item.quantity)) * Decimal(str(item.unit_price))) > cent:
+                raise HTTPException(status_code=400, detail=f"Line total {item.line_total} is not quantity x unit price for GRN {grn.good_received_no}")
+            requested[(grn.id, item.product_id)] = requested.get((grn.id, item.product_id), Decimal("0")) + Decimal(str(item.quantity))
+        for (grn_id, product_id), qty in requested.items():
+            grn = grns_by_id[grn_id]
+            if (grn.status or "").lower() == "cancelled":
+                raise HTTPException(status_code=400, detail=f"GRN {grn.good_received_no} is cancelled and cannot be invoiced")
+            received_q = self.db.query(
+                PurchasingOrderItems.product_id, func.coalesce(func.sum(GoodReceivedItems.quantity), 0)
+            ).join(
+                GoodReceivedItems, GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id
+            ).filter(
+                GoodReceivedItems.good_received_note == grn.good_received_no,
+                GoodReceivedItems.active == True,
+            ).group_by(PurchasingOrderItems.product_id).all()
+            received = {pid: Decimal(str(q)) for pid, q in received_q}
+            invoiced_q = self.db.query(
+                PurchaseInvoiceItem.product_id, func.coalesce(func.sum(PurchaseInvoiceItem.quantity), 0)
+            ).join(
+                PurchaseInvoice, PurchaseInvoiceItem.purchase_invoice_id == PurchaseInvoice.id
+            ).filter(
+                PurchaseInvoiceItem.grn_id == grn_id,
+                PurchaseInvoice.status != "cancelled",
+            ).group_by(PurchaseInvoiceItem.product_id).all()
+            invoiced = {pid: Decimal(str(q)) for pid, q in invoiced_q}
+            if product_id is None:
+                open_qty = sum(received.values()) - sum(invoiced.values())
+            else:
+                if product_id not in received:
+                    raise HTTPException(status_code=400, detail=f"Product {product_id} was not received on GRN {grn.good_received_no}")
+                open_qty = received[product_id] - invoiced.get(product_id, Decimal("0"))
+            if qty > open_qty:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot invoice {qty} unit(s) on GRN {grn.good_received_no}: only {max(open_qty, Decimal('0'))} received and not yet invoiced.",
+                )
+        po_prices: Dict[tuple, set] = {}
+        for poi in self.db.query(PurchasingOrderItems).filter(PurchasingOrderItems.purchasingorders_id.in_(list(po_ids))).all():
+            po_prices.setdefault((poi.purchasingorders_id, poi.product_id), set()).add(Decimal(str(poi.unit_price)).quantize(cent))
+        for item in data.items:
+            if item.product_id is None:
+                continue
+            prices = po_prices.get((grns_by_id[item.grn_id].purchasingorders_id, item.product_id))
+            if prices and len(prices) == 1 and Decimal(str(item.unit_price)).quantize(cent) != next(iter(prices)):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invoice price {item.unit_price} differs from the purchase order price {next(iter(prices))}; correct the invoice or the purchase order first.",
+                )
+
         # Calculate total if not provided
         calculated_subtotal = sum(item.line_total for item in data.items)
         calculated_tax = sum(item.tax_amount for item in data.items)
         total = calculated_subtotal + calculated_tax - data.discount_amount
+        if data.discount_amount and Decimal(str(data.discount_amount)) > Decimal(str(calculated_subtotal)) + Decimal(str(calculated_tax)):
+            raise HTTPException(status_code=400, detail="Discount cannot exceed the invoice amount")
+        if data.total_amount is not None and abs(Decimal(str(data.total_amount)) - Decimal(str(total))) > cent:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invoice total {data.total_amount} does not match its lines ({total}: subtotal + tax - discount)",
+            )
+        if data.subtotal is not None and abs(Decimal(str(data.subtotal)) - Decimal(str(calculated_subtotal))) > cent:
+            raise HTTPException(status_code=400, detail=f"Invoice subtotal {data.subtotal} does not match its lines ({calculated_subtotal})")
 
         # Generate invoice number
         invoice_no = self._generate_invoice_no(data.branch_code)

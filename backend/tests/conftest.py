@@ -27,6 +27,8 @@ Key fixtures
 from __future__ import annotations
 
 import os
+import random
+import string
 import uuid
 from datetime import date
 
@@ -194,7 +196,8 @@ def make_product(db) -> Callable[..., object]:
         )
         brand = ItemsBrand(
             brand_name=_unique("Brand"),
-            brand_code=_unique("B")[:4],
+            # 4-char column: random letters never collide with the app's numeric codes (0001...)
+            brand_code="".join(random.choices(string.ascii_uppercase, k=4)),
         )
         db.add_all([category, brand])
         db.flush()

@@ -587,22 +587,20 @@ def _v_create_purchase_order(db: Session, user: User, args: Dict) -> Dict:
         )
 
     warnings = []
-    payment_method = (args.get("payment_method") or "cash").lower()
-    if payment_method == "credit":
-        check = supplier_credit_service.check_po_credit(
-            db, supplier.id, total, payment_method="Credit"
-        )
-        cc = check.get("credit_check", {})
-        if cc.get("will_exceed_limit"):
-            warnings.append(cc.get("message") or "PO exceeds available supplier credit — it will require approval.")
-        elif cc.get("has_overdue"):
-            warnings.append(cc.get("message") or "Supplier has overdue payments.")
+    # Every PO is owed to the supplier (payment is decided in Finance), so the credit check always applies.
+    check = supplier_credit_service.check_po_credit(
+        db, supplier.id, total, payment_method="Credit"
+    )
+    cc = check.get("credit_check", {})
+    if cc.get("will_exceed_limit"):
+        warnings.append(cc.get("message") or "PO exceeds available supplier credit — it will require approval.")
+    elif cc.get("has_overdue"):
+        warnings.append(cc.get("message") or "Supplier has overdue payments.")
 
     return {
         "action": "Create purchase order",
         "supplier": supplier.company_name,
         "branch_code": branch,
-        "payment_method": payment_method,
         "total_amount": _fmt_money(total),
         "items": preview_items,
         "warnings": warnings,
@@ -615,7 +613,6 @@ def _x_create_purchase_order(db: Session, user: User, args: Dict) -> Dict:
     today = tz.today()
     order = pschemas.PurchasingOrderCreate(
         branch_code=args["branch_code"],
-        payment_method=(args.get("payment_method") or "cash").lower(),
         purchasing_order_date=date.fromisoformat(args["order_date"]) if args.get("order_date") else today,
         good_received_note_date=date.fromisoformat(args["expected_date"]) if args.get("expected_date") else today,
         remarks=args.get("remarks"),
@@ -2820,7 +2817,7 @@ TOOLS: List[ToolSpec] = [
     ),
     ToolSpec(
         name="create_purchase_order",
-        description="Create a purchase order. WRITE ACTION — queues a confirmation the user must approve in the UI. Requires supplier_id, branch_code and items. payment_method: cash, credit, cheque or bank_transfer.",
+        description="Create a purchase order. WRITE ACTION — queues a confirmation the user must approve in the UI. Requires supplier_id, branch_code and items. Payment is handled in Finance, so no payment method is given.",
         parameters=_params(
             {
                 "supplier_id": {"type": "integer"},

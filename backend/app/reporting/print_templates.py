@@ -90,6 +90,14 @@ DOCUMENT_TYPES: dict[str, DocumentType] = {
             "generate_itn_report", ("itn.itn_no", "itn.transfer_date", "total_quantity"),
         ),
         DocumentType(
+            "production-order", "Production Order", "standard/document.html", Permissions.PRODUCTION_ORDER_VIEW,
+            "generate_production_order_report", ("order.order_no", "order.planned_start_date", "order.planned_quantity"),
+        ),
+        DocumentType(
+            "job-card", "Job Card", "standard/document.html", Permissions.SHOP_FLOOR_VIEW,
+            "generate_job_card_report", ("order.order_no", "order.planned_start_date", "order.planned_quantity"),
+        ),
+        DocumentType(
             "journal-entry", "Journal Entry", "standard/document.html", Permissions.JOURNAL_ENTRY_VIEW,
             "generate_journal_entry_report", ("je.journal_entry_no", "je.entry_date", "je.total_debit", "je.total_credit"),
         ),

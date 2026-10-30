@@ -44,6 +44,12 @@ import StoreIcon from "@mui/icons-material/Store";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import AssignmentIcon from "@mui/icons-material/Assignment";
+import EngineeringIcon from "@mui/icons-material/Engineering";
+import FactoryIcon from "@mui/icons-material/Factory";
+import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
+import RuleIcon from "@mui/icons-material/Rule";
+import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
 import ForkliftIcon from "./ForkliftIcon";
 import {
   Box,
@@ -187,6 +193,41 @@ const menuItems: MenuItem[] = [
             permission: PERMISSIONS.PO_APPROVALS_VIEW,
           },
         ],
+      },
+    ],
+  },
+  {
+    text: "Manufacturing",
+    icon: <PrecisionManufacturingIcon />,
+    path: "/manufacturing",
+    permission: PERMISSIONS.MANUFACTURING_DASHBOARD_VIEW,
+    subItems: [
+      { text: "Dashboard", icon: <SpeedIcon />, path: "/manufacturing", permission: PERMISSIONS.MANUFACTURING_DASHBOARD_VIEW },
+      {
+        text: "Production Orders",
+        icon: <AssignmentIcon />,
+        path: "/manufacturing/orders",
+        permission: PERMISSIONS.PRODUCTION_ORDERS_VIEW,
+      },
+      { text: "Job Cards", icon: <EngineeringIcon />, path: "/manufacturing/job-cards", permission: PERMISSIONS.SHOP_FLOOR_VIEW },
+      {
+        text: "Material Requirements",
+        icon: <PlaylistAddCheckIcon />,
+        path: "/manufacturing/mrp",
+        permission: PERMISSIONS.MRP_VIEW,
+      },
+      {
+        text: "Reordering Rules",
+        icon: <RuleIcon />,
+        path: "/manufacturing/reorder-rules",
+        permission: PERMISSIONS.MRP_VIEW,
+      },
+      { text: "Bills of Materials", icon: <AccountTreeIcon />, path: "/manufacturing/boms", permission: PERMISSIONS.BOMS_VIEW },
+      {
+        text: "Work Centers",
+        icon: <FactoryIcon />,
+        path: "/manufacturing/work-centers",
+        permission: PERMISSIONS.WORK_CENTERS_VIEW,
       },
     ],
   },
@@ -420,81 +461,37 @@ const menuItems: MenuItem[] = [
     permission: PERMISSIONS.HR_DASHBOARD_VIEW,
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/hr", permission: PERMISSIONS.HR_DASHBOARD_VIEW },
+      { text: "Employees", icon: <PersonIcon />, path: "/hr/employees", permission: PERMISSIONS.EMPLOYEES_VIEW },
+      { text: "Attendance", icon: <ReceiptLongIcon />, path: "/hr/attendance", permission: PERMISSIONS.ATTENDANCE_VIEW },
+      { text: "Leaves", icon: <ReceiptIcon />, path: "/hr/leaves", permission: PERMISSIONS.LEAVES_VIEW },
+      { text: "Leave Balances", icon: <ReceiptIcon />, path: "/hr/leave-balances", permission: PERMISSIONS.LEAVE_ALLOCATIONS_VIEW },
       {
-        text: "Employees",
-        icon: <PersonIcon />,
-        path: "/hr/employees",
-        permission: PERMISSIONS.EMPLOYEES_VIEW,
-      },
-      {
-        text: "HR Setup",
-        icon: <SettingsIcon />,
-        path: "/hr/setup",
-        permission: PERMISSIONS.HR_SETUP_VIEW,
-      },
-      {
-        text: "HR Reports",
-        icon: <AssessmentIcon />,
-        path: "/hr/reports",
-        permission: PERMISSIONS.HR_REPORTS_VIEW,
-      },
-      {
-        text: "Attendance",
-        icon: <ReceiptLongIcon />,
-        path: "/hr/attendance",
-        permission: PERMISSIONS.ATTENDANCE_VIEW,
-      },
-      {
-        text: "Leaves",
-        icon: <ReceiptIcon />,
-        path: "/hr/leaves",
-        permission: PERMISSIONS.LEAVES_VIEW,
-      },
-      {
-        text: "Leave Approvals",
-        icon: <FactCheckIcon />,
-        path: "/hr/leave-approvals",
-        permission: PERMISSIONS.LEAVE_APPROVALS_VIEW,
-      },
-      {
-        text: "Leave Balances",
-        icon: <ReceiptIcon />,
-        path: "/hr/leave-balances",
-        permission: PERMISSIONS.LEAVE_ALLOCATIONS_VIEW,
-      },
-      {
-        text: "Salary Profiles",
-        icon: <PersonIcon />,
-        path: "/hr/salary-profiles",
-        permission: PERMISSIONS.SALARY_PROFILES_VIEW,
-      },
-      { text: "Deductions", icon: <ReceiptIcon />, path: "/hr/deductions", permission: PERMISSIONS.DEDUCTIONS_VIEW },
-      {
-        text: "Payroll Records",
-        icon: <ReceiptLongIcon />,
-        path: "/hr/payroll",
-        permission: PERMISSIONS.PAYROLL_VIEW,
-      },
-      {
-        text: "Payroll Processing",
+        text: "Payroll",
         icon: <PaymentIcon />,
-        path: "/hr/payroll-processing",
-        permission: PERMISSIONS.PAYROLL_PROCESSING_VIEW,
+        path: "/hr/payroll",
+        subItems: [
+          { text: "Salary Profiles", icon: <PersonIcon />, path: "/hr/salary-profiles", permission: PERMISSIONS.SALARY_PROFILES_VIEW },
+          { text: "Deductions", icon: <ReceiptIcon />, path: "/hr/deductions", permission: PERMISSIONS.DEDUCTIONS_VIEW },
+          { text: "Payroll Records", icon: <ReceiptLongIcon />, path: "/hr/payroll", permission: PERMISSIONS.PAYROLL_VIEW },
+          { text: "Payroll Processing", icon: <PaymentIcon />, path: "/hr/payroll-processing", permission: PERMISSIONS.PAYROLL_PROCESSING_VIEW },
+          { text: "Sales Commissions", icon: <SellIcon />, path: "/hr/sales-commissions", permission: PERMISSIONS.HR_SALES_COMMISSIONS_VIEW },
+        ],
       },
-      {
-        text: "Sales Commissions",
-        icon: <SellIcon />,
-        path: "/hr/sales-commissions",
-        permission: PERMISSIONS.HR_SALES_COMMISSIONS_VIEW,
-      },
-      {
-        text: "Reimbursements",
-        icon: <AccountBalanceWalletIcon />,
-        path: "/hr/reimbursements",
-        permission: PERMISSIONS.REIMBURSEMENTS_VIEW,
-      },
+      { text: "Reimbursements", icon: <AccountBalanceWalletIcon />, path: "/hr/reimbursements", permission: PERMISSIONS.REIMBURSEMENTS_VIEW },
       { text: "Promotions", icon: <SellIcon />, path: "/hr/promotions", permission: PERMISSIONS.PROMOTIONS_VIEW },
       { text: "Assets", icon: <Inventory2Icon />, path: "/hr/assets", permission: PERMISSIONS.HR_ASSETS_VIEW },
+      {
+        text: "Approvals",
+        icon: <FactCheckIcon />,
+        path: "/hr/approvals",
+        subItems: [
+          { text: "Leave Approvals", icon: <FactCheckIcon />, path: "/hr/approvals/leave-approvals", permission: PERMISSIONS.LEAVE_APPROVALS_VIEW },
+          { text: "Payroll Approvals", icon: <FactCheckIcon />, path: "/hr/approvals/payroll-approvals", permission: PERMISSIONS.PAYROLL_APPROVALS_VIEW },
+          { text: "Reimbursement Approvals", icon: <FactCheckIcon />, path: "/hr/approvals/reimbursement-approvals", permission: PERMISSIONS.REIMBURSEMENT_APPROVALS_VIEW },
+        ],
+      },
+      { text: "HR Reports", icon: <AssessmentIcon />, path: "/hr/reports", permission: PERMISSIONS.HR_REPORTS_VIEW },
+      { text: "HR Setup", icon: <SettingsIcon />, path: "/hr/setup", permission: PERMISSIONS.HR_SETUP_VIEW },
     ],
   },
   {

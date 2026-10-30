@@ -904,7 +904,7 @@ class SalesQuoteService:
 
         Logic:
           - ALL items 'so_created' or 'cancelled' (with at least one so_created) → COMPLETED
-          - ANY item progressed beyond 'pending' (procurement/po_created/itn_created/so_created) → PARTIALLY_PROCESSED
+          - ANY item progressed beyond 'pending' (procurement/po_created/mo_created/itn_created/so_created) → PARTIALLY_PROCESSED
           - Otherwise leave unchanged (DRAFT / SENT)
         """
         if quote.status == QuoteStatus.CANCELLED.value:
@@ -917,7 +917,7 @@ class SalesQuoteService:
         terminal = sum(1 for i in items if i.item_status in ("so_created", "cancelled"))
         in_so  = sum(1 for i in items if i.item_status == "so_created")
         progressed = sum(1 for i in items if i.item_status in (
-            "procurement", "po_created", "itn_created", "so_created"
+            "procurement", "po_created", "mo_created", "itn_created", "so_created"
         ))
 
         if terminal == total and in_so > 0:
@@ -1219,7 +1219,7 @@ class SalesQuoteService:
         for item in targets:
             # Only allow transitioning items that have not yet been procured/fulfilled
             if item.item_status not in ("pending", "procurement"):
-                continue  # Protect po_created, itn_created, so_created, completed, cancelled
+                continue  # Protect po_created, mo_created, itn_created, so_created, completed, cancelled
             item.item_status = "procurement"
 
         self.recompute_quote_status(db, quote)
@@ -1829,7 +1829,7 @@ class SalesQuoteService:
             # is_sufficient (0 >= 0) true, wrongly reporting an unreceived
             # item as in_stock. Only a genuine SO conversion should reduce
             # the physical quantity still needed.
-            if item.item_status in ("po_created", "itn_created"):
+            if item.item_status in ("po_created", "mo_created", "itn_created"):
                 remaining_qty = item.quantity
             else:
                 remaining_qty = item.quantity - (item.converted_qty or 0)

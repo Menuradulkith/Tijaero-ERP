@@ -2,7 +2,7 @@
 profiles, promotions, asset assignments). Responses stay lenient (see schemas.py)."""
 import re
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Annotated, List, Literal, Optional
 
 from pydantic import BaseModel, BeforeValidator, Field, StringConstraints, field_validator, model_validator
@@ -29,10 +29,18 @@ def OptStr(n: int):
 def _money(v):
     if v is None:
         return v
-    d = Decimal(str(v)) if not isinstance(v, Decimal) else v
+    if isinstance(v, (list, dict, bool)):
+        raise ValueError("Enter a valid amount")
+    try:
+        d = Decimal(str(v)) if not isinstance(v, Decimal) else v
+    except (InvalidOperation, ValueError):
+        raise ValueError("Enter a valid amount")
     if not d.is_finite():
         raise ValueError("Enter a valid amount")
-    return d.quantize(Decimal("0.01"))
+    try:
+        return d.quantize(Decimal("0.01"))
+    except InvalidOperation:
+        raise ValueError("Enter a valid amount")
 
 
 # amounts: non-negative, bounded, two decimals

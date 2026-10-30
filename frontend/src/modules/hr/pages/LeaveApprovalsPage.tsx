@@ -3,9 +3,12 @@
  * Left: list of pending leaves.
  * Right: leave details + approve/reject actions.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, TextField, Typography } from "@mui/material";
+import { Box, Button, InputAdornment, TextField, Typography } from "@mui/material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import SearchIcon from "@mui/icons-material/Search";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
@@ -17,9 +20,8 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SearchableList,
-  SelectableListItem,
-  SortOption,
+  TDataGrid,
+  type TDataGridColumn,
   TButton,
   TConfirmDialog,
   TDetailSkeleton,
@@ -34,18 +36,11 @@ import { usePermission } from "@/auth/permissions";
 import { leavesApi } from "@/modules/hr/api";
 import type { Leave } from "@/modules/hr/types";
 
-const SORT_OPTIONS: SortOption[] = [
-  { value: "from_date", label: "From Date" },
-  { value: "created_desc", label: "Date Applied" },
-  { value: "employee_id", label: "Employee" },
-];
-
 export default function LeaveApprovalsPage() {
   const qc = useQueryClient();
   const canApprove = usePermission("leave_approvals", "approve");
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("created_desc");
   const [selectedLeave, setSelectedLeave] = useState<Leave | null>(null);
 
   const [approveDialog, setApproveDialog] = useState(false);
@@ -60,30 +55,15 @@ export default function LeaveApprovalsPage() {
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    let list = (leaves || []).filter(
+    const list = (leaves || []).filter(
       (l) =>
         !q ||
         l.employee_id.toLowerCase().includes(q) ||
         (l.employee_name || "").toLowerCase().includes(q) ||
         l.leave_type.toLowerCase().includes(q)
     );
-    list.sort((a, b) => {
-      if (sortField === "employee_id") return a.employee_id.localeCompare(b.employee_id);
-      if (sortField === "created_desc") return (b.created_at || "").localeCompare(a.created_at || "");
-      return a.from_date.localeCompare(b.from_date);
-    });
     return list;
-  }, [leaves, searchQuery, sortField]);
-
-  useEffect(() => {
-    if (filtered.length > 0 && !selectedLeave) {
-      setSelectedLeave(filtered[0]);
-    } else if (filtered.length === 0) {
-      setSelectedLeave(null);
-    } else if (selectedLeave && !filtered.find((l) => l.id === selectedLeave.id)) {
-      setSelectedLeave(filtered[0] || null);
-    }
-  }, [filtered, selectedLeave]);
+  }, [leaves, searchQuery]);
 
   const approveMutation = useMutation({
     mutationFn: (id: number) => leavesApi.approve(id, { remarks }),
@@ -92,6 +72,7 @@ export default function LeaveApprovalsPage() {
       qc.invalidateQueries({ queryKey: ["hr-leaves"] });
       qc.invalidateQueries({ queryKey: ["leaves-pending-count"] });
       showSuccessToast("Leave approved");
+      setSelectedLeave(null);
       setApproveDialog(false);
       setRemarks("");
     },
@@ -105,6 +86,7 @@ export default function LeaveApprovalsPage() {
       qc.invalidateQueries({ queryKey: ["hr-leaves"] });
       qc.invalidateQueries({ queryKey: ["leaves-pending-count"] });
       showSuccessToast("Leave rejected");
+      setSelectedLeave(null);
       setRejectDialog(false);
       setRejectionReason("");
     },
@@ -125,49 +107,35 @@ export default function LeaveApprovalsPage() {
     if (selectedLeave) rejectMutation.mutate(selectedLeave.id);
   }, [selectedLeave, rejectionReason, rejectMutation]);
 
-  const masterPanel = (
-    <SearchableList<Leave>
-      items={filtered}
-      isLoading={isLoading}
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      searchPlaceholder="Search pending leaves..."
-      sortOptions={SORT_OPTIONS}
-      currentSort={sortField}
-      onSortChange={setSortField}
-      selectedItem={selectedLeave}
-      onSelectItem={setSelectedLeave}
-      emptyMessage="No pending leave requests"
-      renderItem={(leave, isSelected) => (
-        <SelectableListItem
-          key={leave.id}
-          id={leave.id}
-          isSelected={isSelected}
-          onClick={() => setSelectedLeave(leave)}
-          primaryText={
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{leave.employee_name || leave.employee_id}</span>
-                <TStatusChip
-                  status="pending"
-                  size="small"
-                  customMap={{ pending: { label: "Pending", color: "warning" } }}
-                  sx={{ height: 18, fontSize: "0.65rem" }}
-                />
-              </Box>
-              <Typography component="span" variant="caption" sx={{ color: isSelected ? "inherit" : "text.secondary" }}>
-                {leave.leave_type.toUpperCase()} • {leave.leave_duration} day(s)
-              </Typography>
-            </Box>
-          }
-          secondaryText={
-            !isSelected
-              ? `${format(new Date(leave.from_date), "MMM dd")} → ${format(new Date(leave.to_date), "MMM dd, yyyy")}`
-              : undefined
-          }
+  const columns: TDataGridColumn<Leave>[] = useMemo(
+    () => [
+      { field: "employee_name", header: "Employee", flex: 1, minWidth: 180, renderCell: (p: GridRenderCellParams<Leave>) => p.row.employee_name || p.row.employee_id },
+      { field: "leave_type", header: "Leave Type", width: 140, renderCell: (p: GridRenderCellParams<Leave>) => <span style={{ textTransform: "capitalize" }}>{p.row.leave_type}</span> },
+      { field: "from_date", header: "From", width: 130, renderCell: (p: GridRenderCellParams<Leave>) => format(new Date(p.row.from_date), "MMM dd, yyyy") },
+      { field: "to_date", header: "To", width: 130, renderCell: (p: GridRenderCellParams<Leave>) => format(new Date(p.row.to_date), "MMM dd, yyyy") },
+      { field: "leave_duration", header: "Days", width: 90, align: "right", headerAlign: "right" },
+      { field: "created_at", header: "Applied", width: 150, renderCell: (p: GridRenderCellParams<Leave>) => (p.row.created_at ? format(new Date(p.row.created_at), "MMM dd, yyyy") : "—") },
+      { field: "status", header: "Status", width: 120, align: "center", headerAlign: "center", renderCell: () => <TStatusChip status="pending" statusMap="leaveStatus" size="small" /> },
+    ],
+    []
+  );
+
+  const tablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<Leave>
+          rows={filtered}
+          columns={columns}
+          loading={isLoading}
+          onRowClick={(row) => setSelectedLeave(row)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage="No pending leave requests"
+          autoHeight={false}
+          height="100%"
         />
-      )}
-    />
+      </Box>
+    </Box>
   );
 
   const detailPanel = (
@@ -175,7 +143,7 @@ export default function LeaveApprovalsPage() {
       <DetailPanelHeader
         breadcrumbs={[
           { label: "HR", href: "/hr" },
-          { label: "Leave Approvals", href: "/hr/leave-approvals" },
+          { label: "Leave Approvals", href: "/hr/approvals/leave-approvals" },
           ...(selectedLeave ? [{ label: `LV-${selectedLeave.id}` }] : []),
         ]}
         title={
@@ -185,7 +153,7 @@ export default function LeaveApprovalsPage() {
         }
         titleIcon={<EventAvailableIcon color="primary" />}
         noSelectionTitle="Select a Pending Leave"
-        chips={selectedLeave ? [{ label: "pending", color: "warning" as const }] : []}
+        chips={selectedLeave ? [{ label: "Pending", color: "warning" as const }] : []}
       />
 
       <ActionToolbar
@@ -357,11 +325,35 @@ export default function LeaveApprovalsPage() {
     <>
       <MasterDetailLayout
         title="Leave Approvals"
+        icon={<EventAvailableIcon color="primary" />}
+        titleSlot={
+          selectedLeave ? (
+            <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={() => setSelectedLeave(null)} sx={{ textTransform: "none" }}>
+              Back to Leave Approvals
+            </Button>
+          ) : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search pending leaves..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" color="action" /></InputAdornment> }}
+                sx={{ width: 240, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              />
+              {searchQuery && (
+                <Button size="small" onClick={() => setSearchQuery("")} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
+              )}
+            </Box>
+          )
+        }
         onRefresh={refetch}
         isLoading={isLoading}
-        masterPanel={masterPanel}
-        detailPanel={detailPanel}
-      />
+      >
+        {selectedLeave ? detailPanel : tablePanel}
+      </MasterDetailLayout>
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

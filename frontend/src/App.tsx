@@ -11,6 +11,7 @@ const DashboardPage = lazy(() => import("./app/pages/DashboardPage"));
 const SalesRoutes = lazy(() => import("./modules/sales/routes"));
 const InventoryRoutes = lazy(() => import("./modules/inventory/routes"));
 const PurchasingRoutes = lazy(() => import("./modules/purchasing/routes"));
+const ManufacturingRoutes = lazy(() => import("./modules/manufacturing/routes"));
 const FinanceRoutes = lazy(() => import("./modules/finance/routes"));
 const HRRoutes = lazy(() => import("./modules/hr/routes"));
 const WarehouseRoutes = lazy(() => import("./modules/warehouse/routes"));
@@ -89,6 +90,16 @@ function App() {
               <ProtectedRoute>
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <PurchasingRoutes />
+                </Suspense>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/manufacturing/*"
+            element={
+              <ProtectedRoute>
+                <Suspense fallback={<RouteLoadingFallback />}>
+                  <ManufacturingRoutes />
                 </Suspense>
               </ProtectedRoute>
             }

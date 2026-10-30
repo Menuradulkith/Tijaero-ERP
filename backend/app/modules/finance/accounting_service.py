@@ -2647,7 +2647,7 @@ class CashFlowService:
         ("OP-010", "Accounts Receivable Changes", "Operating", "(Increase)/Decrease in Accounts Receivable",
          30, False, '["1110"]', "Change in trade receivables (increase = cash outflow)"),
         ("OP-011", "Inventory Changes", "Operating", "(Increase)/Decrease in Inventory",
-         40, False, '["1210", "1220"]', "Change in inventory and goods in transit (increase = cash outflow)"),
+         40, False, '["1210", "1220", "1230"]', "Change in inventory and goods in transit (increase = cash outflow)"),
         ("OP-020", "Accounts Payable Changes", "Operating", "Increase/(Decrease) in Accounts Payable",
          50, True, '["2010"]', "Change in trade creditors (increase = cash inflow)"),
         ("OP-021", "Payroll Liabilities Changes", "Operating", "Increase/(Decrease) in Payroll Liabilities",

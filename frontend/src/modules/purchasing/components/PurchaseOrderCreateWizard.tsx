@@ -11,7 +11,6 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import StarIcon from "@mui/icons-material/Star";
 import {
-  Alert,
   Autocomplete,
   Box,
   IconButton,
@@ -38,7 +37,6 @@ import {
 import {
   TChip,
   fmtLKR,
-  getPaymentTermsLabel,
   modernTableStyles,
   showErrorToast,
   showSuccessToast,
@@ -139,15 +137,6 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
   // The PO's order date isn't a user-facing field anymore — it's always today.
   const orderDate = TODAY_STR;
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // One GRN Date per resulting PO (i.e. per supplier group), keyed by
-  // supplier id — set in Step 2, once the lines are already grouped.
-  const [requiredDates, setRequiredDates] = useState<Record<number, string>>({});
-  // Suppliers whose date the user has typed in themselves; the lead-time
-  // estimate is only ever applied to the ones not in here.
-  const manualDateSuppliers = useRef<Set<number>>(new Set());
-  // One Payment Method per resulting PO (i.e. per supplier group), keyed by
-  // supplier id — sits next to that group's GRN Date.
-  const [paymentMethods, setPaymentMethods] = useState<Record<number, string>>({});
 
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = refData?.products || [];
@@ -288,38 +277,14 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     }));
   }, [lines, suppliers]);
 
-  // Pre-fill each group's Expected Delivery Date with order date + the
-  // supplier's lead time in working days. It's an estimate (re-based on the
-  // approval date when the PO is approved) and stays fully editable.
-  useEffect(() => {
-    setRequiredDates((prev) => {
-      let next = prev;
-      for (const group of supplierGroups) {
-        const lead = group.supplier?.lead_time_days;
-        if (!lead || lead <= 0 || manualDateSuppliers.current.has(group.supplierId)) continue;
-        const estimate = addWorkingDays(TODAY_STR, lead);
-        if (prev[group.supplierId] !== estimate) next = { ...next, [group.supplierId]: estimate };
-      }
-      return next;
-    });
-  }, [supplierGroups]);
+  // Each PO's expected delivery date is not entered here: it is estimated as the order date + the
+  // supplier's lead time in working days (re-based on the approval date when the PO is approved).
+  const estimatedDeliveryDate = (leadTimeDays?: number | null): string | null =>
+    leadTimeDays && leadTimeDays > 0 ? addWorkingDays(TODAY_STR, leadTimeDays) : null;
 
   const grandTotal = useMemo(() => supplierGroups.reduce((sum, g) => sum + g.total, 0), [supplierGroups]);
 
-  // Every resulting PO (one per supplier group) needs its own GRN Date
-  // before the user can confirm — checked against the group's own date, not
-  // a per-line one, since the field now lives at that level.
-  const isReviewStepValid =
-    supplierGroups.length > 0 &&
-    supplierGroups.every((g) => {
-      const d = requiredDates[g.supplierId];
-      return !!d && d >= TODAY_STR;
-    });
-
-  const getPaymentMethod = useCallback(
-    (supplierId: number) => paymentMethods[supplierId] || "Non-credit",
-    [paymentMethods],
-  );
+  const isReviewStepValid = supplierGroups.length > 0;
 
   // Ordering below a supplier's MOQ is allowed, but the user is told first
   // (before Review & Confirm, and again before the POs are saved). Returns
@@ -365,9 +330,10 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
         setIsSubmitting(false);
         return;
       }
-      // Run a credit check per supplier group that's set to "Credit".
+      // Every PO is owed to the supplier (paid later from Finance), so check the supplier's credit limit
+      // for each group — when the supplier has one.
       for (const group of supplierGroups) {
-        if (getPaymentMethod(group.supplierId).toLowerCase() !== "credit") continue;
+        if (!((group.supplier?.max_credit_limit ?? 0) > 0)) continue;
         try {
           const creditCheck = await purchaseOrdersApi.checkCredit(group.supplierId, group.total);
           if (creditCheck.requires_approval) {
@@ -392,19 +358,16 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
       }
 
       const groups: PurchasingOrderCreate[] = supplierGroups.map((group) => {
-        const isCredit = getPaymentMethod(group.supplierId).toLowerCase() === "credit";
-        const requiredDate = requiredDates[group.supplierId] || null;
+        const requiredDate = estimatedDeliveryDate(group.supplier?.lead_time_days);
         return {
           purchasing_order_no: "",
           branch_code: branchCode,
-          payment_method: getPaymentMethod(group.supplierId),
           purchasing_order_date: orderDate,
-          // GRN date is what the wizard collects as the group's GRN Date —
-          // the date the supplier is expected to deliver by.
+          // The date the supplier is expected to deliver by (lead-time estimate, else the order date).
           good_received_note_date: requiredDate || orderDate,
           required_date: requiredDate,
-          // Payment term (credit days) only matters for a credit purchase.
-          credit_date: isCredit ? group.supplier?.credit_days ?? 0 : 0,
+          // Payment term = the supplier's credit days (how it is then paid is decided in Finance).
+          credit_date: group.supplier?.credit_days ?? 0,
           first_suppliers_id: group.supplierId,
           second_suppliers_id: 0,
           items: group.lines.map(
@@ -435,10 +398,8 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
   }, [
     isSubmitting,
     supplierGroups,
-    getPaymentMethod,
     branchCode,
     orderDate,
-    requiredDates,
     creditWarningDialog,
     confirmMoq,
     currencySymbol,
@@ -693,59 +654,12 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
 
       {activeStep === 1 && (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <Alert severity="info">
-            This purchase will be split into <strong>{supplierGroups.length}</strong> separate purchase
-            order{supplierGroups.length === 1 ? "" : "s"}, one per supplier — each will need its own
-            approval, but all will reference this same purchase.
-          </Alert>
-
           {supplierGroups.map((group) => (
             <TFormSection
               key={group.supplierId}
               title={group.supplier?.company_name || `Supplier #${group.supplierId}`}
               columns={1}
             >
-              <Box sx={{ display: "flex", gap: 2, mb: 1.5 }}>
-                <TextField
-                  label="Expected Delivery Date"
-                  size="small"
-                  type="date"
-                  required
-                  error={!requiredDates[group.supplierId] || requiredDates[group.supplierId] < TODAY_STR}
-                  value={requiredDates[group.supplierId] || ""}
-                  onChange={(e) => {
-                    manualDateSuppliers.current.add(group.supplierId);
-                    setRequiredDates((prev) => ({ ...prev, [group.supplierId]: e.target.value }));
-                  }}
-                  helperText={
-                    !manualDateSuppliers.current.has(group.supplierId) && group.supplier?.lead_time_days
-                      ? `Estimated: ${group.supplier.lead_time_days} working days lead time. Recalculated when approved.`
-                      : undefined
-                  }
-                  InputLabelProps={{ shrink: true }}
-                  inputProps={{ min: TODAY_STR }}
-                  sx={{ width: 220 }}
-                />
-                <Autocomplete
-                  size="small"
-                  options={["Non-credit", "Credit"]}
-                  value={getPaymentMethod(group.supplierId)}
-                  onChange={(_, newValue) =>
-                    setPaymentMethods((prev) => ({ ...prev, [group.supplierId]: newValue || "Non-credit" }))
-                  }
-                  renderInput={(params) => <TextField {...params} label="Payment Method" />}
-                  sx={{ width: 220 }}
-                />
-                {getPaymentMethod(group.supplierId).toLowerCase() === "credit" && (
-                  <TextField
-                    label="Payment Term"
-                    size="small"
-                    value={getPaymentTermsLabel(group.supplier?.credit_days)}
-                    disabled
-                    sx={{ width: 180 }}
-                  />
-                )}
-              </Box>
               <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 2 }}>
                 <Table size="small">
                   <TableHead>

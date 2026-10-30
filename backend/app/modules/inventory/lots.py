@@ -49,6 +49,8 @@ def split_lot(db: Session, row: SalesStock, qty: int) -> SalesStock:
         location_id=row.location_id,
         good_received_note_id=row.good_received_note_id,
         purchasing_order_items_id=row.purchasing_order_items_id,
+        production_order_id=row.production_order_id,
+        consumed_by_production_order_id=row.consumed_by_production_order_id,
         warranty_month=row.warranty_month,
         status=row.status,
         is_active=row.is_active,

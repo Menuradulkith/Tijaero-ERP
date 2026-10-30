@@ -1,6 +1,6 @@
 from pydantic import BaseModel, BeforeValidator, EmailStr, Field, StringConstraints, field_validator, field_serializer, model_validator
 from app.common.validators import normalize_phone_number
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Annotated, Generic, Literal, Optional, List, TypeVar
 from decimal import Decimal
 import re
@@ -643,7 +643,9 @@ class PurchasingOrderCreate(BaseModel):
     purchasing_order_no: Optional[str] = Field(default=None, max_length=200)  # ignored: generated on the server
     purchasing_invoice_no: OptStr(200) = None
     branch_code: ReqStr(200)
-    payment_method: ReqStr(30)
+    # A PO carries no payment method: every PO is owed to the supplier (Trade Creditors) and how it is
+    # paid (cash / bank / cheque ...) is decided in Finance. Anything sent here is ignored.
+    payment_method: str = "credit"
     purchasing_order_date: date
     good_received_note_date: date
     required_date: Optional[date] = None
@@ -654,7 +656,11 @@ class PurchasingOrderCreate(BaseModel):
     sales_quote_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)  # link to source quotation
     items: List[PurchasingOrderItemCreate] = Field(..., min_length=1, max_length=200)
 
-    _v_pay = field_validator("payment_method")(_check_po_payment_method)
+    @field_validator("payment_method", mode="before")
+    @classmethod
+    def _always_credit(cls, _v):
+        return "credit"
+
     _v_order_date = field_validator("purchasing_order_date")(_po_date_window)
     _v_second = field_validator("second_suppliers_id")(_zero_to_none)
 
@@ -673,7 +679,6 @@ class PurchasingOrderUpdate(BaseModel):
     approval, cancel and short-close actions (an edit to an approved PO sends it back for re-approval)."""
     purchasing_invoice_no: OptStr(200) = None
     branch_code: Optional[ReqStr(200)] = None
-    payment_method: Optional[ReqStr(30)] = None
     purchasing_order_date: Optional[date] = None
     good_received_note_date: Optional[date] = None
     required_date: Optional[date] = None
@@ -683,7 +688,6 @@ class PurchasingOrderUpdate(BaseModel):
     second_suppliers_id: Optional[int] = Field(default=None, ge=0, le=INT4_MAX)
     items: Optional[List[PurchasingOrderItemCreate]] = Field(default=None, min_length=1, max_length=200)
 
-    _v_pay = field_validator("payment_method")(_check_po_payment_method)
     _v_order_date = field_validator("purchasing_order_date")(_po_date_window)
     _v_second = field_validator("second_suppliers_id")(_zero_to_none)
 
@@ -691,7 +695,7 @@ class PurchasingOrderUpdate(BaseModel):
     @classmethod
     def _no_null_required(cls, values):
         if isinstance(values, dict):
-            for n in ("branch_code", "payment_method", "purchasing_order_date", "good_received_note_date", "first_suppliers_id"):
+            for n in ("branch_code", "purchasing_order_date", "good_received_note_date", "first_suppliers_id"):
                 if n in values and values[n] is None:
                     raise ValueError(f"{n} cannot be null")
         return values
@@ -1006,6 +1010,14 @@ class GRNReceiveLine(BaseModel):
 class GoodReceivedNoteReceive(GoodReceivedNoteBase):
     """A complete receipt - header + every line - posted in ONE transaction."""
     lines: List[GRNReceiveLine] = Field(..., min_length=1, max_length=500)
+
+    @field_validator("good_received_date", "supplier_invoice_date")
+    @classmethod
+    def _not_in_the_future(cls, v):
+        # A receipt records goods that have already arrived (one day of slack for time zones).
+        if v is not None and v > date.today() + timedelta(days=1):
+            raise ValueError("Date cannot be in the future")
+        return v
 
 
 class GRNCancelRequest(BaseModel):

@@ -369,6 +369,29 @@ _register("SupplierAdvanceReturn", None, _supplier_advance_return, verify_fn=_ve
 _register("Invoice", None, _simple((_S, "Invoice"), "Invoice", _invoice), lookup_marker=lambda _rid: "Revenue")
 _register("SaleReturn", None, _simple((_S, "SaleReturn"), "Sale return", _sale_return))
 
+# manufacturing
+_M = "app.modules.manufacturing.models"
+
+
+def _mfg(db: Session):
+    from app.modules.manufacturing.gl import ManufacturingGL
+
+    return ManufacturingGL(db)
+
+
+_register("MfgMaterialTxn", None, _simple((_M, "MfgMaterialTransaction"), "Material transaction",
+          lambda db, o, uid: _mfg(db).post_material_transaction(o, uid)),
+          lookup_marker=_marker("MfgMaterialTxn ID: {id}"))
+_register("MfgTimeLog", None, _simple((_M, "MfgTimeLog"), "Time log",
+          lambda db, o, uid: _mfg(db).post_time_log(o, uid)),
+          lookup_marker=_marker("MfgTimeLog ID: {id}"))
+_register("MfgOutput", None, _simple((_M, "MfgProductionOutput"), "Production output",
+          lambda db, o, uid: _mfg(db).post_output(o, uid)),
+          lookup_marker=_marker("MfgOutput ID: {id}"))
+_register("ProductionOrder", "Production Variance", _simple((_M, "MfgProductionOrder"), "Production order",
+          lambda db, o, uid: _mfg(db).post_variance(o, uid)),
+          lookup_marker=lambda _rid: "Production Variance")
+
 # Call sites that build their lines inline (no reusable hook) or are keyed on
 # something that is not a single source document. Their commit_failed rows
 # cannot be rebuilt automatically -> retry answers "not_regenerable".

@@ -331,16 +331,7 @@ export default function AttendancePage() {
         align: "center",
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<Attendance>) => (
-          <TStatusChip
-            status={params.row.status || "—"}
-            size="small"
-            customMap={{
-              [(params.row.status || "").toLowerCase()]: {
-                label: params.row.status || "—",
-                color: statusColor(params.row.status),
-              },
-            }}
-          />
+          <TStatusChip status={params.row.status || "—"} statusMap="attendanceStatus" size="small" />
         ),
       },
       {

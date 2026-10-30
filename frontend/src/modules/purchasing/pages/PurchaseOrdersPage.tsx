@@ -58,7 +58,6 @@ import {
     EmptyState,
     fmtLKR,
     FormSection,
-    getPaymentTermsLabel,
     getStatusProps,
     MasterDetailLayout,
     modernTableStyles,
@@ -134,14 +133,14 @@ interface PurchaseOrderFormData extends PurchasingOrderCreate {
   status?: string;
 }
 
-const normalizePurchaseOrderPaymentMethod = (method?: string | null): string => {
-  return method?.toLowerCase() === "credit" ? "Credit" : "Non-credit";
-};
+// A PO carries no payment method any more: every PO is owed to the supplier and is paid from Finance.
+// The form still holds "Credit" so the credit-limit checks below apply to every PO.
+const normalizePurchaseOrderPaymentMethod = (_method?: string | null): string => "Credit";
 
 const INITIAL_FORM_DATA: PurchaseOrderFormData = {
   purchasing_order_no: "",
   branch_code: "",
-  payment_method: "Non-credit",
+  payment_method: "Credit",
   purchasing_order_date: new Date().toISOString().split("T")[0],
   good_received_note_date: new Date().toISOString().split("T")[0],
   remarks: "",
@@ -718,8 +717,11 @@ export default function PurchaseOrdersPage() {
   // Check credit limit when supplier or amount changes
   const checkCreditLimit = useCallback(
     async (supplierId: number, amount: number, paymentMethod: string) => {
+      const hasCreditLimit =
+        ((suppliers as Supplier[] | undefined)?.find((s) => s.id === supplierId)?.max_credit_limit ?? 0) > 0;
       if (
         paymentMethod?.toLowerCase() === "credit" &&
+        hasCreditLimit &&
         supplierId > 0 &&
         amount > 0
       ) {
@@ -761,7 +763,7 @@ export default function PurchaseOrdersPage() {
         });
       }
     },
-    [],
+    [suppliers],
   );
 
   // Calculate total amount from line items
@@ -908,7 +910,9 @@ export default function PurchaseOrdersPage() {
     }
 
     // Check credit limit if payment method is Credit
-    const isCreditPayment = formData.payment_method?.toLowerCase() === "credit";
+    const isCreditPayment =
+      formData.payment_method?.toLowerCase() === "credit" &&
+      ((suppliers as Supplier[] | undefined)?.find((s) => s.id === formData.first_suppliers_id)?.max_credit_limit ?? 0) > 0;
 
     if (isCreditPayment && formData.first_suppliers_id) {
       const totalAmount = lineItems.reduce(
@@ -1566,22 +1570,7 @@ export default function PurchaseOrdersPage() {
                     </FormSection>
                   )}
 
-                <FormSection title="Dates & Payment" columns={3}>
-                  <Autocomplete
-                    size="small"
-                    options={["Non-credit", "Credit"]}
-                    value={normalizePurchaseOrderPaymentMethod(formData.payment_method)}
-                    onChange={(_, newValue) =>
-                      setFormData({
-                        ...formData,
-                        payment_method: newValue || "Non-credit",
-                      })
-                    }
-                    disabled={!isEditing && !isCreating}
-                    renderInput={(params) => (
-                      <TextField {...params} label="Payment Method" />
-                    )}
-                  />
+                <FormSection title="Dates" columns={3}>
                   <TextField
                     label="Order Date"
                     size="small"
@@ -1600,15 +1589,6 @@ export default function PurchaseOrdersPage() {
                     error={hasError("purchasing_order_date")}
                     helperText={getFieldError("purchasing_order_date")}
                   />
-                  {normalizePurchaseOrderPaymentMethod(formData.payment_method) === "Credit" && (
-                    <TextField
-                      label="Payment Term"
-                      size="small"
-                      value={getPaymentTermsLabel(formData.credit_date)}
-                      disabled
-                      helperText="From supplier's payment terms"
-                    />
-                  )}
                 </FormSection>
 
                 {/* Credit Limit Warning */}

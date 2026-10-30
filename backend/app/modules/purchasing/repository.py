@@ -543,6 +543,13 @@ class PurchasingOrderRepository:
         # Treat 0 as NULL for optional FK fields
         if not order_data.get('second_suppliers_id'):
             order_data['second_suppliers_id'] = None
+        # Every PO is owed to the supplier: its payment term is the supplier's credit days.
+        if order_data.get('credit_date') is None:
+            order_data['credit_date'] = (
+                self.db.query(models.Supplier.credit_days)
+                .filter(models.Supplier.id == order_data.get('first_suppliers_id'))
+                .scalar()
+            ) or 0
         db_order = models.PurchasingOrder(
             **order_data,
             purchase_batch_id=batch_id,
@@ -1249,9 +1256,11 @@ class SupplierAdvancePaymentRepository:
     def apply_to_grn(self, advance_id: int, application_amount: float) -> Optional[models.SupplierAdvancePayment]:
         """Apply advance to GRN - reduce remaining balance (row-locked to prevent race conditions)"""
         # SELECT FOR UPDATE to prevent concurrent applications from overwriting each other
+        # populate_existing: the row may already be in this session's identity map (the caller loaded it to
+        # pre-check the balance); without it the lock is taken but the stale balance is what gets re-validated.
         db_advance = self.db.query(models.SupplierAdvancePayment).filter(
             models.SupplierAdvancePayment.id == advance_id
-        ).with_for_update().first()
+        ).with_for_update().populate_existing().first()
         
         if db_advance:
             new_applied = float(db_advance.applied_amount) + application_amount

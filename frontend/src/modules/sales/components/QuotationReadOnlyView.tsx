@@ -104,6 +104,7 @@ function ItemStatusChip({ itemStatus, stockStatus }: { itemStatus: string; stock
   if (itemStatus === "so_created" || itemStatus === "completed")
     return <TChip label="SO Created" color="success" size="small" sx={chipStyle} />;
   if (itemStatus === "po_created") return <TChip label="PO Created" color="info" size="small" sx={chipStyle} />;
+  if (itemStatus === "mo_created") return <TChip label="MO Created" color="secondary" size="small" sx={chipStyle} />;
   if (itemStatus === "itn_created") return <TChip label="ITN Created" color="info" size="small" sx={chipStyle} />;
   if (itemStatus === "cancelled") return <TChip label="Cancelled" color="default" size="small" sx={chipStyle} />;
   if (itemStatus === "procurement" || stockStatus === "needs_procurement")

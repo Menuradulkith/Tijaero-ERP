@@ -68,7 +68,6 @@ const fmtDate = (value?: string | null) => (value ? new Date(value).toLocaleDate
 
 export default function PurchaseOrderReadOnlyView({ order, show_pricing, branch_name }: PurchaseOrderPeekData) {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
-  const isCredit = (order.payment_method || "").toLowerCase() === "credit";
   const total = order.items.reduce((sum, i) => sum + i.quantity * Number(i.unit_price ?? 0), 0);
   const status = (order.status || "").toLowerCase();
 
@@ -81,11 +80,8 @@ export default function PurchaseOrderReadOnlyView({ order, show_pricing, branch_
       </FormSection>
 
       <FormSection title="Dates & Payment" columns={3}>
-        <Field label="Payment Method" value={isCredit ? "Credit" : "Non-credit"} />
         <Field label="Order Date" value={fmtDate(order.purchasing_order_date)} />
-        {isCredit && (
-          <Field label="Payment Term" value={getPaymentTermsLabel(order.credit_date ?? 0)} helperText="From supplier's payment terms" />
-        )}
+        <Field label="Payment Term" value={getPaymentTermsLabel(order.credit_date ?? 0)} helperText="From supplier's payment terms" />
       </FormSection>
 
       <FormSection title="Order Status" columns={4}>
