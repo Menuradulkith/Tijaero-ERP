@@ -68,6 +68,7 @@ import {
 import { Supplier } from "@/modules/purchasing/types";
 import { useAuthStore } from "@/state/authStore";
 import { hasPermission, usePermission } from "@/auth/permissions";
+import { taxCodesApi } from "@/modules/finance/api";
 
 interface InvoiceFormData {
   supplier_invoice_no: string;
@@ -391,6 +392,23 @@ export default function PurchaseInvoicesPage() {
     selectedGRNs.length > 0 &&
     (formData.payment_type !== "credit" || typeof creditPeriod === "number");
 
+  // VAT on the supplier's invoice: a purchase tax code and the VAT amount
+  // (suggested from the rate, editable to match the paper invoice).
+  const { data: purchaseTaxCodes = [] } = useQuery({
+    queryKey: ["tax-codes", "purchases"],
+    queryFn: () => taxCodesApi.getAll({ active_only: true }),
+    select: (codes) => codes.filter((c) => c.applies_to !== "sales"),
+    enabled: isCreating,
+  });
+  const [taxCode, setTaxCode] = useState<string>("");
+  const [vatAmount, setVatAmount] = useState<string>("");
+  const [vatEdited, setVatEdited] = useState(false);
+  const effectiveTaxCode =
+    taxCode || purchaseTaxCodes.find((c) => c.is_default_purchases)?.code || "";
+  const selectedTaxRate = Number(purchaseTaxCodes.find((c) => c.code === effectiveTaxCode)?.rate ?? 0);
+  const suggestedVat = Math.round(calculateSelectedTotal() * selectedTaxRate) / 100;
+  const vatValue = vatEdited ? Number(vatAmount || 0) : suggestedVat;
+
   // Create mutation
   const createMutation = useCrudMutation({
     mutationFn: purchaseInvoicesApi.create,
@@ -403,6 +421,9 @@ export default function PurchaseInvoicesPage() {
       setSelectedGRNs([]);
       setInvoiceableGRNs([]);
       setCreditPeriod("");
+      setTaxCode("");
+      setVatAmount("");
+      setVatEdited(false);
     },
   });
 
@@ -440,8 +461,19 @@ export default function PurchaseInvoicesPage() {
         quantity: p.quantity,
         unit_price: p.unit_price,
         line_total: p.line_total,
+        tax_amount: 0,
       })),
     );
+    // Spread the VAT over the lines by value (the server checks lines add up to the total).
+    const vat = Math.round(Math.max(vatValue, 0) * 100) / 100;
+    if (vat > 0 && items.length > 0 && total > 0) {
+      let left = vat;
+      items.forEach((it, i) => {
+        const share = i === items.length - 1 ? left : Math.round((vat * it.line_total * 100) / total) / 100;
+        it.tax_amount = Math.round(share * 100) / 100;
+        left = Math.round((left - it.tax_amount) * 100) / 100;
+      });
+    }
     const dataToSave: PurchaseInvoiceCreate = {
       supplier_invoice_no: formData.supplier_invoice_no,
       supplier_invoice_date: invoiceDate,
@@ -451,12 +483,14 @@ export default function PurchaseInvoicesPage() {
       received_date: today,
       due_date: calculatedDueDate,
       subtotal: total,
-      total_amount: total,
+      tax_amount: vat,
+      tax_code: vat > 0 ? effectiveTaxCode || undefined : undefined,
+      total_amount: Math.round((total + vat) * 100) / 100,
       remarks: formData.remarks || undefined,
       items,
     };
     createMutation.mutate(dataToSave);
-  }, [formData, selectedGRNs, createMutation, creditPeriod]);
+  }, [formData, selectedGRNs, createMutation, creditPeriod, vatValue, effectiveTaxCode]);
 
   const handleCancelInvoice = useCallback(async () => {
     if (!selectedInvoice) return;
@@ -739,6 +773,7 @@ export default function PurchaseInvoicesPage() {
                     color={selectedInvoice.payment_type === "credit" ? "warning" : "default"}
                   />
                 </Box>
+                <TextField label="VAT" size="small" value={fmtLKR(selectedInvoice.tax_amount || 0)} disabled />
                 <TextField label="Total Amount" size="small" value={fmtLKR(selectedInvoice.total_amount)} disabled />
                 <TextField label="Paid Amount" size="small" value={fmtLKR(selectedInvoice.paid_amount)} disabled />
                 <TextField label="Balance Due" size="small" value={fmtLKR(selectedInvoice.balance_due)} disabled />
@@ -747,6 +782,50 @@ export default function PurchaseInvoicesPage() {
                     Overdue by {selectedInvoice.days_overdue} days
                   </Alert>
                 )}
+              </FormSection>
+            )}
+
+            {isCreating && (
+              <FormSection title="VAT" columns={3}>
+                <TextField
+                  select
+                  label="Tax code"
+                  size="small"
+                  value={effectiveTaxCode}
+                  onChange={(e) => {
+                    setTaxCode(e.target.value);
+                    setVatEdited(false);
+                  }}
+                  helperText="How the supplier charged VAT"
+                >
+                  {purchaseTaxCodes.map((c) => (
+                    <MenuItem key={c.code} value={c.code}>
+                      {c.code} · {c.name} ({Number(c.rate)}%)
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="VAT amount"
+                  size="small"
+                  type="number"
+                  value={vatEdited ? vatAmount : suggestedVat.toFixed(2)}
+                  onChange={(e) => {
+                    setVatEdited(true);
+                    setVatAmount(e.target.value);
+                  }}
+                  inputProps={{ min: 0, step: "0.01" }}
+                  helperText={
+                    selectedTaxRate > 0
+                      ? `Suggested ${selectedTaxRate}% of the goods; change it to match the supplier's invoice`
+                      : "No VAT for this code"
+                  }
+                />
+                <TextField
+                  label="Invoice total (goods + VAT)"
+                  size="small"
+                  value={fmtLKR(calculateSelectedTotal() + Math.max(vatValue, 0))}
+                  disabled
+                />
               </FormSection>
             )}
 

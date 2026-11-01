@@ -340,6 +340,9 @@ _register("PayrollBatch", None, _simple((_H, "PayrollBatch"), "Payroll batch",
 _register("SupplierPayment", None, _simple((_P, "SupplierPayment"), "Supplier payment",
           lambda db, o, uid: _pepgl(db).post_supplier_payment_to_gl(o, uid)),
           lookup_marker=_marker("SupPayment ID: {id}"))
+_register("PurchaseInvoice", None, _simple(("app.modules.purchasing.invoice_models", "PurchaseInvoice"), "Supplier invoice",
+          lambda db, o, uid: _pepgl(db).post_purchase_invoice_to_gl(o, user_id=uid)),
+          lookup_marker=_marker("PurchaseInvoice ID: {id}"))
 _register("LandedCost", None, _simple((_P, "LandedCostVoucher"), "Landed cost voucher",
           lambda db, o, uid: _pepgl(db).post_landed_cost_to_gl(o, user_id=uid)),
           lookup_marker=_marker("LCV ID: {id}"))

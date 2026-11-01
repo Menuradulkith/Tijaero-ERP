@@ -103,6 +103,7 @@ export interface PurchaseInvoiceCreate {
   tax_amount?: number;
   discount_amount?: number;
   total_amount: number;
+  tax_code?: string;
   remarks?: string;
   items: PurchaseInvoiceItemCreate[];
 }

@@ -679,7 +679,7 @@ export default function CustomersPage() {
         tabsSlot={
           (selectedCustomer || isCreating) && (
             <TTabs
-              tabs={detailTabs}
+              tabs={detailTabs.map((t) => (isCreating && t.id !== "general" ? { ...t, disabled: !isGeneralValid } : t))}
               activeTab={currentSection}
               onChange={(id) => setActiveSection(id as CustomerSection)}
               appearance="segmented"

@@ -28,6 +28,13 @@ import IncomeStatementPage from "./pages/IncomeStatementPage";
 import BalanceSheetPage from "./pages/BalanceSheetPage";
 import DayEndReconciliationPage from "./pages/DayEndReconciliationPage";
 import PostingFailuresPage from "./pages/PostingFailuresPage";
+import AccountingSetupPage from "./pages/AccountingSetupPage";
+import VatReturnPage from "./pages/VatReturnPage";
+import WriteOffsPage from "./pages/WriteOffsPage";
+import BankReconciliationPage from "./pages/BankReconciliationPage";
+import CostCenterProfitPage from "./pages/CostCenterProfitPage";
+import RecurringJournalsPage from "./pages/RecurringJournalsPage";
+import FixedAssetsPage from "./pages/FixedAssetsPage";
 import CommissionPaymentsPage from "./pages/CommissionPaymentsPage";
 import CommissionPaymentApprovalsPage from "./pages/CommissionPaymentApprovalsPage";
 import SupplierPaymentReportPage from "./pages/SupplierPaymentReportPage";
@@ -90,6 +97,13 @@ export default function FinanceRoutes() {
       <Route path="income-statement" element={<ProtectedRoute resource="general_ledger" action="view"><IncomeStatementPage /></ProtectedRoute>} />
       <Route path="balance-sheet" element={<ProtectedRoute resource="general_ledger" action="view"><BalanceSheetPage /></ProtectedRoute>} />
       <Route path="day-end-reconciliation" element={<ProtectedRoute resource="general_ledger" action="view"><DayEndReconciliationPage /></ProtectedRoute>} />
+      <Route path="fixed-assets" element={<ProtectedRoute resource="general_ledger" action="view"><FixedAssetsPage /></ProtectedRoute>} />
+      <Route path="recurring-journals" element={<ProtectedRoute resource="journal_entries" action="view"><RecurringJournalsPage /></ProtectedRoute>} />
+      <Route path="profit-by-cost-center" element={<ProtectedRoute resource="general_ledger" action="view"><CostCenterProfitPage /></ProtectedRoute>} />
+      <Route path="bank-reconciliation" element={<ProtectedRoute resource="general_ledger" action="view"><BankReconciliationPage /></ProtectedRoute>} />
+      <Route path="write-offs" element={<ProtectedRoute resource="journal_entries" action="view"><WriteOffsPage /></ProtectedRoute>} />
+      <Route path="vat-return" element={<ProtectedRoute resource="general_ledger" action="view"><VatReturnPage /></ProtectedRoute>} />
+      <Route path="accounting-setup" element={<ProtectedRoute resource="chart_of_accounts" action="view"><AccountingSetupPage /></ProtectedRoute>} />
       <Route path="posting-failures" element={<ProtectedRoute resource="journal_entries" action="view"><PostingFailuresPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="." replace />} />
     </Routes>

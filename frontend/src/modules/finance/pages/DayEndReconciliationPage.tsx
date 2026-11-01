@@ -9,42 +9,32 @@
  *      entries dated on the day.
  *
  * Shows one prominent "Books Balanced" / "Not Balanced" banner plus the
- * supporting numbers and any discrepancies.
+ * supporting numbers and any discrepancies. Same layout as the other report
+ * pages: filters in the header row, sections below.
  */
 
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
-import RefreshIcon from "@mui/icons-material/Refresh";
 import ReportProblemIcon from "@mui/icons-material/ReportProblem";
-import {
-  Alert,
-  AlertTitle,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Divider,
-  Grid,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Stack,
-  TextField,
-  Typography,
-} from "@mui/material";
+import { Alert, AlertTitle, Box, CircularProgress, Stack, TextField, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import {
+  FormSection,
+  MasterDetailLayout,
+  TBranchFilter,
+  TChip,
+  TDataGrid,
+  type TDataGridColumn,
+} from "@/components/tijaero";
+import { useReferenceData } from "@/hooks";
 import { reconciliationApi } from "@/modules/finance/api";
 import type { DayEndReconciliation } from "@/modules/finance/types";
 
-import { TChip } from "@/components/tijaero";
 const money = (n: number | null | undefined) =>
   new Intl.NumberFormat("en-LK", {
     style: "currency",
@@ -54,7 +44,7 @@ const money = (n: number | null | undefined) =>
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-// ─── Small presentational tile ───────────────────────────────────────────────
+// ─── Compact check tile (sits inside a FormSection grid) ─────────────────────
 interface TileProps {
   title: string;
   ok: boolean;
@@ -66,61 +56,54 @@ interface TileProps {
 
 function StatTile({ title, ok, icon, primary, secondary, onClick }: TileProps) {
   return (
-    <Card
-      variant="outlined"
+    <Box
+      onClick={onClick}
       sx={{
-        height: "100%",
+        p: 1.25,
+        border: "1px solid",
+        borderRadius: 1,
         borderColor: ok ? "success.light" : "error.light",
         cursor: onClick ? "pointer" : "default",
         transition: "box-shadow .2s",
-        "&:hover": onClick ? { boxShadow: 3 } : undefined,
+        "&:hover": onClick ? { boxShadow: 2 } : undefined,
       }}
-      onClick={onClick}
     >
-      <CardContent>
-        <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-          <Box sx={{ color: ok ? "success.main" : "error.main", display: "flex" }}>
-            {icon}
-          </Box>
-          <Typography variant="subtitle2" color="text.secondary">
-            {title}
-          </Typography>
-          <Box flexGrow={1} />
-          <TChip
-            size="small"
-            color={ok ? "success" : "error"}
-            label={ok ? "OK" : "Check"}
-          />
-        </Stack>
-        <Typography variant="h6" fontWeight={700}>
-          {primary}
+      <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
+        <Box sx={{ color: ok ? "success.main" : "error.main", display: "flex" }}>{icon}</Box>
+        <Typography variant="caption" color="text.secondary">
+          {title}
         </Typography>
-        {secondary && (
-          <Typography variant="body2" color="text.secondary">
-            {secondary}
-          </Typography>
-        )}
-      </CardContent>
-    </Card>
+        <Box flexGrow={1} />
+        <TChip size="small" color={ok ? "success" : "error"} label={ok ? "OK" : "Check"} />
+      </Stack>
+      <Typography variant="subtitle1" fontWeight={700}>
+        {primary}
+      </Typography>
+      {secondary && (
+        <Typography variant="caption" color="text.secondary">
+          {secondary}
+        </Typography>
+      )}
+    </Box>
   );
 }
 
-// ─── Row helper for the breakdown card ───────────────────────────────────────
-function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <Stack direction="row" justifyContent="space-between" sx={{ py: 0.5 }}>
-      <Typography variant="body2" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography variant="body2" fontWeight={strong ? 700 : 500}>
-        {value}
-      </Typography>
-    </Stack>
-  );
+interface BreakdownRow {
+  id: string;
+  label: string;
+  amount: number;
+  strong?: boolean;
+}
+
+interface FindingRow {
+  id: string;
+  kind: "discrepancy" | "warning";
+  message: string;
 }
 
 export default function DayEndReconciliationPage() {
   const navigate = useNavigate();
+  const { filteredBranches } = useReferenceData(["branches"]);
   const [reconDate, setReconDate] = useState<string>(todayIso());
   const [branchCode, setBranchCode] = useState<string>("");
 
@@ -133,181 +116,190 @@ export default function DayEndReconciliationPage() {
       }),
   });
 
+  const breakdown: BreakdownRow[] = data
+    ? [
+        { id: "gl-cash", label: "GL — Cash on Hand (1010)", amount: data.gl_cash_movement },
+        { id: "gl-bank", label: "GL — Bank Account (1020)", amount: data.gl_bank_movement },
+        { id: "gl-net", label: "GL cash + bank net", amount: data.gl_cash_bank_net, strong: true },
+        { id: "cb-in", label: "Cashbook money in", amount: data.cashbook_money_in },
+        { id: "cb-out", label: "Cashbook money out", amount: data.cashbook_money_out },
+        { id: "cb-net", label: "Cashbook net", amount: data.cashbook_net },
+        { id: "cb-dep", label: "+ Bank deposits (internal transfer)", amount: data.cashbook_bank_deposits },
+        {
+          id: "expected",
+          label: "Expected GL net",
+          amount: data.cashbook_net + data.cashbook_bank_deposits,
+          strong: true,
+        },
+        { id: "diff", label: "Difference", amount: data.cash_difference, strong: true },
+      ]
+    : [];
+
+  const findings: FindingRow[] = data
+    ? [
+        ...data.discrepancies.map((m, i) => ({ id: `d-${i}`, kind: "discrepancy" as const, message: m })),
+        ...data.warnings.map((m, i) => ({ id: `w-${i}`, kind: "warning" as const, message: m })),
+      ]
+    : [];
+
+  const breakdownColumns: TDataGridColumn<BreakdownRow>[] = [
+    {
+      field: "label",
+      header: "Item",
+      minWidth: 240,
+      flex: 2,
+      sortable: false,
+      renderCell: (p) => (
+        <Typography variant="body2" fontWeight={p.row.strong ? 700 : 400}>
+          {p.row.label}
+        </Typography>
+      ),
+    },
+    {
+      field: "amount",
+      header: "Amount",
+      width: 180,
+      align: "right",
+      headerAlign: "right",
+      sortable: false,
+      renderCell: (p) => (
+        <Typography variant="body2" fontWeight={p.row.strong ? 700 : 500}>
+          {money(p.row.amount)}
+        </Typography>
+      ),
+    },
+  ];
+
+  const findingColumns: TDataGridColumn<FindingRow>[] = [
+    {
+      field: "kind",
+      header: "Type",
+      width: 130,
+      renderCell: (p) => (
+        <TChip
+          size="small"
+          color={p.row.kind === "discrepancy" ? "error" : "warning"}
+          label={p.row.kind === "discrepancy" ? "Discrepancy" : "Warning"}
+        />
+      ),
+    },
+    { field: "message", header: "Finding", minWidth: 300, flex: 1, sortable: false },
+  ];
+
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={2}
-        alignItems={{ xs: "stretch", sm: "center" }}
-        mb={3}
-      >
-        <Box>
-          <Typography variant="h5" fontWeight={700}>
-            Day-End Reconciliation
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Confirm the books balance for the day before closing.
-          </Typography>
+    <MasterDetailLayout
+      title="Day-End Reconciliation"
+      titleSlot={
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+          <TextField
+            type="date"
+            size="small"
+            value={reconDate}
+            onChange={(e) => setReconDate(e.target.value)}
+            inputProps={{ "aria-label": "Date" }}
+            sx={{ width: 150, flexShrink: 0 }}
+          />
+          <Box sx={{ width: 150, flexShrink: 0 }}>
+            <TBranchFilter
+              branches={filteredBranches || []}
+              value={branchCode || null}
+              onChange={(v) => setBranchCode(v ?? "")}
+              label=""
+              size="small"
+            />
+          </Box>
         </Box>
-        <Box flexGrow={1} />
-        <TextField
-          label="Date"
-          type="date"
-          size="small"
-          value={reconDate}
-          onChange={(e) => setReconDate(e.target.value)}
-          InputLabelProps={{ shrink: true }}
-        />
-        <TextField
-          label="Branch (optional)"
-          size="small"
-          value={branchCode}
-          onChange={(e) => setBranchCode(e.target.value)}
-          placeholder="All branches"
-          sx={{ minWidth: 160 }}
-        />
-        <Button
-          variant="outlined"
-          startIcon={isFetching ? <CircularProgress size={16} /> : <RefreshIcon />}
-          onClick={() => refetch()}
-          disabled={isFetching}
-        >
-          Refresh
-        </Button>
-      </Stack>
+      }
+      onRefresh={() => refetch()}
+      isLoading={isFetching}
+    >
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {!data ? (
+          <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+            <CircularProgress />
+          </Box>
+        ) : (
+          <>
+            {/* Banner */}
+            <Alert
+              icon={data.is_balanced ? <CheckCircleIcon fontSize="inherit" /> : <ReportProblemIcon fontSize="inherit" />}
+              severity={data.is_balanced ? "success" : "error"}
+              sx={{ mb: 1.5, alignItems: "center", "& .MuiAlert-message": { width: "100%" } }}
+            >
+              <AlertTitle sx={{ fontWeight: 700, mb: 0 }}>
+                {data.is_balanced ? "Books Balanced ✓" : "Books NOT Balanced"}
+              </AlertTitle>
+              <Typography variant="body2">
+                {data.reconciliation_date}
+                {data.branch_code ? ` · Branch ${data.branch_code}` : " · All branches"}
+              </Typography>
+            </Alert>
 
-      {!data ? (
-        <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <>
-          {/* Banner */}
-          <Alert
-            icon={data.is_balanced ? <CheckCircleIcon fontSize="inherit" /> : <ReportProblemIcon fontSize="inherit" />}
-            severity={data.is_balanced ? "success" : "error"}
-            sx={{ mb: 3, alignItems: "center", "& .MuiAlert-message": { width: "100%" } }}
-          >
-            <AlertTitle sx={{ fontWeight: 700, mb: 0 }}>
-              {data.is_balanced ? "Books Balanced ✓" : "Books NOT Balanced"}
-            </AlertTitle>
-            <Typography variant="body2">
-              {data.reconciliation_date}
-              {data.branch_code ? ` · Branch ${data.branch_code}` : " · All branches"}
-            </Typography>
-          </Alert>
-
-          {/* Stat tiles */}
-          <Grid container spacing={2} sx={{ mb: 1 }}>
-            <Grid item xs={12} sm={6} md={3}>
+            <FormSection title="Checks" columns={4}>
               <StatTile
                 title="Trial Balance"
                 ok={data.trial_balanced}
-                icon={<FactCheckIcon />}
+                icon={<FactCheckIcon fontSize="small" />}
                 primary={data.trial_balanced ? "Balanced" : "Out of balance"}
                 secondary={`Dr ${money(data.gl_total_debit)} · Cr ${money(data.gl_total_credit)}`}
               />
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
               <StatTile
                 title="Cash & Bank"
                 ok={data.cash_reconciled}
-                icon={<AccountBalanceIcon />}
+                icon={<AccountBalanceIcon fontSize="small" />}
                 primary={data.cash_reconciled ? "Reconciled" : `Off by ${money(data.cash_difference)}`}
                 secondary={`GL net ${money(data.gl_cash_bank_net)}`}
               />
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
               <StatTile
                 title="Posting Failures"
                 ok={data.posting_failures_pending === 0}
-                icon={<ReportProblemIcon />}
+                icon={<ReportProblemIcon fontSize="small" />}
                 primary={`${data.posting_failures_pending} pending`}
                 secondary={data.posting_failures_pending ? "Click to review & retry" : "None"}
                 onClick={() => navigate("/finance/posting-failures")}
               />
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
               <StatTile
                 title="Unposted Entries"
                 ok={data.unposted_je_count === 0}
-                icon={<ReceiptLongIcon />}
+                icon={<ReceiptLongIcon fontSize="small" />}
                 primary={`${data.unposted_je_count} unposted`}
                 secondary={`${data.submitted_je_count} awaiting approval`}
               />
-            </Grid>
-          </Grid>
+            </FormSection>
 
-          <Grid container spacing={2} sx={{ mt: 0 }}>
-            {/* Cash reconciliation breakdown */}
-            <Grid item xs={12} md={6}>
-              <Card variant="outlined" sx={{ height: "100%" }}>
-                <CardContent>
-                  <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                    Cash / Bank Reconciliation
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    GL cash &amp; bank movement should equal the cashbook net plus bank deposits.
-                  </Typography>
-                  <Divider sx={{ my: 1.5 }} />
-                  <Row label="GL — Cash on Hand (1010)" value={money(data.gl_cash_movement)} />
-                  <Row label="GL — Bank Account (1020)" value={money(data.gl_bank_movement)} />
-                  <Row label="GL cash + bank net" value={money(data.gl_cash_bank_net)} strong />
-                  <Divider sx={{ my: 1.5 }} />
-                  <Row label="Cashbook money in" value={money(data.cashbook_money_in)} />
-                  <Row label="Cashbook money out" value={money(data.cashbook_money_out)} />
-                  <Row label="Cashbook net" value={money(data.cashbook_net)} />
-                  <Row label="+ Bank deposits (internal transfer)" value={money(data.cashbook_bank_deposits)} />
-                  <Row
-                    label="Expected GL net"
-                    value={money(data.cashbook_net + data.cashbook_bank_deposits)}
-                    strong
-                  />
-                  <Divider sx={{ my: 1.5 }} />
-                  <Row label="Difference" value={money(data.cash_difference)} strong />
-                </CardContent>
-              </Card>
-            </Grid>
+            <FormSection title="Cash / Bank Reconciliation" columns={1}>
+              <Typography variant="caption" color="text.secondary">
+                GL cash &amp; bank movement should equal the cashbook net plus bank deposits.
+              </Typography>
+              <TDataGrid<BreakdownRow>
+                rows={breakdown}
+                columns={breakdownColumns}
+                pageSizeOptions={[25]}
+                pageSize={25}
+                disableColumnMenu
+                autoHeight
+              />
+            </FormSection>
 
-            {/* Discrepancies & warnings */}
-            <Grid item xs={12} md={6}>
-              <Card variant="outlined" sx={{ height: "100%" }}>
-                <CardContent>
-                  <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                    Findings
-                  </Typography>
-                  {data.discrepancies.length === 0 && data.warnings.length === 0 ? (
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ color: "success.main", mt: 1 }}>
-                      <CheckCircleIcon fontSize="small" />
-                      <Typography variant="body2">No issues found for this day.</Typography>
-                    </Stack>
-                  ) : (
-                    <List dense>
-                      {data.discrepancies.map((d, i) => (
-                        <ListItem key={`d-${i}`} disableGutters alignItems="flex-start">
-                          <ListItemIcon sx={{ minWidth: 32, color: "error.main", mt: 0.5 }}>
-                            <ErrorOutlineIcon fontSize="small" />
-                          </ListItemIcon>
-                          <ListItemText primary={d} primaryTypographyProps={{ variant: "body2" }} />
-                        </ListItem>
-                      ))}
-                      {data.warnings.map((w, i) => (
-                        <ListItem key={`w-${i}`} disableGutters alignItems="flex-start">
-                          <ListItemIcon sx={{ minWidth: 32, color: "warning.main", mt: 0.5 }}>
-                            <ReportProblemIcon fontSize="small" />
-                          </ListItemIcon>
-                          <ListItemText primary={w} primaryTypographyProps={{ variant: "body2" }} />
-                        </ListItem>
-                      ))}
-                    </List>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        </>
-      )}
-    </Box>
+            <FormSection title="Findings" columns={1} isLast>
+              {findings.length === 0 ? (
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ color: "success.main" }}>
+                  <CheckCircleIcon fontSize="small" />
+                  <Typography variant="body2">No issues found for this day.</Typography>
+                </Stack>
+              ) : (
+                <TDataGrid<FindingRow>
+                  rows={findings}
+                  columns={findingColumns}
+                  pageSizeOptions={[25, 50]}
+                  pageSize={25}
+                  autoHeight
+                />
+              )}
+            </FormSection>
+          </>
+        )}
+      </Box>
+    </MasterDetailLayout>
   );
 }

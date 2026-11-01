@@ -1,5 +1,6 @@
 import apiClient from "@/api/client";
 import {
+  PettyCashReconcileRequest,
   BankDeposit,
   BankDepositCreate,
   CardPayment,
@@ -43,6 +44,20 @@ import {
   GLPostingFailure,
   GLPostingFailureListResponse,
   RetryPostingFailureResponse,
+  PostingRuleSetup,
+  PostingRuleUpdate,
+  VoucherType,
+  TaxCode,
+  TaxCodeInput,
+  VatReturn,
+  TaxTransaction,
+  VatSettlement,
+  BankAccount,
+  BankAccountCreate,
+  BankAccountUpdate,
+  BankStatementCreate,
+  BankStatementDetail,
+  BankStatementListItem,
 } from "./types";
 
 // Bank Deposits API
@@ -424,6 +439,7 @@ export const journalEntriesApi = {
   getAll: async (params?: {
     status?: string;
     entry_type?: string;
+    voucher_type?: string;
     date_from?: string;
     date_to?: string;
     search?: string;
@@ -840,7 +856,7 @@ export const pettyCashApi = {
   /**
    * Reconcile and close a petty cash fund
    */
-  reconcileFund: async (fundId: number, data: any) => {
+  reconcileFund: async (fundId: number, data: PettyCashReconcileRequest) => {
     const response = await apiClient.post(
       `/finance/petty-cash/funds/${fundId}/reconcile`,
       data
@@ -944,6 +960,165 @@ export const paymentVoucherApi = {
       `/finance/payment-vouchers/${voucherId}/reject`,
       { reason }
     );
+    return response.data;
+  },
+};
+
+// ─── Posting rules & voucher types (Accounting Setup) ───────────────────────
+export const postingRulesApi = {
+  getAll: async () => {
+    const response = await apiClient.get<PostingRuleSetup>(`${ACCT_BASE}/posting-rules`);
+    return response.data;
+  },
+
+  save: async (postingType: string, data: PostingRuleUpdate) => {
+    const response = await apiClient.put<PostingRuleSetup>(
+      `${ACCT_BASE}/posting-rules/${postingType}`,
+      data
+    );
+    return response.data;
+  },
+
+  reset: async (postingType: string) => {
+    const response = await apiClient.delete<PostingRuleSetup>(
+      `${ACCT_BASE}/posting-rules/${postingType}`
+    );
+    return response.data;
+  },
+};
+
+export const voucherTypesApi = {
+  getAll: async () => {
+    const response = await apiClient.get<VoucherType[]>(`${ACCT_BASE}/voucher-types`);
+    return response.data;
+  },
+
+};
+
+// ─── VAT: tax codes, VAT return, settlements ────────────────────────────────
+export const taxCodesApi = {
+  getAll: async (params?: { active_only?: boolean }) => {
+    const response = await apiClient.get<TaxCode[]>(`${ACCT_BASE}/tax-codes`, { params });
+    return response.data;
+  },
+
+  create: async (data: TaxCodeInput) => {
+    const response = await apiClient.post<TaxCode>(`${ACCT_BASE}/tax-codes`, data);
+    return response.data;
+  },
+
+  update: async (id: number, data: TaxCodeInput) => {
+    const response = await apiClient.put<TaxCode>(`${ACCT_BASE}/tax-codes/${id}`, data);
+    return response.data;
+  },
+};
+
+export const vatReturnApi = {
+  get: async (params: { date_from: string; date_to: string; branch_code?: string }) => {
+    const response = await apiClient.get<VatReturn>(`${ACCT_BASE}/reports/vat-return`, { params });
+    return response.data;
+  },
+
+  transactions: async (params: {
+    date_from: string;
+    date_to: string;
+    direction?: string;
+    tax_code?: string;
+    tax_rate?: number;
+    branch_code?: string;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<{ total: number; items: TaxTransaction[] }>(
+      `${ACCT_BASE}/reports/vat-return/transactions`,
+      { params }
+    );
+    return response.data;
+  },
+
+  settlements: async () => {
+    const response = await apiClient.get<VatSettlement[]>(`${ACCT_BASE}/vat-settlements`);
+    return response.data;
+  },
+
+  settle: async (data: { date_to: string; settlement_date?: string; notes?: string }) => {
+    const response = await apiClient.post<VatSettlement>(`${ACCT_BASE}/vat-settlements`, data);
+    return response.data;
+  },
+};
+
+// ─── Bank reconciliation ─────────────────────────────────────────────────────
+export const bankReconciliationApi = {
+  listAccounts: async () => {
+    const response = await apiClient.get<BankAccount[]>(`${ACCT_BASE}/bank-accounts`);
+    return response.data;
+  },
+
+  createAccount: async (data: BankAccountCreate) => {
+    const response = await apiClient.post<BankAccount>(`${ACCT_BASE}/bank-accounts`, data);
+    return response.data;
+  },
+
+  updateAccount: async (id: number, data: BankAccountUpdate) => {
+    const response = await apiClient.put<BankAccount>(`${ACCT_BASE}/bank-accounts/${id}`, data);
+    return response.data;
+  },
+
+  listStatements: async (bankAccountId: number) => {
+    const response = await apiClient.get<BankStatementListItem[]>(
+      `${ACCT_BASE}/bank-accounts/${bankAccountId}/statements`
+    );
+    return response.data;
+  },
+
+  createStatement: async (data: BankStatementCreate) => {
+    const response = await apiClient.post<BankStatementDetail>(`${ACCT_BASE}/bank-statements`, data);
+    return response.data;
+  },
+
+  getStatement: async (id: number) => {
+    const response = await apiClient.get<BankStatementDetail>(`${ACCT_BASE}/bank-statements/${id}`);
+    return response.data;
+  },
+
+  deleteStatement: async (id: number) => {
+    await apiClient.delete(`${ACCT_BASE}/bank-statements/${id}`);
+  },
+
+  autoMatch: async (id: number) => {
+    const response = await apiClient.post<BankStatementDetail>(`${ACCT_BASE}/bank-statements/${id}/auto-match`);
+    return response.data;
+  },
+
+  matchLine: async (lineId: number, glIds: number[]) => {
+    const response = await apiClient.post<BankStatementDetail>(
+      `${ACCT_BASE}/bank-statement-lines/${lineId}/match`,
+      { gl_ids: glIds }
+    );
+    return response.data;
+  },
+
+  unmatchLine: async (lineId: number) => {
+    const response = await apiClient.post<BankStatementDetail>(
+      `${ACCT_BASE}/bank-statement-lines/${lineId}/unmatch`
+    );
+    return response.data;
+  },
+
+  createEntryForLine: async (lineId: number, data: { account_id: number; description?: string | null }) => {
+    const response = await apiClient.post<BankStatementDetail>(
+      `${ACCT_BASE}/bank-statement-lines/${lineId}/create-entry`,
+      data
+    );
+    return response.data;
+  },
+
+  finish: async (id: number) => {
+    const response = await apiClient.post<BankStatementDetail>(`${ACCT_BASE}/bank-statements/${id}/finish`);
+    return response.data;
+  },
+
+  reopen: async (id: number) => {
+    const response = await apiClient.post<BankStatementDetail>(`${ACCT_BASE}/bank-statements/${id}/reopen`);
     return response.data;
   },
 };

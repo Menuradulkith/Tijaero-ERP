@@ -64,6 +64,7 @@ class PurchaseInvoice(Base, AuditMixin):
     # Amounts
     subtotal = Column(Numeric(18, 2), nullable=False, default=0)  # Sum of line items
     tax_amount = Column(Numeric(18, 2), nullable=False, default=0)  # Tax if applicable
+    tax_code = Column(String(20), nullable=True)  # tax_codes.code; default purchase code when tax_amount > 0
     discount_amount = Column(Numeric(18, 2), nullable=False, default=0)  # Any discount
     total_amount = Column(Numeric(18, 2), nullable=False, default=0)  # Final payable amount
     paid_amount = Column(Numeric(18, 2), nullable=False, default=0)  # Amount paid so far

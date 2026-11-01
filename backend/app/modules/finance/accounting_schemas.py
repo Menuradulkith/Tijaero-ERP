@@ -85,6 +85,7 @@ class JournalEntryLineCreate(BaseModel):
     reference_type: Optional[str] = None
     reference_id: Optional[int] = None
     reference_no: Optional[str] = None
+    cost_center_id: Optional[int] = None
 
 
 class JournalEntryLineResponse(JournalEntryLineCreate, TijaeroBaseSchema):
@@ -94,14 +95,16 @@ class JournalEntryLineResponse(JournalEntryLineCreate, TijaeroBaseSchema):
     # Resolved
     account_code: Optional[str] = None
     account_name: Optional[str] = None
+    cost_center_code: Optional[str] = None
 
 
 class JournalEntryCreate(BaseModel):
     entry_date: date
     posting_date: Optional[date] = None
-    entry_type: str = "Manual"  # Manual, Auto, Adjustment, Closing
+    entry_type: str = "Manual"  # Manual, Auto, Adjustment, Closing, Opening
     description: str
     branch_code: Optional[str] = None
+    auto_reverse_date: Optional[date] = None  # accrual: posting also posts its reversal on this date
     lines: List[JournalEntryLineCreate]
 
     @field_validator("lines")
@@ -181,6 +184,8 @@ class JournalEntryResponse(TijaeroBaseSchema):
     fiscal_year: int
     fiscal_period: int
     branch_code: Optional[str] = None
+    voucher_type: Optional[str] = None
+    auto_reverse_date: Optional[date] = None
     created_by: int
     submitted_by: Optional[int] = None
     submitted_at: Optional[datetime] = None
@@ -202,6 +207,7 @@ class JournalEntryResponse(TijaeroBaseSchema):
 class JournalEntryListFilter(BaseModel):
     status: Optional[str] = None
     entry_type: Optional[str] = None
+    voucher_type: Optional[str] = None
     branch_code: Optional[str] = None
     branch_codes: Optional[List[str]] = None  # user-scoped branch list
     fiscal_year: Optional[int] = None
@@ -838,3 +844,628 @@ class DayEndReconciliationResponse(BaseModel):
     is_balanced: bool = True
     discrepancies: List[str] = []
     warnings: List[str] = []
+
+
+# =============================================================================
+# POSTING RULES & VOUCHER TYPES
+# =============================================================================
+
+class AccountRef(BaseModel):
+    id: Optional[int] = None
+    account_code: str
+    account_name: str
+
+
+class PostingRuleDetailResponse(BaseModel):
+    control_value: str
+    account: Optional[AccountRef] = None
+
+
+class PostingTypeRule(BaseModel):
+    code: str
+    name: str
+    group: str
+    description: str
+    account_types: List[str]
+    control_types: List[str]
+    default_account: AccountRef
+    is_customized: bool
+    control_type: str
+    account: Optional[AccountRef] = None
+    details: List[PostingRuleDetailResponse] = []
+    notes: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class ControlTypeInfo(BaseModel):
+    code: str
+    name: str
+    description: str
+
+
+class ControlValueOption(BaseModel):
+    value: str
+    label: str
+    default_account: Optional[AccountRef] = None
+
+
+class PostingRuleSetup(BaseModel):
+    posting_types: List[PostingTypeRule]
+    control_types: List[ControlTypeInfo]
+    branches: List[ControlValueOption]
+    expense_categories: List[ControlValueOption]
+
+
+class PostingRuleDetailInput(BaseModel):
+    control_value: str = Field(..., max_length=100)
+    account_id: int
+
+
+class PostingRuleUpdate(BaseModel):
+    control_type: str = "none"
+    account_id: Optional[int] = None
+    details: List[PostingRuleDetailInput] = []
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+class VoucherTypeResponse(BaseModel):
+    id: int
+    code: str
+    name: str
+    description: Optional[str] = None
+    source_module: Optional[str] = None
+    is_manual: bool
+    is_active: bool
+    entry_count: int = 0
+
+
+
+# =============================================================================
+# TAX (VAT)
+# =============================================================================
+
+class TaxCodeResponse(BaseModel):
+    id: int
+    code: str
+    name: str
+    rate: Decimal
+    tax_type: str
+    applies_to: str
+    is_default_sales: bool
+    is_default_purchases: bool
+    is_active: bool
+    description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TaxCodeCreate(BaseModel):
+    code: str = Field(..., min_length=1, max_length=20)
+    name: str = Field(..., min_length=1, max_length=100)
+    rate: Decimal = Field(Decimal("0"), ge=0, le=100)
+    tax_type: str = "standard"
+    applies_to: str = "both"
+    is_default_sales: Optional[bool] = None
+    is_default_purchases: Optional[bool] = None
+    description: Optional[str] = Field(None, max_length=1000)
+
+
+class TaxCodeUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    rate: Optional[Decimal] = Field(None, ge=0, le=100)
+    tax_type: Optional[str] = None
+    applies_to: Optional[str] = None
+    is_default_sales: Optional[bool] = None
+    is_default_purchases: Optional[bool] = None
+    is_active: Optional[bool] = None
+    description: Optional[str] = Field(None, max_length=1000)
+
+
+class VatReturnLine(BaseModel):
+    direction: str
+    tax_code: str
+    tax_name: str
+    tax_rate: Optional[Decimal] = None
+    count: int
+    base_amount: Decimal
+    tax_amount: Decimal
+
+
+class VatReturnResponse(BaseModel):
+    date_from: date
+    date_to: date
+    branch_code: Optional[str] = None
+    lines: List[VatReturnLine]
+    output_tax: Decimal
+    input_tax: Decimal
+    net_tax: Decimal  # > 0 payable, < 0 refundable
+    gl_output_tax: Decimal
+    gl_input_tax: Decimal
+    unsettled_output_tax: Decimal
+    unsettled_input_tax: Decimal
+    warnings: List[str] = []
+
+
+class TaxTransactionResponse(BaseModel):
+    id: int
+    transaction_date: date
+    direction: str
+    tax_code: str
+    tax_rate: Optional[Decimal] = None
+    base_amount: Decimal
+    tax_amount: Decimal
+    reference_type: Optional[str] = None
+    reference_id: Optional[int] = None
+    reference_no: Optional[str] = None
+    branch_code: Optional[str] = None
+    journal_entry_id: int
+    journal_entry_no: Optional[str] = None
+    settlement_id: Optional[int] = None
+
+
+class TaxTransactionList(BaseModel):
+    total: int
+    items: List[TaxTransactionResponse]
+
+
+class VatSettlementCreate(BaseModel):
+    date_to: date
+    settlement_date: Optional[date] = None
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+class VatSettlementResponse(BaseModel):
+    id: int
+    settlement_no: str
+    date_to: date
+    settlement_date: date
+    output_tax: Decimal
+    input_tax: Decimal
+    net_tax: Decimal
+    journal_entry_id: Optional[int] = None
+    notes: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# =============================================================================
+# BANK ACCOUNTS & RECONCILIATION
+# =============================================================================
+
+class BankAccountCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    bank_name: Optional[str] = Field(None, max_length=100)
+    account_number: Optional[str] = Field(None, max_length=50)
+    branch_code: Optional[str] = None
+    account_id: Optional[int] = None  # existing GL account; omit to create one under 1000
+    currency: Optional[str] = Field("LKR", max_length=10)
+    reconcile_from: Optional[date] = None
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+class BankAccountUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    bank_name: Optional[str] = Field(None, max_length=100)
+    account_number: Optional[str] = Field(None, max_length=50)
+    branch_code: Optional[str] = None
+    reconcile_from: Optional[date] = None
+    is_active: Optional[bool] = None
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+class BankAccountResponse(BaseModel):
+    id: int
+    name: str
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    branch_code: Optional[str] = None
+    account_id: int
+    account_code: str
+    account_name: str
+    currency: str
+    reconcile_from: date
+    is_active: bool
+    notes: Optional[str] = None
+    book_balance: Decimal
+    last_reconciled_to: Optional[date] = None
+    open_statements: int = 0
+
+
+class BankStatementLineInput(BaseModel):
+    line_date: date
+    description: Optional[str] = Field(None, max_length=1000)
+    reference: Optional[str] = Field(None, max_length=200)
+    amount: SignedMoneyIn
+
+
+class BankStatementCreate(BaseModel):
+    bank_account_id: int
+    statement_no: Optional[str] = Field(None, max_length=100)
+    date_from: date
+    date_to: date
+    opening_balance: SignedMoneyIn = Decimal("0")
+    closing_balance: SignedMoneyIn = Decimal("0")
+    notes: Optional[str] = Field(None, max_length=1000)
+    lines: List[BankStatementLineInput] = Field(default_factory=list, max_length=5000)
+    auto_match: bool = True
+
+
+class BankStatementListItem(BaseModel):
+    id: int
+    bank_account_id: int
+    statement_no: Optional[str] = None
+    date_from: date
+    date_to: date
+    opening_balance: Decimal
+    closing_balance: Decimal
+    status: str
+    reconciled_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BankGLItem(BaseModel):
+    gl_id: int
+    transaction_date: date
+    amount: Decimal
+    description: Optional[str] = None
+    reference_type: Optional[str] = None
+    reference_no: Optional[str] = None
+    journal_entry_id: Optional[int] = None
+    journal_entry_no: Optional[str] = None
+
+
+class BankStatementLineResponse(BaseModel):
+    id: int
+    line_date: date
+    description: Optional[str] = None
+    reference: Optional[str] = None
+    amount: Decimal
+    status: str  # unmatched, auto, manual, created
+    matched: List[BankGLItem] = []
+
+
+class BankReconciliationSummary(BaseModel):
+    book_balance: Decimal
+    outstanding_count: int
+    outstanding_total: Decimal
+    unmatched_lines_count: int
+    unmatched_lines_total: Decimal
+    cleared_after_period: Decimal = Decimal("0")
+    bank_only_total: Decimal = Decimal("0")
+    adjusted_book_balance: Decimal
+    statement_closing_balance: Decimal
+    difference: Decimal
+
+
+class BankStatementDetail(BaseModel):
+    id: int
+    bank_account_id: int
+    bank_account_name: str
+    statement_no: Optional[str] = None
+    date_from: date
+    date_to: date
+    opening_balance: Decimal
+    closing_balance: Decimal
+    status: str
+    notes: Optional[str] = None
+    lines: List[BankStatementLineResponse]
+    candidates: List[BankGLItem]
+    summary: BankReconciliationSummary
+    warnings: List[str] = []
+
+
+class BankLineMatch(BaseModel):
+    gl_ids: List[int] = Field(..., min_length=1, max_length=200)
+
+
+class BankLineEntryCreate(BaseModel):
+    account_id: int
+    description: Optional[str] = Field(None, max_length=500)
+
+
+# =============================================================================
+# CUSTOMER WRITE-OFFS
+# =============================================================================
+
+class WriteOffCreate(BaseModel):
+    invoice_id: int
+    amount: MoneyIn
+    reason: str = Field(..., max_length=30)
+    write_off_date: Optional[date] = None
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+class WriteOffReverse(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+class WriteOffResponse(BaseModel):
+    id: int
+    write_off_no: str
+    invoice_id: int
+    invoice_no: Optional[str] = None
+    customer_id: int
+    customer_name: Optional[str] = None
+    branch_code: Optional[str] = None
+    write_off_date: date
+    amount: Decimal
+    reason: str
+    reason_label: str
+    notes: Optional[str] = None
+    status: str
+    journal_entry_id: Optional[int] = None
+
+
+class WriteOffLimitResponse(BaseModel):
+    group_id: int
+    group_name: str
+    max_amount: Decimal
+
+
+class WriteOffLimitUpdate(BaseModel):
+    max_amount: MoneyIn
+
+
+class WriteOffSetup(BaseModel):
+    reasons: List[dict]
+    my_limit: Optional[Decimal] = None  # None = no limit
+
+
+# =============================================================================
+# CHEQUE REGISTER
+# =============================================================================
+
+class ChequeStatusChange(BaseModel):
+    status_date: Optional[date] = None
+
+
+class ChequeBounce(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=500)
+    status_date: Optional[date] = None
+
+
+# =============================================================================
+# COST CENTERS
+# =============================================================================
+
+class CostCenterCreate(BaseModel):
+    code: str = Field(..., min_length=1, max_length=20)
+    name: str = Field(..., min_length=1, max_length=100)
+    branch_code: Optional[str] = None
+    is_branch_default: bool = False
+    description: Optional[str] = Field(None, max_length=1000)
+
+
+class CostCenterUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    branch_code: Optional[str] = None
+    is_branch_default: Optional[bool] = None
+    is_active: Optional[bool] = None
+    description: Optional[str] = Field(None, max_length=1000)
+
+
+class CostCenterResponse(BaseModel):
+    id: int
+    code: str
+    name: str
+    branch_code: Optional[str] = None
+    is_branch_default: bool
+    is_active: bool
+    description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CostCenterProfitLine(BaseModel):
+    cost_center_id: Optional[int] = None
+    code: Optional[str] = None
+    name: str
+    income: Decimal
+    costs: Decimal
+    profit: Decimal
+
+
+class CostCenterProfitReport(BaseModel):
+    date_from: date
+    date_to: date
+    branch_code: Optional[str] = None
+    lines: List[CostCenterProfitLine]
+    income: Decimal
+    costs: Decimal
+    profit: Decimal
+
+
+
+
+# =============================================================================
+# FIXED ASSETS
+# =============================================================================
+
+class AssetClassCreate(BaseModel):
+    code: str = Field(..., min_length=1, max_length=20)
+    name: str = Field(..., min_length=1, max_length=100)
+    asset_account_id: int
+    depreciation_method: str = "straight_line"
+    useful_life_months: int = Field(60, ge=1, le=1200)
+    declining_rate: Optional[Decimal] = Field(None, ge=0, le=100)
+    description: Optional[str] = Field(None, max_length=1000)
+
+
+class AssetClassUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    asset_account_id: Optional[int] = None
+    depreciation_method: Optional[str] = None
+    useful_life_months: Optional[int] = Field(None, ge=1, le=1200)
+    declining_rate: Optional[Decimal] = Field(None, ge=0, le=100)
+    is_active: Optional[bool] = None
+    description: Optional[str] = Field(None, max_length=1000)
+
+
+class AssetClassResponse(BaseModel):
+    id: int
+    code: str
+    name: str
+    asset_account_id: int
+    depreciation_method: str
+    useful_life_months: int
+    declining_rate: Optional[Decimal] = None
+    is_active: bool
+    description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FixedAssetCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    asset_class_id: int
+    branch_code: Optional[str] = None
+    cost_center_id: Optional[int] = None
+    serial_no: Optional[str] = Field(None, max_length=100)
+    location: Optional[str] = Field(None, max_length=200)
+    acquisition_date: date
+    cost: MoneyIn
+    salvage_value: MoneyIn = Decimal("0")
+    useful_life_months: Optional[int] = Field(None, ge=1, le=1200)
+    depreciation_method: Optional[str] = None
+    declining_rate: Optional[Decimal] = Field(None, ge=0, le=100)
+    depreciation_start: Optional[date] = None
+    accumulated_depreciation: MoneyIn = Decimal("0")  # already taken, for an asset brought in
+    funding: str = "existing"  # existing (already in the books), bank, cash, supplier, opening
+    notes: Optional[str] = Field(None, max_length=2000)
+
+
+class FixedAssetResponse(BaseModel):
+    id: int
+    asset_no: str
+    name: str
+    asset_class_id: int
+    asset_class_name: Optional[str] = None
+    branch_code: Optional[str] = None
+    cost_center_id: Optional[int] = None
+    serial_no: Optional[str] = None
+    location: Optional[str] = None
+    acquisition_date: date
+    cost: Decimal
+    salvage_value: Decimal
+    useful_life_months: int
+    depreciation_method: str
+    declining_rate: Optional[Decimal] = None
+    depreciation_start: date
+    accumulated_depreciation: Decimal
+    book_value: Decimal
+    monthly_depreciation: Decimal
+    status: str
+    disposal_date: Optional[date] = None
+    disposal_proceeds: Optional[Decimal] = None
+    notes: Optional[str] = None
+
+
+class FixedAssetDispose(BaseModel):
+    kind: str  # sold, scrapped
+    disposal_date: Optional[date] = None
+    proceeds: MoneyIn = Decimal("0")
+    received_into: str = "bank"  # bank, cash
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+class DepreciationRunCreate(BaseModel):
+    period_year: int = Field(..., ge=2000, le=2100)
+    period_month: int = Field(..., ge=1, le=12)
+
+
+class DepreciationPreviewLine(BaseModel):
+    asset_id: int
+    asset_no: str
+    name: str
+    branch_code: Optional[str] = None
+    amount: Decimal
+
+
+class DepreciationRunResponse(BaseModel):
+    id: int
+    period_year: int
+    period_month: int
+    run_date: date
+    total: Decimal
+    status: str
+    asset_count: int = 0
+
+
+# =============================================================================
+# RECURRING JOURNALS & OPENING BALANCES
+# =============================================================================
+
+class RecurringLineInput(BaseModel):
+    account_id: int
+    debit_amount: MoneyIn = Decimal("0")
+    credit_amount: MoneyIn = Decimal("0")
+    description: Optional[str] = Field(None, max_length=500)
+    cost_center_id: Optional[int] = None
+
+
+class RecurringJournalCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=150)
+    description: str = Field(..., min_length=1, max_length=500)
+    branch_code: Optional[str] = None
+    frequency: str = "monthly"
+    next_date: date
+    end_date: Optional[date] = None
+    auto_reverse: bool = False
+    lines: List[RecurringLineInput] = Field(..., min_length=2, max_length=50)
+
+
+class RecurringJournalUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=150)
+    next_date: Optional[date] = None
+    end_date: Optional[date] = None
+    is_active: Optional[bool] = None
+
+
+class RecurringJournalLineResponse(BaseModel):
+    line_number: int
+    account_id: int
+    debit_amount: Decimal
+    credit_amount: Decimal
+    description: Optional[str] = None
+    cost_center_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class RecurringJournalResponse(BaseModel):
+    id: int
+    name: str
+    description: str
+    branch_code: Optional[str] = None
+    frequency: str
+    next_date: date
+    end_date: Optional[date] = None
+    auto_reverse: bool
+    is_active: bool
+    last_journal_entry_id: Optional[int] = None
+    lines: List[RecurringJournalLineResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
+class OpeningBalanceLine(BaseModel):
+    account_code: str = Field(..., min_length=1, max_length=50)
+    debit: MoneyIn = Decimal("0")
+    credit: MoneyIn = Decimal("0")
+    description: Optional[str] = Field(None, max_length=500)
+
+
+class OpeningBalanceCreate(BaseModel):
+    entry_date: date
+    branch_code: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=500)
+    lines: List[OpeningBalanceLine] = Field(..., min_length=1, max_length=2000)

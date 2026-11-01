@@ -1123,6 +1123,8 @@ class ItemReceiveNoteService:
         results = []
         received_count = 0
         damaged_total = 0
+        gl_moves = []    # (stock row, qty, source branch, destination branch) for the GL
+        gl_damaged = []  # (stock row, qty or None for the whole row) arriving damaged
 
         for barcode in request.barcodes:
             # Check if barcode is in this transfer note
@@ -1162,6 +1164,7 @@ class ItemReceiveNoteService:
 
             product_name = None
             if stock_item:
+                gl_src_branch = stock_item.branch_code
                 # Update location to destination
                 stock_item.location_id = transfer_note.to_location_id
                 # Update branch_code to destination branch
@@ -1180,9 +1183,12 @@ class ItemReceiveNoteService:
             damaged_here = bool(line and line.damaged_quantity > 0)
             if line and line.note:
                 transfer_item.remark = line.note
+            if stock_item:
+                gl_moves.append((stock_item, 1, gl_src_branch, stock_item.branch_code))
             if damaged_here and stock_item:
                 stock_item.status = StockStatus.DAMAGED
                 damaged_total += 1
+                gl_damaged.append((stock_item, 1))
 
             results.append(schemas.ReceivedItemResult(
                 barcode=barcode,
@@ -1218,7 +1224,9 @@ class ItemReceiveNoteService:
                 ))
                 continue
             lot_item.item_recieved = True
+            gl_src_branch, gl_qty = lot_stock.branch_code, lot_stock.quantity
             _apply_receipt(self.db, lot_stock, transfer_note)
+            gl_moves.append((lot_stock, gl_qty, gl_src_branch, lot_stock.branch_code))
             lot_line = line_by_item.get(item_id)
             damaged_units = lot_line.damaged_quantity if lot_line else 0
             if lot_line and lot_line.note:
@@ -1227,8 +1235,10 @@ class ItemReceiveNoteService:
                 from app.modules.inventory.lots import split_lot
 
                 # split off exactly the damaged units; the rest of the lot stays sellable
-                split_lot(self.db, lot_stock, min(damaged_units, lot_stock.quantity)).status = StockStatus.DAMAGED
+                damaged_lot = split_lot(self.db, lot_stock, min(damaged_units, lot_stock.quantity))
+                damaged_lot.status = StockStatus.DAMAGED
                 damaged_total += damaged_units
+                gl_damaged.append((damaged_lot, None))
             results.append(schemas.ReceivedItemResult(
                 item_id=item_id,
                 success=True,
@@ -1290,7 +1300,12 @@ class ItemReceiveNoteService:
                 recieved_date=tz.now()
             )
             self.db.add(new_receive_note)
-        
+
+        # Stock value follows the goods to the receiving branch; damaged arrivals are written off there.
+        from app.modules.finance.stock_gl import post_damage, post_transfer_receipt
+        post_transfer_receipt(self.db, transfer_note, gl_moves, request.received_user_id or 0)
+        for damaged_row, damaged_qty in gl_damaged:
+            post_damage(self.db, damaged_row, request.received_user_id or 0, quantity=damaged_qty)
         self.db.commit()
         
         pending_items = total_items - already_received

@@ -48,8 +48,13 @@ export const TCurrency: React.FC<TCurrencyProps> = ({
   maxDecimals = 2,
   placeholder = "-",
   sx,
-  ...rest
+  ...props
 }) => {
+  // Render a <span> (valid inside paragraphs and table text). Without an explicit
+  // `component` it keeps the block layout the old <p> had, so layouts don't move.
+  const { component, ...rest } = props as typeof props & { component?: React.ElementType };
+  const tag = component ?? "span";
+  const blockSx = component ? {} : { display: "block" };
   const activeCurrency = useCurrencyStore();
   currency = currency ?? activeCurrency.code;
   locale = locale ?? activeCurrency.locale;
@@ -57,7 +62,7 @@ export const TCurrency: React.FC<TCurrencyProps> = ({
   // Handle null/undefined
   if (value === null || value === undefined) {
     return (
-      <Typography {...rest} sx={{ ...sx }}>
+      <Typography component={tag} {...rest} sx={{ ...blockSx, ...sx }}>
         {placeholder}
       </Typography>
     );
@@ -69,7 +74,7 @@ export const TCurrency: React.FC<TCurrencyProps> = ({
   // Handle invalid numbers
   if (isNaN(numValue)) {
     return (
-      <Typography {...rest} sx={{ ...sx }}>
+      <Typography component={tag} {...rest} sx={{ ...blockSx, ...sx }}>
         {placeholder}
       </Typography>
     );
@@ -98,8 +103,10 @@ export const TCurrency: React.FC<TCurrencyProps> = ({
 
   return (
     <Typography
+      component={tag}
       {...rest}
       sx={{
+        ...blockSx,
         fontVariantNumeric: "tabular-nums",
         color,
         ...sx,

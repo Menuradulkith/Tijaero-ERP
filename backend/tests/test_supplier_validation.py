@@ -74,8 +74,11 @@ class TestUpdateValidation:
 
 class TestListAndPaging:
     def test_search_is_literal(self, superclient, supplier):
-        assert superclient.get(f"{B}/suppliers", params={"search": "%"}).json() == []
-        assert superclient.get(f"{B}/suppliers", params={"search": "_"}).json() == []
+        # Wildcards are matched literally: every hit really contains the character
+        # (the shared dev DB has a few QA suppliers with "_" in their names).
+        for ch in ("%", "_"):
+            rows = superclient.get(f"{B}/suppliers", params={"search": ch}).json()
+            assert all(any(ch in str(v) for v in r.values() if isinstance(v, str)) for r in rows), (ch, rows[:3])
 
     def test_paged_totals_search_sort(self, superclient):
         tag = _u()

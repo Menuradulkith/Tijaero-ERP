@@ -136,6 +136,7 @@ class CustomerService:
 
     def update_customer(self, db: Session, customer_id: int, customer: schemas.CustomerUpdate, user_id: int) -> Customer:
         submitted_fields = customer.model_dump(exclude_unset=True, exclude={"expected_version"})
+
         # Row lock first: the stale check, the rules and the write must not interleave with another save.
         before = db.query(Customer).filter(Customer.id == customer_id).with_for_update().first()
         if not before:
@@ -956,6 +957,13 @@ class VoucherService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete voucher that has been used {usage_count} time(s)"
+            )
+        # An expired voucher's value is already income (breakage): refunding it
+        # would pay the cash out a second time.
+        if voucher.status != "active" or self._is_expired(voucher):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only an active, unexpired voucher can be refunded",
             )
 
         # ── GL Hook: Post voucher refund (Dr 2510 Voucher Liability / Cr 1010 Cash) ──

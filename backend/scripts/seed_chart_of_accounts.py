@@ -60,6 +60,8 @@ COA_DATA = [
      "Advance payments made by customers (contra account)", "1100"),
     ("1130", "Employee Advances & Loans", "Asset", "Employee Advance", "Debit", True,
      "Salary advances and loans owed by employees, cleared by payroll repayments", "1100"),
+    ("1140", "VAT Receivable (Input VAT)", "Asset", "Tax", "Debit", True,
+     "VAT paid on supplier invoices, to be claimed from the tax authority", "1100"),
 
     # Supplier advances are money WE prepaid to suppliers (Dr on payment, Cr when
     # applied to a GRN / invoice or refunded) -> a current asset, not a liability.
@@ -110,6 +112,8 @@ COA_DATA = [
      "Parent account for tax liabilities", None),
     ("2210", "VAT/Tax Payable", "Liability", "Tax", "Credit", True,
      "Value Added Tax and other taxes payable", "2200"),
+    ("2220", "VAT Due to Tax Authority", "Liability", "Tax", "Credit", True,
+     "Net VAT of settled periods, owed to (or refundable by) the tax authority", "2200"),
 
     ("2300", "Long-term Debt", "Liability", "Long-term", "Credit", False,
      "Parent account for long-term borrowings and loans", None),
@@ -140,6 +144,9 @@ COA_DATA = [
     # ═══════════════════════════════════════════════════════════════════════════
     # REVENUE
     # ═══════════════════════════════════════════════════════════════════════════
+    ("3900", "Opening Balance Equity", "Equity", "Equity", "Credit", True,
+     "Other side of opening balances when the books start", None),
+
     ("4000", "Sales Revenue", "Revenue", "Sales", "Credit", False,
      "Parent account for all sales income", None),
     ("4010", "Cash Sales", "Revenue", "Sales", "Credit", True,
@@ -153,6 +160,10 @@ COA_DATA = [
      "Parent account for non-operating income", None),
     ("4110", "Discount Received", "Revenue", "Other", "Credit", False,
      "Discounts received from suppliers", "4100"),
+    ("4120", "Interest Received", "Revenue", "Other", "Credit", True,
+     "Interest paid by the bank", "4100"),
+    ("4130", "Gain on Asset Disposal", "Revenue", "Other", "Credit", True,
+     "Assets sold above book value", "4100"),
     ("4190", "Miscellaneous Income", "Revenue", "Other", "Credit", True,
      "Service charges, voucher breakage, settlement discounts and other income", "4100"),
 
@@ -169,6 +180,9 @@ COA_DATA = [
      "Difference between actual production cost and the standard cost of output", "5000"),
     ("5040", "Production Labour & Overhead Absorbed", "Expense", "COGS", "Debit", True,
      "Labour and overhead charged to production orders at work-center rates (credit balance)", "5000"),
+
+    ("5186", "Stock Write-offs & Shrinkage", "Expense", "COGS", "Debit", True,
+     "Stock marked damaged or otherwise lost", "5000"),
 
     ("5100", "Operating Expenses", "Expense", "Operating", "Debit", False,
      "Parent account for operating expenses", None),
@@ -194,6 +208,12 @@ COA_DATA = [
      "Advertising, promotions, marketing campaigns", "5100"),
     ("5183", "Insurance Expense", "Expense", "Operating", "Debit", True,
      "Property, vehicle, liability insurance premiums", "5100"),
+    ("5184", "Bank Charges", "Expense", "Operating", "Debit", True,
+     "Fees charged by the bank", "5100"),
+    ("5185", "Bad Debts & Write-offs", "Expense", "Operating", "Debit", True,
+     "Customer balances written off as not collectable", "5100"),
+    ("5187", "Loss on Asset Disposal", "Expense", "Operating", "Debit", True,
+     "Assets sold or scrapped below book value", "5100"),
     ("5190", "Miscellaneous Expense", "Expense", "Operating", "Debit", True,
      "Catch-all for unclassified operating expenses", "5100"),
 
@@ -216,13 +236,16 @@ def seed_chart_of_accounts(db: Session, force: bool = False) -> dict:
     Args:
         db: Database session
         force: If True, skip existing accounts and insert only missing ones.
-               If False, abort if any accounts already exist.
+               If False, abort if the user already built their own accounts.
+               System accounts that migrations add (VAT, write-offs, …) don't
+               count, so a fresh install still gets the full chart.
 
     Returns:
         dict with created, skipped, total counts
     """
     existing_count = db.query(ChartOfAccounts).count()
-    if existing_count > 0 and not force:
+    user_count = db.query(ChartOfAccounts).filter(ChartOfAccounts.is_system_account.is_(False)).count()
+    if user_count > 0 and not force:
         print(f"⚠️  Chart of Accounts already has {existing_count} records.")
         print("   Use --force to add missing accounts without duplicating existing ones.")
         return {"created": 0, "skipped": existing_count, "total": existing_count}
@@ -281,6 +304,7 @@ def seed_chart_of_accounts(db: Session, force: bool = False) -> dict:
                 parent_updates += 1
 
     db.commit()
+    seed_finance_defaults(db)
 
     total = db.query(ChartOfAccounts).count()
     return {
@@ -289,6 +313,29 @@ def seed_chart_of_accounts(db: Session, force: bool = False) -> dict:
         "parent_links_set": parent_updates,
         "total": total,
     }
+
+
+def seed_finance_defaults(db: Session) -> None:
+    """Records that point at seeded accounts: the main bank account (1020) and
+    the Equipment / Furniture asset classes. Migrations add them too, but on a
+    fresh install they run before these accounts exist. Safe to run again."""
+    from sqlalchemy import text
+
+    db.execute(text("""
+        INSERT INTO bank_accounts (name, bank_name, account_id, currency, reconcile_from, is_active, created_at, updated_at)
+        SELECT 'Main bank account', NULL, a.id, 'LKR', CURRENT_DATE, true, now(), now()
+        FROM chart_of_accounts a
+        WHERE a.account_code = '1020' AND NOT EXISTS (SELECT 1 FROM bank_accounts b WHERE b.account_id = a.id)
+    """))
+    db.execute(text("""
+        INSERT INTO asset_classes (code, name, asset_account_id, depreciation_method, useful_life_months, description)
+        SELECT v.code, v.name, a.id, 'straight_line', v.months, v.descr
+        FROM (VALUES ('EQUIP', 'Equipment', '1310', 60, 'Machines, computers and tools'),
+                     ('FURN', 'Furniture & fittings', '1320', 96, 'Furniture, shelving and fittings')) AS v(code, name, acc, months, descr)
+        JOIN chart_of_accounts a ON a.account_code = v.acc
+        WHERE NOT EXISTS (SELECT 1 FROM asset_classes c WHERE c.code = v.code)
+    """))
+    db.commit()
 
 
 def main():

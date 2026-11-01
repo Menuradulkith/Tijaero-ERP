@@ -1,26 +1,35 @@
-import { useState } from "react";
+/**
+ * CashbookPage — every cash/bank movement for a period with running balance.
+ *
+ * Same layout as the other report pages: quick-date buttons and filters in the
+ * header row, Export / Print next to refresh, totals in a form section and the
+ * entries in a full-height grid.
+ */
+
+import { useMemo, useState } from "react";
 import { exportToCSV } from "@/utils/csvExport";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Box,
-  Paper,
-  Card,
-  CardContent,
-  Typography,
-  TextField,
-  MenuItem,
-  Button,
-  ButtonGroup,
-  Tooltip,
-} from "@mui/material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { Box, Typography, TextField, Button, ButtonGroup, Tooltip } from "@mui/material";
 import PrintIcon from "@mui/icons-material/Print";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
-import { TChip, TPageHeader, TCurrency, TBranchFilter, showErrorToast, showSuccessToast, fmtLKR } from "@/components/tijaero";
+import {
+  FormSection,
+  MasterDetailLayout,
+  TChip,
+  TCurrency,
+  TBranchFilter,
+  TDataGrid,
+  type TDataGridColumn,
+  TSearchableSelect,
+  showErrorToast,
+  showSuccessToast,
+  fmtLKR,
+} from "@/components/tijaero";
 import { cashbookApi } from "@/modules/finance/api";
 import { CashbookEntryType, CashbookReport } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
 import { escapeHtml } from "@/utils/escapeHtml";
+
 
 // Date range quick filter options
 type DateRangePreset = "today" | "thisWeek" | "thisMonth" | "lastMonth" | "last30Days" | "custom";
@@ -77,6 +86,9 @@ const ENTRY_TYPES: { value: CashbookEntryType | ""; label: string }[] = [
   { value: "commission_payment", label: "Commission Payments" },
   { value: "petty_cash", label: "Petty Cash" },
   { value: "journal_entry", label: "Journal Entries" },
+  { value: "fixed_asset", label: "Fixed Assets" },
+  { value: "cheque_bounce", label: "Bounced Cheques" },
+  { value: "bank_statement", label: "Bank Statement Items" },
 ];
 
 const PAYMENT_METHODS = [
@@ -110,8 +122,48 @@ const getEntryTypeColor = (type: CashbookEntryType) => {
 
 const getEntryTypeLabel = (type: CashbookEntryType) => {
   const found = ENTRY_TYPES.find((t) => t.value === type);
-  return found?.label || type;
+  if (found) return found.label;
+  // Unknown source: "gl_some_thing" -> "Some thing"
+  const words = String(type || "").replace(/^gl_/, "").replace(/_/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "-";
 };
+
+type CashbookEntry = CashbookReport["entries"][number];
+
+const PRESETS: { value: DateRangePreset; label: string }[] = [
+  { value: "today", label: "Today" },
+  { value: "thisWeek", label: "This Week" },
+  { value: "thisMonth", label: "This Month" },
+  { value: "lastMonth", label: "Last Month" },
+  { value: "last30Days", label: "Last 30 Days" },
+  { value: "custom", label: "Custom" },
+];
+
+const amountCell = (value: number, color: string) => (
+  <Box sx={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+    {value > 0 ? (
+      <TCurrency value={value} showSymbol={false} variant="body2" fontWeight={600} sx={{ color, lineHeight: 1.2 }} />
+    ) : (
+      <Typography variant="body2" sx={{ lineHeight: 1.2 }}>-</Typography>
+    )}
+  </Box>
+);
+
+function Figure({ label, value, color, hint }: { label: string; value: number; color?: string; hint?: React.ReactNode }) {
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" display="block">
+        {label}
+      </Typography>
+      <TCurrency value={value} variant="subtitle1" fontWeight={700} sx={{ color }} />
+      {hint && (
+        <Typography variant="caption" color="text.secondary" component="div">
+          {hint}
+        </Typography>
+      )}
+    </Box>
+  );
+}
 
 export default function CashbookPage() {
   const today = new Date().toISOString().split("T")[0];
@@ -129,7 +181,7 @@ export default function CashbookPage() {
   const { filteredBranches } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
 
-  const { data: report, isLoading } = useQuery({
+  const { data: report, isLoading, isFetching, refetch } = useQuery({
     queryKey: ["cashbook", dateFrom, dateTo, branchCode, entryType, paymentMethod],
     queryFn: () =>
       cashbookApi.getReport({
@@ -140,6 +192,15 @@ export default function CashbookPage() {
         payment_method: paymentMethod || undefined,
       }),
   });
+
+  // Newest first by default (the grid's column menu can re-sort).
+  const entries = useMemo(
+    () =>
+      [...(report?.entries ?? [])].sort(
+        (a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime(),
+      ),
+    [report],
+  );
 
   // Handle date preset changes
   const handleDatePresetChange = (preset: DateRangePreset) => {
@@ -164,15 +225,15 @@ export default function CashbookPage() {
       showErrorToast("No data to print");
       return;
     }
-    
+
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       showErrorToast("Please allow popups to print");
       return;
     }
 
-    const branchName = branchCode 
-      ? branches.find(b => b.branch_code === branchCode)?.branch_name || branchCode 
+    const branchName = branchCode
+      ? branches.find(b => b.branch_code === branchCode)?.branch_name || branchCode
       : "All Branches";
 
     const html = generatePrintHTML(report, branchName, dateFrom, dateTo);
@@ -205,398 +266,188 @@ export default function CashbookPage() {
     showSuccessToast("Cashbook exported successfully");
   };
 
-  const columns: GridColDef[] = [
+  const columns: TDataGridColumn<CashbookEntry>[] = [
     {
       field: "transaction_date",
-      headerName: "Date",
-      width: 150,
-      valueFormatter: (value) => new Date(value).toLocaleString(),
+      header: "Date",
+      width: 170,
+      renderCell: (p) => new Date(p.row.transaction_date).toLocaleString(),
     },
     {
       field: "entry_type",
-      headerName: "Type",
-      width: 150,
-      display: "flex",
-      renderCell: (params) => (
-        <TChip
-          label={getEntryTypeLabel(params.value)}
-          color={getEntryTypeColor(params.value)}
-          size="small"
-        />
+      header: "Type",
+      width: 160,
+      renderCell: (p) => (
+        <TChip label={getEntryTypeLabel(p.row.entry_type)} color={getEntryTypeColor(p.row.entry_type)} size="small" />
       ),
     },
-    { field: "reference_no", headerName: "Reference", width: 140 },
-    { field: "description", headerName: "Description", width: 180, flex: 1 },
-    { field: "party_name", headerName: "Party", width: 140 },
-    {
-      field: "payment_method",
-      headerName: "Payment",
-      width: 110,
-      display: "flex",
-      renderCell: (params) => (
-        <Typography variant="body2" sx={{ lineHeight: 1.2 }}>
-          {params.value || "-"}
-        </Typography>
-      ),
-    },
+    { field: "reference_no", header: "Reference", width: 140 },
+    { field: "description", header: "Description", minWidth: 180, flex: 1 },
+    { field: "party_name", header: "Party", width: 140 },
+    { field: "payment_method", header: "Payment", width: 110, renderCell: (p) => p.row.payment_method || "-" },
     {
       field: "money_in",
-      headerName: "Money In",
-      width: 120,
-      align: "right",
-      headerAlign: "right",
-      display: "flex",
-      renderCell: (params) => (
-        <Box sx={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
-          {params.value > 0 ? (
-            <Typography variant="body2" color="success.main" fontWeight={600} sx={{ lineHeight: 1.2 }}>
-              <TCurrency value={params.value} showSymbol={false} />
-            </Typography>
-          ) : (
-            <Typography variant="body2" sx={{ lineHeight: 1.2 }}>-</Typography>
-          )}
-        </Box>
-      ),
-    },
-    {
-      field: "money_out",
-      headerName: "Money Out",
-      width: 120,
-      align: "right",
-      headerAlign: "right",
-      display: "flex",
-      renderCell: (params) => (
-        <Box sx={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
-          {params.value > 0 ? (
-            <Typography variant="body2" color="error.main" fontWeight={600} sx={{ lineHeight: 1.2 }}>
-              <TCurrency value={params.value} showSymbol={false} />
-            </Typography>
-          ) : (
-            <Typography variant="body2" sx={{ lineHeight: 1.2 }}>-</Typography>
-          )}
-        </Box>
-      ),
-    },
-    {
-      field: "running_balance",
-      headerName: "Balance",
+      header: "Money In",
       width: 130,
       align: "right",
       headerAlign: "right",
-      display: "flex",
-      renderCell: (params) => (
-        <Box sx={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
-          <Typography
-            variant="body2"
-            fontWeight={600}
-            lineHeight={1.2}
-            color={params.value >= 0 ? "text.primary" : "error.main"}
-          >
-            <TCurrency value={params.value} showSymbol={false} />
-          </Typography>
-        </Box>
-      ),
+      renderCell: (p) => amountCell(p.row.money_in, "success.main"),
     },
     {
-      field: "branch_code",
-      headerName: "Branch",
-      width: 90,
-      display: "flex",
-      renderCell: (params) => (
-        <Typography variant="body2" sx={{ lineHeight: 1.2 }}>
-          {params.value || "-"}
-        </Typography>
+      field: "money_out",
+      header: "Money Out",
+      width: 130,
+      align: "right",
+      headerAlign: "right",
+      renderCell: (p) => amountCell(p.row.money_out, "error.main"),
+    },
+    {
+      field: "running_balance",
+      header: "Balance",
+      width: 140,
+      align: "right",
+      headerAlign: "right",
+      renderCell: (p) => (
+        <TCurrency
+          value={p.row.running_balance}
+          showSymbol={false}
+          variant="body2"
+          fontWeight={600}
+          sx={{ width: "100%", textAlign: "right", color: p.row.running_balance >= 0 ? "text.primary" : "error.main" }}
+        />
       ),
     },
+    { field: "branch_code", header: "Branch", width: 90, renderCell: (p) => p.row.branch_code || "-" },
   ];
 
+  const hasEntries = !!report?.entries?.length;
+
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
-      <TPageHeader
-        title="Cashbook"
-        actions={
-          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-            <Tooltip title="Export to CSV">
-              <span>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<FileDownloadIcon />}
-                  onClick={handleExport}
-                  disabled={!report?.entries?.length}
-                >
-                  Export CSV
-                </Button>
-              </span>
-            </Tooltip>
-            <Tooltip title="Print report">
-              <span>
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={<PrintIcon />}
-                  onClick={handlePrint}
-                  disabled={!report?.entries?.length}
-                >
-                  Print
-                </Button>
-              </span>
-            </Tooltip>
-          </Box>
-        }
-      />
-
-      <Paper
-        variant="outlined"
-        sx={{
-          p: 2,
-          borderRadius: 2,
-          display: "flex",
-          flexDirection: "column",
-          gap: 2,
-        }}
-      >
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 1,
-            flexWrap: "wrap",
-          }}
-        >
-          <Typography variant="subtitle1" fontWeight={700}>
-            Report Filters
-          </Typography>
-
-          <ButtonGroup size="small" variant="outlined">
-            <Button
-              variant={datePreset === "today" ? "contained" : "outlined"}
-              onClick={() => handleDatePresetChange("today")}
-            >
-              Today
-            </Button>
-            <Button
-              variant={datePreset === "thisWeek" ? "contained" : "outlined"}
-              onClick={() => handleDatePresetChange("thisWeek")}
-            >
-              This Week
-            </Button>
-            <Button
-              variant={datePreset === "thisMonth" ? "contained" : "outlined"}
-              onClick={() => handleDatePresetChange("thisMonth")}
-            >
-              This Month
-            </Button>
-            <Button
-              variant={datePreset === "lastMonth" ? "contained" : "outlined"}
-              onClick={() => handleDatePresetChange("lastMonth")}
-            >
-              Last Month
-            </Button>
-            <Button
-              variant={datePreset === "last30Days" ? "contained" : "outlined"}
-              onClick={() => handleDatePresetChange("last30Days")}
-            >
-              Last 30 Days
-            </Button>
-            <Button
-              variant={datePreset === "custom" ? "contained" : "outlined"}
-              onClick={() => setDatePreset("custom")}
-            >
-              Custom
-            </Button>
+    <MasterDetailLayout
+      title="Cashbook"
+      titleSlot={
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+          <ButtonGroup size="small" variant="outlined" sx={{ flexShrink: 0 }}>
+            {PRESETS.map((p) => (
+              <Button
+                key={p.value}
+                variant={datePreset === p.value ? "contained" : "outlined"}
+                onClick={() => (p.value === "custom" ? setDatePreset("custom") : handleDatePresetChange(p.value))}
+                sx={{ textTransform: "none" }}
+              >
+                {p.label}
+              </Button>
+            ))}
           </ButtonGroup>
-        </Box>
-
-        <Box
-          sx={{
-            display: "grid",
-            gap: 1.5,
-            gridTemplateColumns: {
-              xs: "1fr",
-              sm: "repeat(2, minmax(0, 1fr))",
-              lg: "repeat(5, minmax(0, 1fr))",
-            },
-          }}
-        >
           <TextField
-            label="From Date"
             type="date"
             size="small"
             value={dateFrom}
             onChange={(e) => handleCustomDateChange("from", e.target.value)}
-            InputLabelProps={{ shrink: true }}
+            inputProps={{ "aria-label": "From date" }}
+            sx={{ width: 150, flexShrink: 0 }}
           />
           <TextField
-            label="To Date"
             type="date"
             size="small"
             value={dateTo}
             onChange={(e) => handleCustomDateChange("to", e.target.value)}
-            InputLabelProps={{ shrink: true }}
+            inputProps={{ "aria-label": "To date" }}
+            sx={{ width: 150, flexShrink: 0 }}
           />
-          <TextField
-            select
-            label="Transaction Type"
-            size="small"
-            value={entryType}
-            onChange={(e) => setEntryType(e.target.value as CashbookEntryType | "")}
-          >
-            {ENTRY_TYPES.map((t) => (
-              <MenuItem key={t.value} value={t.value}>
-                {t.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            label="Payment Method"
-            size="small"
-            value={paymentMethod}
-            onChange={(e) => setPaymentMethod(e.target.value)}
-          >
-            {PAYMENT_METHODS.map((m) => (
-              <MenuItem key={m.value} value={m.value}>
-                {m.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          <Box>
-            <TBranchFilter
-              branches={branches}
-              value={branchCode}
-              onChange={setBranchCode}
+          <Box sx={{ width: 170, flexShrink: 0 }}>
+            <TSearchableSelect
+              label=""
+              value={entryType || null}
+              onChange={(v) => setEntryType(((v as CashbookEntryType | null) ?? "") as CashbookEntryType | "")}
+              options={ENTRY_TYPES.filter((t) => t.value).map((t) => ({ value: t.value, label: t.label }))}
+              showAllOption
+              allOptionLabel="All Transactions"
+              placeholder="Search type..."
+              size="small"
             />
           </Box>
+          <Box sx={{ width: 150, flexShrink: 0 }}>
+            <TSearchableSelect
+              label=""
+              value={paymentMethod || null}
+              onChange={(v) => setPaymentMethod((v as string | null) ?? "")}
+              options={PAYMENT_METHODS.filter((m) => m.value)}
+              showAllOption
+              allOptionLabel="All Methods"
+              placeholder="Search method..."
+              size="small"
+            />
+          </Box>
+          <Box sx={{ width: 150, flexShrink: 0 }}>
+            <TBranchFilter branches={branches} value={branchCode} onChange={setBranchCode} label="" size="small" />
+          </Box>
         </Box>
-      </Paper>
-
-      <Box
-        sx={{
-          display: "grid",
-          gap: 1.5,
-          gridTemplateColumns: {
-            xs: "1fr",
-            sm: "repeat(2, minmax(0, 1fr))",
-            xl: "repeat(4, minmax(0, 1fr))",
-          },
-        }}
-      >
-        <Card variant="outlined" sx={{ borderRadius: 2 }}>
-          <CardContent>
-            <Typography color="text.secondary" variant="body2">
-              Opening Balance
-            </Typography>
-            <Typography variant="h5" fontWeight={700}>
-              <TCurrency value={report?.summary?.opening_balance || 0} />
-            </Typography>
-          </CardContent>
-        </Card>
-
-        <Card variant="outlined" sx={{ borderRadius: 2 }}>
-          <CardContent>
-            <Typography color="text.secondary" variant="body2">
-              Total Money In
-            </Typography>
-            <Typography variant="h5" color="success.main" fontWeight={700}>
-              <TCurrency value={report?.summary?.total_money_in || 0} />
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {report?.entry_count || 0} transactions
-            </Typography>
-          </CardContent>
-        </Card>
-
-        <Card variant="outlined" sx={{ borderRadius: 2 }}>
-          <CardContent>
-            <Typography color="text.secondary" variant="body2">
-              Total Money Out
-            </Typography>
-            <Typography variant="h5" color="error.main" fontWeight={700}>
-              <TCurrency value={report?.summary?.total_money_out || 0} />
-            </Typography>
-          </CardContent>
-        </Card>
-
-        <Card
-          variant="outlined"
-          sx={{
-            borderRadius: 2,
-            bgcolor: "primary.50",
-            borderColor: "primary.200",
-          }}
-        >
-          <CardContent>
-            <Typography color="text.secondary" variant="body2">
-              Closing Balance
-            </Typography>
-            <Typography variant="h5" color="primary.main" fontWeight={800}>
-              <TCurrency value={report?.summary?.closing_balance || 0} />
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Net movement: <TCurrency value={report?.summary?.net_movement || 0} />
-            </Typography>
-          </CardContent>
-        </Card>
-      </Box>
-
-      <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
-        <Box
-          sx={{
-            px: 2,
-            py: 1.25,
-            borderBottom: "1px solid",
-            borderColor: "divider",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 1,
-            flexWrap: "wrap",
-          }}
-        >
-          <Typography variant="subtitle1" fontWeight={700}>
-            Ledger Entries
-          </Typography>
-          <TChip
-            size="small"
-            color="primary"
-            variant="outlined"
-            label={`${report?.entry_count || 0} records`}
+      }
+      headerActions={
+        <>
+          <Tooltip title="Export to CSV">
+            <span>
+              <Button variant="outlined" size="small" startIcon={<FileDownloadIcon />} onClick={handleExport} disabled={!hasEntries}>
+                Export CSV
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip title="Print report">
+            <span>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<PrintIcon />}
+                onClick={handlePrint}
+                disabled={!hasEntries}
+                sx={{ mr: 1 }}
+              >
+                Print
+              </Button>
+            </span>
+          </Tooltip>
+        </>
+      }
+      onRefresh={() => refetch()}
+      isLoading={isFetching}
+    >
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5, display: "flex", flexDirection: "column" }}>
+        <FormSection title="Summary" columns={4}>
+          <Figure label="Opening Balance" value={report?.summary?.opening_balance || 0} />
+          <Figure
+            label="Total Money In"
+            value={report?.summary?.total_money_in || 0}
+            color="success.main"
+            hint={`${report?.entry_count || 0} transactions`}
           />
-        </Box>
-
-        <Box sx={{ height: 520 }}>
-          <DataGrid
-            rows={report?.entries || []}
+          <Figure label="Total Money Out" value={report?.summary?.total_money_out || 0} color="error.main" />
+          <Figure
+            label="Closing Balance"
+            value={report?.summary?.closing_balance || 0}
+            color="primary.main"
+            hint={
+              <Box component="span" sx={{ display: "inline-flex", gap: 0.5 }}>
+                Net movement: <TCurrency value={report?.summary?.net_movement || 0} component="span" variant="caption" />
+              </Box>
+            }
+          />
+        </FormSection>
+        <Box sx={{ flex: 1, minHeight: 400, display: "flex" }}>
+          <TDataGrid<CashbookEntry>
+            rows={entries}
             columns={columns}
             loading={isLoading}
             getRowId={(row) => row.id}
-            initialState={{
-              sorting: {
-                sortModel: [{ field: "transaction_date", sort: "desc" }],
-              },
-            }}
-            sx={{
-              border: 0,
-              "& .MuiDataGrid-columnHeaders": {
-                bgcolor: "grey.50",
-              },
-              "& .MuiDataGrid-cell": {
-                display: "flex",
-                alignItems: "center",
-              },
-              "& .MuiDataGrid-cell--textRight": {
-                justifyContent: "flex-end",
-              },
-              "& .MuiDataGrid-row:hover": {
-                bgcolor: "action.hover",
-              },
-            }}
+            pageSizeOptions={[25, 50, 100]}
+            pageSize={50}
+            emptyMessage="No cashbook entries for these filters"
+            autoHeight={false}
+            height="100%"
           />
         </Box>
-      </Paper>
-    </Box>
+      </Box>
+    </MasterDetailLayout>
   );
 }
 

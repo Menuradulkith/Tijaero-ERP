@@ -81,7 +81,7 @@ class TestCreditNoteRedemption:
         r3 = superclient.post(S + "/", json=_body(shop, superuser[0].id, cash_amount=99, credit_note_amount=1))
         assert r3.status_code == 400 and "Insufficient credit balance" in r3.text
 
-    def test_credit_note_redemption_takes_the_row_lock(self, db, shop, monkeypatch):
+    def test_credit_note_redemption_takes_the_row_lock(self, db, shop, monkeypatch, superuser):
         """The balance check must run under SELECT ... FOR UPDATE on the customer's credit notes."""
         from app.modules.finance.service import CustomerCreditNoteService
 
@@ -96,8 +96,7 @@ class TestCreditNoteRedemption:
         monkeypatch.setattr(CustomerCreditNoteService, "get_customer_credit_balance", spy)
         from app.modules.sales import schemas, service as svc
         payload = schemas.InvoiceCreate(**_body(shop, 1, cash_amount=60, credit_note_amount=40))
-        from app.auth.models import User
-        uid = db.query(User.id).filter(User.is_superuser == True).first()[0]  # noqa: E712
+        uid = superuser[0].id
         payload.sale_rep_id = uid
         svc.sales_service.create_invoice(db, payload, user_id=uid)
         assert seen and all(seen)

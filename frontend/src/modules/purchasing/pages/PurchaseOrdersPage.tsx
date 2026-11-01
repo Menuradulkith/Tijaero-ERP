@@ -703,7 +703,7 @@ export default function PurchaseOrdersPage() {
       startNewOrderInternal();
       
       const matchedSupplier = suppliers?.find((s: Supplier) => s.id === navState.supplierId);
-      const creditDays = matchedSupplier ? matchedSupplier.credit_days : (navState.creditDays ?? 0);
+      const creditDays = matchedSupplier ? (matchedSupplier.credit_days ?? 0) : (navState.creditDays ?? 0);
 
       setFormData(prev => ({
         ...prev,
@@ -1583,7 +1583,7 @@ export default function PurchaseOrdersPage() {
                       })
                     }
                     onBlur={() => handleBlur("purchasing_order_date")}
-                    disabled={!isEditing && !isCreating}
+                    disabled
                     InputLabelProps={{ shrink: true }}
                     required
                     error={hasError("purchasing_order_date")}

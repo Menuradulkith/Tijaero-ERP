@@ -84,6 +84,7 @@ import {
   PAYMENT_METHOD_OPTIONS,
   PAYMENT_STATUS_OPTIONS,
 } from "@/modules/sales/commission-types";
+import { submitOnce } from "@/modules/finance/submitOnce";
 
 type PaymentWithAgent = CustomerAgentCommissionPayment & { agent_name?: string };
 
@@ -317,7 +318,7 @@ export default function CommissionPaymentsPage() {
       items,
     };
 
-    createMutation.mutate(payload);
+    submitOnce("commission-create", createMutation, payload);
   }, [formData, selectedCommissionIds, paymentItemAmounts]);
 
   const isFormValid = Boolean(

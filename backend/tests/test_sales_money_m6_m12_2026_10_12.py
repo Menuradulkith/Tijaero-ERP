@@ -128,6 +128,35 @@ class TestPartlyRedeemedVoucher:
         row = db.query(CustomerGiftVoucher).get(v["id"])
         assert row.balance == 0 and row.status == "fully_claimed"
 
+    def test_cancelled_sale_gives_back_the_forfeited_remainder(self, db, superclient, superuser, shop):
+        """Cancel reverses the forfeit and restores the whole voucher; using it again
+        forfeits (and posts) the new remainder, so 2510 still ends at zero."""
+        code = "QAV" + uuid.uuid4().hex[:10].upper()
+        v = superclient.post("/api/v1/customers/vouchers/", json={
+            "barcode_no": code, "amount": 500, "valid_period_in_months": 6, "payment_method": "cash"}).json()
+        # A credit order waits for approval, so it can still be cancelled.
+        first = superclient.post(S + "/", json=_body(shop, superuser[0].id, price=300.0, gift_voucher_id=v["id"],
+                                                     gift_voucher_amount=100, payment_method="credit", cash_amount=0,
+                                                     override_credit_validation=True))
+        assert first.status_code == 201, first.text
+        r = superclient.post(f"{S}/{first.json()['id']}/cancel")
+        assert r.status_code == 200, r.text
+        from app.modules.customers.models import CustomerGiftVoucher
+        row = db.query(CustomerGiftVoucher).get(v["id"])
+        db.refresh(row)
+        assert row.balance == 500 and row.status == "active"
+        assert _je(db, "GiftVoucherForfeit", v["id"])["2510"] == (D("400.00"), D("400.00"))  # forfeit + its reversal
+
+        second = superclient.post(S + "/", json=_body(shop, superuser[0].id, price=250.0, gift_voucher_id=v["id"],
+                                                      gift_voucher_amount=250, cash_amount=0.0))
+        assert second.status_code == 201, second.text
+        forfeit = _je(db, "GiftVoucherForfeit", v["id"])
+        assert forfeit["2510"] == (D("650.00"), D("400.00"))  # 400 reversed, then 250 forfeited
+        net_2510 = sum(cr - dr for t, i in (("GiftVoucherSale", v["id"]), ("GiftVoucherForfeit", v["id"]),
+                                           ("Invoice", first.json()["id"]), ("Invoice", second.json()["id"]))
+                       for dr, cr in [_je(db, t, i).get("2510", (D(0), D(0)))])
+        assert net_2510 == 0, net_2510
+
 
 # ---------------------------------------------------------------- M11
 class TestServiceChargeAccount:

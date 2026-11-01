@@ -898,6 +898,12 @@ class SalesStockService:
             entity_id=item.id,
             changes={"status": {"from": str(old_status), "to": status}},
         )
+        # Damaged stock leaves the inventory value (and comes back when made sellable again).
+        from app.modules.finance.stock_gl import post_damage
+        if status == "damaged":
+            post_damage(self.db, item, user_id or 0)
+        elif str(old_status) == "damaged":
+            post_damage(self.db, item, user_id or 0, reverse=True)
         self.db.commit()
         self.db.refresh(item)
         return item

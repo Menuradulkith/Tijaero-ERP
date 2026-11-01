@@ -82,71 +82,57 @@ from app.modules.finance.accounting_models import (
     AccountingPeriod,
 )
 from app.modules.finance.gl_posting_service import GLPostingService
+from app.modules.finance.posting_rules import (
+    EXPENSE_CATEGORY_ALIASES,
+    EXPENSE_CATEGORY_DEFAULTS,
+    expense_ref,
+    posting_ref,
+)
 
 logger = logging.getLogger(__name__)
 
 
-# ─── Account Code Constants ──────────────────────────────────────────────────
-ACCT_CASH_ON_HAND = "1010"
-ACCT_BANK_ACCOUNT = "1020"
-ACCT_TRADE_DEBTORS = "1110"
-ACCT_EMPLOYEE_ADVANCES = "1130"  # Asset - salary advances and loans owed by employees
-ACCT_FINISHED_GOODS = "1210"
-ACCT_SUPPLIER_ADVANCES = "2020"
-ACCT_TRADE_CREDITORS = "2010"
-ACCT_SALARIES_PAYABLE = "2110"
-ACCT_EPF_PAYABLE = "2120"
-ACCT_ETF_PAYABLE = "2130"
-ACCT_OTHER_PAYROLL_DEDUCTIONS = "2140"
-ACCT_APIT_PAYABLE = "2150"
-ACCT_VAT_PAYABLE = "2210"
-ACCT_SALARIES_EXPENSE = "5110"
-ACCT_COMMISSION_EXPENSE = "5150"
-ACCT_EPF_EMPLOYER_EXPENSE = "5210"
-ACCT_ETF_EMPLOYER_EXPENSE = "5220"
-ACCT_CUSTOMER_CREDIT_NOTES = "2530"  # Liability — credit notes owed back to customers
-ACCT_SALES_RETURNS = "4030"          # Contra-revenue — sales returns
+# ─── Accounts (posting types; Finance > Posting Rules can re-point them) ─────
+ACCT_CASH_ON_HAND = posting_ref("CASH")                                 # 1010
+ACCT_BANK_ACCOUNT = posting_ref("BANK")                                 # 1020
+ACCT_CHEQUES_IN_HAND = posting_ref("CHEQUES_IN_HAND")                   # 1040
+ACCT_TRADE_DEBTORS = posting_ref("AR_TRADE")                            # 1110
+ACCT_EMPLOYEE_ADVANCES = posting_ref("EMPLOYEE_ADVANCES")               # 1130 salary advances and loans owed by employees
+ACCT_FINISHED_GOODS = posting_ref("INVENTORY")                          # 1210
+ACCT_SUPPLIER_ADVANCES = posting_ref("SUPPLIER_ADVANCES")               # 2020
+ACCT_TRADE_CREDITORS = posting_ref("AP_TRADE")                          # 2010
+ACCT_SALARIES_PAYABLE = posting_ref("SALARIES_PAYABLE")                 # 2110
+ACCT_EPF_PAYABLE = posting_ref("EPF_PAYABLE")                           # 2120
+ACCT_ETF_PAYABLE = posting_ref("ETF_PAYABLE")                           # 2130
+ACCT_OTHER_PAYROLL_DEDUCTIONS = posting_ref("OTHER_PAYROLL_DEDUCTIONS") # 2140
+ACCT_APIT_PAYABLE = posting_ref("APIT_PAYABLE")                         # 2150
+ACCT_VAT_PAYABLE = posting_ref("OUTPUT_VAT")                            # 2210
+ACCT_CUSTOMER_ADVANCES = posting_ref("CUSTOMER_ADVANCES")               # 2520 customer deposits
+ACCT_SALARIES_EXPENSE = posting_ref("SALARIES_EXPENSE")                 # 5110
+ACCT_COMMISSION_EXPENSE = posting_ref("COMMISSION_EXPENSE")             # 5150
+ACCT_EPF_EMPLOYER_EXPENSE = posting_ref("EPF_EMPLOYER_EXPENSE")         # 5210
+ACCT_ETF_EMPLOYER_EXPENSE = posting_ref("ETF_EMPLOYER_EXPENSE")         # 5220
+ACCT_CUSTOMER_CREDIT_NOTES = posting_ref("CUSTOMER_CREDIT_NOTES")       # 2530 credit notes owed back to customers
+ACCT_SALES_RETURNS = posting_ref("SALES_RETURNS")                       # 4030 contra-revenue
+ACCT_OTHER_INCOME = posting_ref("OTHER_INCOME")                         # 4190 Miscellaneous Income
+ACCT_PURCHASE_DISCOUNT = posting_ref("PURCHASE_DISCOUNT")               # 4110 Discount Received
 
-# Expense category → COA account code mapping
+# Expense category → default COA account (canonical categories plus the
+# spellings the UI / HR send). Rules on the EXPENSE posting type override these.
 EXPENSE_CATEGORY_MAP = {
-    "utilities": "5130",
-    "rent": "5120",
-    "travel": "5140",
-    "salaries": "5110",
-    # Leaf accounts only — 5100 "Operating Expenses" is a header (parent of 5110-5190).
-    "office_supplies": "5180",
-    "maintenance": "5181",
-    "marketing": "5182",
-    "insurance": "5183",
-    "miscellaneous": "5190",
-    "freight": "5020",
-    "commission": "5150",
-    # Values the UI actually sends (frontend EXPENSE_CATEGORIES) and label spellings.
-    "travel_transportation": "5140",
-    "travel_expenses": "5140",
-    "transport": "5140",
-    "utilities_expenses": "5130",
-    "salary_expenses": "5110",
-    "commissions": "5150",
-    "maintenance_repairs": "5181",
-    "repairs_maintenance": "5181",
-    "repairs": "5181",
-    "marketing_advertising": "5182",
-    "advertising": "5182",
-    "other_expenses": "5190",
-    "other": "5190",
+    **EXPENSE_CATEGORY_DEFAULTS,
+    **{alias: EXPENSE_CATEGORY_DEFAULTS[canon] for alias, canon in EXPENSE_CATEGORY_ALIASES.items()},
 }
 
 
 def expense_account_for_category(category: Optional[str]) -> str:
     """Leaf expense account for an expense category / reimbursement type.
     Tolerates label spellings ("Office Supplies", "Maintenance & Repairs")."""
-    key = re.sub(r"[^a-z0-9]+", "_", (category or "miscellaneous").lower()).strip("_")
-    return EXPENSE_CATEGORY_MAP.get(key, ACCT_MISC_EXPENSE)
+    return expense_ref(category)
 
 
 # Fallback for an unmapped expense category / reimbursement type (leaf, not header 5100).
-ACCT_MISC_EXPENSE = "5190"
+ACCT_MISC_EXPENSE = posting_ref("EXPENSE")
 
 
 def normalize_po_payment_method(method: Optional[str]) -> str:
@@ -931,6 +917,84 @@ class PurchaseExpensePayrollGL:
         return je
 
     # ═══════════════════════════════════════════════════════════════════════
+    # SUPPLIER INVOICE: VAT + DISCOUNT (finance blueprint phase B)
+    # ═══════════════════════════════════════════════════════════════════════
+    # The goods are already owed to the supplier from the GRN (Dr Inventory /
+    # Cr Trade Creditors at the PO price, which the three-way match forces the
+    # invoice to equal). The invoice adds only what the GRN could not know:
+    #     Dr 1140 Input VAT ............ tax        Cr 2010 Trade Creditors
+    #     Dr 2010 Trade Creditors ...... discount   Cr 4110 Discount Received
+    # so Trade Creditors ends at the invoice total the supplier is paid.
+
+    def post_purchase_invoice_to_gl(self, invoice, user_id: int) -> Optional[JournalEntry]:
+        from app.modules.finance.tax_service import default_tax_code, vat_line
+
+        marker = f"PurchaseInvoice ID: {invoice.id}"
+        if self._check_already_posted(invoice.id, marker, reference_type="PurchaseInvoice"):
+            return None
+        tax = Decimal(str(invoice.tax_amount or 0))
+        discount = Decimal(str(invoice.discount_amount or 0))
+        if tax <= 0 and discount <= 0:
+            return None
+        tax_code = invoice.tax_code or default_tax_code(self.db, "input")
+        if not invoice.tax_code and tax > 0:
+            invoice.tax_code = tax_code
+        subtotal = Decimal(str(invoice.subtotal or 0))
+        rate = (tax / subtotal * 100).quantize(Decimal("0.001")) if subtotal > 0 and tax > 0 else None
+        ref = f"{invoice.invoice_no} ({invoice.supplier_invoice_no})"
+        lines: List[Dict[str, Any]] = []
+        if tax > 0:
+            lines.append(vat_line(
+                "input", tax_code, debit=tax, credit=Decimal("0"), base=subtotal, rate=rate,
+                description=f"Input VAT - supplier invoice {ref}",
+            ))
+            lines.append({"account_code": ACCT_TRADE_CREDITORS, "debit": Decimal("0"), "credit": tax,
+                          "description": f"VAT owed to supplier - {ref}"})
+        if discount > 0:
+            lines.append({"account_code": ACCT_TRADE_CREDITORS, "debit": discount, "credit": Decimal("0"),
+                          "description": f"Supplier discount - {ref}"})
+            lines.append({"account_code": ACCT_PURCHASE_DISCOUNT, "debit": Decimal("0"), "credit": discount,
+                          "description": f"Discount received - {ref}"})
+        return self._create_je_and_post(
+            entry_date=invoice.supplier_invoice_date or tz.today(),
+            description=f"Auto GL - Supplier Invoice | {ref} | VAT: {tax} | Discount: {discount} | {marker}",
+            lines=lines,
+            branch_code=invoice.branch_code,
+            user_id=user_id,
+            je_prefix="JE-PINV",
+            transaction_type="PurchaseInvoice",
+            reference_type="PurchaseInvoice",
+            reference_id=invoice.id,
+            reference_no=invoice.invoice_no,
+            marker=marker,
+        )
+
+    def reverse_purchase_invoice_gl(self, invoice, user_id: int, reason: str) -> Optional[JournalEntry]:
+        """Reverse the invoice's live VAT / discount entry (cancel, or an edit that
+        changes the amounts). The standard JE reversal also negates its tax rows,
+        so the VAT comes off the return. Returns the reversal, or None if nothing
+        was posted."""
+        from app.modules.finance.accounting_service import JournalEntryService
+
+        je = (
+            self.db.query(JournalEntry)
+            .join(JournalEntryLine, JournalEntryLine.journal_entry_id == JournalEntry.id)
+            .filter(
+                JournalEntryLine.reference_type == "PurchaseInvoice",
+                JournalEntryLine.reference_id == invoice.id,
+                JournalEntry.entry_type == "Auto",
+                JournalEntry.status == "posted",
+                func.coalesce(JournalEntry.is_reversed, False).is_(False),
+            )
+            .first()
+        )
+        if je is None:
+            return None
+        return JournalEntryService(self.db).reverse_journal_entry(
+            je.id, reversed_by=user_id, reason=reason, commit=False
+        )
+
+    # ═══════════════════════════════════════════════════════════════════════
     # SCENARIO 32: EXPENSES
     # ═══════════════════════════════════════════════════════════════════════
 
@@ -964,6 +1028,7 @@ class PurchaseExpensePayrollGL:
                 "debit": amount,
                 "credit": Decimal("0"),
                 "description": f"{expense.expense_category or 'Expense'} - {expense.expenses_no}",
+                "cost_center": getattr(expense, "cost_center", None),  # code; unknown codes fall back to the branch default
             },
             {
                 "account_code": credit_account,
@@ -1463,7 +1528,7 @@ class PurchaseExpensePayrollGL:
         # L2: a cheque taken on a sale sits in 1040 Cheques in Hand until the deposit is confirmed, so it
         # moves 1040 -> 1020 (not out of cash on hand, which it never entered).
         source_account = (
-            "1040"
+            ACCT_CHEQUES_IN_HAND
             if getattr(deposit, "payment_for", None) == "Cheque Deposit - Sales Invoice"
             else ACCT_CASH_ON_HAND
         )
@@ -1480,7 +1545,7 @@ class PurchaseExpensePayrollGL:
                 "credit": amount,
                 "description": (
                     f"Cheque deposited to bank - {getattr(deposit, 'invoice_no', '')}"
-                    if source_account == "1040"
+                    if source_account == ACCT_CHEQUES_IN_HAND
                     else f"Cash deposited to bank - {getattr(deposit, 'invoice_no', '')}"
                 ),
             },
@@ -1595,7 +1660,7 @@ class PurchaseExpensePayrollGL:
         Dr 2120 EPF Payable (employee + employer) / Dr 2130 ETF Payable
         Cr 1020 Bank
         """
-        from app.modules.hr.models import EmployeePayroll
+        from app.modules.employees.models import EmployeePayroll
 
         marker = f"StatutoryPayment BatchID: {batch.id}"
         if self._check_already_posted(batch.id, marker, reference_type="StatutoryPayment"):
@@ -1610,15 +1675,15 @@ class PurchaseExpensePayrollGL:
         total_etf = Decimal(str(batch.total_employer_etf or 0))  # ETF is employer-only (Sri Lanka)
         lines = []
         if total_epf > 0:
-            lines.append({"account_code": "2120", "debit": total_epf, "credit": Decimal("0"),
+            lines.append({"account_code": ACCT_EPF_PAYABLE, "debit": total_epf, "credit": Decimal("0"),
                           "description": f"EPF paid - Batch {batch.batch_no}"})
         if total_etf > 0:
-            lines.append({"account_code": "2130", "debit": total_etf, "credit": Decimal("0"),
+            lines.append({"account_code": ACCT_ETF_PAYABLE, "debit": total_etf, "credit": Decimal("0"),
                           "description": f"ETF paid - Batch {batch.batch_no}"})
         total_statutory = total_epf + total_etf
         if total_statutory <= 0:
             return None
-        lines.append({"account_code": "1020", "debit": Decimal("0"), "credit": total_statutory,
+        lines.append({"account_code": ACCT_BANK_ACCOUNT, "debit": Decimal("0"), "credit": total_statutory,
                       "description": f"Statutory payment - Batch {batch.batch_no}"})
         return self._create_je_and_post(
             entry_date=batch.statutory_payment_date or tz.today(),
@@ -1715,7 +1780,7 @@ class PurchaseExpensePayrollGL:
             debit_account = ACCT_BANK_ACCOUNT
 
         # Customer Advances/Deposits Liability account (2520 = Customer Deposits)
-        customer_advances_account = "2520"
+        customer_advances_account = ACCT_CUSTOMER_ADVANCES
 
         lines = [
             {
@@ -1831,7 +1896,7 @@ class PurchaseExpensePayrollGL:
         # Credit Card Payment Surcharge to Other Income
         if total_service_charge > 0:
             lines.append({
-                "account_code": "4190",  # Miscellaneous Income (leaf under header 4100)
+                "account_code": ACCT_OTHER_INCOME,  # 4190 Miscellaneous Income (leaf under header 4100)
                 "debit": Decimal("0"),
                 "credit": total_service_charge,
                 "description": f"Card payment surcharge - {settlement.customer_credits_settle_no}",
@@ -1886,7 +1951,7 @@ class PurchaseExpensePayrollGL:
             return None
 
         # Customer Advances/Deposits Liability account (2520 = Customer Deposits)
-        customer_advances_account = "2520"
+        customer_advances_account = ACCT_CUSTOMER_ADVANCES
 
         lines = [
             {
@@ -1954,7 +2019,7 @@ class PurchaseExpensePayrollGL:
         if amount <= 0:
             return None
 
-        customer_advances_account = "2520"
+        customer_advances_account = ACCT_CUSTOMER_ADVANCES
 
         lines = [
             {

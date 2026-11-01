@@ -1250,6 +1250,7 @@ class SalesService:
             )
             db.add(cheque_bank_deposit)
             db.flush()
+            cheque_payment.bank_deposit_id = cheque_bank_deposit.id
         
         # Handle card payment
         if payment_method in ["card_visa", "card_mastercard", "card_amex"] or payment_method == "card":
@@ -1303,7 +1304,9 @@ class SalesService:
             # Get customer for credit terms
             customer = db.query(Customer).filter(Customer.id == invoice_data.customer_id).first()
             credit_days = customer.credit_days if customer else 30
-            due_date = tz.today() + timedelta(days=credit_days)
+            from app.modules.finance.payment_terms import party_due_date
+            due_date = party_due_date(db, customer, tz.today())
+            invoice_dict['due_date'] = due_date
             
             credit_payment = CreditPayments(
                 customer_id=invoice_data.customer_id,
@@ -2200,6 +2203,28 @@ class SalesService:
             deposit.remarks = f"{deposit.remarks or ''} | VOIDED: order {invoice.invoice_no} cancelled/rejected".strip(" |")
         return len(deposits)
 
+    @staticmethod
+    def _undo_voucher_forfeit(db: Session, voucher, invoice, user_id: int) -> None:
+        """The sale is gone, so the remainder forfeited on it is not breakage:
+        reverse that journal and give the customer the whole voucher back. A
+        later redemption then forfeits (and posts) its own remainder."""
+        from app.modules.finance.accounting_models import JournalEntry, JournalEntryLine
+        from app.modules.finance.accounting_service import JournalEntryService
+
+        forfeit = db.query(JournalEntry).join(
+            JournalEntryLine, JournalEntryLine.journal_entry_id == JournalEntry.id
+        ).filter(
+            JournalEntryLine.reference_type == "GiftVoucherForfeit",
+            JournalEntryLine.reference_id == voucher.id,
+            JournalEntry.status == "posted",
+        ).first()
+        if forfeit:
+            JournalEntryService(db).reverse_journal_entry(
+                forfeit.id, reversed_by=user_id or 0,
+                reason=f"Invoice {invoice.invoice_no} cancelled", commit=False,
+            )
+        voucher.balance = voucher.amount
+
     def _release_invoice_instruments(self, db: Session, invoice, user_id: int = 0, for_delete: bool = False):
         """Give back every payment instrument an invoice consumed at creation.
 
@@ -2233,6 +2258,8 @@ class SalesService:
                 voucher.status = "active" if tz.today() <= expiry else "expired"
                 voucher.claimed_date = None
                 voucher.claimed_invoice_no = None
+                if voucher.status == "active":
+                    self._undo_voucher_forfeit(db, voucher, invoice, user_id)
             db.delete(usage)
 
         # ── 2. Coupons: free the usage slots ──
@@ -3803,7 +3830,10 @@ class SalesService:
                 deposit_date=payment_data.payment_date,
                 remark=payment_data.remarks or f"Credit settlement for {invoice.invoice_no}",
                 payment_for="Credit Settlement",
-                invoice_no=invoice.invoice_no
+                invoice_no=invoice.invoice_no,
+                # booked straight to the bank by the settlement journal entry
+                status="deposited",
+                status_date=payment_data.payment_date,
             )
             db.add(cheque_payment)
             db.flush()
@@ -3877,6 +3907,9 @@ class SalesService:
         )
         settle_transaction.service_charge_amount = Decimal(str(payment_data.service_charge_amount or 0))
         db.add(settle_transaction)
+        if payment_method == "cheque":
+            db.flush()
+            cheque_payment.settlement_transaction_id = settle_transaction.id
         
         # For bank transfers: defer balance update and GL posting until verification
         if payment_method == "bank_transfer":

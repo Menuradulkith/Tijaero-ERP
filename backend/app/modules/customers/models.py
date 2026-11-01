@@ -84,6 +84,7 @@ class Customer(Base, AuditMixin):
     home_contact_number = Column(String(20))
     mobile_contact_number = Column(String(20))
     credit_days = Column(Integer, nullable=False)
+
     max_credit_limit = Column(Integer, nullable=False)
     left_credit_amount = Column(Integer)
     active = Column(Boolean, nullable=False)

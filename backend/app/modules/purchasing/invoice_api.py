@@ -182,7 +182,7 @@ def update_purchase_invoice(
     current_user: User = Depends(get_current_user),
 ):
     svc = PurchaseInvoiceService(db)
-    invoice = svc.update_invoice(invoice_id, data)
+    invoice = svc.update_invoice(invoice_id, data, user_id=current_user.id)
     return svc.get_invoice(invoice_id)
 
 
@@ -199,7 +199,7 @@ def cancel_purchase_invoice(
     current_user: User = Depends(get_current_user),
 ):
     svc = PurchaseInvoiceService(db)
-    svc.cancel_invoice(invoice_id)
+    svc.cancel_invoice(invoice_id, user_id=current_user.id)
     return svc.get_invoice(invoice_id)
 
 

@@ -31,10 +31,16 @@ def _d(value) -> Decimal:
 
 
 class Books:
-    """Snapshot of the ledger at construction time."""
+    """Snapshot of the ledger at construction time.
+
+    Only journals and cashbook rows written during the current test count (the
+    ``db`` fixture records the highest ids at its start), so the checks hold on a
+    database that already has data, not just an empty one."""
 
     def __init__(self, db):
         self.db = db
+        self.je0, self.cb0 = db.info.get("ledger_baseline", (0, 0))
+        self.p = {"je0": self.je0, "cb0": self.cb0}
 
     # ---- journal integrity -------------------------------------------------------------------
     def unbalanced_entries(self) -> List[tuple]:
@@ -42,21 +48,22 @@ class Books:
             SELECT je.id, je.journal_entry_no, je.total_debit, je.total_credit,
                    COALESCE(SUM(l.debit_amount), 0) AS d, COALESCE(SUM(l.credit_amount), 0) AS c
             FROM journal_entries je LEFT JOIN journal_entry_lines l ON l.journal_entry_id = je.id
+            WHERE je.id > :je0
             GROUP BY je.id
             HAVING ROUND(COALESCE(SUM(l.debit_amount), 0), 2) <> ROUND(COALESCE(SUM(l.credit_amount), 0), 2)
                 OR ROUND(je.total_debit, 2) <> ROUND(COALESCE(SUM(l.debit_amount), 0), 2)
                 OR ROUND(je.total_credit, 2) <> ROUND(COALESCE(SUM(l.credit_amount), 0), 2)
-        """)).all()
+        """), self.p).all()
 
     def bad_lines(self) -> List[tuple]:
         return self.db.execute(text("""
             SELECT id, journal_entry_id, account_id, debit_amount, credit_amount FROM journal_entry_lines
-            WHERE debit_amount < 0 OR credit_amount < 0
+            WHERE journal_entry_id > :je0 AND (debit_amount < 0 OR credit_amount < 0
                OR (debit_amount > 0 AND credit_amount > 0)
                OR (COALESCE(debit_amount, 0) = 0 AND COALESCE(credit_amount, 0) = 0)
                OR account_id IS NULL
-               OR NOT EXISTS (SELECT 1 FROM chart_of_accounts a WHERE a.id = account_id)
-        """)).all()
+               OR NOT EXISTS (SELECT 1 FROM chart_of_accounts a WHERE a.id = account_id))
+        """), self.p).all()
 
     # ---- trial balance --------------------------------------------------------------------------
     def balances(self) -> Dict[str, Tuple[Decimal, Decimal]]:
@@ -69,9 +76,9 @@ class Books:
             FROM journal_entry_lines l
             JOIN journal_entries je ON je.id = l.journal_entry_id
             JOIN chart_of_accounts a ON a.id = l.account_id
-            WHERE je.status IN ('posted', 'reversed')
+            WHERE je.status IN ('posted', 'reversed') AND je.id > :je0
             GROUP BY a.account_code
-        """)).all()
+        """), self.p).all()
         return {code: (_d(dr), _d(cr)) for code, dr, cr in rows}
 
     def net(self, code: str) -> Decimal:
@@ -83,16 +90,17 @@ class Books:
         return sum((dr for dr, _ in bal.values()), D(0)) - sum((cr for _, cr in bal.values()), D(0))
 
     def unposted_entries(self) -> List[tuple]:
-        return self.db.execute(text("SELECT id, journal_entry_no, status FROM journal_entries WHERE status NOT IN ('posted', 'reversed')")).all()
+        return self.db.execute(text("SELECT id, journal_entry_no, status FROM journal_entries"
+            " WHERE status NOT IN ('posted', 'reversed') AND id > :je0"), self.p).all()
 
     # ---- document -> journal -----------------------------------------------------------------------
     def entries_for(self, reference_type: str, reference_id: int) -> Dict[str, Tuple[Decimal, Decimal]]:
         rows = self.db.execute(text("""
             SELECT a.account_code, COALESCE(SUM(l.debit_amount), 0), COALESCE(SUM(l.credit_amount), 0)
             FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id = l.account_id
-            WHERE l.reference_type = :t AND l.reference_id = :i
+            WHERE l.reference_type = :t AND l.reference_id = :i AND l.journal_entry_id > :je0
             GROUP BY a.account_code
-        """), {"t": reference_type, "i": reference_id}).all()
+        """), {"t": reference_type, "i": reference_id, **self.p}).all()
         return {code: (_d(dr), _d(cr)) for code, dr, cr in rows}
 
     # ---- cashbook ------------------------------------------------------------------------------------
@@ -103,8 +111,8 @@ class Books:
         return _d(self.db.execute(text(
             "SELECT COALESCE(SUM(money_in - money_out), 0)"
             " + COALESCE(SUM(CASE WHEN entry_type = 'bank_deposit' THEN money_out ELSE 0 END), 0)"
-            " FROM cashbook_entries"
-        )).scalar())
+            " FROM cashbook_entries WHERE id > :cb0"
+        ), self.p).scalar())
 
     def gl_cash_net(self) -> Decimal:
         return sum((self.net(c) for c in CASH_BANK_ACCOUNTS), D(0))

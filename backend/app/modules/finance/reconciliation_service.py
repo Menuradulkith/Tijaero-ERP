@@ -26,6 +26,7 @@ from .accounting_models import (
     JournalEntry,
 )
 from .gl_posting_service import GLPostingService
+from .posting_rules import PostingRuleResolver
 from .models import CashbookEntryRecord
 
 CASH_ACCOUNT_CODE = "1010"
@@ -62,10 +63,15 @@ class ReconciliationService:
             )
 
         # 2. Cash / bank reconciliation ------------------------------------------------
-        gl_cash_movement = self._gl_account_movement(CASH_ACCOUNT_CODE, reconciliation_date, branch_code)
-        gl_bank_movement = self._gl_account_movement(BANK_ACCOUNT_CODE, reconciliation_date, branch_code)
+        # The same accounts the cashbook is written from: 1010/1020/1040 plus any
+        # account a CASH / BANK / CHEQUES_IN_HAND posting rule points to.
+        by_method: dict = {}
+        for code, method in PostingRuleResolver(self.db).cashbook_accounts().items():
+            by_method.setdefault(method, []).append(code)
+        gl_cash_movement = self._gl_account_movement(by_method.get("Cash", [CASH_ACCOUNT_CODE]), reconciliation_date, branch_code)
+        gl_bank_movement = self._gl_account_movement(by_method.get("Bank Transfer", [BANK_ACCOUNT_CODE]), reconciliation_date, branch_code)
         # cheques taken on sales sit in 1040 until deposited; the cashbook counts them as money in on the day
-        gl_cheque_movement = self._gl_account_movement(CHEQUES_IN_HAND_ACCOUNT_CODE, reconciliation_date, branch_code)
+        gl_cheque_movement = self._gl_account_movement(by_method.get("Cheque", [CHEQUES_IN_HAND_ACCOUNT_CODE]), reconciliation_date, branch_code)
         gl_cash_bank_net = gl_cash_movement + gl_bank_movement + gl_cheque_movement
 
         cb_in, cb_out, cb_deposits = self._cashbook_movement(reconciliation_date, branch_code)
@@ -157,9 +163,9 @@ class ReconciliationService:
 
     # ─── Helpers ──────────────────────────────────────────────────────────
     def _gl_account_movement(
-        self, account_code: str, on_date: date, branch_code: Optional[str]
+        self, account_codes: List[str], on_date: date, branch_code: Optional[str]
     ) -> Decimal:
-        """Net (debit - credit) movement on a single account for the day."""
+        """Net (debit - credit) movement on the given accounts for the day."""
         q = (
             self.db.query(
                 func.coalesce(func.sum(GeneralLedger.debit_amount), 0)
@@ -167,7 +173,7 @@ class ReconciliationService:
             )
             .join(ChartOfAccounts, GeneralLedger.account_id == ChartOfAccounts.id)
             .filter(
-                ChartOfAccounts.account_code == account_code,
+                ChartOfAccounts.account_code.in_(account_codes),
                 GeneralLedger.posting_date == on_date,
             )
         )

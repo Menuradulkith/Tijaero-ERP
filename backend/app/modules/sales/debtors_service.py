@@ -45,8 +45,8 @@ class DebtorsService:
         if not customer:
             return 0
         
-        credit_days = customer.credit_days or 0
-        due_date = invoice.created_date + timedelta(days=credit_days)
+        from app.modules.finance.payment_terms import invoice_due_date
+        due_date = invoice_due_date(invoice, customer)
         
         days_overdue = (date.today() - due_date).days
         return max(0, days_overdue)

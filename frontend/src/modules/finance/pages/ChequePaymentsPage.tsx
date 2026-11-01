@@ -41,6 +41,7 @@ import {
 
 import { chequePaymentsApi } from "@/modules/finance/api";
 import { ChequePayment, ChequePaymentCreate } from "@/modules/finance/types";
+import ChequeStatusSection, { ChequeStatusChip, type ChequeRegisterFields } from "./ChequeStatusSection";
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
 
@@ -206,6 +207,16 @@ export default function ChequePaymentsPage() {
         renderCell: (params: GridRenderCellParams<ChequePaymentRow>) => `${currencySymbol} ${fmtLKR(Number(params.row.amount || 0))}`,
       },
       {
+        field: "status",
+        header: "Status",
+        width: 120,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<ChequePaymentRow>) => (
+          <ChequeStatusChip status={(params.row as unknown as ChequeRegisterFields).status} />
+        ),
+      },
+      {
         field: "deposit_date",
         header: "Clearance Date",
         width: 150,
@@ -283,6 +294,13 @@ export default function ChequePaymentsPage() {
           <TDetailSkeleton sections={2} fieldsPerSection={4} showHeader={false} showToolbar={false} />
         ) : (
           <>
+            {selectedItem && !isCreating && (
+              <ChequeStatusSection
+                cheque={
+                  ((cheques ?? []).find((c) => c.id === selectedItem.id) ?? selectedItem) as unknown as ChequeRegisterFields
+                }
+              />
+            )}
             <FormSection title="Cheque Information" columns={3}>
               <TextField
                 label="Cheque Number"

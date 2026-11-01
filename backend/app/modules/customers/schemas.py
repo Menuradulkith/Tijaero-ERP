@@ -134,6 +134,7 @@ class CustomerBase(BaseModel):
     bank_swift_code: Optional[str] = Field(None)
     name_in_cheque_card: Optional[str] = Field(None, description="Name in cheque/card")
     credit_days: int = Field(default=0, description="Credit days")
+
     max_credit_limit: int = Field(default=0, description="Maximum credit limit")
     left_credit_amount: Optional[int] = Field(None, description="Left credit amount")
     initial_credit_amount: Optional[int] = Field(None, description="Initial credit amount")

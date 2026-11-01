@@ -24,6 +24,7 @@ class Invoice(Base, AuditMixin):
     payment_method = Column(String(30), nullable=False)
     remarks = Column(Text)
     created_date = Column(Date, nullable=False, index=True)
+    due_date = Column(Date, nullable=True, index=True)  # credit sales: from the customer's payment term
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False, index=True)
     sale_rep_id = Column(Integer, ForeignKey("accounts_user.id"), nullable=True)
     customer_agent_id = Column(Integer, ForeignKey("customers.id"))

@@ -55,7 +55,7 @@ class SupplierCreditService:
                 detail=f"Supplier not found for GRN {grn_id}"
             )
         
-        return self.calculate_due_date(grn.good_received_date, supplier.credit_days)
+        return self.calculate_due_date(grn.good_received_date, (supplier.credit_days or 0))
     
     def get_days_overdue(self, grn_date: date, credit_days: int) -> int:
         due_date = self.calculate_due_date(grn_date, credit_days)
@@ -140,9 +140,9 @@ class SupplierCreditService:
         ).scalar() or Decimal("0")
         total_exposure += float(invoice_credit_outstanding)
 
-        overdue_grns = self._get_overdue_grns(db, supplier_id, supplier.credit_days)
-        unpaid_grns = self._get_unpaid_grns(db, supplier_id, supplier.credit_days)
-        credit_purchase_orders = self._get_credit_purchase_orders(db, supplier_id, supplier.credit_days)
+        overdue_grns = self._get_overdue_grns(db, supplier_id, (supplier.credit_days or 0))
+        unpaid_grns = self._get_unpaid_grns(db, supplier_id, (supplier.credit_days or 0))
+        credit_purchase_orders = self._get_credit_purchase_orders(db, supplier_id, (supplier.credit_days or 0))
         max_credit = float(supplier.max_credit_limit or 0)
         # SINGLE source of truth - same calculator used to persist the value.
         computed_left_credit = float(self.calculate_available_credit(db, supplier_id, exclude_po_id=exclude_po_id))
@@ -151,7 +151,7 @@ class SupplierCreditService:
             "supplier_id": supplier_id,
             "supplier_name": supplier.company_name,
             "company_name": supplier.company_name,
-            "credit_days": supplier.credit_days,
+            "credit_days": supplier.credit_days or 0,
             "max_credit_limit": supplier.max_credit_limit,
             "initial_credit_amount": supplier.initial_credit_amount or supplier.max_credit_limit,
             "left_credit_amount": computed_left_credit,
@@ -187,7 +187,7 @@ class SupplierCreditService:
             )
         
         # Get credit purchase orders (old PO-based system)
-        credit_pos = self._get_credit_purchase_orders(db, supplier_id, supplier.credit_days)
+        credit_pos = self._get_credit_purchase_orders(db, supplier_id, (supplier.credit_days or 0))
         
         # Get non-credit purchase orders
         non_credit_pos = self._get_non_credit_purchase_orders(db, supplier_id)
@@ -298,7 +298,7 @@ class SupplierCreditService:
             "supplier_id": supplier_id,
             "supplier_name": supplier.company_name,
             "company_name": supplier.company_name,
-            "credit_days": supplier.credit_days,
+            "credit_days": supplier.credit_days or 0,
             "max_credit_limit": supplier.max_credit_limit,
             "left_credit_amount": computed_left_credit,
             "credit_outstanding": combined_credit_outstanding,
@@ -1314,7 +1314,7 @@ class SupplierCreditService:
         # What is still owed, net of advances, approved returns and invoice payments.
         remaining = self._get_grn_remaining_payable(db, grn_id)
         
-        due_date = self.calculate_due_date(grn.good_received_date, supplier.credit_days)
+        due_date = self.calculate_due_date(grn.good_received_date, (supplier.credit_days or 0))
         
         return {
             "grn_id": grn_id,
@@ -1392,7 +1392,7 @@ class SupplierCreditService:
             if not supplier:
                 continue
             
-            days_overdue = self.get_days_overdue(grn.good_received_date, supplier.credit_days)
+            days_overdue = self.get_days_overdue(grn.good_received_date, (supplier.credit_days or 0))
             
             if days_overdue <= 0:
                 bucket = "current"
@@ -1467,7 +1467,7 @@ class SupplierCreditService:
                 "date": _d(grn.good_received_date), "type": "PURCHASE", "reference": grn.good_received_no,
                 "description": f"GRN {grn.good_received_no} - Invoice: {grn.supplier_invoice_no}",
                 "debit": values.get(grn.good_received_no, Decimal("0")), "credit": Decimal("0"),
-                "due_date": self.calculate_due_date(grn.good_received_date, supplier.credit_days),
+                "due_date": self.calculate_due_date(grn.good_received_date, (supplier.credit_days or 0)),
             }))
 
         for settlement in db.query(SupplierCreditsSettle).filter(
@@ -1541,7 +1541,7 @@ class SupplierCreditService:
             "company_name": supplier.company_name,
             "from_date": from_date,
             "to_date": to_date,
-            "credit_days": supplier.credit_days,
+            "credit_days": supplier.credit_days or 0,
             "max_credit_limit": supplier.max_credit_limit,
             "current_balance": float(running_balance),
             "unapplied_advance": float(unapplied_advance),
@@ -1800,7 +1800,7 @@ class SupplierCreditService:
                 GoodReceivedItems.good_received_note == grn.good_received_no,
                 GoodReceivedItems.active == True
             ).scalar() or Decimal("0")
-            due_date = self.calculate_due_date(grn.good_received_date, supplier.credit_days)
+            due_date = self.calculate_due_date(grn.good_received_date, (supplier.credit_days or 0))
             days_overdue = (tz.today() - due_date).days
             is_overdue = days_overdue > 0
             total_outstanding += remaining

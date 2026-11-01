@@ -19,23 +19,20 @@
  *   Total Liabilities & Equity
  *
  *   Assets = Liabilities + Equity ✓
+ *
+ * Same layout as the other report pages: parameters in the header row,
+ * Export / Print / Generate next to refresh, one form section per group.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   Box,
   Button,
-  Card,
-  CardContent,
   CircularProgress,
-  Divider,
-  Grid,
-  MenuItem,
   Paper,
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -51,9 +48,12 @@ import ErrorIcon from "@mui/icons-material/Error";
 import { useNavigate } from "react-router-dom";
 
 import {
+  FormSection,
+  MasterDetailLayout,
   TChip,
-  DetailPanelHeader,
+  TSearchableSelect,
   fmtLKR,
+  modernTableStyles,
   showErrorToast,
   handleApiError,
 } from "@/components/tijaero";
@@ -67,52 +67,92 @@ import { escapeHtml } from "@/utils/escapeHtml";
 const currentYear = new Date().getFullYear();
 const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
 
-function SectionTable({ section, color = "text.primary" }: { section: BalanceSheetSection; color?: string }) {
-  if (!section.items.length) {
-    return (
-      <Typography variant="body2" color="text.secondary" sx={{ py: 1, pl: 2 }}>
-        No items
-      </Typography>
-    );
-  }
+const monoRight = { fontFamily: "monospace", pr: 3 } as const;
+
+/** One balance-sheet group (e.g. Assets): its sections, their accounts and a group total. */
+function GroupTable({
+  sections,
+  totalLabel,
+  total,
+  color,
+  currencySymbol,
+}: {
+  sections: BalanceSheetSection[];
+  totalLabel: string;
+  total: number;
+  color: string;
+  currencySymbol: string;
+}) {
   return (
-    <Table size="small">
+    <Table size="small" sx={modernTableStyles.container}>
+      <TableHead>
+        <TableRow sx={modernTableStyles.headerRow}>
+          <TableCell sx={{ width: 110 }}>Code</TableCell>
+          <TableCell>Account</TableCell>
+          <TableCell align="right" sx={{ pr: 3 }}>{`Amount (${currencySymbol})`}</TableCell>
+        </TableRow>
+      </TableHead>
       <TableBody>
-        {section.items.map((item) => (
-          <TableRow key={item.account_id} hover>
-            <TableCell sx={{ pl: 4, width: 100, fontFamily: "monospace", color: "text.secondary", fontSize: "0.8rem" }}>
-              {item.account_code}
-            </TableCell>
-            <TableCell>{item.account_name}</TableCell>
-            <TableCell align="right" sx={{ fontFamily: "monospace", pr: 3 }}>
-              {fmtLKR(Math.abs(Number(item.amount)))}
-            </TableCell>
-          </TableRow>
+        {sections.map((section) => (
+          <Fragment key={section.section_name}>
+            <TableRow>
+              <TableCell colSpan={3} sx={{ bgcolor: "action.hover", py: 0.75 }}>
+                <Typography variant="subtitle2" fontWeight={700}>
+                  {section.section_name}
+                </Typography>
+              </TableCell>
+            </TableRow>
+            {section.items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} sx={{ pl: 4, color: "text.secondary" }}>
+                  No items
+                </TableCell>
+              </TableRow>
+            ) : (
+              section.items.map((item) => (
+                <TableRow key={item.account_id} sx={modernTableStyles.bodyRow}>
+                  <TableCell sx={{ pl: 4, fontFamily: "monospace", color: "text.secondary", fontSize: "0.8rem" }}>
+                    {item.account_code}
+                  </TableCell>
+                  <TableCell>{item.account_name}</TableCell>
+                  <TableCell align="right" sx={monoRight}>
+                    {fmtLKR(Math.abs(Number(item.amount)))}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+            {section.items.length > 0 && (
+              <TableRow sx={{ "& td": { fontWeight: 700 } }}>
+                <TableCell />
+                <TableCell>Total {section.section_name}</TableCell>
+                <TableCell align="right" sx={{ ...monoRight, color }}>
+                  {fmtLKR(Math.abs(Number(section.total)))}
+                </TableCell>
+              </TableRow>
+            )}
+          </Fragment>
         ))}
-        <TableRow sx={{ "& td": { fontWeight: 700, borderTop: "2px solid", borderColor: "divider" } }}>
+        <TableRow sx={modernTableStyles.footerRow}>
           <TableCell />
-          <TableCell>Total {section.section_name}</TableCell>
-          <TableCell align="right" sx={{ fontFamily: "monospace", pr: 3, color }}>{fmtLKR(Math.abs(Number(section.total)))}</TableCell>
+          <TableCell>{totalLabel}</TableCell>
+          <TableCell align="right" sx={{ ...monoRight, color }}>
+            {currencySymbol} {fmtLKR(Math.abs(total))}
+          </TableCell>
         </TableRow>
       </TableBody>
     </Table>
   );
 }
 
-function GroupHeader({ label }: { label: string }) {
+function Figure({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <Box sx={{ px: 2, py: 0.75, bgcolor: "primary.main", color: "white" }}>
-      <Typography variant="subtitle2" fontWeight={700} sx={{ textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</Typography>
-    </Box>
-  );
-}
-
-function SubtotalBar({ label, value, color = "text.primary" }: { label: string; value: number; color?: string }) {
-  const currencySymbol = useCurrencyStore((s) => s.symbol);
-  return (
-    <Box sx={{ px: 2, py: 1, bgcolor: "grey.100", display: "flex", justifyContent: "space-between", borderTop: "2px solid", borderBottom: "2px solid", borderColor: "divider" }}>
-      <Typography variant="subtitle2" fontWeight={700}>{label}</Typography>
-      <Typography variant="subtitle2" fontWeight={700} color={color} sx={{ fontFamily: "monospace" }}>{currencySymbol} {fmtLKR(Math.abs(value))}</Typography>
+    <Box>
+      <Typography variant="caption" color="text.secondary" display="block">
+        {label}
+      </Typography>
+      <Typography variant="subtitle1" fontWeight={700} color={color} sx={{ fontFamily: "monospace" }}>
+        {value}
+      </Typography>
     </Box>
   );
 }
@@ -220,46 +260,60 @@ ${subtotalRow("Total Liabilities & Equity", Number(report.total_liabilities) + N
     win.document.close();
   };
 
+
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <DetailPanelHeader
-        breadcrumbs={[
-          { label: "Finance", href: "/finance" },
-          { label: "Accounting", href: "/finance/chart-of-accounts" },
-          { label: "Balance Sheet" },
-        ]}
-        title="Balance Sheet"
-        titleIcon={<BalanceIcon color="primary" />}
-        isCreating={false}
-      />
-
-      <Box sx={{ px: 2, pt: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Button size="small" variant="text" startIcon={<ArrowBackIcon />} onClick={() => navigate("/finance/general-ledger")}>
-          Back to GL
-        </Button>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <Button variant="outlined" size="small" startIcon={<DownloadIcon />} onClick={handleExportCSV} disabled={!report}>Export CSV</Button>
-          <Button variant="contained" size="small" startIcon={<PrintIcon />} onClick={handlePrint} disabled={!report}>Print</Button>
+    <MasterDetailLayout
+      title="Balance Sheet"
+      titleSlot={
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon fontSize="small" />}
+            onClick={() => navigate("/finance/general-ledger")}
+            sx={{ textTransform: "none", flexShrink: 0 }}
+          >
+            Back to GL
+          </Button>
+          <Box sx={{ width: 150, flexShrink: 0 }}>
+            <TSearchableSelect
+              label=""
+              value={fiscalYear}
+              onChange={(v) => v != null && setFiscalYear(Number(v))}
+              options={yearOptions.map((y) => ({ value: y, label: `FY ${y}` }))}
+              placeholder="Fiscal year..."
+              clearable={false}
+              size="small"
+            />
+          </Box>
+          <TextField
+            type="date"
+            size="small"
+            value={asOfDate}
+            onChange={(e) => setAsOfDate(e.target.value)}
+            inputProps={{ "aria-label": "As of date" }}
+            sx={{ width: 150, flexShrink: 0 }}
+          />
         </Box>
-      </Box>
-
-      {/* Filters */}
-      <Paper variant="outlined" sx={{ mx: 2, mt: 1.5, p: 1.5, borderRadius: 2 }}>
-        <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
-          <TextField select size="small" label="Fiscal Year" value={fiscalYear} onChange={(e) => setFiscalYear(Number(e.target.value))} sx={{ width: 130 }}>
-            {yearOptions.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
-          </TextField>
-          <TextField size="small" label="As of Date" type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 170 }} />
-          <Button variant="contained" size="small" onClick={fetchReport} disabled={loading}>
+      }
+      headerActions={
+        <>
+          <Button variant="outlined" size="small" startIcon={<DownloadIcon />} onClick={handleExportCSV} disabled={!report}>
+            Export CSV
+          </Button>
+          <Button variant="outlined" size="small" startIcon={<PrintIcon />} onClick={handlePrint} disabled={!report}>
+            Print
+          </Button>
+          <Button variant="contained" size="small" onClick={fetchReport} disabled={loading} sx={{ mr: 1 }}>
             {loading ? <CircularProgress size={18} /> : "Generate"}
           </Button>
-        </Box>
-      </Paper>
-
-      {/* Report */}
-      <Box sx={{ flex: 1, overflow: "auto", px: 2, mt: 1.5, mb: 2 }}>
+        </>
+      }
+      onRefresh={fetchReport}
+      isLoading={loading}
+    >
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
         {!report && !loading && (
-          <Paper variant="outlined" sx={{ p: 5, borderRadius: 2, textAlign: "center" }}>
+          <Paper variant="outlined" sx={{ p: 5, textAlign: "center" }}>
             <BalanceIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
             <Typography variant="h6" color="text.secondary">Select parameters and click Generate</Typography>
             <Typography variant="body2" color="text.disabled">The Balance Sheet shows assets, liabilities and equity as of a specific date.</Typography>
@@ -267,7 +321,7 @@ ${subtotalRow("Total Liabilities & Equity", Number(report.total_liabilities) + N
         )}
 
         {loading && (
-          <Paper variant="outlined" sx={{ p: 4, textAlign: "center", borderRadius: 2 }}>
+          <Paper variant="outlined" sx={{ p: 4, textAlign: "center" }}>
             <CircularProgress size={32} />
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>Generating report...</Typography>
           </Paper>
@@ -275,90 +329,65 @@ ${subtotalRow("Total Liabilities & Equity", Number(report.total_liabilities) + N
 
         {report && !loading && (
           <>
-            {/* Summary Cards */}
-            <Grid container spacing={1.5} sx={{ mb: 2 }}>
-              {[
-                { label: "Total Assets", value: report.total_assets, color: "primary.main" },
-                { label: "Total Liabilities", value: report.total_liabilities, color: "warning.main" },
-                { label: "Total Equity", value: report.total_equity, color: "success.main" },
-              ].map((c) => (
-                <Grid item xs={12} sm={4} key={c.label}>
-                  <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                    <CardContent sx={{ py: 1.5, textAlign: "center" }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.4 }}>{c.label}</Typography>
-                      <Typography variant="h6" fontWeight={700} color={c.color} sx={{ mt: 0.5, fontFamily: "monospace" }}>
-                        {currencySymbol} {fmtLKR(Math.abs(Number(c.value)))}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
+            <FormSection
+              title={`Statement of Financial Position — FY ${report.fiscal_year}${
+                report.as_of_date ? ` · As of ${new Date(report.as_of_date).toLocaleDateString()}` : ""
+              }`}
+              columns={3}
+              titleAction={
+                <TChip
+                  icon={isBalanced ? <CheckCircleIcon /> : <ErrorIcon />}
+                  label={isBalanced ? "Balance Sheet is balanced (A = L + E)" : "⚠ Balance Sheet is NOT balanced — review journal entries"}
+                  color={isBalanced ? "success" : "error"}
+                  size="small"
+                />
+              }
+            >
+              <Figure label="Total Assets" value={`${currencySymbol} ${fmtLKR(Math.abs(Number(report.total_assets)))}`} color="primary.main" />
+              <Figure label="Total Liabilities" value={`${currencySymbol} ${fmtLKR(Math.abs(Number(report.total_liabilities)))}`} color="warning.main" />
+              <Figure label="Total Equity" value={`${currencySymbol} ${fmtLKR(Math.abs(Number(report.total_equity)))}`} color="success.main" />
+            </FormSection>
 
-            {/* Balance indicator */}
-            <Box sx={{ mb: 1.5, display: "flex", justifyContent: "center" }}>
-              <TChip
-                icon={isBalanced ? <CheckCircleIcon /> : <ErrorIcon />}
-                label={isBalanced ? "Balance Sheet is balanced (A = L + E)" : "⚠ Balance Sheet is NOT balanced — review journal entries"}
-                color={isBalanced ? "success" : "error"}
-                size="small"
+            <FormSection title="Assets" columns={1}>
+              <GroupTable
+                sections={[report.current_assets, report.non_current_assets]}
+                totalLabel="Total Assets"
+                total={Number(report.total_assets)}
+                color="primary.main"
+                currencySymbol={currencySymbol}
               />
-            </Box>
+            </FormSection>
 
-            {/* Statement */}
-            <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
-              <Box sx={{ px: 2, py: 1.5, bgcolor: "primary.main", color: "white" }}>
-                <Typography variant="subtitle1" fontWeight={700}>
-                  Statement of Financial Position — FY {report.fiscal_year}
+            <FormSection title="Liabilities" columns={1}>
+              <GroupTable
+                sections={[report.current_liabilities, report.non_current_liabilities]}
+                totalLabel="Total Liabilities"
+                total={Number(report.total_liabilities)}
+                color="warning.main"
+                currencySymbol={currencySymbol}
+              />
+            </FormSection>
+
+            <FormSection title="Equity" columns={1}>
+              <GroupTable
+                sections={[report.equity]}
+                totalLabel="Total Equity"
+                total={Number(report.total_equity)}
+                color="success.main"
+                currencySymbol={currencySymbol}
+              />
+            </FormSection>
+
+            <FormSection title="Total Liabilities & Equity" columns={1} isLast>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography variant="body2" color="text.secondary">
+                  Liabilities + Equity (should equal Total Assets)
                 </Typography>
-                {report.as_of_date && (
-                  <Typography variant="caption" sx={{ opacity: 0.8 }}>As of {new Date(report.as_of_date).toLocaleDateString()}</Typography>
-                )}
+                <Typography variant="h6" fontWeight={800} color="primary.main" sx={{ fontFamily: "monospace" }}>
+                  {currencySymbol} {fmtLKR(Math.abs(Number(report.total_liabilities) + Number(report.total_equity)))}
+                </Typography>
               </Box>
-
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={{ "& th": { fontWeight: 700, textTransform: "uppercase", fontSize: "0.7rem", color: "text.secondary" } }}>
-                      <TableCell sx={{ width: 100 }}>Code</TableCell>
-                      <TableCell>Account</TableCell>
-                      <TableCell align="right" sx={{ pr: 3 }}>{`Amount (${currencySymbol})`}</TableCell>
-                    </TableRow>
-                  </TableHead>
-                </Table>
-
-                {/* ASSETS */}
-                <GroupHeader label="ASSETS" />
-                <SectionTable section={report.current_assets} color="primary.main" />
-                <SectionTable section={report.non_current_assets} color="primary.main" />
-                <SubtotalBar label="Total Assets" value={Number(report.total_assets)} color="primary.main" />
-
-                <Divider />
-
-                {/* LIABILITIES */}
-                <GroupHeader label="LIABILITIES" />
-                <SectionTable section={report.current_liabilities} color="warning.main" />
-                <SectionTable section={report.non_current_liabilities} color="warning.main" />
-                <SubtotalBar label="Total Liabilities" value={Number(report.total_liabilities)} color="warning.main" />
-
-                <Divider />
-
-                {/* EQUITY */}
-                <GroupHeader label="EQUITY" />
-                <SectionTable section={report.equity} color="success.main" />
-                <SubtotalBar label="Total Equity" value={Number(report.total_equity)} color="success.main" />
-
-                <Divider />
-
-                {/* Total L+E */}
-                <Box sx={{ px: 2, py: 1.5, bgcolor: "grey.100", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "3px double", borderColor: "divider" }}>
-                  <Typography variant="subtitle1" fontWeight={800}>Total Liabilities & Equity</Typography>
-                  <Typography variant="h6" fontWeight={800} color="primary.main" sx={{ fontFamily: "monospace" }}>
-                    {currencySymbol} {fmtLKR(Math.abs(Number(report.total_liabilities) + Number(report.total_equity)))}
-                  </Typography>
-                </Box>
-              </TableContainer>
-            </Paper>
+            </FormSection>
 
             {report.generated_at && (
               <Typography variant="caption" color="text.disabled" sx={{ mt: 1, display: "block", textAlign: "right" }}>
@@ -368,6 +397,6 @@ ${subtotalRow("Total Liabilities & Equity", Number(report.total_liabilities) + N
           </>
         )}
       </Box>
-    </Box>
+    </MasterDetailLayout>
   );
 }

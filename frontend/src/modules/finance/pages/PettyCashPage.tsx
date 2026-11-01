@@ -1,41 +1,46 @@
 /**
- * PettyCashPage - Full feature implementation
- * Manages petty cash funds, transactions, and reconciliation
+ * PettyCashPage — petty cash funds, their transactions and reconciliation.
+ *
+ * Flow: open a fund → record expenses / replenish it → reconcile & close
+ * (physical cash count, shows the variance).
+ *
+ * Same layout as the purchasing / sales pages: a full-width list with filters,
+ * a full-page detail with breadcrumb and actions, and a full-page create form.
  */
 
 import { usePermission } from "@/auth/permissions";
 import {
-  EmptyState,
+  ActionToolbar,
+  DetailPanelHeader,
+  EXPENSE_CATEGORIES,
   FormSection,
+  getStatusProps,
+  MasterDetailLayout,
   showErrorToast,
   showSuccessToast,
+  TBranchFilter,
   TCurrency,
-  TDate,
+  TDataGrid,
+  type TDataGridColumn,
   TRemarkField,
-  TStatusChip,
+  TSearchableSelect,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
-import {
-  Add as AddIcon,
-} from "@mui/icons-material";
+import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
+import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import CancelIcon from "@mui/icons-material/Cancel";
+import SearchIcon from "@mui/icons-material/Search";
 import {
   Box,
   Button,
-  Card,
-  CardContent,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
-  Grid,
+  InputAdornment,
   LinearProgress,
   MenuItem,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
   TextField,
   Typography,
 } from "@mui/material";
@@ -51,7 +56,19 @@ import {
   PettyCashTransaction,
 } from "../types";
 
-import CancelIcon from "@mui/icons-material/Cancel";
+const fmt = (v: number | string | null | undefined) =>
+  Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const STATUS_OPTIONS = [
+  { value: "active", label: "Active", color: "success" as const },
+  { value: "closed", label: "Closed", color: "default" as const },
+];
+
+const BREADCRUMBS = [
+  { label: "Finance", href: "/finance" },
+  { label: "Petty Cash", href: "/finance/petty-cash" },
+];
+
 export default function PettyCashPage() {
   const queryClient = useQueryClient();
   // Petty cash endpoints are gated by the cashbook permission on the backend
@@ -62,25 +79,29 @@ export default function PettyCashPage() {
 
   // UI State
   const [selectedFundId, setSelectedFundId] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [branchFilter, setBranchFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Dialog states
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showExpenseDialog, setShowExpenseDialog] = useState(false);
   const [showReplenishDialog, setShowReplenishDialog] = useState(false);
   const [showReconcileDialog, setShowReconcileDialog] = useState(false);
 
   // Form states
-  const [formData, setFormData] = useState<Partial<PettyCashFundCreate>>({
+  const emptyFund = (): Partial<PettyCashFundCreate> => ({
     branch_code: filteredBranches[0]?.branch_code || "MAIN",
     opening_balance: 0,
     opened_date: format(new Date(), "yyyy-MM-dd"),
   });
+  const [formData, setFormData] = useState<Partial<PettyCashFundCreate>>(emptyFund);
 
   const [expenseData, setExpenseData] = useState<Partial<PettyCashExpenseCreate>>({
     petty_cash_id: selectedFundId || 0,
     amount: 0,
+    expense_type: "office_supplies",
     transaction_date: format(new Date(), "yyyy-MM-dd"),
   });
 
@@ -96,6 +117,7 @@ export default function PettyCashPage() {
   const {
     data: fundsData,
     isLoading: isLoadingFunds,
+    refetch,
   } = useQuery({
     queryKey: ["petty-cash-funds"],
     queryFn: () =>
@@ -118,12 +140,18 @@ export default function PettyCashPage() {
   // Filter funds
   const filteredFunds = useMemo(() => {
     if (!fundsData?.items) return [];
-
-    return fundsData.items.filter((fund: PettyCashFund) =>
-      fund.petty_cash_no.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      fund.branch_code.toLowerCase().includes(searchTerm.toLowerCase())
+    const q = searchTerm.toLowerCase();
+    return (fundsData.items as PettyCashFund[]).filter(
+      (fund) =>
+        (!branchFilter || fund.branch_code === branchFilter) &&
+        (!statusFilter || fund.status === statusFilter) &&
+        (fund.petty_cash_no.toLowerCase().includes(q) || fund.branch_code.toLowerCase().includes(q)),
     );
-  }, [fundsData?.items, searchTerm]);
+  }, [fundsData?.items, searchTerm, branchFilter, statusFilter]);
+
+  // Header falls back to the list row while the detail query loads.
+  const fund: PettyCashFund | undefined =
+    selectedFund ?? (fundsData?.items as PettyCashFund[] | undefined)?.find((f) => f.id === selectedFundId);
 
   // Blocks a second click on any of the money dialogs before the first request settles.
   const submitInFlightRef = useRef(false);
@@ -143,12 +171,8 @@ export default function PettyCashPage() {
       queryClient.invalidateQueries({ queryKey: ["petty-cash-funds"] });
       showSuccessToast(`Fund ${result.petty_cash_no} created successfully`);
       setSelectedFundId(result.id);
-      setFormData({
-        branch_code: filteredBranches[0]?.branch_code || "MAIN",
-        opening_balance: 0,
-        opened_date: format(new Date(), "yyyy-MM-dd"),
-      });
-      setShowCreateDialog(false);
+      setFormData(emptyFund());
+      setCreating(false);
     } catch (error: any) {
       showErrorToast(error.response?.data?.detail || "Failed to create fund");
     } finally {
@@ -172,11 +196,13 @@ export default function PettyCashPage() {
     setIsSubmitting(true);
     try {
       await pettyCashApi.recordExpense(expenseData);
+      queryClient.invalidateQueries({ queryKey: ["petty-cash-funds"] });
       queryClient.invalidateQueries({ queryKey: ["petty-cash-fund", selectedFundId] });
       showSuccessToast("Expense recorded successfully");
       setExpenseData({
         petty_cash_id: selectedFundId || 0,
         amount: 0,
+        expense_type: "office_supplies",
         transaction_date: format(new Date(), "yyyy-MM-dd"),
       });
       setShowExpenseDialog(false);
@@ -199,6 +225,7 @@ export default function PettyCashPage() {
     setIsSubmitting(true);
     try {
       await pettyCashApi.replenishFund(replenishData);
+      queryClient.invalidateQueries({ queryKey: ["petty-cash-funds"] });
       queryClient.invalidateQueries({ queryKey: ["petty-cash-fund", selectedFundId] });
       showSuccessToast("Fund replenished successfully");
       setReplenishData({
@@ -216,7 +243,7 @@ export default function PettyCashPage() {
   };
 
   const handleReconcile = async () => {
-    if (!closingBalance || closingBalance < 0) {
+    if (Number.isNaN(closingBalance) || closingBalance < 0) {
       showErrorToast("Valid closing balance is required");
       return;
     }
@@ -227,7 +254,7 @@ export default function PettyCashPage() {
     setIsSubmitting(true);
     try {
       await pettyCashApi.reconcileFund(selectedFundId, {
-        closing_balance: closingBalance,
+        physical_cash_count: closingBalance,
       });
       queryClient.invalidateQueries({ queryKey: ["petty-cash-funds"] });
       queryClient.invalidateQueries({ queryKey: ["petty-cash-fund", selectedFundId] });
@@ -243,355 +270,316 @@ export default function PettyCashPage() {
     }
   };
 
-  // Main layout
-  return (
-    <Box sx={{ p: 3 }}>
-      <Box
-        sx={{
-          mb: 3,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <Typography variant="h4">Petty Cash Management</Typography>
-        {canCreate && (
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setShowCreateDialog(true)}
-          >
-            Create Fund
-          </Button>
+  const back = () => {
+    setSelectedFundId(null);
+    setCreating(false);
+    setFormData(emptyFund());
+  };
+
+  const detailMode = creating || !!selectedFundId;
+  const createValid = !!formData.branch_code && !!formData.opening_balance && formData.opening_balance > 0;
+
+  const columns: TDataGridColumn<PettyCashFund>[] = [
+    { field: "petty_cash_no", header: "Fund No", minWidth: 150, flex: 1 },
+    { field: "branch_code", header: "Branch", width: 120 },
+    { field: "opened_date", header: "Opened", width: 120, type: "date" },
+    { field: "opening_balance", header: "Opening Balance", width: 150, type: "currency", align: "right", headerAlign: "right" },
+    { field: "current_balance", header: "Current Balance", width: 150, type: "currency", align: "right", headerAlign: "right" },
+    { field: "closed_date", header: "Closed", width: 120, type: "date" },
+    { field: "status", header: "Status", width: 120, type: "status", statusMap: "financeDocument" },
+  ];
+
+  const txnColumns: TDataGridColumn<PettyCashTransaction>[] = [
+    { field: "transaction_date", header: "Date", width: 120, type: "date" },
+    { field: "transaction_no", header: "Transaction No", minWidth: 150, flex: 1 },
+    {
+      field: "transaction_type",
+      header: "Type",
+      width: 130,
+      renderCell: (p) => (
+        <Typography
+          variant="body2"
+          sx={{ color: p.row.transaction_type === "expense" ? "error.main" : "success.main" }}
+        >
+          {p.row.transaction_type === "expense" ? "Expense" : "Replenishment"}
+        </Typography>
+      ),
+    },
+    {
+      field: "description",
+      header: "Description",
+      minWidth: 200,
+      flex: 1.5,
+      renderCell: (p) => p.row.description || p.row.purpose || "-",
+    },
+    { field: "recipient_name", header: "Recipient", minWidth: 140, flex: 1 },
+    {
+      field: "amount",
+      header: "Amount",
+      width: 140,
+      align: "right",
+      headerAlign: "right",
+      renderCell: (p) => (
+        <Box component="span" sx={{ color: p.row.transaction_type === "expense" ? "error.main" : "success.main" }}>
+          {p.row.transaction_type === "expense" ? "-" : "+"}
+          <TCurrency value={p.row.amount} />
+        </Box>
+      ),
+    },
+    {
+      field: "balance_after",
+      header: "Balance",
+      width: 140,
+      align: "right",
+      headerAlign: "right",
+      renderCell: (p) => <TCurrency value={p.row.balance_after} />,
+    },
+  ];
+
+  const createForm = (
+    <>
+      <FormSection title="Fund" columns={3}>
+        <TextField
+          label="Branch"
+          select
+          size="small"
+          required
+          value={formData.branch_code || ""}
+          onChange={(e) => setFormData({ ...formData, branch_code: e.target.value })}
+        >
+          {filteredBranches.map((branch) => (
+            <MenuItem key={branch.branch_code} value={branch.branch_code}>
+              {branch.branch_name}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          label="Opening Balance"
+          type="number"
+          size="small"
+          required
+          value={formData.opening_balance || 0}
+          onChange={(e) => setFormData({ ...formData, opening_balance: parseFloat(e.target.value) })}
+          inputProps={{ step: "0.01", min: "0" }}
+        />
+        <TextField
+          label="Opened Date"
+          type="date"
+          size="small"
+          value={formData.opened_date || ""}
+          onChange={(e) => setFormData({ ...formData, opened_date: e.target.value })}
+          InputLabelProps={{ shrink: true }}
+        />
+      </FormSection>
+      <FormSection title="Remarks" columns={1}>
+        <TRemarkField
+          fullWidth
+          label="Remarks"
+          size="small"
+          multiline
+          rows={3}
+          value={formData.remarks || ""}
+          onChange={(value) => setFormData({ ...formData, remarks: value })}
+        />
+      </FormSection>
+    </>
+  );
+
+  const viewDetail = fund && (
+    <>
+      {isLoadingDetail && <LinearProgress sx={{ mb: 1 }} />}
+      <FormSection title="Fund Information" columns={3}>
+        <TextField label="Fund No" size="small" value={fund.petty_cash_no} disabled />
+        <TextField label="Branch" size="small" value={fund.branch_code ?? ""} disabled />
+        <TextField label="Opened Date" size="small" value={fund.opened_date ?? ""} disabled />
+        <TextField label="Opening Balance" size="small" value={fmt(fund.opening_balance)} disabled />
+        <TextField label="Current Balance" size="small" value={fmt(fund.current_balance)} disabled />
+        {fund.status === "closed" && (
+          <TextField
+            label="Closing Balance (counted)"
+            size="small"
+            value={fund.closing_balance !== null && fund.closing_balance !== undefined ? fmt(fund.closing_balance) : ""}
+            disabled
+          />
         )}
-      </Box>
+        {fund.status === "closed" && (
+          <TextField label="Closed Date" size="small" value={fund.closed_date ?? ""} disabled />
+        )}
+      </FormSection>
+      {fund.remarks && (
+        <FormSection title="Remarks" columns={1}>
+          <TRemarkField label="Remarks" size="small" value={fund.remarks} onChange={() => undefined} disabled multiline rows={2} />
+        </FormSection>
+      )}
+      <FormSection title="Transactions" columns={1}>
+        <TDataGrid<PettyCashTransaction>
+          rows={(selectedFund?.transactions as PettyCashTransaction[] | undefined) ?? []}
+          columns={txnColumns}
+          loading={isLoadingDetail}
+          pageSize={10}
+          pageSizeOptions={[10, 25, 50]}
+          emptyMessage="No transactions yet"
+          autoHeight
+        />
+      </FormSection>
+    </>
+  );
 
-      <Grid container spacing={3}>
-        {/* Left: Funds List */}
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" sx={{ mb: 2 }}>
-                Funds
-              </Typography>
-
-              <TextField
-                fullWidth
-                placeholder="Search funds..."
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[...BREADCRUMBS, { label: creating ? "New Fund" : fund?.petty_cash_no ?? "" }]}
+        title={fund?.petty_cash_no ?? ""}
+        titleIcon={<AccountBalanceWalletIcon color="primary" />}
+        isCreating={creating}
+        createTitle="Open Petty Cash Fund"
+        noSelectionTitle="Select a fund"
+        chips={fund && !creating ? [getStatusProps(fund.status, "financeDocument")] : []}
+      />
+      <ActionToolbar
+        hasSelectedItem={!!fund}
+        isCreating={creating}
+        isEditing={false}
+        isSaving={isSubmitting}
+        isFormValid={createValid}
+        onSave={creating ? handleCreateFund : undefined}
+        onCancel={creating ? back : undefined}
+        endActions={
+          !creating && fund && fund.status === "active" ? (
+            <>
+              <Button
                 size="small"
+                variant="outlined"
+                onClick={() => {
+                  setExpenseData({ ...expenseData, petty_cash_id: selectedFundId || 0 });
+                  setShowExpenseDialog(true);
+                }}
+              >
+                Record Expense
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="success"
+                onClick={() => {
+                  setReplenishData({ ...replenishData, petty_cash_id: selectedFundId || 0 });
+                  setShowReplenishDialog(true);
+                }}
+              >
+                Replenish
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                onClick={() => {
+                  setClosingBalance(fund.current_balance);
+                  setShowReconcileDialog(true);
+                }}
+              >
+                Close Fund
+              </Button>
+            </>
+          ) : undefined
+        }
+      />
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>{creating ? createForm : viewDetail}</Box>
+    </Box>
+  );
+
+  const listPanel = (
+    <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+      <TDataGrid<PettyCashFund>
+        rows={filteredFunds}
+        columns={columns}
+        loading={isLoadingFunds}
+        onRowClick={(row) => setSelectedFundId(row.id)}
+        pageSizeOptions={[10, 25, 50, 100]}
+        pageSize={25}
+        emptyMessage="No funds found"
+        autoHeight={false}
+        height="100%"
+      />
+    </Box>
+  );
+
+  return (
+    <>
+      <MasterDetailLayout
+        title="Petty Cash"
+        titleSlot={
+          detailMode ? (
+            <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={back} sx={{ textTransform: "none" }}>
+              Back to Petty Cash
+            </Button>
+          ) : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search funds..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                sx={{ mb: 2 }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
-
-              {isLoadingFunds ? (
-                <LinearProgress />
-              ) : filteredFunds.length === 0 ? (
-                <EmptyState message="No funds found" />
-              ) : (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Fund #</TableCell>
-                      <TableCell>Balance</TableCell>
-                      <TableCell>Status</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredFunds.map((fund: PettyCashFund) => (
-                      <TableRow
-                        key={fund.id}
-                        onClick={() => setSelectedFundId(fund.id)}
-                        sx={{
-                          cursor: "pointer",
-                          backgroundColor:
-                            selectedFundId === fund.id
-                              ? "action.selected"
-                              : "inherit",
-                          "&:hover": {
-                            backgroundColor: "action.hover",
-                          },
-                        }}
-                      >
-                        <TableCell sx={{ fontWeight: "bold" }}>
-                          {fund.petty_cash_no}
-                        </TableCell>
-                        <TableCell>
-                          {TCurrency({ value: fund.current_balance })}
-                        </TableCell>
-                        <TableCell>
-                          <TStatusChip status={fund.status} />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TBranchFilter branches={filteredBranches} value={branchFilter} onChange={setBranchFilter} label="" size="small" />
+              </Box>
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TSearchableSelect
+                  label=""
+                  value={statusFilter}
+                  onChange={(v) => setStatusFilter(v as string | null)}
+                  options={STATUS_OPTIONS}
+                  showAllOption
+                  allOptionLabel="All Statuses"
+                  placeholder="Search status..."
+                  size="small"
+                />
+              </Box>
+              {(searchTerm || branchFilter || statusFilter) && (
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setSearchTerm("");
+                    setBranchFilter(null);
+                    setStatusFilter(null);
+                  }}
+                  sx={{ textTransform: "none" }}
+                >
+                  Clear
+                </Button>
               )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Right: Fund Details */}
-        <Grid item xs={12} md={8}>
-          {selectedFund ? (
-            <Card>
-              <CardContent>
-                {isLoadingDetail ? (
-                  <LinearProgress />
-                ) : (
-                  <>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "start",
-                        mb: 2,
-                      }}
-                    >
-                      <Box>
-                        <Typography variant="h6">
-                          {selectedFund.petty_cash_no}
-                        </Typography>
-                        <Typography color="textSecondary" variant="body2">
-                          {selectedFund.branch_code} •{" "}
-                          {TDate({ value: selectedFund.opened_date })}
-                        </Typography>
-                      </Box>
-                      <TStatusChip status={selectedFund.status} />
-                    </Box>
-
-                    <Divider sx={{ my: 2 }} />
-
-                    {/* Fund Summary */}
-                    <Grid container spacing={2} sx={{ mb: 3 }}>
-                      <Grid item xs={12} sm={6}>
-                        <Box>
-                          <Typography color="textSecondary" variant="caption">
-                            Opening Balance
-                          </Typography>
-                          <Typography variant="h6">
-                            {TCurrency({
-                              value: selectedFund.opening_balance,
-                            })}
-                          </Typography>
-                        </Box>
-                      </Grid>
-
-                      <Grid item xs={12} sm={6}>
-                        <Box>
-                          <Typography color="textSecondary" variant="caption">
-                            Current Balance
-                          </Typography>
-                          <Typography variant="h6">
-                            {TCurrency({
-                              value: selectedFund.current_balance,
-                            })}
-                          </Typography>
-                        </Box>
-                      </Grid>
-                    </Grid>
-
-                    {/* Action Buttons */}
-                    {selectedFund.status === "active" && (
-                      <Box sx={{ mb: 3, display: "flex", gap: 1, flexWrap: "wrap" }}>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => {
-                            setExpenseData({
-                              ...expenseData,
-                              petty_cash_id: selectedFundId || 0,
-                            });
-                            setShowExpenseDialog(true);
-                          }}
-                        >
-                          Record Expense
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="success"
-                          onClick={() => {
-                            setReplenishData({
-                              ...replenishData,
-                              petty_cash_id: selectedFundId || 0,
-                            });
-                            setShowReplenishDialog(true);
-                          }}
-                        >
-                          Replenish
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="error"
-                          onClick={() => {
-                            setClosingBalance(selectedFund.current_balance);
-                            setShowReconcileDialog(true);
-                          }}
-                        >
-                          Close Fund
-                        </Button>
-                      </Box>
-                    )}
-
-                    <Divider sx={{ my: 2 }} />
-
-                    {/* Transactions */}
-                    {selectedFund.transactions &&
-                    selectedFund.transactions.length > 0 ? (
-                      <FormSection title="Recent Transactions">
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell>Date</TableCell>
-                              <TableCell>Type</TableCell>
-                              <TableCell>Description</TableCell>
-                              <TableCell align="right">Amount</TableCell>
-                              <TableCell align="right">Balance</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {(selectedFund.transactions as PettyCashTransaction[]).map((txn) => (
-                              <TableRow key={txn.id}>
-                                <TableCell>
-                                  {TDate({ value: txn.transaction_date })}
-                                </TableCell>
-                                <TableCell>
-                                  <Typography
-                                    variant="body2"
-                                    sx={{
-                                      color:
-                                        txn.transaction_type === "expense"
-                                          ? "error.main"
-                                          : "success.main",
-                                    }}
-                                  >
-                                    {txn.transaction_type === "expense"
-                                      ? "Expense"
-                                      : "Replenishment"}
-                                  </Typography>
-                                </TableCell>
-                                <TableCell>
-                                  {txn.description || txn.purpose || "-"}
-                                </TableCell>
-                                <TableCell
-                                  align="right"
-                                  sx={{
-                                    color:
-                                      txn.transaction_type === "expense"
-                                        ? "error.main"
-                                        : "success.main",
-                                  }}
-                                >
-                                  {txn.transaction_type === "expense" ? "-" : "+"}
-                                  {TCurrency({ value: txn.amount })}
-                                </TableCell>
-                                <TableCell align="right">
-                                  {TCurrency({
-                                    value: txn.balance_after,
-                                  })}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </FormSection>
-                    ) : (
-                      <Typography color="textSecondary" variant="body2">
-                        No transactions yet
-                      </Typography>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent>
-                <EmptyState message="Select a fund to view details" />
-              </CardContent>
-            </Card>
-          )}
-        </Grid>
-      </Grid>
-
-      {/* Create Fund Dialog */}
-      <Dialog
-        open={showCreateDialog}
-        onClose={() => setShowCreateDialog(false)}
-        maxWidth="sm"
-        fullWidth
+            </Box>
+          )
+        }
+        headerActions={
+          !detailMode && canCreate ? (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={() => {
+                setFormData(emptyFund());
+                setCreating(true);
+              }}
+              sx={{ mr: 1 }}
+            >
+              Open Fund
+            </Button>
+          ) : undefined
+        }
+        onRefresh={() => refetch()}
+        isLoading={isLoadingFunds}
       >
-        <DialogTitle>Create New Petty Cash Fund</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <TextField
-            fullWidth
-            label="Branch"
-            select
-            value={formData.branch_code || ""}
-            onChange={(e) =>
-              setFormData({ ...formData, branch_code: e.target.value })
-            }
-            margin="normal"
-          >
-            {filteredBranches.map((branch) => (
-              <MenuItem key={branch.branch_code} value={branch.branch_code}>
-                {branch.branch_name}
-              </MenuItem>
-            ))}
-          </TextField>
-
-          <TextField
-            fullWidth
-            label="Opening Balance"
-            type="number"
-            value={formData.opening_balance || 0}
-            onChange={(e) =>
-              setFormData({
-                ...formData,
-                opening_balance: parseFloat(e.target.value),
-              })
-            }
-            margin="normal"
-            inputProps={{ step: "0.01", min: "0" }}
-          />
-
-          <TextField
-            fullWidth
-            label="Opened Date"
-            type="date"
-            value={formData.opened_date || ""}
-            onChange={(e) =>
-              setFormData({ ...formData, opened_date: e.target.value })
-            }
-            margin="normal"
-            InputLabelProps={{ shrink: true }}
-          />
-
-          <TRemarkField
-            fullWidth
-            label="Remarks"
-            multiline
-            rows={3}
-            value={formData.remarks || ""}
-            onChange={(value) =>
-              setFormData({ ...formData, remarks: value })
-            }
-            margin="normal"
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowCreateDialog(false)}>Cancel</Button>
-          <Button
-            onClick={handleCreateFund}
-            variant="contained"
-            disabled={isSubmitting}
-          >
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
+        {detailMode ? detailPanel : listPanel}
+      </MasterDetailLayout>
 
       {/* Record Expense Dialog */}
       <Dialog
@@ -616,6 +604,21 @@ export default function PettyCashPage() {
             margin="normal"
             inputProps={{ step: "0.01", min: "0" }}
           />
+
+          <TextField
+            select
+            fullWidth
+            label="Expense Type"
+            value={expenseData.expense_type || "office_supplies"}
+            onChange={(e) => setExpenseData({ ...expenseData, expense_type: e.target.value })}
+            margin="normal"
+          >
+            {EXPENSE_CATEGORIES.map((cat) => (
+              <MenuItem key={cat.value} value={cat.value}>
+                {cat.label}
+              </MenuItem>
+            ))}
+          </TextField>
 
           <TextField
             fullWidth
@@ -775,7 +778,7 @@ export default function PettyCashPage() {
         <DialogContent sx={{ pt: 2 }}>
           <Typography variant="body2" sx={{ mb: 2 }}>
             Current Balance:{" "}
-            {TCurrency({ value: selectedFund?.current_balance })}
+            <TCurrency value={fund?.current_balance} />
           </Typography>
 
           <TextField
@@ -788,22 +791,20 @@ export default function PettyCashPage() {
             inputProps={{ step: "0.01", min: "0" }}
           />
 
-          {closingBalance !== selectedFund?.current_balance && (
+          {closingBalance !== fund?.current_balance && (
             <Typography
               variant="body2"
               sx={{
                 mt: 1,
                 color:
-                  closingBalance > (selectedFund?.current_balance || 0)
+                  closingBalance > (fund?.current_balance || 0)
                     ? "success.main"
                     : "error.main",
               }}
             >
               Variance:{" "}
-              {closingBalance > (selectedFund?.current_balance || 0) ? "+" : ""}
-              {TCurrency({
-                value: closingBalance - (selectedFund?.current_balance || 0),
-              })}
+              {closingBalance > (fund?.current_balance || 0) ? "+" : ""}
+              <TCurrency value={closingBalance - (fund?.current_balance || 0)} />
             </Typography>
           )}
         </DialogContent>
@@ -819,6 +820,6 @@ export default function PettyCashPage() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </>
   );
 }
