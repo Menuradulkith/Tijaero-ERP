@@ -175,7 +175,7 @@ function PaymentBreakdownItem({ label, amount, total, color, icon }: PaymentBrea
           <Typography variant="body2">{label}</Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <TCurrency value={amount} />
+          <TCurrency component="span" value={amount} />
           <Typography variant="caption" color="text.secondary">
             ({percentage.toFixed(1)}%)
           </Typography>
@@ -240,7 +240,7 @@ function TransactionBreakdownCard({
           color={isOut ? 'error.main' : 'success.main'}
           sx={{ mb: 0.25 }}
         >
-          {isOut ? '-' : '+'}<TCurrency value={amount} showSymbol={false} />
+          {isOut ? '-' : '+'}<TCurrency component="span" value={amount} showSymbol={false} />
         </Typography>
         <Typography variant="caption" color="text.secondary">
           {count} {count === 1 ? 'entry' : 'entries'}
@@ -518,7 +518,7 @@ export default function FinanceDashboard() {
         <Grid item xs={12} sm={6} md={3}>
           <KpiSparkCard
             title="Money In"
-            value={<TCurrency value={summary.totalIn} />}
+            value={<TCurrency component="span" value={summary.totalIn} />}
             subtitle="This month"
             icon={<TrendingUpIcon />}
             color="success"
@@ -530,7 +530,7 @@ export default function FinanceDashboard() {
         <Grid item xs={12} sm={6} md={3}>
           <KpiSparkCard
             title="Money Out"
-            value={<TCurrency value={summary.totalOut} />}
+            value={<TCurrency component="span" value={summary.totalOut} />}
             subtitle="This month"
             icon={<TrendingDownIcon />}
             color="error"
@@ -542,7 +542,7 @@ export default function FinanceDashboard() {
         <Grid item xs={12} sm={6} md={3}>
           <KpiSparkCard
             title="Net Position"
-            value={<TCurrency value={summary.netPosition} />}
+            value={<TCurrency component="span" value={summary.netPosition} />}
             subtitle={summary.netPosition >= 0 ? 'Positive cashflow' : 'Negative cashflow'}
             icon={<WalletIcon />}
             color={summary.netPosition >= 0 ? 'primary' : 'warning'}
@@ -814,7 +814,7 @@ export default function FinanceDashboard() {
                         color={isMoneyIn ? 'success.main' : 'error.main'}
                       >
                         {isMoneyIn ? '+' : '-'}
-                        <TCurrency value={amount} />
+                        <TCurrency component="span" value={amount} />
                       </Typography>
                     </Box>
                   );

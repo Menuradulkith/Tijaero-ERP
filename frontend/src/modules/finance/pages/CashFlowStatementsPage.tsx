@@ -68,6 +68,7 @@ import type {
 } from "@/modules/finance/types";
 
 import CancelIcon from "@mui/icons-material/Cancel";
+import { submitOnce } from "@/modules/finance/submitOnce";
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const STATUS_FILTER_OPTIONS = [
@@ -693,7 +694,7 @@ export default function CashFlowStatementsPage() {
           <Button
             variant="contained"
             onClick={() =>
-              generateMutation.mutate({
+              submitOnce("cashflow-generate", generateMutation, {
                 fiscal_year: genYear,
                 start_date: genStartDate,
                 end_date: genEndDate,

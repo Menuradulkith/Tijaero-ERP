@@ -464,7 +464,7 @@ export default function ProcurementQueuePage() {
                         size="small"
                         type="date"
                         value={settings.orderDate}
-                        onChange={(e) => updateSupplierSettings(sg.supplierId, { orderDate: e.target.value })}
+                        disabled
                         InputLabelProps={{ shrink: true }}
                         required
                         error={!settings.orderDate}

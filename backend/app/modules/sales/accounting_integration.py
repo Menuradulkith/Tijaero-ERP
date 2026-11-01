@@ -74,26 +74,28 @@ from app.modules.inventory.models import SalesStock
 from app.modules.products.models import Product
 from app.modules.products.price_tier_models import ProductPriceTier
 from app.modules.finance.gl_posting_service import GLPostingService
+from app.modules.finance.posting_rules import posting_ref
+from app.modules.finance.tax_service import sales_tax_code_for_rate, vat_line
 
 logger = logging.getLogger(__name__)
 
 
-# ─── Account Code Constants ──────────────────────────────────────────────────
-ACCT_CASH_ON_HAND = "1010"
-ACCT_BANK_ACCOUNT = "1020"
-ACCT_CHEQUES_IN_HAND = "1040"  # L2: customer cheques until the deposit is confirmed
-ACCT_TRADE_DEBTORS = "1110"
-ACCT_FINISHED_GOODS = "1210"
-ACCT_VAT_PAYABLE = "2210"
-ACCT_COUPON_LIABILITY = "2520"  # Liability for coupons owed to customers
-ACCT_GIFT_VOUCHERS = "2510"
-ACCT_CREDIT_NOTES = "2530"
-ACCT_CASH_SALES = "4010"
-ACCT_CREDIT_SALES = "4020"
-ACCT_SALES_RETURNS = "4030"
-ACCT_OTHER_INCOME = "4190"  # Miscellaneous Income, leaf under header 4100 "Other Income"
-ACCT_COGS = "5010"
-ACCT_DISCOUNT_EXPENSE = "5160"
+# ─── Accounts (posting types; Finance > Posting Rules can re-point them) ─────
+ACCT_CASH_ON_HAND = posting_ref("CASH")                     # 1010
+ACCT_BANK_ACCOUNT = posting_ref("BANK")                     # 1020
+ACCT_CHEQUES_IN_HAND = posting_ref("CHEQUES_IN_HAND")       # 1040 L2: customer cheques until the deposit is confirmed
+ACCT_TRADE_DEBTORS = posting_ref("AR_TRADE")                # 1110
+ACCT_FINISHED_GOODS = posting_ref("INVENTORY")              # 1210
+ACCT_VAT_PAYABLE = posting_ref("OUTPUT_VAT")                # 2210
+ACCT_COUPON_LIABILITY = posting_ref("CUSTOMER_ADVANCES")    # 2520 coupons owed to customers
+ACCT_GIFT_VOUCHERS = posting_ref("GIFT_VOUCHERS")           # 2510
+ACCT_CREDIT_NOTES = posting_ref("CUSTOMER_CREDIT_NOTES")    # 2530
+ACCT_CASH_SALES = posting_ref("CASH_SALES")                 # 4010
+ACCT_CREDIT_SALES = posting_ref("CREDIT_SALES")             # 4020
+ACCT_SALES_RETURNS = posting_ref("SALES_RETURNS")           # 4030
+ACCT_OTHER_INCOME = posting_ref("OTHER_INCOME")             # 4190 Miscellaneous Income
+ACCT_COGS = posting_ref("COGS")                             # 5010
+ACCT_DISCOUNT_EXPENSE = posting_ref("DISCOUNT_EXPENSE")     # 5160
 
 
 class SalesAccountingIntegration:
@@ -379,12 +381,11 @@ class SalesAccountingIntegration:
 
         # --- CREDIT: Tax ---
         if tax_amount > 0:
-            lines.append({
-                "account_code": ACCT_VAT_PAYABLE,
-                "debit": Decimal("0"),
-                "credit": tax_amount,
-                "description": f"Tax on sale {invoice.invoice_no} (Sales Amount: {revenue_amount})",
-            })
+            lines.append(vat_line(
+                "output", sales_tax_code_for_rate(self.db, invoice.tax_rate),
+                debit=Decimal("0"), credit=tax_amount, base=revenue_amount, rate=invoice.tax_rate,
+                description=f"Tax on sale {invoice.invoice_no} (Sales Amount: {revenue_amount})",
+            ))
 
         # --- Service Charge (already included in grand_total for card payments) ---
         # Service charge is revenue to the company (passed to customer)
@@ -647,12 +648,11 @@ class SalesAccountingIntegration:
             },
         ]
         if tax_refund > 0:
-            lines.append({
-                "account_code": ACCT_VAT_PAYABLE,
-                "debit": tax_refund,
-                "credit": Decimal("0"),
-                "description": f"Tax reversed on return {sale_return.sale_return_no} (Return Amount: {revenue_reversal})",
-            })
+            lines.append(vat_line(
+                "output", sales_tax_code_for_rate(self.db, invoice.tax_rate),
+                debit=tax_refund, credit=Decimal("0"), base=revenue_reversal, rate=invoice.tax_rate,
+                description=f"Tax reversed on return {sale_return.sale_return_no} (Return Amount: {revenue_reversal})",
+            ))
         ar_part = Decimal("0")
         if ar_applied is not None:
             ar_part = min(max(Decimal(str(ar_applied)), Decimal("0")), total_refund)

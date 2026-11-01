@@ -64,6 +64,7 @@ import type {
   ChartOfAccountCreate,
   AccountType,
 } from "@/modules/finance/types";
+import { submitOnce } from "@/modules/finance/submitOnce";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -281,9 +282,9 @@ export default function ChartOfAccountsPage() {
 
   const handleSave = useCallback(async () => {
     if (isCreating) {
-      createMutation.mutate(formData);
+      submitOnce("coa-create", createMutation, formData);
     } else if (selectedAccount) {
-      updateMutation.mutate({
+      submitOnce("coa-update", updateMutation, {
         id: selectedAccount.id,
         data: {
           account_name: formData.account_name,
@@ -751,7 +752,7 @@ export default function ChartOfAccountsPage() {
               </Button>
               {accounts.length === 0 && (
                 <button
-                  onClick={() => seedMutation.mutate()}
+                  onClick={() => submitOnce("coa-seed", seedMutation)}
                   disabled={seedMutation.isPending}
                   style={{
                     padding: "6px 12px",

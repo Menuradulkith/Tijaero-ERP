@@ -371,6 +371,29 @@ export const STATUS_MAPS = {
     completed: { label: "Completed", color: "success" as StatusColor },
     cancelled: { label: "Cancelled", color: "error" as StatusColor },
   },
+
+  // Finance documents (write-offs, fixed assets, recurring journals, petty cash,
+  // bank statements, posting failures)
+  financeDocument: {
+    draft: { label: "Draft", color: "default" as StatusColor },
+    posted: { label: "Posted", color: "success" as StatusColor },
+    written_off: { label: "Written off", color: "warning" as StatusColor },
+    reversed: { label: "Reversed", color: "default" as StatusColor },
+    active: { label: "Active", color: "success" as StatusColor },
+    inactive: { label: "Inactive", color: "default" as StatusColor },
+    closed: { label: "Closed", color: "default" as StatusColor },
+    open: { label: "Open", color: "warning" as StatusColor },
+    reconciled: { label: "Reconciled", color: "success" as StatusColor },
+    fully_depreciated: { label: "Fully depreciated", color: "info" as StatusColor },
+    sold: { label: "Sold", color: "default" as StatusColor },
+    scrapped: { label: "Scrapped", color: "default" as StatusColor },
+    failed: { label: "Failed", color: "error" as StatusColor },
+    pending: { label: "Pending", color: "warning" as StatusColor },
+    ignored: { label: "Ignored", color: "default" as StatusColor },
+    resolved: { label: "Resolved", color: "success" as StatusColor },
+    true: { label: "Active", color: "success" as StatusColor },
+    false: { label: "Inactive", color: "default" as StatusColor },
+  },
 } as const;
 
 export type StatusMapName = keyof typeof STATUS_MAPS;

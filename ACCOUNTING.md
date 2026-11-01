@@ -122,6 +122,29 @@ These entries are automatically generated and posted to the General Ledger (GL) 
 - `4xxx` - Sales / Revenue Accounts
 - `5xxx` - Expense Accounts (e.g., `5110` Salaries, `5150` Commission)
 
+These codes are the **built-in defaults**. **Finance > Accounting > Accounting Setup > Posting Rules** lets you point any business event (Cash, Bank, Inventory, Expenses, …) at another account, optionally a different one per branch or per expense category. A changed rule applies to postings made from then on; entries already posted stay where they are. Every journal entry also records its **source** (voucher type: `MJ` manual, `SALE`, `PUR`, `EXP`, `PAY`, …), which you can filter on in Journal Entries.
+
+**VAT:**
+- Sales VAT goes to `2210`. VAT on supplier invoices (entered on the purchase invoice) goes to `1140 VAT Receivable (Input VAT)`.
+- Every VAT amount is also recorded in the tax ledger. **Finance > Accounting > VAT Return** shows VAT on sales minus VAT on purchases for any period, by tax code.
+- **Settle VAT** moves the net amount to `2220 VAT Due to Tax Authority`. Pay the tax authority from that account.
+- Tax codes (rates) are set up under **Accounting Setup > Tax Codes**.
+
+**Bank, receivables and cheques:**
+- **Bank Reconciliation**: import the bank statement, match each line to the books, and book bank charges or interest straight from the line. Finish when the difference is zero.
+- **Customer Write-offs**: write off amounts a customer won't pay (to `5185`), within your group's limit. A write-off can be reversed.
+- **Cheques**: each cheque is in hand, deposited, cleared or bounced. "Bounced" puts the amount back on the customer's account.
+- Credit sales store their due date when they are made (invoice date + the customer's credit days).
+
+**Month-end and assets:**
+- **Fixed Assets**: register equipment, furniture and so on. Post depreciation once a month (before closing the month), and sell or scrap assets to record the gain or loss.
+- **Recurring & Opening**: set up journals that repeat (rent, accruals) and create them when due. Enter opening balances once, when you start.
+- Journals can have a **Reverse on** date for accruals.
+
+**Cost centers and stock:**
+- Set up departments under **Accounting Setup > Cost Centers** and give each branch a default. Income and expense entries then carry it, and **Profit by Cost Center** shows results per department.
+- Stock marked damaged is written off to `5186`. Branch transfers move stock value to the receiving branch through `1220`. Stock moved to company assets goes to `1310`.
+
 ### Procurement & Payables
 | Action | Debit (Dr.) | Credit (Cr.) |
 | :--- | :--- | :--- |

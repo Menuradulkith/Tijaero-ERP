@@ -157,7 +157,8 @@ class Supplier(Base, AuditMixin):
     email = Column(String(75))
     home_contact_number = Column(String(20))
     mobile_contact_number = Column(String(20), nullable=False)
-    credit_days = Column(Integer, nullable=False)
+
+    credit_days = Column(Integer, nullable=True)  # NULL = payment terms not chosen yet
     # Money columns use Numeric so cents are preserved (ERP_STANDARDS F1);
     # they were historically Integer, which truncated fractional currency.
     max_credit_limit = Column(Numeric(18, 2), nullable=False)

@@ -14,6 +14,7 @@ from app.modules.customers.models import (
     CustomerCreditNotes,
 )
 from app.modules.sales.models import Invoice
+from app.modules.finance.posting_rules import posting_ref
 from app.modules.finance.gl_posting_service import (
     record_gl_commit_failure as _record_gl_commit_failure,
 )
@@ -57,6 +58,8 @@ class BankDepositService:
             entity_type="bank_deposit", entity_id=deposit.id,
             changes={"verified": True},
         )
+        from app.modules.finance.cheque_service import mark_deposit_cheques_deposited
+        mark_deposit_cheques_deposited(self.repo.db, deposit)
         self.repo.db.commit()
 
         # ── GL Hook: Post bank deposit to GL ──
@@ -887,8 +890,8 @@ class PettyCashService:
         # GL: Dr 1030 Petty Cash / Cr 1020 Bank Account
         self._post_gl(
             fund=fund,
-            debit_account="1030",
-            credit_account="1020",
+            debit_account=posting_ref("PETTY_CASH"),
+            credit_account=posting_ref("BANK"),
             amount=amount,
             description=f"Petty cash fund opened - {fund.petty_cash_no}",
             je_prefix="JE-PCF",
@@ -951,14 +954,13 @@ class PettyCashService:
         self.db.flush()
 
         # GL: Dr expense account / Cr 1030 Petty Cash
-        expense_category = (data.expense_type or "miscellaneous").lower().strip()
-        from app.modules.finance.purchase_expense_payroll_gl import EXPENSE_CATEGORY_MAP
-        expense_account = EXPENSE_CATEGORY_MAP.get(expense_category, "5190")
+        from app.modules.finance.posting_rules import expense_ref
+        expense_account = expense_ref(data.expense_type)
 
         self._post_gl(
             fund=fund,
             debit_account=expense_account,
-            credit_account="1030",
+            credit_account=posting_ref("PETTY_CASH"),
             amount=amount,
             description=f"Petty cash expense - {data.expense_type} | {fund.petty_cash_no} | TxnID: {txn.id}",
             je_prefix="JE-PCE",
@@ -1015,8 +1017,8 @@ class PettyCashService:
         # GL: Dr 1030 Petty Cash / Cr 1020 Bank Account
         self._post_gl(
             fund=fund,
-            debit_account="1030",
-            credit_account="1020",
+            debit_account=posting_ref("PETTY_CASH"),
+            credit_account=posting_ref("BANK"),
             amount=amount,
             description=f"Petty cash replenishment | {fund.petty_cash_no} | TxnID: {txn.id}",
             je_prefix="JE-PCR",
@@ -1069,8 +1071,8 @@ class PettyCashService:
         if physical > 0:
             self._post_gl(
                 fund=fund,
-                debit_account="1020",
-                credit_account="1030",
+                debit_account=posting_ref("BANK"),
+                credit_account=posting_ref("PETTY_CASH"),
                 amount=physical,
                 description=f"Petty cash fund closed - balance returned to bank | {fund.petty_cash_no}",
                 je_prefix="JE-PCC",
@@ -1085,8 +1087,8 @@ class PettyCashService:
         if discrepancy < 0:
             self._post_gl(
                 fund=fund,
-                debit_account="5190",  # Miscellaneous expense (cash shortage)
-                credit_account="1030",
+                debit_account=posting_ref("EXPENSE"),  # 5190 Miscellaneous expense (cash shortage)
+                credit_account=posting_ref("PETTY_CASH"),
                 amount=abs(discrepancy),
                 description=f"Petty cash shortage on closure | {fund.petty_cash_no}",
                 je_prefix="JE-PCD",
@@ -1100,8 +1102,8 @@ class PettyCashService:
             # Surplus — credit goes to other income
             self._post_gl(
                 fund=fund,
-                debit_account="1030",
-                credit_account="4190",  # Miscellaneous Income
+                debit_account=posting_ref("PETTY_CASH"),
+                credit_account=posting_ref("OTHER_INCOME"),  # 4190 Miscellaneous Income
                 amount=discrepancy,
                 description=f"Petty cash surplus on closure | {fund.petty_cash_no}",
                 je_prefix="JE-PCD",
@@ -1247,6 +1249,9 @@ class PettyCashService:
                 reference_type=reference_type,
                 reference_id=reference_id,
                 reference_no=reference_no,
+                # Opening, closing and the closing difference all reference the fund:
+                # tell them apart, or closing is deduplicated against the opening.
+                marker=f"{transaction_type} {reference_type} ID: {reference_id}",
             )
             if je:
                 import logging

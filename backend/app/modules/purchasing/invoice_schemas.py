@@ -55,6 +55,7 @@ class PurchaseInvoiceBase(BaseModel):
     tax_amount: Decimal = Decimal("0")
     discount_amount: Decimal = Decimal("0")
     total_amount: Decimal = Decimal("0")
+    tax_code: Optional[str] = None  # VAT treatment; default purchase tax code when VAT is charged
     remarks: Optional[str] = None
 
 
@@ -75,6 +76,7 @@ class PurchaseInvoiceUpdate(BaseModel):
     tax_amount: Optional[MoneyInput] = None
     discount_amount: Optional[MoneyInput] = None
     total_amount: Optional[MoneyInput] = None
+    tax_code: Optional[str] = None
     remarks: Optional[str] = None
     items: Optional[List[PurchaseInvoiceItemCreate]] = None
 

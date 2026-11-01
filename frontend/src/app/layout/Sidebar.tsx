@@ -358,6 +358,18 @@ const menuItems: MenuItem[] = [
             permission: PERMISSIONS.JOURNAL_ENTRIES_VIEW,
           },
           {
+            text: "Fixed Assets",
+            icon: <BusinessCenterIcon />,
+            path: "/finance/fixed-assets",
+            permission: PERMISSIONS.GENERAL_LEDGER_VIEW,
+          },
+          {
+            text: "Recurring & Opening",
+            icon: <ReceiptLongIcon />,
+            path: "/finance/recurring-journals",
+            permission: PERMISSIONS.JOURNAL_ENTRIES_VIEW,
+          },
+          {
             text: "General Ledger",
             icon: <BalanceIcon />,
             path: "/finance/general-ledger",
@@ -382,9 +394,33 @@ const menuItems: MenuItem[] = [
             permission: PERMISSIONS.GENERAL_LEDGER_VIEW,
           },
           {
+            text: "Profit by Cost Center",
+            icon: <AssessmentIcon />,
+            path: "/finance/profit-by-cost-center",
+            permission: PERMISSIONS.GENERAL_LEDGER_VIEW,
+          },
+          {
             text: "Balance Sheet",
             icon: <BalanceIcon />,
             path: "/finance/balance-sheet",
+            permission: PERMISSIONS.GENERAL_LEDGER_VIEW,
+          },
+          {
+            text: "Bank Reconciliation",
+            icon: <FactCheckIcon />,
+            path: "/finance/bank-reconciliation",
+            permission: PERMISSIONS.GENERAL_LEDGER_VIEW,
+          },
+          {
+            text: "Customer Write-offs",
+            icon: <ReportProblemIcon />,
+            path: "/finance/write-offs",
+            permission: PERMISSIONS.JOURNAL_ENTRIES_VIEW,
+          },
+          {
+            text: "VAT Return",
+            icon: <ReceiptLongIcon />,
+            path: "/finance/vat-return",
             permission: PERMISSIONS.GENERAL_LEDGER_VIEW,
           },
           {
@@ -398,6 +434,12 @@ const menuItems: MenuItem[] = [
             icon: <ReportProblemIcon />,
             path: "/finance/posting-failures",
             permission: PERMISSIONS.JOURNAL_ENTRIES_VIEW,
+          },
+          {
+            text: "Accounting Setup",
+            icon: <RuleIcon />,
+            path: "/finance/accounting-setup",
+            permission: PERMISSIONS.CHART_OF_ACCOUNTS_VIEW,
           },
         ],
       },

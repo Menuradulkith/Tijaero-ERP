@@ -289,7 +289,7 @@ const INITIAL_FORM_DATA: SupplierCreate = {
   email: "",
   home_contact_number: "",
   mobile_contact_number: "",
-  credit_days: 30,
+  credit_days: null,
   // No auto-filled default — the user must explicitly set the credit
   // limit for each new supplier rather than inheriting an arbitrary value.
   max_credit_limit: 0,
@@ -977,7 +977,7 @@ export default function SuppliersPage() {
   const handleSelectSupplierWithCheck = useCallback(async (supplier: Supplier) => {
     await handleSelectSupplier(supplier);
     setTouched({}); // Reset validation state
-    setPaymentTermsChosen(true);
+    setPaymentTermsChosen(supplier.credit_days != null);
   }, [handleSelectSupplier]);
 
   const supplierColumns: TDataGridColumn<SupplierRow>[] = useMemo(
@@ -1151,7 +1151,7 @@ export default function SuppliersPage() {
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
       setTimeout(() => {
         handleSelectSupplier(freshSupplier);
-        setPaymentTermsChosen(true);
+        setPaymentTermsChosen(freshSupplier.credit_days != null);
       }, 0);
     },
   });
@@ -1354,7 +1354,7 @@ export default function SuppliersPage() {
         return undefined;
       case 'credit_days':
         if (!paymentTermsChosen) return undefined;
-        if (formData.credit_days === undefined || formData.credit_days < 0) return 'Payment terms must be 0 days or more';
+        if (formData.credit_days == null || formData.credit_days < 0) return 'Payment terms must be 0 days or more';
         break;
       case 'max_credit_limit':
         if (formData.max_credit_limit === undefined || formData.max_credit_limit < 0) return 'Credit limit must be 0 or more';
@@ -1475,7 +1475,7 @@ export default function SuppliersPage() {
         tabsSlot={
           (selectedSupplier || isCreating) && (
             <TTabs
-              tabs={SUPPLIER_DETAIL_TABS}
+              tabs={SUPPLIER_DETAIL_TABS.map((t) => (isCreating && t.id !== "general" ? { ...t, disabled: !isGeneralValid } : t))}
               activeTab={activeSection}
               onChange={(id) => setActiveSection(id as typeof activeSection)}
               appearance="segmented"
@@ -1927,7 +1927,7 @@ export default function SuppliersPage() {
                   !paymentTermsChosen
                     ? ""
                     : paymentTermsCustom ||
-                      !SUPPLIER_PAYMENT_TERMS.some((t) => t.value === formData.credit_days)
+                      formData.credit_days == null || !SUPPLIER_PAYMENT_TERMS.some((t) => t.value === formData.credit_days)
                       ? SUPPLIER_PAYMENT_TERMS_CUSTOM
                       : formData.credit_days
                 }
@@ -1960,12 +1960,12 @@ export default function SuppliersPage() {
                 <MenuItem value={SUPPLIER_PAYMENT_TERMS_CUSTOM}>Custom</MenuItem>
               </TextField>
               {(paymentTermsCustom ||
-                !SUPPLIER_PAYMENT_TERMS.some((t) => t.value === formData.credit_days)) && (
+                formData.credit_days != null && !SUPPLIER_PAYMENT_TERMS.some((t) => t.value === formData.credit_days)) && (
                 <TextField
                   label="Custom Payment Terms (days)"
                   size="small"
                   type="number"
-                  value={formData.credit_days}
+                  value={formData.credit_days ?? ""}
                   onChange={(e) => setFormData({ ...formData, credit_days: parseInt(e.target.value) || 0 })}
                   onBlur={() => handleBlur('credit_days')}
                   disabled={!isPaymentMethodsEditable}

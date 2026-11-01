@@ -31,6 +31,7 @@ from .accounting_models import (
     CashFlowStatementLine,
 )
 from . import accounting_schemas as schemas
+from .posting_rules import MANUAL_VOUCHER_TYPE, PostingRuleResolver
 
 
 # Report totals are summed in Python ``Decimal``. The default context keeps only
@@ -59,6 +60,7 @@ def _cents(value) -> Decimal:
 
 BALANCE_SHEET_TYPES = ("Asset", "Liability", "Equity")
 PROFIT_AND_LOSS_TYPES = ("Revenue", "Expense")
+# Built-in defaults; the RETAINED_EARNINGS / CURRENT_YEAR_PL posting rules can re-point them.
 RETAINED_EARNINGS_CODE = "3100"
 CURRENT_YEAR_PL_CODE = "3200"
 # Sub-ledger controlled accounts: manual journals may not post to them.
@@ -74,6 +76,7 @@ def _cashbook_for_je(db: Session, je, lines, on: date, description, swap: bool) 
     """Mirror a posted (or reversing, ``swap=True``) JE's cash/bank movement
     into the cashbook. Closing entries never touch cash."""
     from .gl_posting_service import record_cashbook_from_gl
+    from .posting_rules import PostingRuleResolver
 
     if je.entry_type == "Closing":
         return
@@ -92,6 +95,7 @@ def _cashbook_for_je(db: Session, je, lines, on: date, description, swap: bool) 
             }
             for line in lines
         ],
+        cash_accounts=PostingRuleResolver(db).cashbook_accounts(),
     )
 
 
@@ -485,6 +489,21 @@ class JournalEntryService:
                     f"account {label} is a control account ({acc.account_category}); "
                     f"change it through its source documents"
                 )
+        # Cost centers: only on income / expense lines, and only active ones.
+        from .accounting_models import CostCenter
+        cc_ids = {getattr(l, "cost_center_id", None) for l in lines} - {None}
+        active_cc = {c for (c,) in self.db.query(CostCenter.id).filter(
+            CostCenter.id.in_(cc_ids), CostCenter.is_active.is_(True)).all()} if cc_ids else set()
+        for line in lines:
+            acc = accounts.get(line.account_id)
+            cc_id = getattr(line, "cost_center_id", None)
+            if acc is None or entry_type == "Closing":
+                continue
+            label = f"{acc.account_code} - {acc.account_name}"
+            if cc_id and cc_id not in active_cc:
+                problems.append(f"line {line.line_number}: the cost center does not exist or is inactive")
+            elif cc_id and acc.account_type not in ("Revenue", "Expense"):
+                problems.append(f"line {line.line_number}: {label} is not an income or expense account, so it takes no cost center")
         if problems:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -503,6 +522,11 @@ class JournalEntryService:
         total_credit = sum(line.credit_amount for line in data.lines)
 
         self._validate_line_accounts(data.lines, data.entry_type)
+        if data.auto_reverse_date and data.auto_reverse_date <= data.entry_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The reverse-on date must be after the entry date.",
+            )
 
         je = JournalEntry(
             journal_entry_no=self._generate_je_number(),
@@ -516,6 +540,8 @@ class JournalEntryService:
             fiscal_year=fiscal_year,
             fiscal_period=fiscal_period,
             branch_code=data.branch_code,
+            voucher_type={"Closing": "YE", "Opening": "OB"}.get(data.entry_type, MANUAL_VOUCHER_TYPE),
+            auto_reverse_date=data.auto_reverse_date,
             created_by=created_by,
         )
         self.db.add(je)
@@ -532,6 +558,7 @@ class JournalEntryService:
                 reference_type=line_data.reference_type,
                 reference_id=line_data.reference_id,
                 reference_no=line_data.reference_no,
+                cost_center_id=line_data.cost_center_id,
             )
             self.db.add(line)
 
@@ -605,6 +632,7 @@ class JournalEntryService:
                     reference_type=line_data.reference_type,
                     reference_id=line_data.reference_id,
                     reference_no=line_data.reference_no,
+                    cost_center_id=line_data.cost_center_id,
                 )
                 self.db.add(line)
 
@@ -641,6 +669,8 @@ class JournalEntryService:
             query = query.filter(JournalEntry.status == filters.status)
         if filters.entry_type:
             query = query.filter(JournalEntry.entry_type == filters.entry_type)
+        if filters.voucher_type:
+            query = query.filter(JournalEntry.voucher_type == filters.voucher_type)
         if filters.branch_code:
             query = query.filter(JournalEntry.branch_code == filters.branch_code)
         elif filters.branch_codes:
@@ -747,8 +777,13 @@ class JournalEntryService:
 
         # Create GL entries from JE lines
         gl_service = GeneralLedgerService(self.db)
+        from .cost_centers import CostCenterResolver
+        cc_resolver = CostCenterResolver(self.db)
+        acc_types = dict(self.db.query(ChartOfAccounts.id, ChartOfAccounts.account_type).filter(
+            ChartOfAccounts.id.in_({l.account_id for l in je.lines})).all())
         for line in je.lines:
             gl_service.create_gl_entry(
+                cost_center_id=cc_resolver.for_line(acc_types.get(line.account_id), line.cost_center_id, je.branch_code),
                 transaction_date=je.entry_date,
                 posting_date=je.posting_date,
                 account_id=line.account_id,
@@ -778,6 +813,14 @@ class JournalEntryService:
             changes={"status": "posted"},
         )
 
+        # Accrual: post its reversal on the chosen date together with it.
+        if je.auto_reverse_date:
+            self.db.flush()
+            self.reverse_journal_entry(
+                je.id, reversed_by=posted_by, reason=f"Automatic reversal on {je.auto_reverse_date}",
+                reversal_date=je.auto_reverse_date, commit=False,
+            )
+
         if not commit:
             self.db.flush()
             return je
@@ -793,6 +836,16 @@ class JournalEntryService:
 
         self.db.refresh(je)
         return je
+
+    def _gl_cost_center(self, je_id: int, line) -> Optional[int]:
+        """The cost center the original GL row got (the line's, or the branch default
+        the posting applied), so a reversal lands on the same cost center."""
+        return self.db.query(GeneralLedger.cost_center_id).filter(
+            GeneralLedger.journal_entry_id == je_id,
+            GeneralLedger.account_id == line.account_id,
+            GeneralLedger.debit_amount == line.debit_amount,
+            GeneralLedger.credit_amount == line.credit_amount,
+        ).limit(1).scalar() or line.cost_center_id
 
     def reverse_journal_entry(
         self, je_id: int, reversed_by: int, reason: str, reversal_date: Optional[date] = None,
@@ -837,6 +890,8 @@ class JournalEntryService:
             fiscal_year=fiscal_year,
             fiscal_period=fiscal_period,
             branch_code=je.branch_code,
+            # Same source as the original, so a voucher-type total nets the reversal.
+            voucher_type=je.voucher_type or MANUAL_VOUCHER_TYPE,
             created_by=reversed_by,
             posted_by=reversed_by,
             posted_at=tz.now(),
@@ -857,10 +912,12 @@ class JournalEntryService:
                 reference_type=line.reference_type,
                 reference_id=line.reference_id,
                 reference_no=line.reference_no,
+                cost_center_id=line.cost_center_id,
             )
             self.db.add(rev_line)
 
             gl_service.create_gl_entry(
+                cost_center_id=self._gl_cost_center(je.id, line),
                 transaction_date=rev_date,
                 posting_date=rev_date,
                 account_id=line.account_id,
@@ -869,9 +926,11 @@ class JournalEntryService:
                 # Undoing a year-end close is itself a closing movement: keep it
                 # out of the income statement like the entry it cancels.
                 transaction_type="Closing" if je.entry_type == "Closing" else "Adjustment",
-                reference_type="JE",
-                reference_id=reversal_je.id,
-                reference_no=reversal_je.journal_entry_no,
+                # Keep the source document (invoice, expense...) on the reversal's ledger rows, as
+                # its journal lines do, so the document's ledger history includes the reversal.
+                reference_type=line.reference_type or "JE",
+                reference_id=line.reference_id if line.reference_type else reversal_je.id,
+                reference_no=line.reference_no if line.reference_type else reversal_je.journal_entry_no,
                 journal_entry_id=reversal_je.id,
                 description=f"Reversal of {je.journal_entry_no}",
                 branch_code=je.branch_code,
@@ -881,6 +940,9 @@ class JournalEntryService:
             )
 
         _cashbook_for_je(self.db, reversal_je, je.lines, rev_date, reversal_je.description, swap=True)
+        # The tax ledger follows the GL: a reversed sale takes its VAT off the return.
+        from .tax_service import reverse_tax_rows
+        reverse_tax_rows(self.db, je, reversal_je)
 
         # Mark original as reversed
         je.status = "reversed"
@@ -1142,6 +1204,7 @@ class GeneralLedgerService:
         fiscal_year: Optional[int] = None,
         fiscal_period: Optional[int] = None,
         created_by: Optional[int] = None,
+        cost_center_id: Optional[int] = None,
     ) -> GeneralLedger:
         if not fiscal_year or not fiscal_period:
             fiscal_year = posting_date.year
@@ -1163,6 +1226,7 @@ class GeneralLedgerService:
             fiscal_year=fiscal_year,
             fiscal_period=fiscal_period,
             created_by=created_by,
+            cost_center_id=cost_center_id,
         )
         self.db.add(gl_entry)
         return gl_entry
@@ -1397,12 +1461,13 @@ class GeneralLedgerService:
         prior_debit = Decimal(str(prior_pl[0])) if prior_pl else Decimal("0")
         prior_credit = Decimal(str(prior_pl[1])) if prior_pl else Decimal("0")
         if prior_debit != prior_credit:
+            retained_code = PostingRuleResolver(self.db).resolve("RETAINED_EARNINGS")
             retained = self.db.query(ChartOfAccounts).filter(
-                ChartOfAccounts.account_code == RETAINED_EARNINGS_CODE
+                ChartOfAccounts.account_code == retained_code
             ).first()
             accounts.append(schemas.GLAccountSummary(
                 account_id=retained.id if retained else 0,
-                account_code=RETAINED_EARNINGS_CODE,
+                account_code=retained_code,
                 account_name="Retained Earnings (prior-year profit not closed)",
                 account_type="Equity",
                 normal_balance="Credit",
@@ -2353,22 +2418,25 @@ class AccountingPeriodService:
             )
 
         # Get key accounts
+        rules = PostingRuleResolver(self.db)
+        retained_code = rules.resolve("RETAINED_EARNINGS")
+        current_pl_code = rules.resolve("CURRENT_YEAR_PL")
         retained_earnings = self.db.query(ChartOfAccounts).filter(
-            ChartOfAccounts.account_code == "3100"
+            ChartOfAccounts.account_code == retained_code
         ).first()
         current_year_pl = self.db.query(ChartOfAccounts).filter(
-            ChartOfAccounts.account_code == "3200"
+            ChartOfAccounts.account_code == current_pl_code
         ).first()
 
         if not retained_earnings:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Account 3100 (Retained Earnings) not found. Please seed COA first."
+                detail=f"Account {retained_code} (Retained Earnings) not found. Please seed COA first."
             )
         if not current_year_pl:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Account 3200 (Current Year Profit/Loss) not found. Please seed COA first."
+                detail=f"Account {current_pl_code} (Current Year Profit/Loss) not found. Please seed COA first."
             )
 
         # Check that this hasn't been done already

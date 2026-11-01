@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date
+from decimal import Decimal
 
 from app.db.session import get_db
 from app.auth.dependencies import (
@@ -35,6 +36,16 @@ from .accounting_service import (
     AccountingDashboardService,
 )
 from .reconciliation_service import ReconciliationService, GLPostingFailureService
+from .posting_rules_service import PostingRuleService, VoucherTypeService
+from .tax_service import TaxCodeService, VatReturnService
+from .bank_reconciliation import BankReconciliationService
+
+from .write_off_service import WRITE_OFF_REASONS, WriteOffService
+from .cheque_service import ChequeService
+from .cost_centers import CostCenterService
+from .fixed_assets import FixedAssetService
+from .period_end import OpeningBalanceService, RecurringJournalService
+from . import schemas as finance_schemas
 
 # All accounting endpoints require authentication
 router = APIRouter(
@@ -157,6 +168,7 @@ def update_journal_entry(
 def list_journal_entries(
     status_filter: Optional[str] = Query(None, alias="status"),
     entry_type: Optional[str] = None,
+    voucher_type: Optional[str] = None,
     branch_code: Optional[str] = None,
     fiscal_year: Optional[int] = None,
     fiscal_period: Optional[int] = None,
@@ -174,6 +186,7 @@ def list_journal_entries(
     items, total = JournalEntryService(db).list_journal_entries(schemas.JournalEntryListFilter(
         status=status_filter,
         entry_type=entry_type,
+        voucher_type=voucher_type,
         branch_code=branch_code,
         branch_codes=user_branches if not branch_code else None,
         fiscal_year=fiscal_year,
@@ -344,6 +357,7 @@ def _serialize_je(je) -> dict:
             "created_at": line.created_at,
             "account_code": line.account.account_code if line.account else None,
             "account_name": line.account.account_name if line.account else None,
+            "cost_center_id": line.cost_center_id,
         })
     return {
         "id": je.id,
@@ -357,6 +371,8 @@ def _serialize_je(je) -> dict:
         "status": je.status,
         "is_reversed": je.is_reversed,
         "reversed_by_je_id": je.reversed_by_je_id,
+        "voucher_type": je.voucher_type,
+        "auto_reverse_date": je.auto_reverse_date,
         "fiscal_year": je.fiscal_year,
         "fiscal_period": je.fiscal_period,
         "branch_code": je.branch_code,
@@ -747,6 +763,421 @@ def delete_cash_flow_category(category_id: int, db: Session = Depends(get_db)):
     """Delete a cash flow category."""
     CashFlowService(db).delete_category(category_id)
     return {"message": "Category deleted successfully"}
+
+
+# =============================================================================
+# POSTING RULES & VOUCHER TYPES
+# =============================================================================
+
+@router.get("/posting-rules", response_model=schemas.PostingRuleSetup, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_VIEW))])
+def list_posting_rules(db: Session = Depends(get_db)):
+    """Every automatic posting type with its default and configured account."""
+    return PostingRuleService(db).list_rules()
+
+
+@router.put("/posting-rules/{posting_type}", response_model=schemas.PostingRuleSetup, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
+def save_posting_rule(posting_type: str, data: schemas.PostingRuleUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """Point a posting type at another account, optionally per branch / expense category.
+    Applies to postings made from now on; posted entries are not changed."""
+    return PostingRuleService(db).save_rule(posting_type, data, user_id=current_user.id)
+
+
+@router.delete("/posting-rules/{posting_type}", response_model=schemas.PostingRuleSetup, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
+def reset_posting_rule(posting_type: str, db: Session = Depends(get_db)):
+    """Return a posting type to its built-in default account."""
+    return PostingRuleService(db).reset_rule(posting_type)
+
+
+@router.get("/voucher-types", response_model=List[schemas.VoucherTypeResponse], dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
+def list_voucher_types(db: Session = Depends(get_db)):
+    """Journal-entry sources (MJ, SALE, PUR, ...) with how many entries each has."""
+    return VoucherTypeService(db).list_types()
+
+
+# =============================================================================
+# TAX CODES & VAT RETURN
+# =============================================================================
+
+@router.get("/tax-codes", response_model=List[schemas.TaxCodeResponse], dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_VIEW))])
+def list_tax_codes(active_only: bool = False, db: Session = Depends(get_db)):
+    """VAT treatments (rate + type) used on sales and supplier invoices."""
+    return TaxCodeService(db).list_codes(include_inactive=not active_only)
+
+
+@router.post("/tax-codes", response_model=schemas.TaxCodeResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
+def create_tax_code(data: schemas.TaxCodeCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return TaxCodeService(db).create(data, user_id=current_user.id)
+
+
+@router.put("/tax-codes/{code_id}", response_model=schemas.TaxCodeResponse, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
+def update_tax_code(code_id: int, data: schemas.TaxCodeUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return TaxCodeService(db).update(code_id, data, user_id=current_user.id)
+
+
+@router.get("/reports/vat-return", response_model=schemas.VatReturnResponse, dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
+def vat_return(
+    date_from: date,
+    date_to: date,
+    branch_code: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """VAT on sales minus VAT on purchases for a period, by tax code, with a GL cross-check."""
+    if user_branches is not None and (not branch_code or branch_code not in user_branches):
+        raise HTTPException(status_code=403, detail="Choose one of your branches for the VAT return")
+    return VatReturnService(db).vat_return(date_from, date_to, branch_code)
+
+
+@router.get("/reports/vat-return/transactions", response_model=schemas.TaxTransactionList, dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
+def vat_transactions(
+    date_from: date,
+    date_to: date,
+    direction: Optional[str] = None,
+    tax_code: Optional[str] = None,
+    tax_rate: Optional[Decimal] = None,
+    branch_code: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=5000),
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """The documents behind a VAT return line."""
+    if user_branches is not None and (not branch_code or branch_code not in user_branches):
+        raise HTTPException(status_code=403, detail="Choose one of your branches")
+    return VatReturnService(db).transactions(
+        date_from, date_to, direction=direction, tax_code=tax_code, tax_rate=tax_rate, branch_code=branch_code,
+        skip=skip, limit=limit
+    )
+
+
+@router.get("/vat-settlements", response_model=List[schemas.VatSettlementResponse], dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
+def list_vat_settlements(db: Session = Depends(get_db)):
+    return VatReturnService(db).list_settlements()
+
+
+@router.post("/vat-settlements", response_model=schemas.VatSettlementResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
+def settle_vat(data: schemas.VatSettlementCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """Clear all unsettled VAT up to a date into "VAT due to tax authority"."""
+    return VatReturnService(db).settle(data, user_id=current_user.id)
+
+
+# =============================================================================
+# CUSTOMER WRITE-OFFS
+# =============================================================================
+
+@router.get("/write-offs/setup", response_model=schemas.WriteOffSetup, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
+def write_off_setup(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """Reasons to choose from and the current user's write-off limit."""
+    return {
+        "reasons": [{"value": k, "label": v} for k, v in WRITE_OFF_REASONS.items()],
+        "my_limit": WriteOffService(db).user_limit(current_user),
+    }
+
+
+@router.get("/write-offs", response_model=List[schemas.WriteOffResponse], dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
+def list_write_offs(
+    customer_id: Optional[int] = None,
+    invoice_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    return WriteOffService(db).list_write_offs(customer_id=customer_id, invoice_id=invoice_id, branch_codes=user_branches)
+
+
+@router.post("/write-offs", response_model=schemas.WriteOffResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_CREATE))])
+def create_write_off(
+    data: schemas.WriteOffCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """Write off part or all of a credit invoice's open balance (within the user's limit)."""
+    svc = WriteOffService(db)
+    return svc.response(svc.write_off(data, current_user, allowed_branches=user_branches))
+
+
+@router.post("/write-offs/{write_off_id}/reverse", response_model=schemas.WriteOffResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_CREATE))])
+def reverse_write_off(
+    write_off_id: int,
+    data: schemas.WriteOffReverse,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    svc = WriteOffService(db)
+    return svc.response(svc.reverse(write_off_id, current_user, data.reason, allowed_branches=user_branches))
+
+
+@router.get("/write-off-limits", response_model=List[schemas.WriteOffLimitResponse], dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_VIEW))])
+def list_write_off_limits(db: Session = Depends(get_db)):
+    return WriteOffService(db).list_limits()
+
+
+@router.put("/write-off-limits/{group_id}", response_model=List[schemas.WriteOffLimitResponse], dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
+def set_write_off_limit(group_id: int, data: schemas.WriteOffLimitUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return WriteOffService(db).set_limit(group_id, data.max_amount, user_id=current_user.id)
+
+
+# =============================================================================
+# CHEQUE REGISTER
+# =============================================================================
+
+@router.post("/cheques/{cheque_id}/clear", response_model=finance_schemas.ChequePayment, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_CREATE))])
+def clear_cheque(
+    cheque_id: int,
+    data: schemas.ChequeStatusChange,
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """The bank has paid a deposited cheque."""
+    return ChequeService(db).mark_cleared(cheque_id, data.status_date, allowed_branches=user_branches)
+
+
+@router.post("/cheques/{cheque_id}/bounce", response_model=finance_schemas.ChequePayment, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_CREATE))])
+def bounce_cheque(
+    cheque_id: int,
+    data: schemas.ChequeBounce,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """The cheque was returned unpaid: the customer owes the amount again."""
+    return ChequeService(db).bounce(cheque_id, data.reason, data.status_date, user_id=current_user.id,
+                                    allowed_branches=user_branches)
+
+
+# =============================================================================
+# COST CENTERS
+# =============================================================================
+
+@router.get("/cost-centers", response_model=List[schemas.CostCenterResponse])
+def list_cost_centers(active_only: bool = False, db: Session = Depends(get_db)):
+    """Cost centers (any signed-in user: journal lines and expenses pick from them)."""
+    return CostCenterService(db).list_centers(active_only=active_only)
+
+
+@router.post("/cost-centers", response_model=schemas.CostCenterResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
+def create_cost_center(data: schemas.CostCenterCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return CostCenterService(db).create(data, user_id=current_user.id)
+
+
+@router.put("/cost-centers/{cc_id}", response_model=schemas.CostCenterResponse, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
+def update_cost_center(cc_id: int, data: schemas.CostCenterUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return CostCenterService(db).update(cc_id, data, user_id=current_user.id)
+
+
+@router.get("/reports/profit-by-cost-center", response_model=schemas.CostCenterProfitReport, dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
+def profit_by_cost_center(
+    date_from: date,
+    date_to: date,
+    branch_code: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """Income, costs and profit per cost center for a period."""
+    if user_branches is not None and (not branch_code or branch_code not in user_branches):
+        raise HTTPException(status_code=403, detail="Choose one of your branches")
+    return CostCenterService(db).profit_by_cost_center(date_from, date_to, branch_code)
+
+
+# =============================================================================
+# FIXED ASSETS
+# =============================================================================
+
+_GL_VIEW = [Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))]
+_SETUP = [Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))]
+_JE_CREATE = [Depends(require_permission(*Permissions.JOURNAL_ENTRY_CREATE))]
+_PERIOD_UPDATE = [Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))]
+
+
+@router.get("/asset-classes", response_model=List[schemas.AssetClassResponse], dependencies=_GL_VIEW)
+def list_asset_classes(db: Session = Depends(get_db)):
+    return FixedAssetService(db).list_classes()
+
+
+@router.post("/asset-classes", response_model=schemas.AssetClassResponse, status_code=status.HTTP_201_CREATED, dependencies=_SETUP)
+def create_asset_class(data: schemas.AssetClassCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return FixedAssetService(db).create_class(data, user_id=current_user.id)
+
+
+@router.put("/asset-classes/{class_id}", response_model=schemas.AssetClassResponse, dependencies=_SETUP)
+def update_asset_class(class_id: int, data: schemas.AssetClassUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return FixedAssetService(db).update_class(class_id, data, user_id=current_user.id)
+
+
+@router.get("/fixed-assets", response_model=List[schemas.FixedAssetResponse], dependencies=_GL_VIEW)
+def list_fixed_assets(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    svc = FixedAssetService(db)
+    return [svc.response(a) for a in svc.list_assets(status_filter, user_branches)]
+
+
+@router.post("/fixed-assets", response_model=schemas.FixedAssetResponse, status_code=status.HTTP_201_CREATED, dependencies=_JE_CREATE)
+def register_fixed_asset(
+    data: schemas.FixedAssetCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """Add an asset to the register; optionally book its purchase."""
+    if user_branches is not None and data.branch_code not in user_branches:
+        raise HTTPException(status_code=403, detail="Choose one of your branches")
+    svc = FixedAssetService(db)
+    return svc.response(svc.register(data, user_id=current_user.id))
+
+
+@router.post("/fixed-assets/{asset_id}/dispose", response_model=schemas.FixedAssetResponse, dependencies=_JE_CREATE)
+def dispose_fixed_asset(
+    asset_id: int,
+    data: schemas.FixedAssetDispose,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """Sell or scrap an asset; the gain or loss is posted."""
+    svc = FixedAssetService(db)
+    return svc.response(svc.dispose(asset_id, data, user_id=current_user.id, allowed_branches=user_branches))
+
+
+@router.get("/depreciation-runs", response_model=List[schemas.DepreciationRunResponse], dependencies=_GL_VIEW)
+def list_depreciation_runs(db: Session = Depends(get_db)):
+    return [
+        schemas.DepreciationRunResponse(id=r.id, period_year=r.period_year, period_month=r.period_month,
+                                        run_date=r.run_date, total=r.total, status=r.status, asset_count=len(r.lines))
+        for r in FixedAssetService(db).list_runs()
+    ]
+
+
+@router.get("/depreciation-runs/preview", response_model=List[schemas.DepreciationPreviewLine], dependencies=_GL_VIEW)
+def preview_depreciation(year: int, month: int, db: Session = Depends(get_db)):
+    """What a run for this month would post, per asset."""
+    return FixedAssetService(db).preview(year, month)
+
+
+@router.post("/depreciation-runs", response_model=schemas.DepreciationRunResponse, status_code=status.HTTP_201_CREATED, dependencies=_PERIOD_UPDATE)
+def run_depreciation(data: schemas.DepreciationRunCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    r = FixedAssetService(db).run(data.period_year, data.period_month, user_id=current_user.id)
+    return schemas.DepreciationRunResponse(id=r.id, period_year=r.period_year, period_month=r.period_month,
+                                           run_date=r.run_date, total=r.total, status=r.status, asset_count=len(r.lines))
+
+
+@router.post("/depreciation-runs/{run_id}/reverse", response_model=schemas.DepreciationRunResponse, dependencies=_PERIOD_UPDATE)
+def reverse_depreciation_run(run_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    r = FixedAssetService(db).reverse_run(run_id, user_id=current_user.id)
+    return schemas.DepreciationRunResponse(id=r.id, period_year=r.period_year, period_month=r.period_month,
+                                           run_date=r.run_date, total=r.total, status=r.status, asset_count=len(r.lines))
+
+
+# =============================================================================
+# RECURRING JOURNALS & OPENING BALANCES
+# =============================================================================
+
+@router.get("/recurring-journals", response_model=List[schemas.RecurringJournalResponse], dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
+def list_recurring_journals(db: Session = Depends(get_db)):
+    return RecurringJournalService(db).list_templates()
+
+
+@router.post("/recurring-journals", response_model=schemas.RecurringJournalResponse, status_code=status.HTTP_201_CREATED, dependencies=_JE_CREATE)
+def create_recurring_journal(data: schemas.RecurringJournalCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return RecurringJournalService(db).create(data, user_id=current_user.id)
+
+
+@router.post("/recurring-journals/create-due", response_model=List[str], dependencies=_JE_CREATE)
+def create_due_recurring_journals(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """Draft journals for every recurring journal due up to today (they still need approval)."""
+    return RecurringJournalService(db).create_due(user_id=current_user.id)
+
+
+@router.put("/recurring-journals/{template_id}", response_model=schemas.RecurringJournalResponse, dependencies=_JE_CREATE)
+def update_recurring_journal(template_id: int, data: schemas.RecurringJournalUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return RecurringJournalService(db).update(template_id, data, user_id=current_user.id)
+
+
+@router.post("/opening-balances", status_code=status.HTTP_201_CREATED, dependencies=_JE_CREATE)
+def create_opening_balances(data: schemas.OpeningBalanceCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """One "Opening" journal (draft, to approve and post) from a list of account balances."""
+    je = OpeningBalanceService(db).create(data, user_id=current_user.id)
+    return _serialize_je(JournalEntryService(db).get_journal_entry(je.id))
+
+
+# =============================================================================
+# BANK ACCOUNTS & RECONCILIATION
+# =============================================================================
+
+_BANK_VIEW = [Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))]
+_BANK_SETUP = [Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))]
+_BANK_WORK = [Depends(require_permission(*Permissions.JOURNAL_ENTRY_CREATE))]
+
+
+@router.get("/bank-accounts", response_model=List[schemas.BankAccountResponse], dependencies=_BANK_VIEW)
+def list_bank_accounts(db: Session = Depends(get_db)):
+    return BankReconciliationService(db).list_accounts()
+
+
+@router.post("/bank-accounts", response_model=schemas.BankAccountResponse, status_code=status.HTTP_201_CREATED, dependencies=_BANK_SETUP)
+def create_bank_account(data: schemas.BankAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """Add a bank account. Without account_id a new GL account is created under 1000 Cash & Bank."""
+    return BankReconciliationService(db).create_account(data, user_id=current_user.id)
+
+
+@router.put("/bank-accounts/{account_id}", response_model=schemas.BankAccountResponse, dependencies=_BANK_SETUP)
+def update_bank_account(account_id: int, data: schemas.BankAccountUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return BankReconciliationService(db).update_account(account_id, data, user_id=current_user.id)
+
+
+@router.get("/bank-accounts/{account_id}/statements", response_model=List[schemas.BankStatementListItem], dependencies=_BANK_VIEW)
+def list_bank_statements(account_id: int, db: Session = Depends(get_db)):
+    return BankReconciliationService(db).list_statements(account_id)
+
+
+@router.post("/bank-statements", response_model=schemas.BankStatementDetail, status_code=status.HTTP_201_CREATED, dependencies=_BANK_WORK)
+def create_bank_statement(data: schemas.BankStatementCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """Add a statement with its lines; unambiguous lines are matched automatically."""
+    return BankReconciliationService(db).create_statement(data, user_id=current_user.id)
+
+
+@router.get("/bank-statements/{statement_id}", response_model=schemas.BankStatementDetail, dependencies=_BANK_VIEW)
+def get_bank_statement(statement_id: int, db: Session = Depends(get_db)):
+    return BankReconciliationService(db).statement_detail(statement_id)
+
+
+@router.delete("/bank-statements/{statement_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_BANK_WORK)
+def delete_bank_statement(statement_id: int, db: Session = Depends(get_db)):
+    BankReconciliationService(db).delete_statement(statement_id)
+
+
+@router.post("/bank-statements/{statement_id}/auto-match", response_model=schemas.BankStatementDetail, dependencies=_BANK_WORK)
+def auto_match_bank_statement(statement_id: int, db: Session = Depends(get_db)):
+    return BankReconciliationService(db).auto_match(statement_id)
+
+
+@router.post("/bank-statement-lines/{line_id}/match", response_model=schemas.BankStatementDetail, dependencies=_BANK_WORK)
+def match_bank_line(line_id: int, data: schemas.BankLineMatch, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return BankReconciliationService(db).match(line_id, data.gl_ids, user_id=current_user.id)
+
+
+@router.post("/bank-statement-lines/{line_id}/unmatch", response_model=schemas.BankStatementDetail, dependencies=_BANK_WORK)
+def unmatch_bank_line(line_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return BankReconciliationService(db).unmatch(line_id, user_id=current_user.id)
+
+
+@router.post("/bank-statement-lines/{line_id}/create-entry", response_model=schemas.BankStatementDetail, dependencies=_BANK_WORK)
+def create_entry_from_bank_line(line_id: int, data: schemas.BankLineEntryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """Book a charge / interest / direct debit that is only on the statement, and match the line to it."""
+    return BankReconciliationService(db).create_entry(line_id, data, user_id=current_user.id)
+
+
+@router.post("/bank-statements/{statement_id}/finish", response_model=schemas.BankStatementDetail, dependencies=_BANK_WORK)
+def finish_bank_statement(statement_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    return BankReconciliationService(db).finish(statement_id, user_id=current_user.id)
+
+
+@router.post("/bank-statements/{statement_id}/reopen", response_model=schemas.BankStatementDetail, dependencies=_BANK_SETUP)
+def reopen_bank_statement(statement_id: int, db: Session = Depends(get_db)):
+    return BankReconciliationService(db).reopen(statement_id)
 
 
 # =============================================================================

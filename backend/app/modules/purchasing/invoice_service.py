@@ -95,6 +95,24 @@ class PurchaseInvoiceService:
         return f"{prefix}{seq:05d}"
 
     # ─── CREATE PURCHASE INVOICE ───────────────────────────────────────
+    def _purchase_tax_code(self, code: Optional[str]) -> Optional[str]:
+        """Validate a supplier-invoice tax code (None = use the default on posting)."""
+        if not code:
+            return None
+        from app.modules.finance.accounting_models import TaxCode
+
+        row = self.db.query(TaxCode).filter(TaxCode.code == code.strip().upper()).first()
+        if row is None or not row.is_active:
+            raise HTTPException(status_code=400, detail=f"Tax code {code} does not exist or is inactive")
+        if row.applies_to == "sales":
+            raise HTTPException(status_code=400, detail=f"Tax code {row.code} is for sales only")
+        return row.code
+
+    def _post_invoice_gl(self, invoice: PurchaseInvoice, user_id: Optional[int]) -> None:
+        from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+
+        PurchaseExpensePayrollGL(self.db).post_purchase_invoice_to_gl(invoice, user_id=user_id or 0)
+
     def create_invoice(
         self, data: PurchaseInvoiceCreate, created_by: int = None
     ) -> PurchaseInvoice:
@@ -141,6 +159,8 @@ class PurchaseInvoiceService:
                 status_code=400,
                 detail=f"Supplier invoice '{data.supplier_invoice_no}' already exists for this supplier (Invoice: {existing.invoice_no})"
             )
+
+        tax_code = self._purchase_tax_code(data.tax_code)
 
         # Validate each item's GRN (batched: one GRN query, one PO query, not per item)
         grn_ids = [item.grn_id for item in data.items]
@@ -278,8 +298,8 @@ class PurchaseInvoiceService:
                 # `or 30` would silently turn a supplier's genuine "Due on
                 # Receipt" (0 days) into Net 30 — only fall back to 30 when
                 # credit_days is truly unset, not when it's a real 0.
-                credit_days = supplier.credit_days if supplier.credit_days is not None else 30
-                due_date = data.supplier_invoice_date + timedelta(days=credit_days)
+                from app.modules.finance.payment_terms import party_due_date
+                due_date = party_due_date(self.db, supplier, data.supplier_invoice_date)
         else:
             due_date = data.due_date or data.supplier_invoice_date
 
@@ -297,6 +317,7 @@ class PurchaseInvoiceService:
             tax_amount=data.tax_amount or calculated_tax,
             discount_amount=data.discount_amount,
             total_amount=data.total_amount or total,
+            tax_code=tax_code,
             paid_amount=Decimal("0"),
             balance_due=data.total_amount or total,
             status="unpaid",
@@ -321,6 +342,11 @@ class PurchaseInvoiceService:
                 description=item_data.description,
             )
             self.db.add(item)
+
+        # VAT + discount go to the GL (and VAT to the tax ledger) with the invoice;
+        # the goods themselves were booked to Trade Creditors at the GRN.
+        self.db.flush()
+        self._post_invoice_gl(invoice, created_by)
 
         try:
             self.db.commit()
@@ -504,7 +530,7 @@ class PurchaseInvoiceService:
         return result
 
     # ─── UPDATE INVOICE ────────────────────────────────────────────────
-    def update_invoice(self, invoice_id: int, data: PurchaseInvoiceUpdate) -> PurchaseInvoice:
+    def update_invoice(self, invoice_id: int, data: PurchaseInvoiceUpdate, user_id: Optional[int] = None) -> PurchaseInvoice:
         # Lock the row so concurrent edits don't silently overwrite each other.
         invoice = (
             self.db.query(PurchaseInvoice)
@@ -518,6 +544,9 @@ class PurchaseInvoiceService:
             raise HTTPException(status_code=400, detail="Only unpaid invoices can be edited")
 
         update_fields = data.model_dump(exclude_unset=True, exclude={"items"})
+        if "tax_code" in update_fields:
+            update_fields["tax_code"] = self._purchase_tax_code(update_fields["tax_code"])
+        before = (invoice.tax_amount, invoice.discount_amount, invoice.tax_code, invoice.subtotal, invoice.supplier_invoice_date)
         for key, val in update_fields.items():
             setattr(invoice, key, val)
 
@@ -546,12 +575,22 @@ class PurchaseInvoiceService:
                 )
                 self.db.add(item)
 
+        after = (invoice.tax_amount, invoice.discount_amount, invoice.tax_code, invoice.subtotal, invoice.supplier_invoice_date)
+        if after != before:
+            # Re-post the VAT / discount entry so GL and VAT return follow the edit.
+            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+            PurchaseExpensePayrollGL(self.db).reverse_purchase_invoice_gl(
+                invoice, user_id=user_id or 0, reason=f"Supplier invoice {invoice.invoice_no} edited"
+            )
+            self.db.flush()
+            self._post_invoice_gl(invoice, user_id)
+
         self.db.commit()
         self.db.refresh(invoice)
         return invoice
 
     # ─── CANCEL INVOICE ────────────────────────────────────────────────
-    def cancel_invoice(self, invoice_id: int) -> PurchaseInvoice:
+    def cancel_invoice(self, invoice_id: int, user_id: Optional[int] = None) -> PurchaseInvoice:
         # Lock row so that two concurrent cancellation requests cannot both pass
         # the status check and produce a double-cancel.
         invoice = (
@@ -570,6 +609,11 @@ class PurchaseInvoiceService:
         invoice.status = "cancelled"
         invoice.payment_status = "unpaid"
         self.db.flush()
+
+        from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+        PurchaseExpensePayrollGL(self.db).reverse_purchase_invoice_gl(
+            invoice, user_id=user_id or 0, reason=f"Supplier invoice {invoice.invoice_no} cancelled"
+        )
 
         # Recompute supplier credit via the single authoritative calculator -
         # the now-cancelled invoice is excluded from exposure automatically.
@@ -1175,6 +1219,7 @@ class PurchaseInvoiceService:
             supplier_name=supplier_name,
             items=items,
             remarks=invoice.remarks,
+            tax_code=invoice.tax_code,
         )
 
     # ─── GET ALL OUTSTANDING GRNs (ACROSS ALL SUPPLIERS) ───────────────

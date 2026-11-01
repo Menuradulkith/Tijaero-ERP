@@ -19,13 +19,14 @@ from sqlalchemy.orm import Session
 
 from app.modules.finance.accounting_models import JournalEntry
 from app.modules.finance.gl_posting_service import GLPostingService
+from app.modules.finance.posting_rules import posting_ref
 
 logger = logging.getLogger(__name__)
 
-ACCT_INVENTORY = "1210"
-ACCT_WIP = "1230"
-ACCT_PRODUCTION_VARIANCE = "5030"
-ACCT_ABSORBED = "5040"
+ACCT_INVENTORY = posting_ref("INVENTORY")                     # 1210
+ACCT_WIP = posting_ref("WIP")                                 # 1230
+ACCT_PRODUCTION_VARIANCE = posting_ref("PRODUCTION_VARIANCE") # 5030
+ACCT_ABSORBED = posting_ref("ABSORBED_LABOUR_OVERHEAD")       # 5040
 
 REF_MATERIAL = "MfgMaterialTxn"
 REF_TIME = "MfgTimeLog"

@@ -116,7 +116,7 @@ class SupplierBase(BaseModel):
     email: Optional[EmailStr] = None
     home_contact_number: Optional[str] = None
     mobile_contact_number: str = Field(..., min_length=1)
-    credit_days: int = 0
+    credit_days: Optional[int] = None
     max_credit_limit: Decimal = Decimal("0")
     active: bool = True
     country_id: Optional[int] = None
@@ -150,7 +150,7 @@ class SupplierInputBase(BaseModel):
     email: Optional[EmailStr] = None
     home_contact_number: Optional[str] = None
     mobile_contact_number: str = Field(..., min_length=1)
-    credit_days: int = Field(default=0, ge=0, le=3650)
+    credit_days: Optional[int] = Field(default=None, ge=0, le=3650)
     max_credit_limit: Decimal = Field(default=Decimal("0"), ge=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
     active: bool = True
     country_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)

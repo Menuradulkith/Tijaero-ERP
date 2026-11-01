@@ -38,7 +38,7 @@ from typing import Callable, Iterable, Optional, Tuple
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 # Register every ORM model on Base.metadata before anything touches the DB.
@@ -78,6 +78,12 @@ def db(_connection) -> Session:
         bind=_connection, autoflush=False, autocommit=False, expire_on_commit=False
     )
     session = TestingSessionLocal()
+    # Highest journal / cashbook ids before the test: the ledger checks in
+    # tests/money_invariants.py look only at rows written after these.
+    session.info["ledger_baseline"] = tuple(session.execute(text(
+        "SELECT (SELECT COALESCE(MAX(id), 0) FROM journal_entries),"
+        " (SELECT COALESCE(MAX(id), 0) FROM cashbook_entries)"
+    )).one())
     session.begin_nested()  # SAVEPOINT
 
     @event.listens_for(session, "after_transaction_end")

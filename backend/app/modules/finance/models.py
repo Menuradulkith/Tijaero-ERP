@@ -141,6 +141,13 @@ class ChequePayments(Base, AuditMixin):
     remark = Column(String(255))
     payment_for = Column(Text)
     invoice_no = Column(String(200))
+    # Cheque register (finance blueprint phase C): received -> deposited -> cleared | bounced
+    status = Column(String(20), nullable=False, default="received", server_default="received")
+    bank_deposit_id = Column(Integer, ForeignKey("bank_deposits.id"), nullable=True)  # sale cheque's pending deposit
+    settlement_transaction_id = Column(Integer, ForeignKey("customer_credits_settle_transaction.id"), nullable=True)
+    status_date = Column(Date, nullable=True)
+    bounce_reason = Column(Text, nullable=True)
+    bounce_journal_entry_id = Column(Integer, ForeignKey("journal_entries.id"), nullable=True)
 
     invoices = relationship("Invoice", back_populates="cheque_payment")
 

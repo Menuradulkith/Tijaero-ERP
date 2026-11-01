@@ -236,6 +236,9 @@ export interface CashPayment {
 
 // Cashbook Types
 export type CashbookEntryType = 
+  | "fixed_asset"
+  | "cheque_bounce"
+  | "bank_statement"
   | "invoice_receipt"
   | "customer_credit_settle"
   | "customer_advance"
@@ -412,6 +415,7 @@ export interface JournalEntryLineCreate {
   reference_type?: string;
   reference_id?: number;
   reference_no?: string;
+  cost_center_id?: number | null;
 }
 
 export interface JournalEntry {
@@ -430,6 +434,8 @@ export interface JournalEntry {
   fiscal_year?: number;
   fiscal_period?: number;
   branch_code?: string;
+  voucher_type?: string | null;
+  auto_reverse_date?: string | null;
   lines: JournalEntryLine[];
   created_by?: number;
   submitted_by?: number;
@@ -448,6 +454,7 @@ export interface JournalEntryCreate {
   description: string;
   entry_type?: JournalEntryType;
   branch_code?: string;
+  auto_reverse_date?: string;
   lines: JournalEntryLineCreate[];
 }
 
@@ -815,7 +822,7 @@ export interface PettyCashReplenishCreate {
 }
 
 export interface PettyCashReconcileRequest {
-  closing_balance: number;
+  physical_cash_count: number;
   remarks?: string;
 }
 
@@ -891,4 +898,272 @@ export interface PaymentVoucherFilter {
   date_to?: string;
   skip?: number;
   limit?: number;
+}
+
+// ─── Posting rules & voucher types ──────────────────────────────────────────
+export type PostingControlType = "none" | "branch" | "expense_category";
+
+export interface AccountRef {
+  id: number | null;
+  account_code: string;
+  account_name: string;
+}
+
+export interface PostingTypeRule {
+  code: string;
+  name: string;
+  group: string;
+  description: string;
+  account_types: string[];
+  control_types: PostingControlType[];
+  default_account: AccountRef;
+  is_customized: boolean;
+  control_type: PostingControlType;
+  account: AccountRef | null;
+  details: { control_value: string; account: AccountRef | null }[];
+  notes?: string | null;
+  updated_at?: string | null;
+}
+
+export interface PostingControlOption {
+  value: string;
+  label: string;
+  default_account?: AccountRef | null;
+}
+
+export interface PostingRuleSetup {
+  posting_types: PostingTypeRule[];
+  control_types: { code: PostingControlType; name: string; description: string }[];
+  branches: PostingControlOption[];
+  expense_categories: PostingControlOption[];
+}
+
+export interface PostingRuleUpdate {
+  control_type: PostingControlType;
+  account_id: number | null;
+  details: { control_value: string; account_id: number }[];
+  notes?: string | null;
+}
+
+export interface VoucherType {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+  source_module?: string | null;
+  is_manual: boolean;
+  is_active: boolean;
+  entry_count: number;
+}
+
+// ─── VAT ────────────────────────────────────────────────────────────────────
+export type TaxType = "standard" | "zero_rated" | "exempt";
+export type TaxAppliesTo = "sales" | "purchases" | "both";
+
+export interface TaxCode {
+  id: number;
+  code: string;
+  name: string;
+  rate: number;
+  tax_type: TaxType;
+  applies_to: TaxAppliesTo;
+  is_default_sales: boolean;
+  is_default_purchases: boolean;
+  is_active: boolean;
+  description?: string | null;
+}
+
+export interface TaxCodeInput {
+  code?: string;
+  name?: string;
+  rate?: number;
+  tax_type?: TaxType;
+  applies_to?: TaxAppliesTo;
+  is_default_sales?: boolean;
+  is_default_purchases?: boolean;
+  is_active?: boolean;
+  description?: string | null;
+}
+
+export interface VatReturnLine {
+  direction: "output" | "input";
+  tax_code: string;
+  tax_name: string;
+  tax_rate: number | null;
+  count: number;
+  base_amount: number;
+  tax_amount: number;
+}
+
+export interface VatReturn {
+  date_from: string;
+  date_to: string;
+  branch_code?: string | null;
+  lines: VatReturnLine[];
+  output_tax: number;
+  input_tax: number;
+  net_tax: number;
+  gl_output_tax: number;
+  gl_input_tax: number;
+  unsettled_output_tax: number;
+  unsettled_input_tax: number;
+  warnings: string[];
+}
+
+export interface TaxTransaction {
+  id: number;
+  transaction_date: string;
+  direction: "output" | "input";
+  tax_code: string;
+  tax_rate: number | null;
+  base_amount: number;
+  tax_amount: number;
+  reference_type?: string | null;
+  reference_id?: number | null;
+  reference_no?: string | null;
+  branch_code?: string | null;
+  journal_entry_id: number;
+  journal_entry_no?: string | null;
+  settlement_id?: number | null;
+}
+
+export interface VatSettlement {
+  id: number;
+  settlement_no: string;
+  date_to: string;
+  settlement_date: string;
+  output_tax: number;
+  input_tax: number;
+  net_tax: number;
+  journal_entry_id?: number | null;
+  notes?: string | null;
+  created_at?: string | null;
+}
+
+// ─── Bank reconciliation ─────────────────────────────────────────────────────
+// Amounts are decimals (string or number). Statement/GL amount > 0 = money in.
+export type BankAmount = number | string;
+
+export interface BankAccount {
+  id: number;
+  name: string;
+  bank_name?: string | null;
+  account_number?: string | null;
+  branch_code?: string | null;
+  account_id: number;
+  account_code: string;
+  account_name: string;
+  currency: string;
+  reconcile_from: string;
+  is_active: boolean;
+  notes?: string | null;
+  book_balance: BankAmount;
+  last_reconciled_to?: string | null;
+  open_statements: number;
+}
+
+export interface BankAccountCreate {
+  name: string;
+  bank_name?: string | null;
+  account_number?: string | null;
+  branch_code?: string | null;
+  /** Existing GL account; omit to create a new one under 1000 Cash & Bank. */
+  account_id?: number | null;
+  reconcile_from?: string | null;
+  notes?: string | null;
+}
+
+export interface BankAccountUpdate {
+  name?: string;
+  bank_name?: string | null;
+  account_number?: string | null;
+  branch_code?: string | null;
+  reconcile_from?: string | null;
+  is_active?: boolean;
+  notes?: string | null;
+}
+
+export type BankStatementStatus = "open" | "reconciled";
+export type BankStatementLineStatus = "unmatched" | "auto" | "manual" | "created";
+
+export interface BankStatementListItem {
+  id: number;
+  bank_account_id: number;
+  statement_no?: string | null;
+  date_from: string;
+  date_to: string;
+  opening_balance: BankAmount;
+  closing_balance: BankAmount;
+  status: BankStatementStatus;
+  reconciled_at?: string | null;
+}
+
+export interface BankStatementLineInput {
+  line_date: string;
+  description?: string | null;
+  reference?: string | null;
+  amount: number;
+}
+
+export interface BankStatementCreate {
+  bank_account_id: number;
+  statement_no?: string | null;
+  date_from: string;
+  date_to: string;
+  opening_balance: number;
+  closing_balance: number;
+  notes?: string | null;
+  lines: BankStatementLineInput[];
+  auto_match?: boolean;
+}
+
+export interface BankGLItem {
+  gl_id: number;
+  transaction_date: string;
+  amount: BankAmount;
+  description?: string | null;
+  reference_type?: string | null;
+  reference_no?: string | null;
+  journal_entry_id?: number | null;
+  journal_entry_no?: string | null;
+}
+
+export interface BankStatementLine {
+  id: number;
+  line_date: string;
+  description?: string | null;
+  reference?: string | null;
+  amount: BankAmount;
+  status: BankStatementLineStatus;
+  matched: BankGLItem[];
+}
+
+export interface BankReconciliationSummary {
+  book_balance: BankAmount;
+  outstanding_count: number;
+  outstanding_total: BankAmount;
+  unmatched_lines_count: number;
+  unmatched_lines_total: BankAmount;
+  cleared_after_period: BankAmount;
+  bank_only_total: BankAmount;
+  adjusted_book_balance: BankAmount;
+  statement_closing_balance: BankAmount;
+  difference: BankAmount;
+}
+
+export interface BankStatementDetail {
+  id: number;
+  bank_account_id: number;
+  bank_account_name: string;
+  statement_no?: string | null;
+  date_from: string;
+  date_to: string;
+  opening_balance: BankAmount;
+  closing_balance: BankAmount;
+  status: BankStatementStatus;
+  notes?: string | null;
+  lines: BankStatementLine[];
+  candidates: BankGLItem[];
+  summary: BankReconciliationSummary;
+  warnings: string[];
 }

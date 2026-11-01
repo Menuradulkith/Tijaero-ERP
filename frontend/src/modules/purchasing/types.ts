@@ -24,7 +24,7 @@ export interface Supplier {
   email?: string;
   home_contact_number?: string;
   mobile_contact_number: string;
-  credit_days: number;
+  credit_days: number | null;
   max_credit_limit: number;
   active: boolean;
   country_id?: number;
@@ -257,7 +257,7 @@ export interface SupplierCreate {
   email?: string;
   home_contact_number?: string;
   mobile_contact_number: string;
-  credit_days: number;
+  credit_days: number | null;
   max_credit_limit: number;
   active?: boolean;
   country_id?: number;
@@ -286,7 +286,7 @@ export interface SupplierUpdate {
   email?: string;
   home_contact_number?: string;
   mobile_contact_number?: string;
-  credit_days?: number;
+  credit_days?: number | null;
   max_credit_limit?: number;
   active?: boolean;
   country_id?: number;

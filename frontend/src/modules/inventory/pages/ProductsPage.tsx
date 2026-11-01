@@ -1107,20 +1107,21 @@ export default function ProductsPage({
     if (
       !(productState.formData.name ?? "").trim() ||
       !productState.formData.tracking_type ||
-      productState.formData.cost_price === undefined ||
-      productState.formData.cost_price === null ||
-      productState.formData.selling_price === undefined ||
-      productState.formData.selling_price === null ||
       !productState.formData.category_id ||
       !productState.formData.items_brand_id
     ) {
       showErrorToast("Please fill in all required fields");
-      setProductTouched({
-        name: true,
-        tracking_type: true,
-        cost_price: true,
-        selling_price: true,
-      });
+      setProductTouched({ name: true, tracking_type: true });
+      return;
+    }
+    // Prices live on the Pricing tab: take the user there instead of failing silently.
+    if (
+      productState.formData.cost_price == null ||
+      productState.formData.selling_price == null
+    ) {
+      setActiveProductSection("pricing");
+      setProductTouched({ cost_price: true, selling_price: true });
+      showErrorToast("Enter the cost price and selling price on the Pricing tab");
       return;
     }
     
@@ -1388,6 +1389,13 @@ export default function ProductsPage({
   const pageTitle =
     activeTab === 0 ? "Products" : activeTab === 1 ? "Categories" : "Brands";
 
+  // While creating, the other tabs unlock only once General's mandatory fields are filled.
+  const isProductGeneralIncomplete =
+    !(productState.formData.name ?? "").trim() ||
+    !productState.formData.tracking_type ||
+    !productState.formData.category_id ||
+    !productState.formData.items_brand_id;
+
   // Whether we're showing a single product's / category's / brand's detail
   // view (selected or being created) instead of that tab's browse table.
   const isProductDetailMode = !!productState.selectedItem || productState.isCreating;
@@ -1482,7 +1490,7 @@ export default function ProductsPage({
           tabsSlot={
             (productState.selectedItem || productState.isCreating) && (
               <TTabs
-                tabs={PRODUCT_DETAIL_TABS}
+                tabs={PRODUCT_DETAIL_TABS.map((t) => (productState.isCreating && t.id !== "general" ? { ...t, disabled: isProductGeneralIncomplete } : t))}
                 activeTab={activeProductSection}
                 onChange={(id) => setActiveProductSection(id as typeof activeProductSection)}
                 appearance="segmented"
@@ -1510,15 +1518,7 @@ export default function ProductsPage({
           isSaving={
             createProductMutation.isPending || updateProductMutation.isPending
           }
-          saveDisabled={
-            !productState.formData.name ||
-            productState.formData.cost_price === undefined ||
-            productState.formData.cost_price === null ||
-            productState.formData.selling_price === undefined ||
-            productState.formData.selling_price === null ||
-            !productState.formData.category_id ||
-            !productState.formData.items_brand_id
-          }
+          saveDisabled={isProductGeneralIncomplete}
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -1539,20 +1539,15 @@ export default function ProductsPage({
                     )}
 
                   <FormSection title="Basic Information">
-                    <TextField
-                      label="Item Code"
-                      size="small"
-                      value={
-                        productState.isCreating
-                          ? ""
-                          : (productState.selectedItem?.item_code ?? "")
-                      }
-                      placeholder={
-                        productState.isCreating ? "Auto-generated on save" : ""
-                      }
-                      disabled
-                      helperText="Generated automatically"
-                    />
+                    {!productState.isCreating && (
+                      <TextField
+                        label="Item Code"
+                        size="small"
+                        value={productState.selectedItem?.item_code ?? ""}
+                        disabled
+                        helperText="Generated automatically"
+                      />
+                    )}
                     <TextField
                       label="Product Name"
                       inputProps={{ maxLength: 255 }}

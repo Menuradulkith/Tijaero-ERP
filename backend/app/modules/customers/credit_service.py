@@ -13,6 +13,7 @@ from app.modules.customers.models import (
 )
 from app.modules.sales.models import Invoice
 from app.modules.customers import schemas
+from app.modules.finance.payment_terms import invoice_due_date
 
 
 class CustomerCreditService:
@@ -207,7 +208,8 @@ class CustomerCreditService:
                 detail=f"Customer not found for invoice {invoice_id}"
             )
         
-        return self.calculate_due_date(invoice.created_date, customer.credit_days)
+        from app.modules.finance.payment_terms import invoice_due_date
+        return invoice_due_date(invoice, customer)
     
     def get_days_overdue(self, invoice_date: date, credit_days: int) -> int:
         due_date = self.calculate_due_date(invoice_date, credit_days)
@@ -262,21 +264,25 @@ class CustomerCreditService:
         return Decimal(str(outstanding))
     
     def _get_overdue_invoices(self, db: Session, customer_id: int, credit_days: int) -> List[Dict]:
-        cutoff_date = tz.today() - timedelta(days=credit_days)
-        
+        from sqlalchemy import or_
+        from app.modules.finance.payment_terms import term_due_date
+
+        today = tz.today()
+        cutoff_date = today - timedelta(days=credit_days)
+        # Stored due date when the invoice has one; legacy rows: invoice date + credit days.
         invoices = db.query(Invoice).filter(
             Invoice.customer_id == customer_id,
             Invoice.credit_amount > 0,
-            Invoice.created_date < cutoff_date,
+            or_(Invoice.due_date < today, (Invoice.due_date.is_(None)) & (Invoice.created_date < cutoff_date)),
             Invoice.status == True,  # Exclude cancelled invoices
             Invoice.approval_status.notin_(['cancelled', 'rejected'])  # Exclude rejected
         ).all()
-        
+
         overdue_list = []
         for invoice in invoices:
             remaining = self._get_invoice_remaining_credit(db, invoice.id, invoice.credit_amount)
             if remaining > 0:
-                due_date = self.calculate_due_date(invoice.created_date, credit_days)
+                due_date = invoice.due_date or term_due_date(invoice.created_date, credit_days)
                 overdue_list.append({
                     "invoice_id": invoice.id,
                     "invoice_no": invoice.invoice_no,
@@ -297,8 +303,9 @@ class CustomerCreditService:
             # only money actually received: not pending / rejected bank transfers
             CustomerCreditsSettleTransaction.status.notin_(["pending_verification", "rejected"]),
         ).scalar() or Decimal("0")
-        
-        return credit_amount - paid
+        from app.modules.finance.write_off_service import posted_write_off_total
+
+        return credit_amount - paid - posted_write_off_total(db, invoice_id)
     
     def validate_credit_sale(
         self, 
@@ -619,7 +626,7 @@ class CustomerCreditService:
         remaining = invoice.credit_amount - total_paid
         
         customer = db.query(Customer).filter(Customer.id == invoice.customer_id).first()
-        due_date = self.calculate_due_date(invoice.created_date, customer.credit_days)
+        due_date = invoice_due_date(invoice, customer)
         
         return {
             "invoice_id": invoice_id,
@@ -681,7 +688,8 @@ class CustomerCreditService:
             if remaining <= 0:
                 continue
             
-            days_overdue = self.get_days_overdue(invoice.created_date, customer.credit_days)
+            from app.modules.finance.payment_terms import invoice_due_date
+            days_overdue = (tz.today() - invoice_due_date(invoice, customer)).days
             
             if days_overdue <= 0:
                 bucket = "current"
@@ -739,7 +747,7 @@ class CustomerCreditService:
         settled_by_invoice: Dict[int, Decimal] = {}
 
         for invoice in invoices:
-            due_date = self.calculate_due_date(invoice.created_date, customer.credit_days)
+            due_date = invoice_due_date(invoice, customer)
             entries.append((invoice.created_date, 0, {
                 "date": invoice.created_date,
                 "type": "INVOICE",
@@ -870,7 +878,7 @@ class CustomerCreditService:
             remaining = self._get_invoice_remaining_credit(db, invoice.id, invoice.credit_amount)
             if remaining <= 0:
                 continue
-            due_date = self.calculate_due_date(invoice.created_date, customer.credit_days)
+            due_date = invoice_due_date(invoice, customer)
             days_overdue = (tz.today() - due_date).days
             is_overdue = days_overdue > 0
 

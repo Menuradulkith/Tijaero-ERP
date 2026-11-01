@@ -76,6 +76,8 @@ class ReclassificationService:
                   entity_id=stock.id, changes=changes)
         log_audit(self.db, user_id=user_id, action="reclassify_from_stock", entity_type="company_assets",
                   entity_id=asset.id, changes={**changes, "sales_stock_id": stock.id})
+        from app.modules.finance.stock_gl import post_asset_reclass
+        post_asset_reclass(self.db, stock, user_id, to_asset=True)
         self.db.commit()
         return {"success": True, "barcode": stock.barcode, "sales_stock_id": stock.id,
                 "company_asset_id": asset.id, "message": "Moved to company assets"}
@@ -124,6 +126,8 @@ class ReclassificationService:
                   entity_id=asset.id, changes=changes)
         log_audit(self.db, user_id=user_id, action="reclassify_from_asset", entity_type="sales_stock",
                   entity_id=stock.id, changes={**changes, "company_asset_id": asset.id})
+        from app.modules.finance.stock_gl import post_asset_reclass
+        post_asset_reclass(self.db, stock, user_id, to_asset=False)
         self.db.commit()
         return {"success": True, "barcode": asset.barcode, "sales_stock_id": stock.id,
                 "company_asset_id": asset.id, "message": "Returned to sales stock"}

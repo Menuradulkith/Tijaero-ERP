@@ -64,6 +64,11 @@ class ChequePaymentCreate(ChequePaymentBase):
 
 class ChequePayment(ChequePaymentBase, TijaeroBaseSchema):
     id: int
+    # Cheque register: received -> deposited -> cleared | bounced
+    status: Optional[str] = "received"
+    status_date: Optional[date] = None
+    bounce_reason: Optional[str] = None
+    bounce_journal_entry_id: Optional[int] = None
 
 class CustomerAdvancePaymentBase(BaseModel):
     customer_id: int

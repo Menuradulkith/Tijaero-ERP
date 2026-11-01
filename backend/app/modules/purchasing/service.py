@@ -101,6 +101,7 @@ class SupplierService:
     def create_supplier(self, supplier: schemas.SupplierCreate, created_by: Optional[int] = None) -> models.Supplier:
         self._check_currency(supplier.default_currency)
         self._check_duplicate_fields(supplier)
+
         with self._duplicate_guard():
             created = self.repo.create(supplier)
             log_audit(
@@ -314,6 +315,7 @@ class SupplierService:
         # the audit log only lists what the user genuinely changed, not the
         # entire form the frontend happens to submit on every save.
         submitted_fields = supplier_update.model_dump(exclude_unset=True, exclude={"expected_updated_at", "expected_version"})
+
         # Row lock first: the stale check, the deactivate checks and the write
         # must not interleave with a concurrent save, PO or payment.
         before = (

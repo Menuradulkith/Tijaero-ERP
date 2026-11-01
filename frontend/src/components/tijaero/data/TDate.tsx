@@ -111,15 +111,20 @@ export const TDate: React.FC<TDateProps> = ({
   tooltip = false,
   placeholder = "-",
   sx,
-  ...rest
+  ...props
 }) => {
   const { timezone } = useTimezoneStore();
   const date = parseDate(value);
+  // Render a <span> (valid inside paragraphs and table text), keeping the block
+  // layout the old <p> had unless a `component` is given — same as TCurrency.
+  const { component, ...rest } = props as typeof props & { component?: React.ElementType };
+  const tag = component ?? "span";
+  const blockSx = component ? {} : { display: "block" };
 
   // Handle invalid date
   if (!date) {
     return (
-      <Typography {...rest} sx={{ ...sx }}>
+      <Typography component={tag} {...rest} sx={{ ...blockSx, ...sx }}>
         {placeholder}
       </Typography>
     );
@@ -130,8 +135,10 @@ export const TDate: React.FC<TDateProps> = ({
 
   const content = (
     <Typography
+      component={tag}
       {...rest}
       sx={{
+        ...blockSx,
         fontVariantNumeric: "tabular-nums",
         ...sx,
       }}

@@ -72,7 +72,9 @@ import {
   type TDataGridColumn,
 } from "@/components/tijaero";
 
-import { journalEntriesApi, chartOfAccountsApi } from "@/modules/finance/api";
+import { journalEntriesApi, chartOfAccountsApi, voucherTypesApi } from "@/modules/finance/api";
+import { costCentersApi } from "@/modules/finance/api/costCenters";
+import { submitOnce } from "@/modules/finance/submitOnce";
 import type {
   JournalEntry,
   JournalEntryStatus,
@@ -120,6 +122,7 @@ interface JEFormData {
   entry_date: string;
   description: string;
   entry_type: JournalEntryType;
+  auto_reverse_date?: string;
 }
 
 interface LineItem {
@@ -129,6 +132,7 @@ interface LineItem {
   debit_amount: number;
   credit_amount: number;
   description: string;
+  cost_center_id?: number | null;
 }
 
 const INITIAL_FORM_DATA: JEFormData = {
@@ -154,11 +158,13 @@ export default function JournalEntriesPage() {
   // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string | null>(null);
+  const [filterVoucher, setFilterVoucher] = useState<string | null>(null);
 
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
     setFilterStatus(null);
     setFilterType(null);
+    setFilterVoucher(null);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reverse dialog
@@ -249,15 +255,32 @@ export default function JournalEntriesPage() {
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
   const { data: entriesData, isLoading } = useQuery({
-    queryKey: ["journal-entries", filterStatus, filterType],
+    queryKey: ["journal-entries", filterStatus, filterType, filterVoucher],
     queryFn: () =>
       journalEntriesApi.getAll({
         status: filterStatus ?? undefined,
         entry_type: filterType ?? undefined,
+        voucher_type: filterVoucher ?? undefined,
         limit: 500,
       }),
   });
   const entries = entriesData?.items ?? [];
+
+  const { data: voucherTypes = [] } = useQuery({
+    queryKey: ["voucher-types"],
+    queryFn: voucherTypesApi.getAll,
+    staleTime: 5 * 60 * 1000,
+  });
+  const voucherName = useCallback(
+    (code?: string | null) => voucherTypes.find((v) => v.code === code)?.name ?? code ?? "-",
+    [voucherTypes]
+  );
+
+  const { data: costCenters = [] } = useQuery({
+    queryKey: ["cost-centers", "active"],
+    queryFn: () => costCentersApi.getAll({ active_only: true }),
+    staleTime: 5 * 60 * 1000,
+  });
 
   const { data: accounts = [] } = useQuery({
     queryKey: ["chart-of-accounts-all"],
@@ -378,11 +401,14 @@ export default function JournalEntriesPage() {
       debit_amount: l.debit_amount,
       credit_amount: l.credit_amount,
       description: l.description,
+      cost_center_id: l.cost_center_id || null,
     }));
-    createMutation.mutate({
+    // A double-click on Save must not create the journal twice.
+    submitOnce("journal-entry-create", createMutation, {
       entry_date: formData.entry_date,
       description: formData.description,
       entry_type: formData.entry_type,
+      auto_reverse_date: formData.auto_reverse_date || undefined,
       lines,
     });
   }, [isCreating, lineItems, formData, createMutation]);
@@ -435,6 +461,19 @@ export default function JournalEntriesPage() {
         width: 120,
         renderCell: (params: GridRenderCellParams<JournalEntry>) =>
           params.row.entry_date ? format(new Date(params.row.entry_date), "dd/MM/yyyy") : "-",
+      },
+      {
+        field: "voucher_type",
+        header: "Source",
+        width: 150,
+        renderCell: (params: GridRenderCellParams<JournalEntry>) =>
+          params.row.voucher_type ? (
+            <Tooltip title={params.row.voucher_type}>
+              <span>{voucherName(params.row.voucher_type)}</span>
+            </Tooltip>
+          ) : (
+            "-"
+          ),
       },
       { field: "description", header: "Description", flex: 1.5, minWidth: 220 },
       {
@@ -495,7 +534,7 @@ export default function JournalEntriesPage() {
         ),
       },
     ],
-    [handleSelectJE]
+    [handleSelectJE, voucherName]
   );
 
   // Whether we're showing a single journal entry's detail view (selected or
@@ -640,6 +679,15 @@ export default function JournalEntriesPage() {
                   ))}
                 </TextField>
                 <TextField
+                  label="Reverse on (optional)"
+                  type="date"
+                  size="small"
+                  value={formData.auto_reverse_date || ""}
+                  onChange={(e) => setFormData({ ...formData, auto_reverse_date: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                  helperText="For accruals: a reversal is posted on this date together with the entry"
+                />
+                <TextField
                   label="Description"
                   size="small"
                   value={formData.description}
@@ -659,6 +707,7 @@ export default function JournalEntriesPage() {
                       <TableRow sx={modernTableStyles.headerRow}>
                         <TableCell sx={{ width: 40 }}>#</TableCell>
                         <TableCell>Account</TableCell>
+                        {costCenters.length > 0 && <TableCell sx={{ width: 170 }}>Cost center</TableCell>}
                         <TableCell>Description</TableCell>
                         <TableCell sx={{ width: 130 }}>Debit</TableCell>
                         <TableCell sx={{ width: 130 }}>Credit</TableCell>
@@ -685,6 +734,31 @@ export default function JournalEntriesPage() {
                               ))}
                             </TextField>
                           </TableCell>
+                          {costCenters.length > 0 && (() => {
+                            const acc = accounts.find((a) => a.id === line.account_id);
+                            const isPL = acc?.account_type === "Revenue" || acc?.account_type === "Expense";
+                            return (
+                              <TableCell>
+                                <TextField
+                                  select
+                                  size="small"
+                                  fullWidth
+                                  disabled={!isPL}
+
+                                  value={isPL ? line.cost_center_id || "" : ""}
+                                  onChange={(e) => handleUpdateLine(line._id, "cost_center_id", e.target.value ? Number(e.target.value) : null)}
+                                  title={isPL ? "" : "Only income and expense lines take a cost center"}
+                                >
+                                  <MenuItem value="">{isPL ? "Branch default" : "—"}</MenuItem>
+                                  {costCenters.map((c) => (
+                                    <MenuItem key={c.id} value={c.id}>
+                                      {c.code} - {c.name}
+                                    </MenuItem>
+                                  ))}
+                                </TextField>
+                              </TableCell>
+                            );
+                          })()}
                           <TableCell>
                             <TextField
                               size="small"
@@ -724,7 +798,7 @@ export default function JournalEntriesPage() {
                         </TableRow>
                       ))}
                       <TableRow sx={modernTableStyles.footerRow}>
-                        <TableCell colSpan={3} sx={{ fontWeight: 700 }}>Total</TableCell>
+                        <TableCell colSpan={costCenters.length > 0 ? 4 : 3} sx={{ fontWeight: 700 }}>Total</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>{fmtLKR(totalDebit)}</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>{fmtLKR(totalCredit)}</TableCell>
                         <TableCell />
@@ -789,6 +863,10 @@ export default function JournalEntriesPage() {
                 disabled
               />
               <TextField label="Entry Type" size="small" value={detail.entry_type} disabled />
+              <TextField label="Source" size="small" value={voucherName(detail.voucher_type)} disabled />
+              {detail.auto_reverse_date && (
+                <TextField label="Reverses on" size="small" value={detail.auto_reverse_date} disabled />
+              )}
             </FormSection>
 
             <FormSection title="Details" columns={2}>
@@ -989,7 +1067,20 @@ export default function JournalEntriesPage() {
                 fullWidth
               />
             </Box>
-            {(searchQuery || filterStatus || filterType) && (
+            <Box sx={{ width: 190, flexShrink: 0 }}>
+              <TSearchableSelect
+                label=""
+                value={filterVoucher}
+                onChange={(val) => setFilterVoucher(val as string | null)}
+                options={voucherTypes.map((v) => ({ value: v.code, label: v.name }))}
+                showAllOption
+                allOptionLabel="All Sources"
+                placeholder="Search sources..."
+                size="small"
+                fullWidth
+              />
+            </Box>
+            {(searchQuery || filterStatus || filterType || filterVoucher) && (
               <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
                 Clear
               </Button>

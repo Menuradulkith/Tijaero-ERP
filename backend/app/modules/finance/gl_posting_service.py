@@ -49,6 +49,7 @@ from sqlalchemy.orm import Session
 
 from app.core import timezone as tz
 
+from .posting_rules import PostingRuleResolver, voucher_type_for_prefix
 from .accounting_models import (
     AccountingPeriod,
     ChartOfAccounts,
@@ -117,8 +118,21 @@ class GLPostingService:
         self.db = db
         self._account_cache: Dict[str, int] = {}
         self._header_cache: Dict[int, bool] = {}
+        self._rules = PostingRuleResolver(db)
+        self._cost_centers = None
+        self._type_cache: Dict[int, Optional[str]] = {}
 
     # ─── Helpers ──────────────────────────────────────────────────────────
+    def _line_cost_center(self, account_id: int, explicit, branch_code: Optional[str]) -> Optional[int]:
+        """Cost center for an income / expense line: the one named, else the branch default."""
+        from .cost_centers import CostCenterResolver
+
+        if account_id not in self._type_cache:
+            self._type_cache[account_id] = self.db.query(ChartOfAccounts.account_type).filter(
+                ChartOfAccounts.id == account_id).scalar()
+        if self._cost_centers is None:
+            self._cost_centers = CostCenterResolver(self.db)
+        return self._cost_centers.for_line(self._type_cache[account_id], explicit, branch_code)
     def _is_header_account(self, account_id: int, account_code: str) -> bool:
         """An account with active child accounts is a non-postable header."""
         if account_id in self._header_cache:
@@ -273,10 +287,11 @@ class GLPostingService:
         payload = json.dumps(
             [
                 {
-                    "account_code": ln.get("account_code"),
+                    "account_code": str(ln.get("account_code") or ""),
                     "debit": str(ln.get("debit", 0)),
                     "credit": str(ln.get("credit", 0)),
                     "description": ln.get("description", ""),
+                    **{k: ln[k] for k in ("posting_type", "posting_default", "controls", "tax", "cost_center") if ln.get(k)},
                 }
                 for ln in lines
             ]
@@ -418,6 +433,10 @@ class GLPostingService:
             description = f"{description} | {marker}" if description else marker
 
         try:
+            # 0. Posting rules: swap every posting-typed account for the
+            #    configured one (no rule -> the built-in default, unchanged).
+            lines = self._rules.apply(lines, branch_code=branch_code)
+
             # 1. Idempotency on the exact integer reference.
             if idempotent:
                 # Serialise concurrent posts of the *same* source document before
@@ -465,6 +484,8 @@ class GLPostingService:
                         "debit": debit,
                         "credit": credit,
                         "description": line.get("description", ""),
+                        "tax": line.get("tax"),
+                        "cost_center_id": self._line_cost_center(account_id, line.get("cost_center"), branch_code),
                     }
                 )
 
@@ -536,11 +557,12 @@ class GLPostingService:
             diff = total_debit - total_credit
             if diff != 0:
                 if abs(diff) <= ROUNDING_TOLERANCE:
-                    rounding_id = self._get_account_id(ROUNDING_ACCOUNT_CODE)
+                    rounding_code = self._rules.resolve("ROUNDING", branch_code=branch_code)
+                    rounding_id = self._get_account_id(rounding_code)
                     if rounding_id is None:
                         msg = (
                             f"Imbalance {diff} within tolerance but rounding account "
-                            f"{ROUNDING_ACCOUNT_CODE} is missing"
+                            f"{rounding_code} is missing"
                         )
                         fid = (
                             self._record_failure(
@@ -571,7 +593,7 @@ class GLPostingService:
                     resolved.append(
                         {
                             "account_id": rounding_id,
-                            "account_code": ROUNDING_ACCOUNT_CODE,
+                            "account_code": rounding_code,
                             "debit": abs(diff) if diff < 0 else Decimal("0"),
                             "credit": diff if diff > 0 else Decimal("0"),
                             "description": "Rounding difference",
@@ -653,6 +675,7 @@ class GLPostingService:
                 fiscal_year=fiscal_year,
                 fiscal_period=fiscal_period,
                 branch_code=branch_code,
+                voucher_type=voucher_type_for_prefix(je_prefix),
                 created_by=user_id,
                 posted_by=user_id,
                 posted_at=tz.now(),
@@ -672,6 +695,7 @@ class GLPostingService:
                         reference_type=reference_type,
                         reference_id=reference_id,
                         reference_no=reference_no,
+                        cost_center_id=line.get("cost_center_id"),
                     )
                 )
                 self.db.add(
@@ -688,6 +712,7 @@ class GLPostingService:
                         journal_entry_id=je.id,
                         description=line["description"],
                         branch_code=branch_code,
+                        cost_center_id=line.get("cost_center_id"),
                         fiscal_year=fiscal_year,
                         fiscal_period=fiscal_period,
                         created_by=user_id,
@@ -702,10 +727,18 @@ class GLPostingService:
             # committing) makes the entry queryable while preserving atomicity
             # with the source document: a later rollback still discards it.
             self.db.flush()
+            if any(l.get("tax") for l in resolved):
+                from .tax_service import record_tax_lines
+
+                record_tax_lines(
+                    self.db, journal_entry=je, lines=resolved, reference_type=reference_type,
+                    reference_id=reference_id, reference_no=reference_no,
+                )
             record_cashbook_from_gl(
                 self.db, reference_type=reference_type, reference_id=reference_id,
                 reference_no=reference_no, entry_date=entry_date, branch_code=branch_code,
                 description=description, lines=resolved,
+                cash_accounts=self._rules.cashbook_accounts(),
             )
 
             return PostResult(status="posted", journal_entry=je)
@@ -788,6 +821,8 @@ class GLPostingService:
                 "debit": Decimal(str(ln.get("debit", 0) or 0)),
                 "credit": Decimal(str(ln.get("credit", 0) or 0)),
                 "description": ln.get("description", ""),
+                # post() re-resolves typed lines, so a fixed posting rule applies on retry
+                **{k: ln[k] for k in ("posting_type", "posting_default", "controls", "tax", "cost_center") if ln.get(k)},
             }
             for ln in stored_lines
             if isinstance(ln, dict) and ln.get("account_code")
@@ -981,9 +1016,12 @@ CASHBOOK_SOURCES: Dict[str, tuple] = {
         "WHERE r.id = :id",
     ),
     "CommissionPayment": ("commission_payment", "commission_payments", None),
-    "PettyCashFund": ("petty_cash", "petty_cash_funds", None),
-    "PettyCashTransaction": ("petty_cash", "petty_cash_transactions", None),
+    "PettyCashFund": ("petty_cash", "petty_cash", None),
+    "PettyCashTransaction": ("petty_cash", "petty_cash_transaction", None),
     "JE": ("journal_entry", "journal_entries", None),
+    "FixedAsset": ("fixed_asset", "fixed_assets", None),
+    "ChequeBounce": ("cheque_bounce", "cheque_payments", 'SELECT "from" FROM cheque_payments WHERE id = :id'),
+    "BankStatementLine": ("bank_statement", "bank_statement_lines", None),
 }
 
 
@@ -998,8 +1036,12 @@ def cashbook_source(reference_type: str) -> tuple:
     )
 
 
-def _cashbook_method(account_code: Optional[str], description: Optional[str]) -> Optional[str]:
-    method = CASHBOOK_ACCOUNT_CODES.get(account_code or "")
+def _cashbook_method(
+    account_code: Optional[str],
+    description: Optional[str],
+    cash_accounts: Optional[Dict[str, str]] = None,
+) -> Optional[str]:
+    method = (cash_accounts or CASHBOOK_ACCOUNT_CODES).get(account_code or "")
     if method == "Bank Transfer" and "card" in (description or "").lower():
         return "Card"
     return method
@@ -1015,6 +1057,7 @@ def record_cashbook_from_gl(
     branch_code: Optional[str],
     description: Optional[str],
     lines: List[Dict[str, Any]],
+    cash_accounts: Optional[Dict[str, str]] = None,
 ) -> None:
     """Write the cashbook row for one GL posting.
 
@@ -1028,7 +1071,7 @@ def record_cashbook_from_gl(
     till_out = Decimal("0")
     by_method: Dict[str, Decimal] = {}
     for ln in lines:
-        method = _cashbook_method(ln.get("account_code"), ln.get("description"))
+        method = _cashbook_method(ln.get("account_code"), ln.get("description"), cash_accounts)
         if method is None:
             continue
         amount = _quantize(ln.get("debit", 0)) - _quantize(ln.get("credit", 0))

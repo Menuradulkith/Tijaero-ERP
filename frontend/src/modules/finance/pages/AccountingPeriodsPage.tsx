@@ -58,6 +58,7 @@ import { accountingPeriodsApi } from "@/modules/finance/api";
 import type { AccountingPeriod, PeriodStatus } from "@/modules/finance/types";
 
 import CancelIcon from "@mui/icons-material/Cancel";
+import { submitOnce } from "@/modules/finance/submitOnce";
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const STATUS_FILTER_OPTIONS = [
@@ -637,7 +638,7 @@ export default function AccountingPeriodsPage() {
           <Button
             variant="contained"
             onClick={() =>
-              generateMutation.mutate({
+              submitOnce("periods-generate", generateMutation, {
                 fiscal_year: genYear,
                 start_month: genStartMonth,
               })
