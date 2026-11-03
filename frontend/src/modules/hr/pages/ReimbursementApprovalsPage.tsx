@@ -64,6 +64,7 @@ import {
 
 import { useReferenceData } from "@/hooks";
 import { reimbursementsApi } from "@/modules/hr/api";
+import { usePermission } from "@/auth/permissions";
 import type { Reimbursement } from "@/modules/hr/types";
 import { useCurrencyStore } from "@/state/currencyStore";
 
@@ -71,6 +72,7 @@ import { useCurrencyStore } from "@/state/currencyStore";
 
 export default function ReimbursementApprovalsPage() {
   const queryClient = useQueryClient();
+  const canResolve = usePermission("reimbursement_approvals", "approve");
   const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   // State
@@ -416,7 +418,7 @@ export default function ReimbursementApprovalsPage() {
       return <EmptyState message="Select a reimbursement from the list to view details" />;
     }
     const statusProps = getStatusProps(detail.status, "reimbursementStatus");
-    const showActions = ["pending", "approved", "verified"].includes(detail.status);
+    const showActions = canResolve && ["pending", "approved", "verified"].includes(detail.status);
 
     return (
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>

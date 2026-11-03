@@ -109,7 +109,7 @@ export default function CommissionApprovalsPage() {
 
   // Fetch agents
   const { data: allCustomers } = useQuery({
-    queryKey: ["customers"],
+    queryKey: ["customers", "list", 0, 1000, true],  // FE-10: the key carries the paging arguments
     queryFn: () => customersApi.getAll(0, 1000),
     enabled: canViewCustomers,
   });

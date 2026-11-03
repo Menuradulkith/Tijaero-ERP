@@ -256,6 +256,13 @@ class GLPostingFailureService:
         )
 
     def retry(self, failure_id: int, user_id: int) -> schemas.RetryPostingFailureResponse:
+        if self.db.query(GLPostingFailure.id).filter(GLPostingFailure.id == failure_id).first() is None:
+            from fastapi import HTTPException, status as http_status
+
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Posting failure {failure_id} not found",
+            )
         result = GLPostingService(self.db).retry_failure(failure_id, user_id)
         je_no = (
             result.journal_entry.journal_entry_no

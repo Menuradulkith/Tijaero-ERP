@@ -203,6 +203,7 @@ export default function QuotationsPage() {
   // Permissions
   const canCreate = usePermission("quotations", "create");
   const canUpdate = usePermission("quotations", "update");
+  const canCancelQuote = usePermission("quotations", "delete");  // POST /quotes/{id}/cancel needs quotations:delete
   // Cost/margin is sensitive — only shown to users with cost_price:view
   // (same permission gate used on the Sales Stock dashboard).
   const canViewCost = usePermission("cost_price", "view");
@@ -1346,6 +1347,16 @@ export default function QuotationsPage() {
                       onClick={handleCreateRevision}
                       disabled={createRevisionMutation.isPending}>
                       Create Revision
+                    </Button>
+                  </Tooltip>
+                )}
+                {/* FE-6: the cancel dialog existed but no button opened it */}
+                {getAvailableActions().includes('cancel') && canCancelQuote && (
+                  <Tooltip title="Cancel this quotation (a reason is required)">
+                    <Button size="small" variant="outlined" color="error" startIcon={<CancelIcon />}
+                      onClick={handleCancel}
+                      disabled={cancelMutation.isPending}>
+                      Cancel Quote
                     </Button>
                   </Tooltip>
                 )}

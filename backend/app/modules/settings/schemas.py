@@ -156,11 +156,12 @@ def _iso_date(v):
 
 
 class ProfileUpdate(BaseModel):
+    # date_joined is HR data maintained by administrators (Users page), not
+    # self-service: a value sent here is ignored.
     first_name: Optional[ReqStr(30)] = None
     middle_name: OptStr(30) = None
     last_name: Optional[ReqStr(30)] = None
     gender: OptStr(30) = None
-    date_joined: Annotated[Optional[date], BeforeValidator(_iso_date)] = None
     birthdate: Annotated[Optional[date], BeforeValidator(_iso_date)] = None
 
     _no_nulls = _reject_null("first_name", "last_name")
@@ -171,14 +172,6 @@ class ProfileUpdate(BaseModel):
         if v is not None and (v > date.today() or v.year < 1900):
             raise ValueError("Birthdate is not valid")
         return v
-
-    @field_validator("date_joined")
-    @classmethod
-    def _joined_ok(cls, v):
-        if v is not None and (v > date.today() or v.year < 1900):
-            raise ValueError("Date joined is not valid")
-        return v
-
 
 class ProfileOut(BaseModel):
     """What the profile update returns — never the whole User row (that

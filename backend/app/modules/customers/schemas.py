@@ -207,7 +207,7 @@ class _CustomerInput(BaseModel):
     @classmethod
     def _gender_ok(cls, v):
         if v is not None and v.lower() not in GENDERS:
-            raise ValueError("Gender must be one of: m, f, u")
+            raise ValueError("Gender must be one of: m (male), f (female), u (unspecified)")
         return v.lower() if v else v
 
     @field_validator("civil_status")

@@ -154,9 +154,12 @@ class ChartOfAccountsService:
         self.db = db
 
     def create_account(self, data: schemas.ChartOfAccountCreate, created_by: int = None) -> ChartOfAccounts:
-        # Check unique account_code
+        data.account_code = (data.account_code or "").strip()
+        if data.account_category is not None:
+            data.account_category = data.account_category.strip() or None
+        # Check unique account_code (case-insensitive: "qa1" and "QA1" are the same code)
         existing = self.db.query(ChartOfAccounts).filter(
-            ChartOfAccounts.account_code == data.account_code
+            func.lower(ChartOfAccounts.account_code) == data.account_code.lower()
         ).first()
         if existing:
             raise HTTPException(
@@ -175,6 +178,16 @@ class ChartOfAccountsService:
                     detail=f"Parent account with id {data.parent_account_id} not found"
                 )
             self._check_parent_type(parent, data.account_type)
+            # A sub-account turns its parent into a heading nobody can post to;
+            # a parent that already carries ledger rows would hide that balance.
+            if self.db.query(GeneralLedger.id).filter(GeneralLedger.account_id == parent.id).first():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"{parent.account_code} {parent.account_name} already has ledger postings, so it can't "
+                        "become a heading. Add the new account under a heading instead."
+                    ),
+                )
 
         account = ChartOfAccounts(
             **data.model_dump(),
@@ -450,11 +463,12 @@ class JournalEntryService:
         return f"{prefix}{seq:04d}"
 
     def _get_fiscal_period(self, entry_date: date) -> Tuple[int, int]:
-        """Determine fiscal year and period from date."""
+        """Determine fiscal year and period from date (oldest covering period
+        first, so overlapping fiscal years always resolve the same way)."""
         period = self.db.query(AccountingPeriod).filter(
             AccountingPeriod.start_date <= entry_date,
             AccountingPeriod.end_date >= entry_date,
-        ).first()
+        ).order_by(AccountingPeriod.start_date, AccountingPeriod.id).first()
 
         if period:
             return period.fiscal_year, period.period_number
@@ -475,6 +489,38 @@ class JournalEntryService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Accounting period {fiscal_year}-{fiscal_period} is {period.status}. Cannot post transactions."
+            )
+
+    def _validate_date_open(self, day: date, require_period: bool = False) -> Tuple[int, int]:
+        """Every period covering ``day`` must be open (overlapping fiscal years
+        can't be used to post around a closed one). With ``require_period`` a
+        period must exist too. Returns the fiscal (year, period) to post into."""
+        from .posting_dates import covering_periods, require_open_period
+
+        if require_period:
+            period = require_open_period(self.db, day, "Posting date")
+            return period.fiscal_year, period.period_number
+        for period in covering_periods(self.db, day):
+            if period.status != "open":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Accounting period {period.fiscal_year}-{period.period_number} is {period.status}. Cannot post transactions.",
+                )
+        return self._get_fiscal_period(day)
+
+    def assert_manually_reversible(self, je: JournalEntry) -> None:
+        """A person may reverse/correct only a journal a person made. A sale, GRN,
+        payment... is undone through its own document (return, cancel, credit
+        note) so its sub-ledger moves with the ledger; a reversal is final."""
+        if je.entry_type not in ("Manual", "Adjustment", "Opening"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only manual journals can be reversed or corrected here. Undo the source document instead.",
+            )
+        if self.db.query(JournalEntry.id).filter(JournalEntry.reversed_by_je_id == je.id).first():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This entry is itself a reversal and can't be reversed or corrected. Post a new journal instead.",
             )
 
     def _validate_line_accounts(self, lines, entry_type: str) -> None:
@@ -739,7 +785,8 @@ class JournalEntryService:
         return items, total
 
     def post_journal_entry(
-        self, je_id: int, posted_by: int, posting_date: Optional[date] = None, commit: bool = True
+        self, je_id: int, posted_by: int, posting_date: Optional[date] = None, commit: bool = True,
+        require_period: bool = False,
     ) -> JournalEntry:
         """
         Post a journal entry - creates GL entries and updates account balances (Step 5-6).
@@ -747,7 +794,8 @@ class JournalEntryService:
         Manual JE: Can only post from 'approved' status (requires approval workflow).
         Auto JE:   Can post from 'draft' status (system-generated, no approval needed).
         ``commit=False`` flushes only; the caller commits (and the running-balance
-        refresh is left to it).
+        refresh is left to it). ``require_period`` (the API) also applies the
+        posting-date rule: not in the future, and an open period must exist.
         """
         # Lock row to prevent double-post race condition
         self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
@@ -768,12 +816,25 @@ class JournalEntryService:
                 detail=f"Journal entry must be approved before posting. Current status: '{je.status}'"
             )
 
-        if posting_date:
+        if posting_date and posting_date != je.posting_date:
+            # The approver approved an entry for one period: posting may fine-tune
+            # the day, never move it to another period.
+            if self._get_fiscal_period(posting_date) != (je.fiscal_year, je.fiscal_period):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Posting date {posting_date} is outside the entry's period "
+                        f"({je.fiscal_year}-{je.fiscal_period}). Reject it back to draft and change its date instead."
+                    ),
+                )
             je.posting_date = posting_date
-            fiscal_year, fiscal_period = self._get_fiscal_period(posting_date)
-            je.fiscal_year = fiscal_year
-            je.fiscal_period = fiscal_period
 
+        if require_period:
+            from .posting_dates import check_posting_date
+            check_posting_date(self.db, je.posting_date, "Posting date")
+        period_key = self._validate_date_open(je.posting_date, require_period)
+        if require_period:
+            je.fiscal_year, je.fiscal_period = period_key
         # Validate period is open
         self._validate_period_open(je.fiscal_year, je.fiscal_period)
 
@@ -845,7 +906,7 @@ class JournalEntryService:
             self.db.flush()
             self.reverse_journal_entry(
                 je.id, reversed_by=posted_by, reason=f"Automatic reversal on {je.auto_reverse_date}",
-                reversal_date=je.auto_reverse_date, commit=False,
+                reversal_date=je.auto_reverse_date, commit=False, require_period=require_period,
             )
 
         if not commit:
@@ -876,11 +937,13 @@ class JournalEntryService:
 
     def reverse_journal_entry(
         self, je_id: int, reversed_by: int, reason: str, reversal_date: Optional[date] = None,
-        commit: bool = True,
+        commit: bool = True, require_period: bool = False, manual: bool = False,
     ) -> JournalEntry:
         """Reverse a posted JE by creating a mirror JE with opposite debits/credits.
 
-        The original keeps its GL rows and becomes status ``reversed``."""
+        The original keeps its GL rows and becomes status ``reversed``.
+        ``manual`` (the reverse endpoint) refuses source-document entries and
+        reversals; ``require_period`` needs an open period for the reversal date."""
         # Lock row to prevent double-reverse race condition
         self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         je = self.get_journal_entry(je_id)
@@ -894,6 +957,8 @@ class JournalEntryService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Journal entry has already been reversed"
             )
+        if manual:
+            self.assert_manually_reversible(je)
 
         rev_date = reversal_date or tz.today()
         if rev_date < je.posting_date:
@@ -901,7 +966,7 @@ class JournalEntryService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Reversal date {rev_date} is before the entry's posting date {je.posting_date}",
             )
-        fiscal_year, fiscal_period = self._get_fiscal_period(rev_date)
+        fiscal_year, fiscal_period = self._validate_date_open(rev_date, require_period)
         self._validate_period_open(fiscal_year, fiscal_period)
 
         # Create reversal JE
@@ -1017,6 +1082,12 @@ class JournalEntryService:
             entity_type="journal_entry", entity_id=je_id,
             changes={"journal_entry_no": je.journal_entry_no},
         )
+        # A recurring journal remembers its latest draft; deleting that draft
+        # must not be blocked by the reference.
+        from .accounting_models import RecurringJournal
+        self.db.query(RecurringJournal).filter(
+            RecurringJournal.last_journal_entry_id == je_id
+        ).update({RecurringJournal.last_journal_entry_id: None}, synchronize_session=False)
         self.db.delete(je)
         self.db.commit()
         return True
@@ -1025,7 +1096,7 @@ class JournalEntryService:
     # Scenario 33: Manual JE Validation, Submission & Approval Workflow
     # ─────────────────────────────────────────────────────────────────────
 
-    def validate_journal_entry(self, je_id: int) -> schemas.ValidateJournalEntryResponse:
+    def validate_journal_entry(self, je_id: int, commit: bool = True) -> schemas.ValidateJournalEntryResponse:
         """
         Comprehensive validation of a journal entry (Step 3).
         Checks: debit==credit, all accounts active, amounts positive, description provided.
@@ -1085,7 +1156,10 @@ class JournalEntryService:
         if total_debit == total_credit and je.status == "draft":
             je.total_debit = total_debit
             je.total_credit = total_credit
-            self.db.commit()
+            if commit:
+                self.db.commit()
+            else:
+                self.db.flush()
 
         return schemas.ValidateJournalEntryResponse(
             is_valid=len(errors) == 0,
@@ -1110,8 +1184,9 @@ class JournalEntryService:
                 detail=f"Cannot submit journal entry in '{je.status}' status. Only draft entries can be submitted."
             )
 
-        # Run validation
-        validation = self.validate_journal_entry(je_id)
+        # Run validation without committing: a commit here would release the row
+        # lock, letting a parallel submit read 'draft' too.
+        validation = self.validate_journal_entry(je_id, commit=False)
         if not validation.is_valid:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1182,16 +1257,20 @@ class JournalEntryService:
         # Lock row to prevent concurrent status mutation
         self.db.query(JournalEntry).filter(JournalEntry.id == je_id).with_for_update().first()
         je = self.get_journal_entry(je_id)
-        if je.status != "submitted":
+        # An approved entry not yet posted can still be sent back (wrong date or
+        # period found before posting); otherwise it would be stuck forever.
+        if je.status not in ("submitted", "approved"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot reject journal entry in '{je.status}' status. Only submitted entries can be rejected."
+                detail=f"Cannot reject journal entry in '{je.status}' status. Only submitted or approved (unposted) entries can be rejected."
             )
 
         je.status = "draft"
         je.rejection_reason = reason
         je.submitted_by = None
         je.submitted_at = None
+        je.approved_by = None
+        je.approved_at = None
 
         je.description = je.description + f"\n[Rejected] {reason}"
 
@@ -1519,14 +1598,17 @@ class GeneralLedgerService:
         account_id: int,
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> List[dict]:
         """Get all GL entries for a specific account with running balance.
+        ``branch_codes`` limits a branch-limited user to their branches' rows.
 
         Dates are GL (posting) dates. When ``date_from`` is given, the running
         balance starts from the account's balance before that date, shown as an
         opening-balance row."""
+        scope = _branch_criteria(GeneralLedger.branch_code, None, branch_codes)
         query = self.db.query(GeneralLedger).filter(
-            GeneralLedger.account_id == account_id
+            GeneralLedger.account_id == account_id, *scope
         )
         if date_from:
             query = query.filter(GeneralLedger.posting_date >= date_from)
@@ -1550,6 +1632,7 @@ class GeneralLedgerService:
             ).filter(
                 GeneralLedger.account_id == account_id,
                 GeneralLedger.posting_date < date_from,
+                *scope,
             ).first()
             o_debit, o_credit = Decimal(str(opening[0])), Decimal(str(opening[1]))
             running_balance = (o_debit - o_credit) if debit_normal else (o_credit - o_debit)
@@ -1987,6 +2070,10 @@ class GeneralLedgerService:
                 je_query = je_query.filter(JournalEntry.created_by == filters.created_by)
             if not filters.include_reversed:
                 je_query = je_query.filter(JournalEntry.is_reversed == False)
+            if filters.branch_codes is not None:
+                je_query = je_query.filter(or_(
+                    JournalEntry.branch_code.in_(filters.branch_codes), JournalEntry.branch_code.is_(None),
+                ))
             if filters.search:
                 s = f"%{filters.search}%"
                 je_query = je_query.filter(or_(
@@ -2024,6 +2111,10 @@ class GeneralLedgerService:
                 gl_query = gl_query.filter(GeneralLedger.transaction_type == filters.transaction_type)
             if filters.created_by:
                 gl_query = gl_query.filter(GeneralLedger.created_by == filters.created_by)
+            if filters.branch_codes is not None:
+                gl_query = gl_query.filter(or_(
+                    GeneralLedger.branch_code.in_(filters.branch_codes), GeneralLedger.branch_code.is_(None),
+                ))
             if filters.search:
                 s = f"%{filters.search}%"
                 gl_query = gl_query.filter(or_(
@@ -2094,11 +2185,13 @@ class GeneralLedgerService:
         )
 
     def correct_journal_entry(
-        self, je_id: int, data: schemas.CorrectionRequest, corrected_by: int
+        self, je_id: int, data: schemas.CorrectionRequest, corrected_by: int, require_period: bool = False,
     ) -> schemas.CorrectionResponse:
         """
         Correction workflow: reverse the original posted JE and create a new correct entry.
         Atomic operation — both the reversal and correction are created together.
+        The corrected entry is left submitted: like any manual journal, a second
+        person approves and posts it (maker-checker).
         """
         je_service = JournalEntryService(self.db)
 
@@ -2122,6 +2215,7 @@ class GeneralLedgerService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Only manual journals can be corrected here. Correct the source document instead.",
             )
+        je_service.assert_manually_reversible(original_je)
         # The corrected lines are approved by their author, so they get the same
         # account rules as a manual journal: no control, header or inactive accounts.
         je_service._validate_line_accounts(data.corrected_lines, "Manual")
@@ -2139,10 +2233,11 @@ class GeneralLedgerService:
                 reason=f"Correction: {data.reason}",
                 reversal_date=correction_date,
                 commit=False,
+                require_period=require_period,
             )
 
-            # Step 2: Create and post the corrected JE. The endpoint requires
-            # approver rights, so the correction is approved by its author.
+            # Step 2: Create the corrected JE and submit it for approval; its
+            # author can't approve it (approve_journal_entry enforces that).
             corrected_je = je_service.create_journal_entry(
                 schemas.JournalEntryCreate(
                     entry_date=correction_date,
@@ -2155,19 +2250,21 @@ class GeneralLedgerService:
                 created_by=corrected_by,
                 commit=False,
             )
-            corrected_je.status = "approved"
-            corrected_je.approved_by = corrected_by
-            corrected_je.approved_at = tz.now()
-            self.db.flush()
-            corrected_je = je_service.post_journal_entry(
-                corrected_je.id, posted_by=corrected_by, commit=False
+            corrected_je.status = "submitted"
+            corrected_je.submitted_by = corrected_by
+            corrected_je.submitted_at = tz.now()
+            log_audit(
+                self.db, user_id=corrected_by or 0, action="submit",
+                entity_type="journal_entry", entity_id=corrected_je.id,
+                changes={"status": "submitted", "corrects_je_id": original_je.id},
             )
+            self.db.flush()
         except Exception:
             savepoint.rollback()
             raise
         savepoint.commit()
         self.db.commit()
-        _refresh_balances(self.db, [*original_je.lines, *corrected_je.lines], correction_date)
+        _refresh_balances(self.db, list(original_je.lines), correction_date)
 
         return schemas.CorrectionResponse(
             original_je_id=original_je.id,
@@ -2176,8 +2273,8 @@ class GeneralLedgerService:
             reversal_je_no=reversal_je.journal_entry_no,
             correction_je_id=corrected_je.id,
             correction_je_no=corrected_je.journal_entry_no,
-            message=f"Correction complete: Original {original_je.journal_entry_no} reversed, "
-                    f"correction {corrected_je.journal_entry_no} posted.",
+            message=f"Original {original_je.journal_entry_no} reversed; correction "
+                    f"{corrected_je.journal_entry_no} submitted for approval by another user.",
         )
 
 
@@ -2206,6 +2303,28 @@ class AccountingPeriodService:
             "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December"
         ]
+
+        # A day may belong to one period only: refuse a year that overlaps
+        # another year's periods by date (e.g. a July-June 2098 over 2099).
+        first_day = date(data.fiscal_year, data.start_month, 1)
+        last_month_start = date(
+            data.fiscal_year + (1 if data.start_month > 1 else 0), (data.start_month - 2) % 12 + 1, 1
+        )
+        last_day = date(
+            last_month_start.year, last_month_start.month,
+            calendar.monthrange(last_month_start.year, last_month_start.month)[1],
+        )
+        clash = self.db.query(AccountingPeriod).filter(
+            AccountingPeriod.start_date <= last_day, AccountingPeriod.end_date >= first_day,
+        ).order_by(AccountingPeriod.start_date).first()
+        if clash:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Fiscal year {data.fiscal_year} ({first_day:%d %b %Y} - {last_day:%d %b %Y}) overlaps "
+                    f"period '{clash.period_name}' of fiscal year {clash.fiscal_year}."
+                ),
+            )
 
         periods = []
         for i in range(12):
@@ -3744,6 +3863,12 @@ class CashFlowService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot approve statement in '{statement.status}' status. Must be finalized first."
+            )
+        # Maker-checker: whoever prepared (generated) the statement can't approve it.
+        if approved_by is not None and approved_by == statement.prepared_by:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot approve a cash flow statement you prepared",
             )
         statement.status = "approved"
         statement.approved_by = approved_by

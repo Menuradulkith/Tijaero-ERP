@@ -52,6 +52,7 @@ import { useReferenceData } from "@/hooks";
 import { customersApi, type OutstandingDocumentItem } from "@/modules/customers/api";
 import { writeOffsApi, type WriteOff } from "@/modules/finance/api/receivables";
 import { submitOnce } from "@/modules/finance/submitOnce";
+import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
 
 const fmt = (v: number | string | null | undefined) =>
   Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -77,6 +78,7 @@ function ReverseDialog({ wo, onClose, onDone }: { wo: WriteOff; onClose: () => v
     onSuccess: () => {
       showSuccessToast(`${wo.write_off_no} reversed; ${wo.invoice_no} is owed again.`);
       queryClient.invalidateQueries({ queryKey: ["write-offs"] });
+      invalidateLedgerQueries(queryClient);
       onDone();
     },
     onError: (err) => handleApiError(err, "Could not reverse the write-off"),
@@ -174,6 +176,7 @@ export default function WriteOffsPage() {
     onSuccess: (wo) => {
       showSuccessToast(`${wo.write_off_no}: ${fmt(wo.amount)} written off ${wo.invoice_no}.`);
       queryClient.invalidateQueries({ queryKey: ["write-offs"] });
+      invalidateLedgerQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["outstanding-documents-for-write-off"] });
       resetForm();
       setCreating(false);

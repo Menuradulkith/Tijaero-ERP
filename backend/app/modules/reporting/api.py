@@ -24,9 +24,21 @@ router = APIRouter(
     tags=["reporting"],
 )
 
-# Dashboard aggregates are identical for every user and expensive; share one computed copy
-# per worker for a short time (REPORT_CACHE_TTL seconds, 0 = off).
+# Dashboard aggregates are expensive; share one computed copy per branch scope (all branches,
+# or one set of branches) per worker for a short time (REPORT_CACHE_TTL seconds, 0 = off).
 _report_cache = TTLCache(float(os.getenv("REPORT_CACHE_TTL", "30")))
+
+
+def _scope(user: User, branch_code: Optional[str] = None):
+    """The caller's branches (None = all, superuser). A branch filter outside them is a 403."""
+    codes = None if user.is_superuser else sorted(b.branch_code for b in user.branches)
+    if branch_code and codes is not None and branch_code not in codes:
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
+    return codes
+
+
+def _service(db: Session, user: User, branch_code: Optional[str] = None) -> "service.ReportingService":
+    return service.ReportingService(db, branch_codes=_scope(user, branch_code))
 
 _limit_30 = rate_limit(30, per_user=True)
 _limit_60 = rate_limit(60, per_user=True)
@@ -43,7 +55,7 @@ def generate_sales_report(
     db: Session = Depends(get_db),
     _rl: None = Depends(_limit_30),
 ):
-    reporting_service = service.ReportingService(db)
+    reporting_service = _service(db, _user, body.branch_code)
     return reporting_service.get_sales_report(body)
 
 
@@ -58,7 +70,7 @@ def generate_finance_report(
     db: Session = Depends(get_db),
     _rl: None = Depends(_limit_30),
 ):
-    reporting_service = service.ReportingService(db)
+    reporting_service = _service(db, _user)
     return reporting_service.get_finance_report(body)
 
 
@@ -73,7 +85,7 @@ def generate_inventory_report(
     db: Session = Depends(get_db),
     _rl: None = Depends(_limit_30),
 ):
-    reporting_service = service.ReportingService(db)
+    reporting_service = _service(db, _user, body.branch_code)
     return reporting_service.get_inventory_report(body)
 
 
@@ -88,7 +100,7 @@ def generate_hr_report(
     db: Session = Depends(get_db),
     _rl: None = Depends(_limit_30),
 ):
-    reporting_service = service.ReportingService(db)
+    reporting_service = _service(db, _user)
     return reporting_service.get_hr_report(body)
 
 
@@ -103,7 +115,7 @@ def generate_warehouse_report(
     db: Session = Depends(get_db),
     _rl: None = Depends(_limit_30),
 ):
-    reporting_service = service.ReportingService(db)
+    reporting_service = _service(db, _user)
     return reporting_service.get_warehouse_report(body)
 
 
@@ -118,7 +130,7 @@ def generate_support_report(
     db: Session = Depends(get_db),
     _rl: None = Depends(_limit_30),
 ):
-    reporting_service = service.ReportingService(db)
+    reporting_service = _service(db, _user, body.branch_code)
     return reporting_service.get_support_report(body)
 
 
@@ -132,8 +144,10 @@ def get_dashboard_metrics(
     db: Session = Depends(get_db),
     _rl: None = Depends(_limit_60),
 ):
+    codes = _scope(_user)
     return _report_cache.get_or_compute(
-        "dashboard", lambda: service.ReportingService(db).get_dashboard_metrics()
+        ("dashboard", tuple(codes) if codes is not None else None),
+        lambda: service.ReportingService(db, branch_codes=codes).get_dashboard_metrics(),
     )
 
 
@@ -147,13 +161,15 @@ def get_quick_stats(
     db: Session = Depends(get_db),
     _rl: None = Depends(_limit_60),
 ):
+    codes = _scope(_user)
     return _report_cache.get_or_compute(
-        ("quick-stats", period), lambda: _compute_quick_stats(db, period)
+        ("quick-stats", period, tuple(codes) if codes is not None else None),
+        lambda: _compute_quick_stats(db, period, codes),
     )
 
 
-def _compute_quick_stats(db: Session, period: str):
-    reporting_service = service.ReportingService(db)
+def _compute_quick_stats(db: Session, period: str, branch_codes=None):
+    reporting_service = service.ReportingService(db, branch_codes=branch_codes)
 
     today = tz.today()
     if period == "today":
@@ -315,7 +331,7 @@ def get_payroll_report(
     period: Optional[str] = Query(None),
     show_header: Optional[bool] = Query(None),
     show_signatures: Optional[bool] = Query(None),
-    custom_remarks: Optional[str] = Query(None),
+    custom_remarks: Optional[str] = Query(None, max_length=2000),
     template_id: Optional[int] = Query(None, ge=1),
     _user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
@@ -333,7 +349,7 @@ def get_payroll_report_pdf(
     period: Optional[str] = Query(None),
     show_header: Optional[bool] = Query(None),
     show_signatures: Optional[bool] = Query(None),
-    custom_remarks: Optional[str] = Query(None),
+    custom_remarks: Optional[str] = Query(None, max_length=2000),
     template_id: Optional[int] = Query(None, ge=1),
     _user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
@@ -353,7 +369,7 @@ def get_document_report(
     show_header: Optional[bool] = Query(None),
     show_discount: Optional[bool] = Query(None),
     show_signatures: Optional[bool] = Query(None),
-    custom_remarks: Optional[str] = Query(None),
+    custom_remarks: Optional[str] = Query(None, max_length=2000),
     template_id: Optional[int] = Query(None, ge=1),
     _user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
@@ -377,7 +393,7 @@ def get_document_report_pdf(
     show_header: Optional[bool] = Query(None),
     show_discount: Optional[bool] = Query(None),
     show_signatures: Optional[bool] = Query(None),
-    custom_remarks: Optional[str] = Query(None),
+    custom_remarks: Optional[str] = Query(None, max_length=2000),
     template_id: Optional[int] = Query(None, ge=1),
     _user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
@@ -396,10 +412,12 @@ def get_document_report_pdf(
     "/branches",
     dependencies=[Depends(require_permission(*Permissions.REPORTING_BRANCH_SUMMARY_VIEW))],
 )
-def list_branches(db: Session = Depends(get_db)):
-    """Return all active branches for the branch-selector dropdown."""
+def list_branches(db: Session = Depends(get_db), _user: User = Depends(get_current_active_user)):
+    """Return the caller's active branches for the branch-selector dropdown."""
     from app.reporting import branch_summary_reports
-    return branch_summary_reports.get_branch_list(db)
+    codes = _scope(_user)
+    rows = branch_summary_reports.get_branch_list(db)
+    return rows if codes is None else [r for r in rows if r["branch_code"] in codes]
 
 
 @router.get(
@@ -414,6 +432,7 @@ def branch_daily_summary(
         description="Comma-separated branch codes. Omit for all active branches.",
     ),
     db: Session = Depends(get_db),
+    _user: User = Depends(get_current_active_user),
 ):
     """
     Branch Daily Account Summary.
@@ -432,9 +451,20 @@ def branch_daily_summary(
             detail="Invalid date format. Use YYYY-MM-DD.",
         )
 
+    if parsed_start > parsed_end:
+        raise HTTPException(status_code=422, detail="start_date must be on or before end_date.")
+
     b_codes = None
     if branch_codes:
         b_codes = [code.strip() for code in branch_codes.split(",") if code.strip()]
+    allowed = _scope(_user)
+    if allowed is not None:
+        denied = sorted(set(b_codes or []) - set(allowed))
+        if denied:
+            raise HTTPException(status_code=403, detail=f"Access denied to branch: {', '.join(denied)}")
+        b_codes = b_codes or allowed
+        if not b_codes:
+            return []
 
     return branch_summary_reports.get_branch_daily_summary(
         db, parsed_start, parsed_end, b_codes

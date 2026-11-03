@@ -18,6 +18,8 @@ class ItemTransferNoteCreate(ItemTransferNoteBase):
     approval_id: Optional[int] = None
     status: Optional[str] = "pending"
     sales_quote_id: Optional[int] = None
+    # Lines saved together with the header on create (one transaction); ignored on update.
+    items: List["ItemTransferNoteLineIn"] = Field(default=[], max_length=5000)
 
     # Input rules live on the create schema only, so old rows still serialise in responses.
     @field_validator("created_date")
@@ -60,14 +62,20 @@ class ItemTransferNoteItemBase(BaseModel):
     quantity: int = Field(default=1, ge=1)  # units (lots); 1 for barcode items
     branch_code: str
     remark: Optional[str] = None
-    item_recieved: bool = False
 
-class ItemTransferNoteItemCreate(ItemTransferNoteItemBase):
+class ItemTransferNoteLineIn(ItemTransferNoteItemBase):
+    # Input only: whether a line is received is set by receive-items, never by the client.
+    barcode: Optional[str] = Field(default=None, max_length=255)
+    quantity: int = Field(default=1, ge=1, le=1_000_000)
+    remark: Optional[str] = Field(default=None, max_length=200)
+
+class ItemTransferNoteItemCreate(ItemTransferNoteLineIn):
     itemtransfernote_id: int
 
 class ItemTransferNoteItem(ItemTransferNoteItemBase, TijaeroBaseSchema):
     id: int
     itemtransfernote_id: int
+    item_recieved: bool = False
     created_date: datetime
     product_name: Optional[str] = None
     sales_stock_id: Optional[int] = None  # set once a lot line is allocated at approval
@@ -78,7 +86,7 @@ class ItemTransferNoteItem(ItemTransferNoteItemBase, TijaeroBaseSchema):
 class ItemTransferNoteApprovedBase(BaseModel):
     item_transfer_note_id: int
     approved_status: int = 0
-    approval_note: Optional[str] = None
+    approval_note: Optional[str] = Field(default=None, max_length=355)
 
 class ItemTransferNoteApprovedCreate(ItemTransferNoteApprovedBase):
     approved_user_id: Optional[int] = None
@@ -173,7 +181,7 @@ class ReceiveItemsRequest(BaseModel):
     barcodes: List[str] = []
     item_ids: List[int] = []  # lot lines (no barcode) are received whole, by item id
     lines: List[ReceiveLine] = []  # damage / notes for lines being received now
-    received_note: Optional[str] = None
+    received_note: Optional[str] = Field(default=None, max_length=355)
     received_user_id: Optional[int] = None
 
 class ReceivedItemResult(BaseModel):
@@ -206,3 +214,6 @@ class TransferNoteStatusResponse(BaseModel):
     approval_status: Optional[int] = None
     can_dispatch: bool
     can_receive: bool
+
+
+ItemTransferNoteCreate.model_rebuild()

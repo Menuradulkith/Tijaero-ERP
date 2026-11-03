@@ -196,9 +196,12 @@ export default function AttendancePage() {
 
   const checkInMutation = useMutation({
     mutationFn: () =>
+      // the date and time entered on the form (empty = now, on the server)
       attendanceApi.checkIn({
         employee_id: formData.employee_id,
         branch_code: formData.branch_code,
+        date: formData.date || null,
+        check_in: formData.check_in || null,
       }),
     onSuccess: (rec) => {
       qc.invalidateQueries({ queryKey: ["hr-attendance"] });
@@ -210,7 +213,11 @@ export default function AttendancePage() {
 
   const checkOutMutation = useMutation({
     mutationFn: () =>
-      attendanceApi.checkOut({ employee_id: selectedAttendance?.employee_id || formData.employee_id }),
+      // check out the selected record's day, not today's
+      attendanceApi.checkOut({
+        employee_id: selectedAttendance?.employee_id || formData.employee_id,
+        date: selectedAttendance?.date || formData.date || null,
+      }),
     onSuccess: (rec) => {
       qc.invalidateQueries({ queryKey: ["hr-attendance"] });
       showSuccessToast("Checked out successfully");

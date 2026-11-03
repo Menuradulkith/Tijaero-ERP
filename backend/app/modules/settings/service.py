@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo, available_timezones
 
 from app.core.ttl_cache import TTLCache
 from app.core import timezone as tz
+from app.common.audit import diff_changes, log_audit
+from app.core.password_policy import validate_password_strength
 from app.core.security import get_password_hash, verify_password
 from fastapi import HTTPException, status
 from sqlalchemy import and_, desc, func, text
@@ -184,9 +186,6 @@ class ProfileService:
             raise HTTPException(status_code=404, detail="User not found")
 
         update_data = profile_update.model_dump(exclude_unset=True)
-        # date_joined is NOT NULL: a blank value means "leave as is"
-        if update_data.get("date_joined") is None:
-            update_data.pop("date_joined", None)
         for field, value in update_data.items():
             setattr(user, field, value)
 
@@ -212,6 +211,15 @@ class ProfileService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Current password is incorrect",
             )
+        if verify_password(password_change.new_password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The new password must be different from the current password",
+            )
+        try:
+            validate_password_strength(password_change.new_password, user.username)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
         user.hashed_password = get_password_hash(password_change.new_password)
         user.must_change_password = False
@@ -244,7 +252,7 @@ class CompanySettingsService:
         return settings
 
     def update_company_settings(
-        self, settings_update: schemas.CompanySettingsUpdate
+        self, settings_update: schemas.CompanySettingsUpdate, updated_by: Optional[int] = None
     ) -> models.Settings:
         settings = self.get_company_settings()
         update_data = settings_update.model_dump(exclude_unset=True)
@@ -258,8 +266,15 @@ class CompanySettingsService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Currency '{code}' is not a configured, active currency.",
                 )
+        before = {field: getattr(settings, field, None) for field in update_data}
         for field, value in update_data.items():
             setattr(settings, field, value)
+        changes = diff_changes(before, {field: getattr(settings, field, None) for field in update_data})
+        if changes:
+            log_audit(
+                self.db, user_id=updated_by or 0, action="update",
+                entity_type="company_settings", entity_id=settings.id, changes=changes,
+            )
 
         self.db.commit()
         self.db.refresh(settings)
@@ -280,7 +295,7 @@ class CurrencyService:
             query = query.filter(models.Currency.is_active.is_(True))
         return query.order_by(models.Currency.code).all()
 
-    def create_currency(self, data: schemas.CurrencyCreate) -> models.Currency:
+    def create_currency(self, data: schemas.CurrencyCreate, created_by: Optional[int] = None) -> models.Currency:
         code = data.code.upper()
         existing = (
             self.db.query(models.Currency)
@@ -300,6 +315,12 @@ class CurrencyService:
         )
         self.db.add(currency)
         try:
+            self.db.flush()
+            log_audit(
+                self.db, user_id=created_by or 0, action="create",
+                entity_type="currency", entity_id=currency.id,
+                changes={"code": currency.code, "name": currency.name},
+            )
             self.db.commit()
         except IntegrityError:
             # A concurrent create of the same code slipped past the check above.
@@ -312,7 +333,7 @@ class CurrencyService:
         return currency
 
     def update_currency(
-        self, currency_id: int, data: schemas.CurrencyUpdate
+        self, currency_id: int, data: schemas.CurrencyUpdate, updated_by: Optional[int] = None
     ) -> models.Currency:
         currency = self.db.query(models.Currency).filter(
             models.Currency.id == currency_id
@@ -328,14 +349,32 @@ class CurrencyService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Cannot deactivate the active currency. Choose another active currency first.",
                 )
+        before = {field: getattr(currency, field, None) for field in update_data}
         for field, value in update_data.items():
             setattr(currency, field, value)
+        changes = diff_changes(before, update_data)
+        if changes:
+            log_audit(
+                self.db, user_id=updated_by or 0, action="update",
+                entity_type="currency", entity_id=currency.id, changes=changes,
+            )
 
         self.db.commit()
         self.db.refresh(currency)
         return currency
 
-    def delete_currency(self, currency_id: int) -> None:
+    def _currency_in_use(self, code: str) -> bool:
+        """Customers / suppliers / bank accounts store the currency code."""
+        from app.modules.customers.models import Customer
+        from app.modules.finance.accounting_models import BankAccount
+        from app.modules.purchasing.models import Supplier
+
+        return any(
+            self.db.query(column).filter(func.upper(column) == code.upper()).first() is not None
+            for column in (Customer.default_currency, Supplier.default_currency, BankAccount.currency)
+        )
+
+    def delete_currency(self, currency_id: int, deleted_by: Optional[int] = None) -> None:
         currency = self.db.query(models.Currency).filter(
             models.Currency.id == currency_id
         ).first()
@@ -348,11 +387,21 @@ class CurrencyService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot delete the active currency",
             )
+        if self._currency_in_use(currency.code):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Currency {currency.code} is used by customers, suppliers or bank accounts. Deactivate it instead.",
+            )
 
+        log_audit(
+            self.db, user_id=deleted_by or 0, action="delete",
+            entity_type="currency", entity_id=currency.id,
+            changes={"code": currency.code, "name": currency.name},
+        )
         self.db.delete(currency)
         self.db.commit()
 
-    def set_active_currency(self, code: str) -> models.Settings:
+    def set_active_currency(self, code: str, updated_by: Optional[int] = None) -> models.Settings:
         code = code.upper()
         currency = (
             self.db.query(models.Currency)
@@ -367,6 +416,12 @@ class CurrencyService:
 
         company_service = CompanySettingsService(self.db)
         settings = company_service.get_company_settings()
+        if settings.default_currency != code:
+            log_audit(
+                self.db, user_id=updated_by or 0, action="update",
+                entity_type="company_settings", entity_id=settings.id,
+                changes={"fields": ["default_currency"], "values": {"default_currency": {"old": settings.default_currency, "new": code}}},
+            )
         settings.default_currency = code
         self.db.commit()
         self.db.refresh(settings)

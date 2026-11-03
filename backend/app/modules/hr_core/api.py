@@ -159,12 +159,12 @@ def list_leave_allocations(
 
 @router.post("/leave-allocations", response_model=s.LeaveAllocationOut, status_code=201)
 def create_leave_allocation(data: s.LeaveAllocationIn, db: Session = Depends(get_db), user: User = Depends(require_permission(*Permissions.LEAVE_ALLOCATION_CREATE))):
-    return LeavePolicyService(db).upsert_allocation(data, user.id)
+    return LeavePolicyService(db).upsert_allocation(data, user.id, user)
 
 
 @router.put("/leave-allocations/{row_id}", response_model=s.LeaveAllocationOut)
 def update_leave_allocation(row_id: RowId, data: s.LeaveAllocationUpdate, db: Session = Depends(get_db), user: User = Depends(require_permission(*Permissions.LEAVE_ALLOCATION_UPDATE))):
-    return LeavePolicyService(db).update_allocation(row_id, data, user.id)
+    return LeavePolicyService(db).update_allocation(row_id, data, user.id, user)
 
 
 @router.post("/leave-allocations/generate")

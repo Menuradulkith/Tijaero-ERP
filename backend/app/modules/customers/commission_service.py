@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.common.audit import log_audit
+from app.auth.dependencies import validate_branch_access
 from app.modules.customers.commission_repository import commission_repository
 from app.modules.customers.commission_schemas import (
     CustomerAgentCommissionCreate,
@@ -95,6 +96,7 @@ class CommissionService:
         self,
         db: Session,
         data: CustomerAgentCommissionCreate,
+        user=None,
     ) -> CustomerAgentCommission:
         """Create a new commission record"""
         # Validate agent exists and is_customer_agent
@@ -124,6 +126,18 @@ class CommissionService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Invoice with id {data.invoice_id} not found"
+            )
+        # SAL-20: an invoice of a branch the caller cannot see does not exist for them
+        if user is not None and not validate_branch_access(user, invoice.branch_code):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Invoice with id {data.invoice_id} not found"
+            )
+        # SAL-19: the represented customer is the invoice's customer
+        if data.represented_customer_id != invoice.customer_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invoice {invoice.invoice_no} belongs to customer {invoice.customer_id}, not {data.represented_customer_id}.",
             )
 
         # Validate commission type
@@ -213,6 +227,17 @@ class CommissionService:
             )
 
         update_data = data.model_dump(exclude_unset=True)
+        # SAL-08: the status only moves through approve / decline / payment verification
+        if "status" in update_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The commission status cannot be edited; use approve, decline or a commission payment.",
+            )
+        if commission.status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Only a pending commission can be edited (current status: {commission.status}).",
+            )
         if {"commission_type", "commission_rate", "commission_amount"} & update_data.keys():
             new_type = update_data.get("commission_type", commission.commission_type)
             if new_type not in ("PERCENT", "AMOUNT"):

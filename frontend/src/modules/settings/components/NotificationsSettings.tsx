@@ -4,27 +4,77 @@ import {
   FormControlLabel,
   Switch,
   Button,
-  Divider,
+  CircularProgress,
 } from "@mui/material";
-import { useState } from "react";
-import { showSuccessToast } from "@/components/tijaero";
+import { useEffect, useState } from "react";
+import { handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { settingsApi } from "../api";
 
+// Only the channels the backend actually stores (user preferences) are shown,
+// so "Save" really saves.
 export default function NotificationsSettings() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [emailNotifications, setEmailNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [salesAlerts, setSalesAlerts] = useState(true);
-  const [inventoryAlerts, setInventoryAlerts] = useState(true);
-  const [systemUpdates, setSystemUpdates] = useState(false);
+  const [desktopNotifications, setDesktopNotifications] = useState(false);
 
-  const handleSave = () => {
-    showSuccessToast("Notification settings saved successfully");
+  useEffect(() => {
+    settingsApi
+      .getPreferences()
+      .then((p) => {
+        setNotificationsEnabled(p.notifications_enabled ?? true);
+        setEmailNotifications(p.email_notifications ?? true);
+        setDesktopNotifications(p.desktop_notifications ?? false);
+      })
+      .catch((error) => showErrorToast(handleApiError(error, "Failed to load notification settings")))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      await settingsApi.updatePreferences({
+        notifications_enabled: notificationsEnabled,
+        email_notifications: emailNotifications,
+        desktop_notifications: desktopNotifications,
+      });
+      showSuccessToast("Notification settings saved successfully");
+    } catch (error) {
+      showErrorToast(handleApiError(error, "Failed to save notification settings"));
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box>
       <Typography variant="h6" gutterBottom>
         Notification Channels
       </Typography>
+      <Box sx={{ mb: 3 }}>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={notificationsEnabled}
+              onChange={(e) => setNotificationsEnabled(e.target.checked)}
+            />
+          }
+          label="In-app Notifications"
+        />
+        <Typography variant="body2" color="text.secondary" sx={{ ml: 4 }}>
+          Show notifications inside the ERP
+        </Typography>
+      </Box>
+
       <Box sx={{ mb: 3 }}>
         <FormControlLabel
           control={
@@ -44,60 +94,19 @@ export default function NotificationsSettings() {
         <FormControlLabel
           control={
             <Switch
-              checked={pushNotifications}
-              onChange={(e) => setPushNotifications(e.target.checked)}
+              checked={desktopNotifications}
+              onChange={(e) => setDesktopNotifications(e.target.checked)}
             />
           }
-          label="Push Notifications"
+          label="Desktop Notifications"
         />
         <Typography variant="body2" color="text.secondary" sx={{ ml: 4 }}>
           Receive push notifications in your browser
         </Typography>
       </Box>
 
-      <Divider sx={{ my: 3 }} />
-
-      <Typography variant="h6" gutterBottom>
-        Alert Types
-      </Typography>
-      <Box sx={{ mb: 2 }}>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={salesAlerts}
-              onChange={(e) => setSalesAlerts(e.target.checked)}
-            />
-          }
-          label="Sales Alerts"
-        />
-      </Box>
-
-      <Box sx={{ mb: 2 }}>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={inventoryAlerts}
-              onChange={(e) => setInventoryAlerts(e.target.checked)}
-            />
-          }
-          label="Inventory Alerts"
-        />
-      </Box>
-
-      <Box sx={{ mb: 3 }}>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={systemUpdates}
-              onChange={(e) => setSystemUpdates(e.target.checked)}
-            />
-          }
-          label="System Updates"
-        />
-      </Box>
-
-      <Button variant="contained" onClick={handleSave}>
-        Save Settings
+      <Button variant="contained" onClick={handleSave} disabled={saving}>
+        {saving ? "Saving..." : "Save Settings"}
       </Button>
     </Box>
   );

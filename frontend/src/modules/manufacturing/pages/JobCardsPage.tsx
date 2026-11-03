@@ -93,7 +93,7 @@ export default function JobCardsPage() {
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  const { data: cards = [], isLoading } = useQuery({
+  const { data: cards = [], isLoading, isError: loadFailed } = useQuery({
     queryKey: ["job-cards", filterBranch, filterWorkCenter, includeCompleted],
     queryFn: () =>
       shopFloorApi.getJobCards({
@@ -147,6 +147,7 @@ export default function JobCardsPage() {
       ["production-order-activity"],
       ["manufacturing-dashboard"],
       ["work-centers"],
+      ["mfg-work-centers"],
       ["journal-entries"],
       ["general-ledger"],
       ["trial-balance"],
@@ -370,7 +371,7 @@ export default function JobCardsPage() {
               onRowClick={(row) => (canLogTime && row.status !== "completed" ? openLog(row) : undefined)}
               pageSizeOptions={[10, 25, 50, 100]}
               pageSize={25}
-              emptyMessage="No open operations — release a production order to put its operations on the shop floor"
+              emptyMessage={loadFailed ? "Could not load job cards. Use refresh to try again." : "No open operations — release a production order to put its operations on the shop floor"}
               autoHeight={false}
               height="100%"
             />

@@ -17,6 +17,7 @@ from typing import List, Optional
 from datetime import date
 from decimal import Decimal
 
+from app.core import timezone as tz
 from app.db.session import get_db
 from app.auth.dependencies import (
     get_current_active_user,
@@ -135,6 +136,17 @@ def seed_chart_of_accounts(force: bool = Query(False), db: Session = Depends(get
 # JOURNAL ENTRIES
 # =============================================================================
 
+def _check_branch(db: Session, current_user: User, branch_code: Optional[str]) -> None:
+    """403 unless the user may work in ``branch_code`` (no branch = company-wide);
+    the branch must exist and be active."""
+    if not branch_code:
+        return
+    if not validate_branch_access(current_user, branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
+    from app.common.branch_validation import validate_branch_is_active
+    validate_branch_is_active(db, branch_code)
+
+
 def _je_in_branch_scope(
     je_id: int,
     db: Session = Depends(get_db),
@@ -160,8 +172,7 @@ def create_journal_entry(
     # subject to the submit → approve workflow; only internal integrations may
     # create Auto/Adjustment/Closing entries that post directly to the GL.
     data.entry_type = "Manual"
-    if data.branch_code and not validate_branch_access(current_user, data.branch_code):
-        raise HTTPException(status_code=403, detail=f"Access denied to branch: {data.branch_code}")
+    _check_branch(db, current_user, data.branch_code)
     je = JournalEntryService(db).create_journal_entry(data, created_by=current_user.id)
     return _serialize_je(je)
 
@@ -174,8 +185,7 @@ def update_journal_entry(
     current_user: User = Depends(get_current_active_user),
 ):
     """Update a draft journal entry."""
-    if data.branch_code and not validate_branch_access(current_user, data.branch_code):
-        raise HTTPException(status_code=403, detail=f"Access denied to branch: {data.branch_code}")
+    _check_branch(db, current_user, data.branch_code)
     je = JournalEntryService(db).update_journal_entry(je_id, data, updated_by=current_user.id)
     return _serialize_je(je)
 
@@ -188,8 +198,8 @@ def list_journal_entries(
     branch_code: Optional[str] = None,
     fiscal_year: Optional[int] = None,
     fiscal_period: Optional[int] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     search: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
@@ -207,8 +217,8 @@ def list_journal_entries(
         branch_codes=user_branches if not branch_code else None,
         fiscal_year=fiscal_year,
         fiscal_period=fiscal_period,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         search=search,
         skip=skip,
         limit=limit,
@@ -263,8 +273,10 @@ def post_journal_entry(
 ):
     """Post a journal entry (creates GL entries)."""
     posting_date = data.posting_date if data else None
-    je = JournalEntryService(db).post_journal_entry(je_id, posted_by=current_user.id, posting_date=posting_date)
-    return _serialize_je(je)
+    je = JournalEntryService(db).post_journal_entry(
+        je_id, posted_by=current_user.id, posting_date=posting_date, require_period=True,
+    )
+    return _serialize_je(JournalEntryService(db).get_journal_entry(je.id))
 
 
 @router.post("/journal-entries/{je_id}/reverse", response_model=schemas.JournalEntryResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
@@ -274,9 +286,13 @@ def reverse_journal_entry(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Reverse a posted journal entry."""
+    """Reverse a posted manual journal entry (source-document entries are
+    undone through their document)."""
+    from .posting_dates import check_posting_date
+    check_posting_date(db, data.reversal_date, "Reversal date")
     je = JournalEntryService(db).reverse_journal_entry(
-        je_id, reversed_by=current_user.id, reason=data.reason, reversal_date=data.reversal_date
+        je_id, reversed_by=current_user.id, reason=data.reason, reversal_date=data.reversal_date,
+        require_period=True, manual=True,
     )
     return _serialize_je(je)
 
@@ -318,8 +334,9 @@ def submit_journal_entry(
     Runs validation first. Moves status: draft → submitted.
     """
     remarks = data.remarks if data else None
-    je = JournalEntryService(db).submit_journal_entry(je_id, submitted_by=current_user.id, remarks=remarks)
-    return _serialize_je(je)
+    svc = JournalEntryService(db)
+    je = svc.submit_journal_entry(je_id, submitted_by=current_user.id, remarks=remarks)
+    return _serialize_je(svc.get_journal_entry(je.id))
 
 
 @router.post("/journal-entries/{je_id}/approve", response_model=schemas.JournalEntryResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
@@ -335,8 +352,9 @@ def approve_journal_entry(
     After approval, the JE can be posted.
     """
     remarks = data.remarks if data else None
-    je = JournalEntryService(db).approve_journal_entry(je_id, approved_by=current_user.id, remarks=remarks)
-    return _serialize_je(je)
+    svc = JournalEntryService(db)
+    je = svc.approve_journal_entry(je_id, approved_by=current_user.id, remarks=remarks)
+    return _serialize_je(svc.get_journal_entry(je.id))
 
 
 @router.post("/journal-entries/{je_id}/reject", response_model=schemas.JournalEntryResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
@@ -351,8 +369,9 @@ def reject_journal_entry(
     Allows the accountant to fix errors and resubmit.
     Moves status: submitted → draft.
     """
-    je = JournalEntryService(db).reject_journal_entry(je_id, rejected_by=current_user.id, reason=data.reason)
-    return _serialize_je(je)
+    svc = JournalEntryService(db)
+    je = svc.reject_journal_entry(je_id, rejected_by=current_user.id, reason=data.reason)
+    return _serialize_je(svc.get_journal_entry(je.id))
 
 
 def _serialize_je(je) -> dict:
@@ -400,6 +419,10 @@ def _serialize_je(je) -> dict:
         "rejection_reason": je.rejection_reason,
         "posted_by": je.posted_by,
         "posted_at": je.posted_at,
+        "created_by_name": getattr(je, "created_by_name", None),
+        "submitted_by_name": getattr(je, "submitted_by_name", None),
+        "approved_by_name": getattr(je, "approved_by_name", None),
+        "posted_by_name": getattr(je, "posted_by_name", None),
         "created_at": je.created_at,
         "updated_at": je.updated_at,
         "lines": lines,
@@ -419,8 +442,8 @@ def list_gl_entries(
     branch_code: Optional[str] = None,
     fiscal_year: Optional[int] = None,
     fiscal_period: Optional[int] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     reference_type: Optional[str] = None,
     reference_no: Optional[str] = None,
     search: Optional[str] = None,
@@ -441,8 +464,8 @@ def list_gl_entries(
         branch_codes=user_branches if not branch_code else None,
         fiscal_year=fiscal_year,
         fiscal_period=fiscal_period,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         reference_type=reference_type,
         reference_no=reference_no,
         search=search,
@@ -464,7 +487,7 @@ def _report_branch_scope(branch_code: Optional[str], user_branches: Optional[Lis
 def get_trial_balance(
     fiscal_year: int = Query(...),
     fiscal_period: Optional[int] = None,
-    as_of_date: Optional[str] = None,
+    as_of_date: Optional[date] = None,
     branch_code: Optional[str] = None,
     db: Session = Depends(get_db),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -474,7 +497,7 @@ def get_trial_balance(
     return GeneralLedgerService(db).get_trial_balance(
         fiscal_year=fiscal_year,
         fiscal_period=fiscal_period,
-        as_of_date=date.fromisoformat(as_of_date) if as_of_date else None,
+        as_of_date=as_of_date,
         branch_code=branch_code,
         branch_codes=branch_codes,
     )
@@ -483,15 +506,18 @@ def get_trial_balance(
 @router.get("/general-ledger/account/{account_id}", dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
 def get_account_ledger(
     account_id: int,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    """Get all GL entries for a specific account with running balance."""
+    """Get all GL entries for a specific account with running balance
+    (a branch-limited user sees only their branches' rows)."""
     return GeneralLedgerService(db).get_account_ledger(
         account_id=account_id,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
+        branch_codes=user_branches,
     )
 
 
@@ -503,8 +529,8 @@ def get_account_ledger(
 def get_income_statement(
     fiscal_year: int = Query(...),
     fiscal_period: Optional[int] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     branch_code: Optional[str] = None,
     db: Session = Depends(get_db),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -514,8 +540,8 @@ def get_income_statement(
     return GeneralLedgerService(db).get_income_statement(
         fiscal_year=fiscal_year,
         fiscal_period=fiscal_period,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         branch_code=branch_code,
         branch_codes=branch_codes,
     )
@@ -524,7 +550,7 @@ def get_income_statement(
 @router.get("/reports/balance-sheet", response_model=schemas.BalanceSheetResponse, dependencies=[Depends(require_permission(*Permissions.REPORTING_FINANCE_VIEW))])
 def get_balance_sheet(
     fiscal_year: int = Query(...),
-    as_of_date: Optional[str] = None,
+    as_of_date: Optional[date] = None,
     branch_code: Optional[str] = None,
     db: Session = Depends(get_db),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
@@ -533,7 +559,7 @@ def get_balance_sheet(
     branch_code, branch_codes = _report_branch_scope(branch_code, user_branches)
     return GeneralLedgerService(db).get_balance_sheet(
         fiscal_year=fiscal_year,
-        as_of_date=date.fromisoformat(as_of_date) if as_of_date else None,
+        as_of_date=as_of_date,
         branch_code=branch_code,
         branch_codes=branch_codes,
     )
@@ -554,7 +580,7 @@ def reconciliation_check(
 
 @router.get("/reports/day-end-reconciliation", response_model=schemas.DayEndReconciliationResponse, dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
 def day_end_reconciliation(
-    reconciliation_date: Optional[str] = Query(None, alias="date"),
+    reconciliation_date: Optional[date] = Query(None, alias="date"),
     branch_code: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
@@ -564,7 +590,7 @@ def day_end_reconciliation(
     Combines the trial balance, a cashbook ↔ GL cash/bank reconciliation, and a
     posting-health check (no pending GL posting failures, no unposted JEs).
     """
-    recon_date = date.fromisoformat(reconciliation_date) if reconciliation_date else date.today()
+    recon_date = reconciliation_date or tz.today()
     return ReconciliationService(db).day_end(recon_date, branch_code=branch_code)
 
 
@@ -633,8 +659,8 @@ def year_end_close(
 
 @router.get("/audit-trail", response_model=schemas.AuditTrailResponse, dependencies=[Depends(require_permission(*Permissions.GENERAL_LEDGER_VIEW))])
 def get_audit_trail(
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     account_id: Optional[int] = None,
     account_code: Optional[str] = None,
     entry_type: Optional[str] = None,
@@ -645,14 +671,16 @@ def get_audit_trail(
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=100000),
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """
-    Query the full audit trail of accounting activities.
+    Query the full audit trail of accounting activities (branch-limited users:
+    their branches plus company-wide entries).
     Returns JE and GL entries with user/timestamp information.
     """
     return GeneralLedgerService(db).get_audit_trail(schemas.AuditTrailFilter(
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         account_id=account_id,
         account_code=account_code,
         entry_type=entry_type,
@@ -660,6 +688,7 @@ def get_audit_trail(
         created_by=created_by,
         include_reversed=include_reversed,
         search=search,
+        branch_codes=user_branches,
         skip=skip,
         limit=limit,
     ))
@@ -676,8 +705,10 @@ def correct_journal_entry(
     Correct a posted journal entry.
     Atomic operation: reverses the original and creates a new corrected entry.
     """
+    from .posting_dates import check_posting_date
+    check_posting_date(db, data.correction_date, "Correction date")
     return GeneralLedgerService(db).correct_journal_entry(
-        je_id=je_id, data=data, corrected_by=current_user.id,
+        je_id=je_id, data=data, corrected_by=current_user.id, require_period=True,
     )
 
 
@@ -1098,23 +1129,34 @@ def list_recurring_journals(db: Session = Depends(get_db)):
 
 @router.post("/recurring-journals", response_model=schemas.RecurringJournalResponse, status_code=status.HTTP_201_CREATED, dependencies=_JE_CREATE)
 def create_recurring_journal(data: schemas.RecurringJournalCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    _check_branch(db, current_user, data.branch_code)
     return RecurringJournalService(db).create(data, user_id=current_user.id)
 
 
 @router.post("/recurring-journals/create-due", response_model=List[str], dependencies=_JE_CREATE)
-def create_due_recurring_journals(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    """Draft journals for every recurring journal due up to today (they still need approval)."""
-    return RecurringJournalService(db).create_due(user_id=current_user.id)
+def create_due_recurring_journals(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    """Draft journals for every recurring journal due up to today (they still need approval).
+    A branch-limited user only runs their branches' (and company-wide) templates."""
+    return RecurringJournalService(db).create_due(user_id=current_user.id, branch_codes=user_branches)
 
 
 @router.put("/recurring-journals/{template_id}", response_model=schemas.RecurringJournalResponse, dependencies=_JE_CREATE)
 def update_recurring_journal(template_id: int, data: schemas.RecurringJournalUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    from .accounting_models import RecurringJournal
+    current = db.query(RecurringJournal.branch_code).filter(RecurringJournal.id == template_id).scalar()
+    if current and not validate_branch_access(current_user, current):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recurring journal not found")
     return RecurringJournalService(db).update(template_id, data, user_id=current_user.id)
 
 
 @router.post("/opening-balances", status_code=status.HTTP_201_CREATED, dependencies=_JE_CREATE)
 def create_opening_balances(data: schemas.OpeningBalanceCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     """One "Opening" journal (draft, to approve and post) from a list of account balances."""
+    _check_branch(db, current_user, data.branch_code)
     je = OpeningBalanceService(db).create(data, user_id=current_user.id)
     return _serialize_je(JournalEntryService(db).get_journal_entry(je.id))
 
@@ -1200,7 +1242,7 @@ def reopen_bank_statement(statement_id: int, db: Session = Depends(get_db)):
 # CASH FLOW STATEMENTS
 # =============================================================================
 
-@router.post("/cash-flow/statements/generate", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
+@router.post("/cash-flow/statements/generate", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
 def generate_cash_flow_statement(
     data: schemas.CashFlowStatementCreate,
     db: Session = Depends(get_db),
@@ -1264,7 +1306,7 @@ def delete_cash_flow_statement(
     return {"message": "Statement deleted successfully"}
 
 
-@router.post("/cash-flow/statements/{statement_id}/regenerate", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
+@router.post("/cash-flow/statements/{statement_id}/regenerate", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
 def regenerate_cash_flow_statement(
     statement_id: int,
     db: Session = Depends(get_db),
@@ -1283,7 +1325,7 @@ def regenerate_cash_flow_statement(
     "/cash-flow/statements/{statement_id}/lines",
     response_model=schemas.CashFlowStatementLineResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))],
 )
 def add_cash_flow_manual_line(
     statement_id: int,
@@ -1314,7 +1356,7 @@ def add_cash_flow_manual_line(
 @router.put(
     "/cash-flow/statements/{statement_id}/lines/{line_id}",
     response_model=schemas.CashFlowStatementLineResponse,
-    dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))],
 )
 def update_cash_flow_manual_line(
     statement_id: int,
@@ -1355,7 +1397,7 @@ def delete_cash_flow_manual_line(
 @router.post(
     "/cash-flow/statements/{statement_id}/recalculate",
     response_model=schemas.CashFlowStatementResponse,
-    dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))],
+    dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))],
 )
 def recalculate_cash_flow_totals(statement_id: int, db: Session = Depends(get_db)):
     """Recalculate section totals and net change on a statement."""

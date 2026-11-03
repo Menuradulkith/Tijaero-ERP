@@ -29,7 +29,7 @@ def get_purchase_order_report(
     show_header: bool = Query(True),
     show_discount: bool = Query(True),
     show_signatures: bool = Query(True),
-    custom_remarks: Optional[str] = Query(None),
+    custom_remarks: Optional[str] = Query(None, max_length=2000),
     db: Session = Depends(get_db)
 ):
 
@@ -49,7 +49,7 @@ def get_grn_report(
     show_header: bool = Query(True),
     show_discount: bool = Query(True),
     show_signatures: bool = Query(True),
-    custom_remarks: Optional[str] = Query(None),
+    custom_remarks: Optional[str] = Query(None, max_length=2000),
     db: Session = Depends(get_db)
 ):
 
@@ -69,7 +69,7 @@ def get_purchase_return_report(
     show_header: bool = Query(True),
     show_discount: bool = Query(True),
     show_signatures: bool = Query(True),
-    custom_remarks: Optional[str] = Query(None),
+    custom_remarks: Optional[str] = Query(None, max_length=2000),
     db: Session = Depends(get_db)
 ):
 
@@ -89,7 +89,7 @@ def get_invoice_report(
     show_header: bool = Query(True),
     show_discount: bool = Query(True),
     show_signatures: bool = Query(True),
-    custom_remarks: Optional[str] = Query(None),
+    custom_remarks: Optional[str] = Query(None, max_length=2000),
     db: Session = Depends(get_db)
 ):
 
@@ -110,7 +110,7 @@ def get_payroll_report(
     show_header: bool = Query(True),
     show_discount: bool = Query(True),
     show_signatures: bool = Query(True),
-    custom_remarks: Optional[str] = Query(None),
+    custom_remarks: Optional[str] = Query(None, max_length=2000),
     db: Session = Depends(get_db)
 ):
     service = get_document_report_service(db)

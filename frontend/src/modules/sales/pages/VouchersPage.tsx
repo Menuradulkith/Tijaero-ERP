@@ -128,9 +128,9 @@ export default function VouchersPage() {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   // Permissions
-  const canCreate = usePermission("customers", "create");
-  const canUpdate = usePermission("customers", "update");
-  const canDelete = usePermission("customers", "delete");
+  const canCreate = usePermission("gift_vouchers", "create");
+  const canUpdate = usePermission("gift_vouchers", "update");
+  const canDelete = usePermission("gift_vouchers", "delete");
 
   // Filter state - all filters apply live as the user types/selects, no
   // separate "Search" step needed.

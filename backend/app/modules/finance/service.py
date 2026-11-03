@@ -39,7 +39,15 @@ class BankDepositService:
     def list_deposits(self, filters: schemas.PaymentListFilter) -> List[models.BankDeposits]:
         return self.repo.get_all(filters)
     
-    def verify_deposit(self, deposit_id: int, user_id: int = 0) -> models.BankDeposits:
+    def verify_deposit(self, deposit_id: int, user_id: int = 0, maker_checker: bool = True) -> models.BankDeposits:
+        # Maker-checker: a deposit someone entered by hand is verified by someone else.
+        existing = self.repo.get_by_id(deposit_id)
+        if (maker_checker and existing is not None and not existing.verified and user_id
+                and existing.created_by == user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot verify a bank deposit you entered",
+            )
         deposit, newly_verified = self.repo.verify(deposit_id, user_id=user_id)
         if not deposit:
             raise HTTPException(
@@ -160,6 +168,8 @@ class ExpenseService:
         expense = self.get_expense(expense_id)
         if expense.status not in ("pending", "rejected"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot update expense in '{expense.status}' status")
+        from app.modules.finance.posting_dates import check_posting_date
+        check_posting_date(self.db, getattr(data, "expense_date", None), "Expense date")
         self._check_expense_account(getattr(data, "account_code", None))
         return self.repo.update(expense_id, data)
 
@@ -190,7 +200,9 @@ class ExpenseService:
         self.db.refresh(expense)
         return expense
 
-    def approve_expense(self, expense_id: int, approved_by: int, remarks: str = None) -> models.Expenses:
+    def approve_expense(
+        self, expense_id: int, approved_by: int, remarks: str = None, maker_checker: bool = True,
+    ) -> models.Expenses:
         from datetime import datetime
         # SELECT FOR UPDATE to prevent double-approval race condition
         expense = self.db.query(models.Expenses).filter(
@@ -200,6 +212,9 @@ class ExpenseService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense with id {expense_id} not found")
         if expense.status != ExpenseStatus.SUBMITTED:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot approve expense in '{expense.status}' status")
+        # Maker-checker, as for journal entries: whoever raised the expense can't approve it.
+        if maker_checker and approved_by is not None and approved_by == expense.submitted_by:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot approve an expense you submitted")
         expense.status = ExpenseStatus.APPROVED
         expense.approved_by = approved_by
         expense.approved_date = tz.now()
@@ -243,7 +258,7 @@ class ExpenseService:
         expense.payment_status = PaymentStatus.PAID
         expense.payment_method = payment_data.payment_method
         expense.payment_reference = payment_data.payment_reference
-        expense.payment_date = payment_data.payment_date or date_type.today()
+        expense.payment_date = payment_data.payment_date or tz.today()
         expense.status = ExpenseStatus.PAID
         if payment_data.remarks:
             expense.remarks = (expense.remarks or "") + f"\n[Payment] {payment_data.remarks}"

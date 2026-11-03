@@ -31,6 +31,7 @@ from app.modules.purchasing.invoice_models import (
 )
 from app.modules.purchasing.invoice_schemas import (
     PurchaseInvoiceCreate,
+    PurchaseInvoiceItemCreate,
     PurchaseInvoiceUpdate,
     PurchaseInvoiceListFilter,
     PurchaseInvoiceResponse,
@@ -113,18 +114,41 @@ class PurchaseInvoiceService:
 
         PurchaseExpensePayrollGL(self.db).post_purchase_invoice_to_gl(invoice, user_id=user_id or 0)
 
-    def create_invoice(
-        self, data: PurchaseInvoiceCreate, created_by: int = None
-    ) -> PurchaseInvoice:
+    def _returned_qty_by_product(self, grn_id: int) -> Dict[int, Decimal]:
+        """Units of a GRN sent back to the supplier (pending or approved returns), per product."""
+        from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
+
+        rows = (
+            self.db.query(PurchasingReturnItems.product_id, func.coalesce(func.sum(PurchasingReturnItems.quantity), 0))
+            .join(PurchasingReturn, PurchasingReturnItems.purchasingreturn_id == PurchasingReturn.id)
+            .filter(
+                PurchasingReturn.goodreceivednote_id == grn_id,
+                PurchasingReturn.status.in_(("pending", "approved")),
+            )
+            .group_by(PurchasingReturnItems.product_id)
+            .all()
+        )
+        return {pid: Decimal(str(q)) for pid, q in rows}
+
+    def _validate_invoice(self, data: PurchaseInvoiceCreate, invoice_id: Optional[int] = None):
         """
-        Create a Purchase Invoice from GRN(s).
-        
-        Validates:
+        Checks shared by create and edit (invoice_id = the invoice being edited, whose own
+        lines are not counted as "already invoiced"):
         - Supplier exists and is active
         - Each GRN exists and belongs to the same supplier
-        - Quantities don't exceed what was received (minus already invoiced)
+        - Quantities don't exceed what was received (minus returned and already invoiced)
         - Supplier invoice number is unique per supplier
+        - Lines, subtotal and total agree
+        Returns (supplier, tax_code, subtotal, tax, total).
         """
+        if not (data.supplier_invoice_no or "").strip():
+            raise HTTPException(status_code=400, detail="Supplier invoice number is required")
+        if not data.items:
+            raise HTTPException(status_code=400, detail="An invoice needs at least one line")
+        if any(item.quantity <= 0 for item in data.items):
+            raise HTTPException(status_code=400, detail="Invoice line quantities must be greater than zero")
+        if data.due_date and data.supplier_invoice_date and data.due_date < data.supplier_invoice_date:
+            raise HTTPException(status_code=400, detail="Due date cannot be before the supplier invoice date")
         # Lock supplier row for the duration of the transaction so that
         # concurrent requests cannot both read a stale credit balance and
         # over-commit against the credit limit.
@@ -150,6 +174,7 @@ class PurchaseInvoiceService:
                 PurchaseInvoice.supplier_id == data.supplier_id,
                 PurchaseInvoice.supplier_invoice_no == data.supplier_invoice_no,
                 PurchaseInvoice.status != "cancelled",
+                PurchaseInvoice.id != (invoice_id or 0),
             )
             .with_for_update(skip_locked=False)
             .first()
@@ -216,18 +241,21 @@ class PurchaseInvoiceService:
             ).filter(
                 PurchaseInvoiceItem.grn_id == grn_id,
                 PurchaseInvoice.status != "cancelled",
+                PurchaseInvoice.id != (invoice_id or 0),
             ).group_by(PurchaseInvoiceItem.product_id).all()
             invoiced = {pid: Decimal(str(q)) for pid, q in invoiced_q}
+            # Goods sent back to the supplier are not billable.
+            returned = self._returned_qty_by_product(grn_id)
             if product_id is None:
-                open_qty = sum(received.values()) - sum(invoiced.values())
+                open_qty = sum(received.values()) - sum(returned.values()) - sum(invoiced.values())
             else:
                 if product_id not in received:
                     raise HTTPException(status_code=400, detail=f"Product {product_id} was not received on GRN {grn.good_received_no}")
-                open_qty = received[product_id] - invoiced.get(product_id, Decimal("0"))
+                open_qty = received[product_id] - returned.get(product_id, Decimal("0")) - invoiced.get(product_id, Decimal("0"))
             if qty > open_qty:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Cannot invoice {qty} unit(s) on GRN {grn.good_received_no}: only {max(open_qty, Decimal('0'))} received and not yet invoiced.",
+                    detail=f"Cannot invoice {qty} unit(s) on GRN {grn.good_received_no}: only {max(open_qty, Decimal('0'))} received and not yet returned or invoiced.",
                 )
         po_prices: Dict[tuple, set] = {}
         for poi in self.db.query(PurchasingOrderItems).filter(PurchasingOrderItems.purchasingorders_id.in_(list(po_ids))).all():
@@ -255,6 +283,15 @@ class PurchaseInvoiceService:
             )
         if data.subtotal is not None and abs(Decimal(str(data.subtotal)) - Decimal(str(calculated_subtotal))) > cent:
             raise HTTPException(status_code=400, detail=f"Invoice subtotal {data.subtotal} does not match its lines ({calculated_subtotal})")
+        if total <= 0:
+            raise HTTPException(status_code=400, detail="The invoice total must be greater than zero")
+        return supplier, tax_code, calculated_subtotal, calculated_tax, total
+
+    def create_invoice(
+        self, data: PurchaseInvoiceCreate, created_by: int = None
+    ) -> PurchaseInvoice:
+        """Create a Purchase Invoice from GRN(s) (validated by _validate_invoice)."""
+        supplier, tax_code, calculated_subtotal, calculated_tax, total = self._validate_invoice(data)
 
         # Generate invoice number
         invoice_no = self._generate_invoice_no(data.branch_code)
@@ -549,15 +586,47 @@ class PurchaseInvoiceService:
             raise HTTPException(status_code=400, detail="Only unpaid invoices can be edited")
 
         update_fields = data.model_dump(exclude_unset=True, exclude={"items"})
-        if "tax_code" in update_fields:
-            update_fields["tax_code"] = self._purchase_tax_code(update_fields["tax_code"])
+        # An edit must pass the same checks as a new invoice: build the edited invoice and
+        # validate it (its own current lines are not counted as already invoiced).
+        if data.items is not None:
+            items = data.items
+        else:
+            items = [
+                PurchaseInvoiceItemCreate(
+                    grn_id=it.grn_id, purchasing_order_id=it.purchasing_order_id, product_id=it.product_id,
+                    quantity=it.quantity, unit_price=it.unit_price, line_total=it.line_total,
+                    tax_amount=it.tax_amount, description=it.description,
+                )
+                for it in self.db.query(PurchaseInvoiceItem).filter(PurchaseInvoiceItem.purchase_invoice_id == invoice_id).all()
+            ]
+        merged = PurchaseInvoiceCreate.model_construct(
+            supplier_invoice_no=update_fields.get("supplier_invoice_no", invoice.supplier_invoice_no),
+            supplier_invoice_date=update_fields.get("supplier_invoice_date", invoice.supplier_invoice_date),
+            supplier_id=invoice.supplier_id,
+            branch_code=invoice.branch_code,
+            received_date=update_fields.get("received_date", invoice.received_date),
+            due_date=update_fields.get("due_date", invoice.due_date),
+            payment_type=invoice.payment_type,
+            subtotal=update_fields.get("subtotal"),
+            tax_amount=update_fields.get("tax_amount"),
+            discount_amount=update_fields.get("discount_amount", invoice.discount_amount or Decimal("0")),
+            total_amount=update_fields.get("total_amount"),
+            tax_code=update_fields.get("tax_code", invoice.tax_code),
+            remarks=update_fields.get("remarks", invoice.remarks),
+            items=items,
+        )
+        _, tax_code, calc_subtotal, calc_tax, calc_total = self._validate_invoice(merged, invoice_id=invoice.id)
+        if calc_total < (invoice.paid_amount or Decimal("0")):
+            raise HTTPException(status_code=400, detail="The invoice total cannot be less than the amount already paid")
+        update_fields["tax_code"] = tax_code
         before = (invoice.tax_amount, invoice.discount_amount, invoice.tax_code, invoice.subtotal, invoice.supplier_invoice_date)
         for key, val in update_fields.items():
             setattr(invoice, key, val)
-
-        # Recalculate balance
-        if data.total_amount is not None:
-            invoice.balance_due = data.total_amount - invoice.paid_amount
+        # Header amounts always follow the (validated) lines.
+        invoice.subtotal = calc_subtotal
+        invoice.tax_amount = calc_tax
+        invoice.total_amount = calc_total
+        invoice.balance_due = calc_total - (invoice.paid_amount or Decimal("0"))
 
         # Update items if provided
         if data.items is not None:
@@ -644,6 +713,9 @@ class PurchaseInvoiceService:
         4. Create PurchaseInvoicePayment allocation records
         5. Update each invoice's paid_amount, balance_due, payment_status
         """
+        from app.modules.finance.posting_dates import check_posting_date
+
+        check_posting_date(self.db, data.payment_date, "Payment date")
         # Validate supplier
         supplier = self.db.query(Supplier).filter(Supplier.id == data.supplier_id).first()
         if not supplier:
@@ -680,6 +752,11 @@ class PurchaseInvoiceService:
                 raise HTTPException(status_code=400, detail=f"Invoice {invoice.invoice_no} belongs to a different supplier")
             if invoice.status == "cancelled":
                 raise HTTPException(status_code=400, detail=f"Invoice {invoice.invoice_no} is cancelled")
+            if invoice.branch_code != data.branch_code:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invoice {invoice.invoice_no} belongs to branch {invoice.branch_code}; pay it from that branch.",
+                )
             if per_invoice[invoice_id] > (invoice.balance_due or Decimal("0")):
                 raise HTTPException(
                     status_code=400,
@@ -984,7 +1061,7 @@ class PurchaseInvoiceService:
         grn_query = (
             self.db.query(GoodReceivedNote)
             .join(PurchasingOrder, GoodReceivedNote.purchasingorders_id == PurchasingOrder.id)
-            .filter(PurchasingOrder.first_suppliers_id == supplier_id)
+            .filter(PurchasingOrder.first_suppliers_id == supplier_id, GoodReceivedNote.status != "cancelled")
         )
         if branch_code:
             grn_query = grn_query.filter(GoodReceivedNote.branch_code == branch_code)
@@ -1039,6 +1116,18 @@ class PurchaseInvoiceService:
                 ).first()
                 if poi:
                     product_counter[(poi.product_id, poi.id, float(poi.unit_price))] += ri.quantity
+
+            # Returned units are not billable: take them off the product's lines.
+            returned = {pid: int(q) for pid, q in self._returned_qty_by_product(grn.id).items()}
+            if returned:
+                for key in list(product_counter):
+                    take = min(product_counter[key], returned.get(key[0], 0))
+                    if take:
+                        product_counter[key] -= take
+                        returned[key[0]] -= take
+                product_counter = Counter({k: q for k, q in product_counter.items() if q > 0})
+                remaining_qty = sum(product_counter.values())
+                remaining_amount = sum(uprice * q for (_, _, uprice), q in product_counter.items())
 
             products = []
             for (pid, poi_id, uprice), qty in product_counter.items():

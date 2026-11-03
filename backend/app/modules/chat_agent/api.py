@@ -8,7 +8,7 @@ header works — no EventSource / query-param tokens).
 import json
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -69,7 +69,7 @@ def chat(
 
 @router.get("/conversations", response_model=List[schemas.ConversationOut])
 def list_conversations(
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=50),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -87,7 +87,7 @@ def list_conversations(
 
 @router.get("/conversations/{conversation_id}", response_model=schemas.ConversationDetailOut)
 def get_conversation(
-    conversation_id: int,
+    conversation_id: int = Path(..., ge=1, le=2_147_483_647),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -113,7 +113,7 @@ def get_conversation(
 
 @router.delete("/conversations/{conversation_id}", status_code=204)
 def archive_conversation(
-    conversation_id: int,
+    conversation_id: int = Path(..., ge=1, le=2_147_483_647),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -136,7 +136,7 @@ def archive_conversation(
 
 @router.post("/actions/{action_id}/approve", response_model=schemas.ActionResolveResponse)
 def approve_action(
-    action_id: int,
+    action_id: int = Path(..., ge=1, le=2_147_483_647),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -154,7 +154,7 @@ def approve_action(
 
 @router.post("/actions/{action_id}/reject", response_model=schemas.ActionResolveResponse)
 def reject_action(
-    action_id: int,
+    action_id: int = Path(..., ge=1, le=2_147_483_647),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):

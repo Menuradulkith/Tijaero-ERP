@@ -169,7 +169,7 @@ def _quotation(db: Session, user: User, rid: int) -> dict:
     if not quote:
         return {}
     if not validate_branch_access(user, quote.branch_code):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this branch")
+        return {}  # another branch's record: "not found", so its existence is not revealed
     sales_quote_service._attach_related_purchase_orders(db, quote)  # read-only: stamps the PO list
 
     show_pricing = _full(user, "quotation")
@@ -255,7 +255,7 @@ def _purchase_order(db: Session, user: User, rid: int) -> dict:
     if not row:
         return {}
     if not validate_branch_access(user, row.branch_code):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this branch")
+        return {}  # another branch's record: "not found", so its existence is not revealed
     order = PurchasingOrderService(db).get_order(rid)
     detail = jsonable_encoder(_enrich_single_purchase_order_with_user_fields(db, order))
 

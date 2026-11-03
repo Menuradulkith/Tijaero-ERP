@@ -15,6 +15,9 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import UndoIcon from "@mui/icons-material/Undo";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import SendIcon from "@mui/icons-material/Send";
+import ThumbUpAltIcon from "@mui/icons-material/ThumbUpAlt";
+import ThumbDownAltIcon from "@mui/icons-material/ThumbDownAlt";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
   Alert,
@@ -73,7 +76,10 @@ import {
   type TDataGridColumn,
 } from "@/components/tijaero";
 
+import { usePermission } from "@/auth/permissions";
+import { useAuthStore } from "@/state/authStore";
 import { journalEntriesApi, chartOfAccountsApi, voucherTypesApi } from "@/modules/finance/api";
+import { LEDGER_QUERY_KEYS } from "@/modules/finance/ledgerQueries";
 import { costCentersApi } from "@/modules/finance/api/costCenters";
 import { submitOnce } from "@/modules/finance/submitOnce";
 import type {
@@ -87,35 +93,36 @@ import CancelIcon from "@mui/icons-material/Cancel";
 
 const STATUS_FILTER_OPTIONS = [
   { value: "draft", label: "Draft", color: "default" as const },
+  { value: "submitted", label: "Submitted", color: "warning" as const },
+  { value: "approved", label: "Approved", color: "info" as const },
   { value: "posted", label: "Posted", color: "success" as const },
   { value: "reversed", label: "Reversed", color: "error" as const },
 ];
 
-const ENTRY_TYPES: { value: JournalEntryType; label: string }[] = [
-  { value: "standard", label: "Standard" },
-  { value: "adjusting", label: "Adjusting" },
-  { value: "closing", label: "Closing" },
-  { value: "reversing", label: "Reversing" },
-  { value: "opening", label: "Opening" },
-  { value: "recurring", label: "Recurring" },
-];
-
-const TYPE_FILTER_OPTIONS = ENTRY_TYPES.map((t) => ({
-  value: t.value,
-  label: t.label,
-  color: "info" as const,
-}));
+// The entry types the backend stores (a journal made here is always "Manual").
+const TYPE_FILTER_OPTIONS = [
+  { value: "Manual", label: "Manual" },
+  { value: "Opening", label: "Opening" },
+  { value: "Adjustment", label: "Adjustment / reversal" },
+  { value: "Closing", label: "Year-end closing" },
+  { value: "Auto", label: "From documents" },
+].map((t) => ({ ...t, color: "info" as const }));
 
 const FORM_STEPS = ["Entry Information", "Line Items"];
 
 const getStatusColor = (status: JournalEntryStatus) => {
   switch (status) {
     case "draft": return "default" as const;
+    case "submitted": return "warning" as const;
+    case "approved": return "info" as const;
     case "posted": return "success" as const;
     case "reversed": return "error" as const;
     default: return "default" as const;
   }
 };
+
+/** Entry types a person may reverse here (others are undone through their source document). */
+const MANUALLY_REVERSIBLE = new Set(["Manual", "Adjustment", "Opening"]);
 
 // ─── Form Data ───────────────────────────────────────────────────────────────
 
@@ -198,6 +205,17 @@ export default function JournalEntriesPage() {
   // Reverse dialog
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
   const [reverseReason, setReverseReason] = useState("");
+
+  // Reject dialog (submitted / approved -> back to draft)
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+
+  // Permissions: the same ones the backend enforces on each endpoint.
+  const canCreateJE = usePermission("journal_entries", "create");
+  const canUpdateJE = usePermission("journal_entries", "update");
+  const canDeleteJE = usePermission("journal_entries", "delete");
+  const canApproveJE = usePermission("payment_approvals", "approve");
+  const currentUserId = useAuthStore((s) => s.user?.id);
 
   // Print dialog
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -366,9 +384,41 @@ export default function JournalEntriesPage() {
     },
   });
 
+  const submitMutation = useCrudMutation({
+    mutationFn: (id: number) => journalEntriesApi.submit(id),
+    invalidateQueryKeys: [["journal-entries"], ["journal-entry-detail"]],
+    successMessage: "Journal entry submitted for approval",
+    errorMessage: "Failed to submit journal entry",
+    onSuccess: (data) => {
+      setSelectedJE(data);
+    },
+  });
+
+  const approveMutation = useCrudMutation({
+    mutationFn: (id: number) => journalEntriesApi.approve(id),
+    invalidateQueryKeys: [["journal-entries"], ["journal-entry-detail"]],
+    successMessage: "Journal entry approved: it can now be posted",
+    errorMessage: "Failed to approve journal entry",
+    onSuccess: (data) => {
+      setSelectedJE(data);
+    },
+  });
+
+  const rejectMutation = useCrudMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) => journalEntriesApi.reject(id, reason),
+    invalidateQueryKeys: [["journal-entries"], ["journal-entry-detail"]],
+    successMessage: "Journal entry sent back to draft",
+    errorMessage: "Failed to reject journal entry",
+    onSuccess: (data) => {
+      setRejectDialogOpen(false);
+      setRejectReason("");
+      setSelectedJE(data);
+    },
+  });
+
   const postMutation = useCrudMutation({
     mutationFn: (id: number) => journalEntriesApi.post(id),
-    invalidateQueryKeys: [["journal-entries"], ["journal-entry-detail"]],
+    invalidateQueryKeys: LEDGER_QUERY_KEYS,
     successMessage: "Journal entry posted to General Ledger",
     errorMessage: "Failed to post journal entry",
     onSuccess: (data) => {
@@ -379,7 +429,7 @@ export default function JournalEntriesPage() {
   const reverseMutation = useCrudMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       journalEntriesApi.reverse(id, reason),
-    invalidateQueryKeys: [["journal-entries"], ["journal-entry-detail"]],
+    invalidateQueryKeys: LEDGER_QUERY_KEYS,
     successMessage: "Journal entry reversed",
     errorMessage: "Failed to reverse journal entry",
     onSuccess: (data) => {
@@ -413,6 +463,32 @@ export default function JournalEntriesPage() {
       postMutation.mutate(selectedJE.id);
     }
   }, [selectedJE, confirmDialog, postMutation]);
+
+  const handleSubmitForApproval = useCallback(async () => {
+    if (!selectedJE) return;
+    const confirmed = await confirmDialog.confirm({
+      title: "Submit for Approval",
+      message: `Submit "${selectedJE.journal_entry_no}" for approval? Another user with approval rights must approve it before it can be posted.`,
+      confirmText: "Submit",
+      confirmColor: "primary",
+    });
+    if (confirmed) {
+      submitMutation.mutate(selectedJE.id);
+    }
+  }, [selectedJE, confirmDialog, submitMutation]);
+
+  const handleApprove = useCallback(async () => {
+    if (!selectedJE) return;
+    const confirmed = await confirmDialog.confirm({
+      title: "Approve Journal Entry",
+      message: `Approve "${selectedJE.journal_entry_no}"? It can then be posted to the General Ledger.`,
+      confirmText: "Approve",
+      confirmColor: "success",
+    });
+    if (confirmed) {
+      approveMutation.mutate(selectedJE.id);
+    }
+  }, [selectedJE, confirmDialog, approveMutation]);
 
   const handleDelete = useCallback(async () => {
     if (!selectedJE || selectedJE.status !== "draft") return;
@@ -501,12 +577,17 @@ export default function JournalEntriesPage() {
   };
 
   const canEdit = false; // JE cannot be edited after creation
-  const canDelete = !!(selectedJE && selectedJE.status === "draft");
+  const canDelete = !!(selectedJE && selectedJE.status === "draft" && canDeleteJE);
   // Save always runs handleSave, which names the actual problem field.
   const isFormValid = true;
   const isSaving = createMutation.isPending;
 
   const detail = jeDetail || selectedJE;
+  // Maker-checker (enforced by the backend too): the creator/submitter can't approve.
+  const isOwnEntry = !!(
+    detail && currentUserId != null &&
+    (detail.created_by === currentUserId || detail.submitted_by === currentUserId)
+  );
 
   // ─── Browse Table ──────────────────────────────────────────────────────────
 
@@ -654,7 +735,7 @@ export default function JournalEntriesPage() {
         isEditing={isEditing}
         isSaving={isSaving}
         isFormValid={isFormValid}
-        onNew={handleNew}
+        onNew={canCreateJE ? handleNew : undefined}
         onSave={isCreating && formStep < FORM_STEPS.length - 1 ? undefined : handleSave}
         onCancel={() => handleCancel(filteredEntries)}
         onEdit={canEdit ? handleStartEdit : undefined}
@@ -663,7 +744,47 @@ export default function JournalEntriesPage() {
         endActions={
           detail && !isCreating && !isEditing ? (
             <Box sx={{ display: "flex", gap: 1 }}>
-              {detail.status === "draft" && (
+              {/* Manual journals: draft -> submit -> approve (another user) -> post. */}
+              {detail.status === "draft" && canUpdateJE && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<SendIcon />}
+                  onClick={handleSubmitForApproval}
+                  disabled={submitMutation.isPending}
+                >
+                  Submit for Approval
+                </Button>
+              )}
+              {detail.status === "submitted" && canApproveJE && (
+                <Tooltip title={isOwnEntry ? "You created or submitted this entry: another user must approve it" : ""}>
+                  <span>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      startIcon={<ThumbUpAltIcon />}
+                      color="success"
+                      onClick={handleApprove}
+                      disabled={isOwnEntry || approveMutation.isPending}
+                    >
+                      Approve
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
+              {(detail.status === "submitted" || detail.status === "approved") && canApproveJE && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<ThumbDownAltIcon />}
+                  color="error"
+                  onClick={() => setRejectDialogOpen(true)}
+                  disabled={rejectMutation.isPending}
+                >
+                  Reject
+                </Button>
+              )}
+              {detail.status === "approved" && canUpdateJE && (
                 <Button
                   variant="contained"
                   size="small"
@@ -675,7 +796,7 @@ export default function JournalEntriesPage() {
                   Post to GL
                 </Button>
               )}
-              {detail.status === "posted" && !detail.is_reversed && (
+              {detail.status === "posted" && !detail.is_reversed && canUpdateJE && MANUALLY_REVERSIBLE.has(detail.entry_type) && (
                 <Button
                   variant="outlined"
                   size="small"
@@ -729,17 +850,6 @@ export default function JournalEntriesPage() {
                   error={showErrors && !formData.entry_date}
                   helperText={showErrors && !formData.entry_date ? "Entry date is required" : undefined}
                 />
-                <TextField
-                  select
-                  label="Entry Type"
-                  size="small"
-                  value={formData.entry_type}
-                  onChange={(e) => setFormData({ ...formData, entry_type: e.target.value as JournalEntryType })}
-                >
-                  {ENTRY_TYPES.map((t) => (
-                    <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
-                  ))}
-                </TextField>
                 <TextField
                   label="Reverse on (optional)"
                   type="date"
@@ -932,6 +1042,16 @@ export default function JournalEntriesPage() {
           </>
         ) : detail ? (
           <>
+            {detail.status === "draft" && detail.rejection_reason && (
+              <Alert severity="warning" sx={{ mb: 1.5 }}>
+                Sent back: {detail.rejection_reason}. Fix it, then submit it again (or delete the draft).
+              </Alert>
+            )}
+            {detail.status === "submitted" && (
+              <Alert severity="info" sx={{ mb: 1.5 }}>
+                Waiting for approval by a user other than the one who created or submitted it.
+              </Alert>
+            )}
             {/* View Mode - Entry Information */}
             <FormSection title="Entry Information" columns={3}>
               <TextField label="Entry No" size="small" value={detail.journal_entry_no} disabled />
@@ -1174,7 +1294,7 @@ export default function JournalEntriesPage() {
         }}
         isLoading={isLoading}
         headerActions={
-          isJEDetailMode ? undefined : (
+          isJEDetailMode || !canCreateJE ? undefined : (
             <>
               <Button
                 variant="contained"
@@ -1221,13 +1341,53 @@ export default function JournalEntriesPage() {
             variant="contained"
             color="warning"
             onClick={() => {
-              if (selectedJE && reverseReason) {
-                reverseMutation.mutate({ id: selectedJE.id, reason: reverseReason });
+              if (selectedJE && reverseReason.trim()) {
+                reverseMutation.mutate({ id: selectedJE.id, reason: reverseReason.trim() });
               }
             }}
-            disabled={!reverseReason || reverseMutation.isPending}
+            disabled={!reverseReason.trim() || reverseMutation.isPending}
           >
             Reverse
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reject Dialog */}
+      <Dialog
+        open={rejectDialogOpen}
+        onClose={() => setRejectDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Send Journal Entry Back to Draft</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            The entry returns to draft with your reason, so it can be fixed and submitted again.
+          </Typography>
+          <TextField
+            label="Reason"
+            fullWidth
+            size="small"
+            multiline
+            rows={3}
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            required
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={() => {
+              if (selectedJE && rejectReason.trim()) {
+                rejectMutation.mutate({ id: selectedJE.id, reason: rejectReason.trim() });
+              }
+            }}
+            disabled={!rejectReason.trim() || rejectMutation.isPending}
+          >
+            Send Back
           </Button>
         </DialogActions>
       </Dialog>

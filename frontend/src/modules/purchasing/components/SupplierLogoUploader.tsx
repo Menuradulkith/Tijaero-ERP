@@ -7,7 +7,7 @@ import { Box, Button, IconButton, Tooltip, Typography } from "@mui/material";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
-import { showErrorToast, showSuccessToast, handleApiError } from "@/components/tijaero";
+import { showErrorToast, showSuccessToast, handleApiError, TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 import { suppliersApi } from "@/modules/purchasing/api";
 import { Supplier } from "@/modules/purchasing/types";
 
@@ -106,7 +106,8 @@ export default function SupplierLogoUploader({
       onUpdated?.(updated);
       showSuccessToast("Logo uploaded");
     } catch (err) {
-      showErrorToast(handleApiError(err, "Failed to upload logo"));
+      // API errors are already toasted by the shared client; only report anything else.
+      if (!(err as { isAxiosError?: boolean })?.isAxiosError) showErrorToast(handleApiError(err, "Failed to upload logo"));
     } finally {
       // Hand display back to the saved logo_path (the object URL is revoked
       // below, so keeping it as the preview would show a dead blob).
@@ -118,11 +119,19 @@ export default function SupplierLogoUploader({
     }
   };
 
+  const confirmDialog = useConfirmDialog();
   const handleRemove = async () => {
     if (isDraftMode) {
       onDraftFileChange?.(null);
       return;
     }
+    const confirmed = await confirmDialog.confirm({
+      title: "Remove logo",
+      message: "Remove the current logo? This cannot be undone.",
+      confirmText: "Remove",
+      confirmColor: "error",
+    });
+    if (!confirmed) return;
     const supplierId = supplier!.id;
     setUploading(true);
     try {
@@ -130,7 +139,7 @@ export default function SupplierLogoUploader({
       onUpdated?.(updated);
       showSuccessToast("Logo removed");
     } catch (err) {
-      showErrorToast(handleApiError(err, "Failed to remove logo"));
+      if (!(err as { isAxiosError?: boolean })?.isAxiosError) showErrorToast(handleApiError(err, "Failed to remove logo"));
     } finally {
       if (currentSupplierIdRef.current === supplierId) {
         setPreviewUrl(null);
@@ -202,6 +211,7 @@ export default function SupplierLogoUploader({
           </Tooltip>
         )}
       </Box>
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </Box>
   );
 }

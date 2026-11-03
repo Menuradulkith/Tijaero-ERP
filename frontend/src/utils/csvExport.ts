@@ -16,7 +16,12 @@ export function escapeCSVCell(value: any): string {
   } else {
     strValue = String(value);
   }
-  
+  // Spreadsheet formula injection: text starting with = + - @ (or a tab / CR) would run as a
+  // formula in Excel. Prefix it with ' so it stays text; real numbers ("-12.5") are left alone.
+  if (typeof value === "string" && /^[=+\-@\t\r]/.test(strValue) && !/^[+-]?\d+(\.\d+)?$/.test(strValue)) {
+    strValue = `'${strValue}`;
+  }
+
   if (strValue.includes('"') || strValue.includes(',') || strValue.includes('\n') || strValue.includes('\r')) {
     return `"${strValue.replace(/"/g, '""')}"`;
   }

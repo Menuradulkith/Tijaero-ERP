@@ -63,6 +63,7 @@ import {
 
 import { saleReturnsApi, salesApi } from "@/modules/sales/api";
 import ApproverAuthDialog from "../../purchasing/components/ApproverAuthDialog";
+import { usePermission } from "@/auth/permissions";
 import { useReferenceData, ProductRef } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { SaleReturn, SaleReturnWithItems } from "@/modules/sales/types";
@@ -90,6 +91,8 @@ export default function SaleReturnApprovalsPage() {
     const [rejectReason, setRejectReason] = useState("");
     const [authDialogOpen, setAuthDialogOpen] = useState(false);
     const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
+    // FE-5: approve / reject / process follow the same permission the backend checks
+    const canApprove = usePermission("sales_return_approvals", "approve");
 
     // Confirm dialogs
     const approveConfirm = useTConfirmDialog();
@@ -388,7 +391,7 @@ export default function SaleReturnApprovalsPage() {
                                 color="primary"
                                 startIcon={<CheckCircleIcon />}
                                 onClick={handleApprove}
-                                disabled={approveMutation.isPending}
+                                disabled={!canApprove || approveMutation.isPending}
                             >
                                 Approve
                             </Button>
@@ -397,7 +400,7 @@ export default function SaleReturnApprovalsPage() {
                                 color="error"
                                 startIcon={<CancelIcon />}
                                 onClick={() => setRejectDialogOpen(true)}
-                                disabled={rejectMutation.isPending}
+                                disabled={!canApprove || rejectMutation.isPending}
                             >
                                 Reject
                             </Button>
@@ -409,7 +412,7 @@ export default function SaleReturnApprovalsPage() {
                             color="success"
                             startIcon={<LocalShippingIcon />}
                             onClick={handleProcess}
-                            disabled={processMutation.isPending}
+                            disabled={!canApprove || processMutation.isPending}
                         >
                             Process Return
                         </Button>

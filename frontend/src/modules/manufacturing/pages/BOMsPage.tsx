@@ -73,7 +73,7 @@ import {
 
 import { useReferenceData, type ProductRef } from "@/hooks";
 import { usePermission } from "@/auth/permissions";
-import { bomsApi, workCentersApi } from "@/modules/manufacturing/api";
+import { bomsApi, workCentersApi, errorAlreadyToasted } from "@/modules/manufacturing/api";
 import {
   BOM,
   BOM_STATUS_OPTIONS,
@@ -230,7 +230,7 @@ export default function BOMsPage() {
   });
   const workCenterById = useMemo(() => new Map(workCenters.map((w) => [w.id, w])), [workCenters]);
 
-  const { data: boms, isLoading } = useQuery({
+  const { data: boms, isLoading, isError: loadFailed } = useQuery({
     queryKey: ["mfg-boms"],
     queryFn: () => bomsApi.getAll(),
   });
@@ -271,7 +271,7 @@ export default function BOMsPage() {
       applyDetail(detail);
     } catch (error) {
       if (latestRequestRef.current !== bom.id) return;
-      showErrorToast(handleApiError(error, "Failed to load BOM"));
+      if (!errorAlreadyToasted(error)) showErrorToast(handleApiError(error, "Failed to load BOM"));
     }
   }, [handleSelectItem, setSelectedBOM, applyDetail]);
 
@@ -470,7 +470,8 @@ export default function BOMsPage() {
     operationsValid;
 
   // ─── mutations ─────────────────────────────────────────────────────────
-  const invalidate = [["mfg-boms"]];
+  // BOM changes also change the production-order BOM picker, MRP and order costing
+  const invalidate = [["mfg-boms"], ["boms"], ["mrp"], ["manufacturing-dashboard"]];
 
   const createMutation = useCrudMutation({
     mutationFn: bomsApi.create,
@@ -528,6 +529,17 @@ export default function BOMsPage() {
     errorMessage: "Failed to update product cost",
     onSuccess: showSaved,
   });
+
+  // Enter and the button share one guard, so a repeated Enter cannot create two versions.
+  const copyingRef = useRef(false);
+  const submitCopy = () => {
+    if (copyingRef.current || copyMutation.isPending || !newVersion.trim() || !selectedBOM) return;
+    copyingRef.current = true;
+    copyMutation.mutate(
+      { id: selectedBOM.id, version: newVersion.trim() },
+      { onSettled: () => { copyingRef.current = false; } }
+    );
+  };
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isActing =
@@ -698,7 +710,7 @@ export default function BOMsPage() {
           onRowClick={(row) => handleSelectBOM(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
-          emptyMessage="No bills of materials found"
+          emptyMessage={loadFailed ? "Could not load bills of materials. Use refresh to try again." : "No bills of materials found"}
           autoHeight={false}
           height="100%"
         />
@@ -1191,18 +1203,19 @@ export default function BOMsPage() {
             onChange={(e) => setNewVersion(e.target.value)}
             inputProps={{ maxLength: 20 }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && newVersion.trim() && selectedBOM) {
-                copyMutation.mutate({ id: selectedBOM.id, version: newVersion.trim() });
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submitCopy();
               }
             }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setVersionDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => setVersionDialogOpen(false)} disabled={copyMutation.isPending}>Cancel</Button>
           <Button
             variant="contained"
             disabled={!newVersion.trim() || copyMutation.isPending}
-            onClick={() => selectedBOM && copyMutation.mutate({ id: selectedBOM.id, version: newVersion.trim() })}
+            onClick={submitCopy}
           >
             Create Version
           </Button>

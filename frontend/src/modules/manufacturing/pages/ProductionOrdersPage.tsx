@@ -139,6 +139,9 @@ const MUTATION_KEYS = (id?: number) => [
   ["manufacturing-dashboard"],
   ["mrp"],
   ["job-cards"],
+  ["quote-demand"],
+  ["salesStock"],
+  ["salesStockSummary"],
   ["journal-entries"],
   ["general-ledger"],
   ["trial-balance"],
@@ -221,7 +224,7 @@ export default function ProductionOrdersPage() {
   const canShopFloor = usePermission("shop_floor", "update");
 
   // ── list ──
-  const { data: page, isLoading } = useQuery({
+  const { data: page, isLoading, isError: loadFailed } = useQuery({
     queryKey: ["production-orders", "list", filterBranch, filterStatus, lateOnly],
     queryFn: () =>
       productionOrdersApi.getAll({
@@ -556,7 +559,7 @@ export default function ProductionOrdersPage() {
           onRowClick={(row) => handleSelectOrder(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
-          emptyMessage="No production orders found"
+          emptyMessage={loadFailed ? "Could not load production orders. Use refresh to try again." : "No production orders found"}
           autoHeight={false}
           height="100%"
         />
@@ -606,7 +609,13 @@ export default function ProductionOrdersPage() {
           `Close ${order.order_no}? The remaining WIP balance of ${currencySymbol} ${fmtLKR(num(order.wip_balance))} will be posted to the Production Variance account. A closed order cannot be changed.`,
           "Close Order", () => productionOrdersApi.close(id), "Order closed"), "primary", "contained"));
     }
-    if ((s === "draft" || s === "released" || s === "in_progress") && canApprove) {
+    // The server refuses to cancel once materials are issued, output is recorded or time is booked
+    const untouched =
+      !order.produced_quantity &&
+      !order.scrapped_quantity &&
+      !(order.materials || []).some((m) => m.issued_quantity > 0) &&
+      !(order.operations || []).some((op) => num(op.actual_minutes) > 0);
+    if ((s === "draft" || s === "released" || s === "in_progress") && canApprove && untouched) {
       out.push(btn("Cancel Order", <BlockIcon />, () => setDialog("cancel"), "error"));
     }
     // Printable once released (the order goes to the shop floor); drafts and cancelled orders are not

@@ -187,7 +187,9 @@ function App() {
           <Route
             path="/settings"
             element={
-              <ProtectedRoute resource="settings" action="view">
+              // Personal settings (profile, password, preferences) are for every
+              // signed-in user; admin tabs inside are gated by SettingsPage itself.
+              <ProtectedRoute>
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <SettingsPage />
                 </Suspense>

@@ -23,6 +23,30 @@ from app.modules.hr_core import schemas as s
 # employee statuses that still count as "on the payroll"
 LIVE_STATUSES = ("active", "probation", "notice_period")
 
+
+def in_service(emp: Employee, on: Optional[date] = None) -> bool:
+    """Live status, and not someone serving notice whose last working day has already passed."""
+    if (emp.status or "active") not in LIVE_STATUSES:
+        return False
+    on = on or tz.today()
+    return not (emp.status == "notice_period" and emp.last_working_date and emp.last_working_date < on)
+
+
+def settle_notice_periods(db: Session) -> int:
+    """There is no scheduler, so this runs on read: anyone serving notice whose last working day has passed
+    becomes resigned / retired (the status separate() would have given on that day)."""
+    rows = db.query(Employee).filter(Employee.status == "notice_period", Employee.last_working_date < tz.today()).all()
+    for emp in rows:
+        emp.status = "retired" if emp.exit_type == "retirement" else "resigned"
+    if rows:
+        db.flush()
+    return len(rows)
+
+
+def _settle_and_commit(db: Session) -> None:
+    if settle_notice_periods(db):
+        db.commit()
+
 _UNIQUE_MESSAGES = {
     "uq_hr_departments_code_ci": "A department with this code already exists",
     "uq_hr_departments_name_ci": "A department with this name already exists",
@@ -232,6 +256,10 @@ class OrgService:
         _dup(self.db, m.HRDesignation, m.HRDesignation.name, data.name, "A designation with this name already exists", row.id)
         if row.active and not data.active and _live_employee_count(self.db, Employee.designation_id, row.id):
             raise HTTPException(status_code=400, detail="Employees still hold this designation; change theirs before deactivating it")
+        if data.department_id and data.department_id != row.department_id and self.db.query(Employee.id).filter(
+                Employee.designation_id == row.id, Employee.status.in_(LIVE_STATUSES),
+                Employee.department_id.isnot(None), Employee.department_id != data.department_id).first():
+            raise HTTPException(status_code=400, detail="Employees of another department hold this designation; move them before changing its department")
         for k, v in _fields(data).items():
             setattr(row, k, v)
         row.updated_by = user_id
@@ -547,8 +575,17 @@ class LeavePolicyService:
         rows = q.order_by(func.lower(User.first_name), Employee.id, m.HRLeaveType.id).offset((page - 1) * size).limit(size).all()
         return {"items": [self._alloc_out(a, e, u, lt) for a, e, u, lt in rows], **_page(total, page, size)}
 
-    def upsert_allocation(self, data: s.LeaveAllocationIn, user_id: int) -> dict:
+    @staticmethod
+    def _need_branch(actor: Optional[User], emp: Employee) -> None:
+        """Same branch scope as the other employee records (no actor = internal call)."""
+        if actor is not None and not EmployeeService._branch_ok(actor, emp.branch_code):
+            raise HTTPException(status_code=403, detail=f"Access denied to branch: {emp.branch_code}")
+
+    def upsert_allocation(self, data: s.LeaveAllocationIn, user_id: int, actor: Optional[User] = None) -> dict:
         emp = _get(self.db, Employee, data.employee_pk, "Employee")
+        self._need_branch(actor, emp)
+        if not in_service(emp):
+            raise HTTPException(status_code=400, detail="This employee is no longer in service")
         lt = _get(self.db, m.HRLeaveType, data.leave_type_id, "Leave type")
         row = self.db.query(m.HRLeaveAllocation).filter(
             m.HRLeaveAllocation.employee_pk == emp.id, m.HRLeaveAllocation.leave_type_id == lt.id,
@@ -564,10 +601,11 @@ class LeavePolicyService:
         user = self.db.query(User).filter(User.id == emp.user_id).first()
         return self._alloc_out(row, emp, user, lt)
 
-    def update_allocation(self, row_id: int, data: s.LeaveAllocationUpdate, user_id: int) -> dict:
+    def update_allocation(self, row_id: int, data: s.LeaveAllocationUpdate, user_id: int, actor: Optional[User] = None) -> dict:
         row = _get(self.db, m.HRLeaveAllocation, row_id, "Leave allocation", lock=True)
-        _stale(row, data.expected_version, "Leave allocation")
         emp = _get(self.db, Employee, row.employee_pk, "Employee")
+        self._need_branch(actor, emp)
+        _stale(row, data.expected_version, "Leave allocation")
         lt = _get(self.db, m.HRLeaveType, row.leave_type_id, "Leave type")
         new_total = data.allocated + data.carried_forward + data.adjustment
         used, pending = self._usage(emp, lt, row.year)
@@ -684,8 +722,10 @@ class LeavePolicyService:
             raise HTTPException(status_code=400, detail=f"Unknown leave type '{leave_type_code}'")
         if not lt.active:
             raise HTTPException(status_code=400, detail=f"{lt.name} is not available")
-        if emp.status not in LIVE_STATUSES:
+        if not in_service(emp):
             raise HTTPException(status_code=400, detail="This employee is no longer in service")
+        if emp.last_working_date and end > emp.last_working_date:
+            raise HTTPException(status_code=400, detail=f"The employee's last working day is {emp.last_working_date}; leave cannot go past it")
         user = self.db.query(User).filter(User.id == emp.user_id).first()
         if not self._eligible(emp, user, lt, start.year):
             raise HTTPException(status_code=400, detail=f"{lt.name} does not apply to this employee")
@@ -740,7 +780,8 @@ class LieuLeaveService:
         emp = self.db.query(Employee).filter(Employee.id == data.employee_pk).first()
         if not emp:
             raise HTTPException(status_code=404, detail="Employee not found")
-        if emp.status not in LIVE_STATUSES:
+        LeavePolicyService._need_branch(actor, emp)
+        if not in_service(emp):
             raise HTTPException(status_code=400, detail="This employee is no longer in service")
         lt = self.policy.get_type_by_code("lieu")
         if not lt or not lt.active:
@@ -847,6 +888,7 @@ class EmployeeService:
         return branch_code in [b.branch_code for b in user.branches]
 
     def _get_employee(self, emp_id: int, actor: User, lock: bool = False) -> Employee:
+        _settle_and_commit(self.db)
         emp = _get(self.db, Employee, emp_id, "Employee", lock=lock)
         if not self._branch_ok(actor, emp.branch_code):
             raise HTTPException(status_code=403, detail=f"Access denied to branch: {emp.branch_code}")
@@ -912,6 +954,7 @@ class EmployeeService:
         return {e.id: _full_name(u) for e, u in self.db.query(Employee, User).join(User, User.id == Employee.user_id).filter(Employee.id.in_(ids)).all()}
 
     def list_paged(self, actor_branches, page: int, size: int, sort_by: Optional[str], order: str, **filters) -> dict:
+        _settle_and_commit(self.db)
         query = self._list_query(actor_branches, **filters)
         total = query.count()
         key = self._SORTS.get(sort_by or "", self._SORTS["employee_id"])()
@@ -921,7 +964,8 @@ class EmployeeService:
         return {"items": [self._item(e, u, names, managers) for e, u in rows], **_page(total, page, size)}
 
     def list_all(self, actor_branches, skip: int, limit: int) -> List[dict]:
-        rows = self._list_query(actor_branches).order_by(func.lower(Employee.employee_id), Employee.id).offset(skip).limit(limit).all()
+        _settle_and_commit(self.db)
+        rows =self._list_query(actor_branches).order_by(func.lower(Employee.employee_id), Employee.id).offset(skip).limit(limit).all()
         managers, names = self._managers([e for e, _ in rows]), self._names()
         return [self._item(e, u, names, managers) for e, u in rows]
 
@@ -995,7 +1039,16 @@ class EmployeeService:
                     hops += 1
 
     def _derive(self, emp: Employee, user: User, creating: bool) -> None:
-        """Defaults and cross-field rules, evaluated on what the employee will look like after the change."""
+        """Defaults and cross-field rules, evaluated on what the employee will look like after the change
+        (a partial update only carries some of the dates, so the schema cannot check these on its own)."""
+        joined = emp.date_of_joining
+        if joined:
+            if user.birthdate and joined < user.birthdate:
+                raise HTTPException(status_code=400, detail="Date of joining cannot be before the date of birth")
+            for value, label in ((emp.probation_end_date, "Probation end date"), (emp.confirmation_date, "Confirmation date"),
+                                 (emp.contract_end_date, "Contract end date")):
+                if value and value < joined:
+                    raise HTTPException(status_code=400, detail=f"{label} cannot be before the date of joining")
         if emp.employment_type_id:
             et = self.db.query(m.HREmploymentType).filter(m.HREmploymentType.id == emp.employment_type_id).first()
             if et and et.has_end_date and not emp.contract_end_date:
@@ -1039,10 +1092,13 @@ class EmployeeService:
 
     def _assign(self, emp: Employee, data: s.EmployeeProfileFields, user: User, only_set: bool = False) -> None:
         """Copy the submitted fields onto the employee. On update only the fields the client actually
-        sent are touched (omitting a field leaves it as it is; sending null clears it)."""
+        sent are touched (omitting a field leaves it as it is; sending null clears it). Birth date and gender
+        live on the user account: a new employee record only sets them when given, never wipes them."""
         values = data.model_dump(exclude_unset=True) if only_set else data.model_dump()
         for k, v in values.items():
             if k in ("expected_version",):
+                continue
+            if k in USER_FIELDS and not only_set and v is None:
                 continue
             if k == "date_of_birth":
                 user.birthdate = v
@@ -1188,6 +1244,7 @@ class EmployeeService:
     @staticmethod
     def _decorate(kind: str, row):
         if kind == "documents":
+            row.has_file = bool(row.file_path)   # the storage path itself is not sent to the browser
             today = tz.today()
             row.expired = bool(row.expiry_date and row.expiry_date < today)
             row.expires_in_days = (row.expiry_date - today).days if row.expiry_date else None
@@ -1265,7 +1322,7 @@ class EmployeeService:
         ctype = file.content_type or ""
         if ctype not in _DOC_EXT:
             raise HTTPException(status_code=400, detail="Only PDF, PNG, JPEG or WEBP files are accepted")
-        data = file.file.read()
+        data = file.file.read(settings.MAX_UPLOAD_SIZE_BYTES + 1)   # never more than the limit into memory
         if not data:
             raise HTTPException(status_code=400, detail="Uploaded file is empty")
         if len(data) > settings.MAX_UPLOAD_SIZE_BYTES:

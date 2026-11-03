@@ -2,7 +2,8 @@
 
 Every route needs the permission of the data it touches (the router-level hr_dashboard:view only opens
 the dashboard); ids and list sizes are bounded. Reimbursements are scoped by the claim's branch; the other
-per-employee records by the employee's home branch (app/modules/hr/scope.py). Payroll batches are company-wide.
+per-employee records by the employee's home branch (app/modules/hr/scope.py). Payroll batches are company-wide;
+the records and statutory returns inside a batch are limited to the user's branches.
 """
 from datetime import date
 from typing import Annotated, List, Literal, Optional
@@ -165,8 +166,8 @@ def list_payroll_batches(
 
 
 @router.get("/payroll/batches/{batch_id}", response_model=schemas.PayrollBatchResponse, dependencies=[SEE_PAYROLL])
-def get_payroll_batch(batch_id: RowId, db: Session = Depends(get_db)):
-    return service.PayrollService(db).get_batch(batch_id)
+def get_payroll_batch(batch_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return service.PayrollService(db, branches_of(current_user)).get_batch(batch_id)
 
 
 @router.get("/payroll/{payroll_id}", response_model=schemas.EmployeePayrollResponse, dependencies=[SEE_PAYROLL])
@@ -197,17 +198,17 @@ def delete_payroll(payroll_id: RowId, db: Session = Depends(get_db), current_use
 @router.post("/payroll/run", response_model=schemas.PayrollBatchResponse, status_code=status.HTTP_201_CREATED, dependencies=[_need(P.PAYROLL_PROCESSING_CREATE)])
 def trigger_payroll_run(data: schemas.PayrollRunRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Generate payroll records for every employee in service who has a salary profile."""
-    return service.PayrollService(db).trigger_payroll_run(data, current_user.id)
+    return service.PayrollService(db, branches_of(current_user)).trigger_payroll_run(data, current_user.id)
 
 
 @router.post("/payroll/batches/{batch_id}/submit", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_PROCESSING_CREATE)])
 def submit_payroll_batch(batch_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return service.PayrollService(db).submit_batch(batch_id, current_user.id)
+    return service.PayrollService(db, branches_of(current_user)).submit_batch(batch_id, current_user.id)
 
 
 @router.post("/payroll/batches/{batch_id}/approve", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_APPROVAL_APPROVE)])
 def approve_payroll_batch(batch_id: RowId, data: schemas.PayrollBatchApprove, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = service.PayrollService(db).approve_batch(batch_id, data, current_user)
+    result = service.PayrollService(db, branches_of(current_user)).approve_batch(batch_id, data, current_user)
     from app.modules.notifications import dispatcher as notify
     if result.created_by and result.created_by != current_user.id:
         notify.user(result.created_by, title="Payroll Approved", message=f"Payroll batch {result.batch_no} was approved.",
@@ -217,7 +218,7 @@ def approve_payroll_batch(batch_id: RowId, data: schemas.PayrollBatchApprove, db
 
 @router.post("/payroll/batches/{batch_id}/reject", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_APPROVAL_APPROVE)])
 def reject_payroll_batch(batch_id: RowId, data: schemas.PayrollBatchReject, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = service.PayrollService(db).reject_batch(batch_id, data, current_user.id)
+    result = service.PayrollService(db, branches_of(current_user)).reject_batch(batch_id, data, current_user.id)
     from app.modules.notifications import dispatcher as notify
     if result.created_by and result.created_by != current_user.id:
         notify.user(result.created_by, title="Payroll Rejected", message=f"Payroll batch {result.batch_no} was rejected: {data.rejection_reason}",
@@ -227,22 +228,22 @@ def reject_payroll_batch(batch_id: RowId, data: schemas.PayrollBatchReject, db: 
 
 @router.post("/payroll/batches/{batch_id}/process-payment", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_PROCESSING_CREATE)])
 def process_salary_payment(batch_id: RowId, data: schemas.PayrollBatchProcessPayment, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return service.PayrollService(db).process_salary_payment(batch_id, data, current_user.id)
+    return service.PayrollService(db, branches_of(current_user)).process_salary_payment(batch_id, data, current_user.id)
 
 
 @router.post("/payroll/batches/{batch_id}/process-statutory", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_PROCESSING_CREATE)])
 def process_statutory_payment(batch_id: RowId, data: schemas.PayrollBatchProcessStatutory, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return service.PayrollService(db).process_statutory_payment(batch_id, data, current_user.id)
+    return service.PayrollService(db, branches_of(current_user)).process_statutory_payment(batch_id, data, current_user.id)
 
 
 @router.post("/payroll/batches/{batch_id}/complete", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_PROCESSING_CREATE)])
 def complete_payroll_batch(batch_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return service.PayrollService(db).complete_batch(batch_id, current_user.id)
+    return service.PayrollService(db, branches_of(current_user)).complete_batch(batch_id, current_user.id)
 
 
 @router.post("/payroll/batches/{batch_id}/cancel", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_PROCESSING_CREATE)])
 def cancel_payroll_batch(batch_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return service.PayrollService(db).cancel_batch(batch_id, current_user.id)
+    return service.PayrollService(db, branches_of(current_user)).cancel_batch(batch_id, current_user.id)
 
 
 # ───────────────────────────── salary profiles ─────────────────────────────
@@ -377,17 +378,20 @@ def update_payroll_settings(data: schemas.PayrollSettingsIn, db: Session = Depen
 
 # ───────────────────────────── statutory returns ─────────────────────────────
 @router.get("/payroll/batches/{batch_id}/returns/{kind}", dependencies=[SEE_PAYROLL])
-def get_statutory_return(batch_id: RowId, kind: Literal["epf", "etf", "apit", "bank"], db: Session = Depends(get_db)):
-    """EPF Form C, ETF R4, APIT schedule or the bank salary-transfer list of a payroll batch."""
+def get_statutory_return(batch_id: RowId, kind: Literal["epf", "etf", "apit", "bank"], db: Session = Depends(get_db),
+                         current_user: User = Depends(get_current_user)):
+    """EPF Form C, ETF R4, APIT schedule or the bank salary-transfer list of a payroll batch
+    (a branch-scoped user gets only their branches' employees)."""
     from app.modules.hr.sl_payroll import statutory_return
-    return statutory_return(db, batch_id, kind)
+    return statutory_return(db, batch_id, kind, branches_of(current_user))
 
 
 @router.get("/payroll/batches/{batch_id}/returns/{kind}/csv", dependencies=[SEE_PAYROLL])
-def download_statutory_return(batch_id: RowId, kind: Literal["epf", "etf", "apit", "bank"], db: Session = Depends(get_db)):
+def download_statutory_return(batch_id: RowId, kind: Literal["epf", "etf", "apit", "bank"], db: Session = Depends(get_db),
+                              current_user: User = Depends(get_current_user)):
     from fastapi.responses import Response
     from app.modules.hr.sl_payroll import statutory_csv, statutory_return
-    data = statutory_return(db, batch_id, kind)
+    data = statutory_return(db, batch_id, kind, branches_of(current_user))
     name = {"epf": "EPF_Form_C", "etf": "ETF_R4", "apit": "APIT_Schedule", "bank": "Salary_Bank_Transfer"}[kind]
     return Response(content=statutory_csv(data), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="{name}_{data["batch_no"]}.csv"'})

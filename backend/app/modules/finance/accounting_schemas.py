@@ -227,6 +227,18 @@ class JournalEntryLineInput(JournalEntryLineCreate):
     debit_amount: MoneyIn = Decimal("0")
     credit_amount: MoneyIn = Decimal("0")
 
+    @field_validator("debit_amount", "credit_amount", mode="before")
+    @classmethod
+    def _at_most_cents(cls, v):
+        # Say so instead of silently rounding 10.005 to 10.01.
+        try:
+            exp = Decimal(str(v)).as_tuple().exponent if v not in (None, "") else 0
+        except Exception:
+            return v  # the money type reports the bad value
+        if isinstance(exp, int) and exp < -2 and Decimal(str(v)) != Decimal(str(v)).quantize(Decimal("0.01")):
+            raise ValueError("amounts can have at most 2 decimals")
+        return v
+
     @model_validator(mode="after")
     def _one_sided(self):
         if self.debit_amount and self.credit_amount:
@@ -243,6 +255,14 @@ class JournalEntryLineInput(JournalEntryLineCreate):
 
 class JournalEntryCreateInput(JournalEntryCreate):
     lines: List[JournalEntryLineInput]
+
+    @field_validator("description")
+    @classmethod
+    def _description_required(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("A description is required")
+        return v
 
 
 class JournalEntryUpdateInput(JournalEntryUpdate):
@@ -777,6 +797,7 @@ class AuditTrailFilter(BaseModel):
     created_by: Optional[int] = None
     include_reversed: bool = True
     search: Optional[str] = None
+    branch_codes: Optional[List[str]] = None  # branch-limited user (None = all)
     skip: int = 0
     limit: int = 200
 

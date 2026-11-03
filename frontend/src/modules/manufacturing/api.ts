@@ -1,3 +1,4 @@
+import axios from "axios";
 import apiClient from "@/api/client";
 import {
   BOM,
@@ -25,6 +26,22 @@ import {
   WorkCenter,
   WorkCenterInput,
 } from "./types";
+
+/**
+ * True when the shared axios interceptor (api/client.ts) has already toasted this error:
+ * network / timeout failures and API errors with a detail, except 401 / 403. Call sites
+ * that toast their own message use it to avoid showing the same error twice.
+ */
+export const errorAlreadyToasted = (error: unknown): boolean => {
+  if (!axios.isAxiosError(error)) return false;
+  const res = error.response;
+  if (!res) return true;
+  if (res.status === 401) return false;
+  // api/client.ts toasts a 403 on POST/PUT/PATCH/DELETE; GET 403s stay quiet.
+  if (res.status === 403) return !!error.config?.method && !/^(get|head)$/i.test(error.config.method);
+  const data = res.data as { detail?: unknown; message?: unknown } | undefined;
+  return !!(data?.detail || data?.message) || res.status >= 500;
+};
 
 const BASE = "/manufacturing";
 

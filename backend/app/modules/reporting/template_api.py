@@ -9,7 +9,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import HTMLResponse
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -51,6 +51,21 @@ def _check_branch(db: Session, user: User, branch_code: Optional[str]) -> None:
         raise HTTPException(status_code=422, detail=f"Branch '{branch_code}' does not exist")
     if not validate_branch_access(user, branch_code):
         raise HTTPException(status_code=403, detail="You do not have access to this branch")
+
+
+def _check_unique_name(db: Session, document_type: str, branch_code: Optional[str], name: str,
+                       exclude_id: Optional[int] = None) -> None:
+    """Template names are unique per document type and branch (case-insensitive), so the print
+    dialog never lists two templates that look the same."""
+    q = db.query(DocumentTemplate.id).filter(
+        DocumentTemplate.document_type == document_type,
+        func.lower(DocumentTemplate.name) == name.strip().lower(),
+        DocumentTemplate.branch_code.is_(None) if branch_code is None else DocumentTemplate.branch_code == branch_code,
+    )
+    if exclude_id is not None:
+        q = q.filter(DocumentTemplate.id != exclude_id)
+    if q.first():
+        raise HTTPException(status_code=409, detail="A print template with this name already exists for this document.")
 
 
 def _check_layout(doc, settings: schemas.PrintLayoutSettings) -> None:
@@ -283,6 +298,7 @@ def create_template(
 ):
     doc = _doc_type(body.document_type)
     _check_branch(db, user, body.branch_code)
+    _check_unique_name(db, doc.key, body.branch_code, body.name)
     _check_layout(doc, body.settings)
     custom_html = _check_custom_html(user, doc.key, body.custom_html, None)
     tmpl = DocumentTemplate(
@@ -328,6 +344,7 @@ def update_template(
     _check_branch(db, user, tmpl.branch_code)
     if body.branch_code != tmpl.branch_code:
         _check_branch(db, user, body.branch_code)
+    _check_unique_name(db, tmpl.document_type, body.branch_code, body.name, exclude_id=tmpl.id)
     _check_layout(DOCUMENT_TYPES[tmpl.document_type], body.settings)
     custom_html = _check_custom_html(user, tmpl.document_type, body.custom_html, tmpl.custom_html)
 

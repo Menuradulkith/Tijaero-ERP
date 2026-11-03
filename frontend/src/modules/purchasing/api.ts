@@ -1,4 +1,5 @@
 import apiClient from "@/api/client";
+import { showErrorToast } from "@/components/tijaero/feedback-extended/toast";
 import {
   Supplier,
   SupplierCreate,
@@ -512,7 +513,10 @@ export const purchaseReturnsApi = {
     const purchaseReturn = await purchaseReturnsApi.getById(returnId);
 
     if (!purchaseReturn.approval_id) {
-      throw new Error('Purchase return does not have an approval record');
+      // Not an HTTP error, so the shared client won't toast it: tell the user here.
+      const message = "This purchase return has no approval request, so it cannot be approved or rejected here.";
+      showErrorToast(message);
+      throw new Error(message);
     }
 
     // Use centralized approval API

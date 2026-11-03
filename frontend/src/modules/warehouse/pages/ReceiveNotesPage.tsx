@@ -221,6 +221,9 @@ export default function ReceiveNotesPage() {
       queryClient.invalidateQueries({ queryKey: ["itemReceiveNotes"] });
       queryClient.invalidateQueries({ queryKey: ["availableTransferNotes"] });
       queryClient.invalidateQueries({ queryKey: ["salesStock"] });
+      queryClient.invalidateQueries({ queryKey: ["salesStockSummary"] });
+      queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
+      queryClient.invalidateQueries({ queryKey: ["transferNoteDetail"] });
       handleCancelCreate();
       setScanResult({
         success: true,

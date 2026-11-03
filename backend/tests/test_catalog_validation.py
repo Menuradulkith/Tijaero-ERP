@@ -258,8 +258,10 @@ class TestIdsAndRoutes:
         assert ",=HYPERLINK" not in row and ',"=HYPERLINK' not in row
 
     def test_search_treats_percent_and_underscore_literally(self, superclient, product):
-        assert superclient.get(f"{B}/products/search", params={"q": "%"}).json() == []
-        assert superclient.get(f"{B}/products/search", params={"q": "_"}).json() == []
+        # Literal match: every hit must really contain the character (the shared dev DB may hold such names)
+        for ch in ("%", "_"):
+            hits = superclient.get(f"{B}/products/search", params={"q": ch}).json()
+            assert all(ch in f"{p.get('name', '')}{p.get('item_code', '')}{p.get('description') or ''}{p.get('model') or ''}" for p in hits), hits[:2]
         found = superclient.get(f"{B}/products/search", params={"q": product["item_code"][2:6]}).json()
         assert any(p["id"] == product["id"] for p in found)
 

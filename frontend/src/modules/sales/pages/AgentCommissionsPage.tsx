@@ -34,6 +34,7 @@ import DownloadIcon from "@mui/icons-material/FileDownload";
 import { commissionsApi, commissionPaymentsApi } from "@/modules/sales/commission-api";
 import type { CustomerAgentCommissionWithDetails } from "@/modules/sales/commission-types";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
 
 import CancelIcon from "@mui/icons-material/Cancel";
 const STATUS_COLOR: Record<string, "default" | "warning" | "success" | "error"> = {
@@ -65,6 +66,7 @@ export default function AgentCommissionsPage() {
   const [filterAgent, setFilterAgent] = useState<number | "">("");
   const [filterStatus, setFilterStatus] = useState<string>("approved");
 
+  const { getDefaultBranchCode } = useBranchFilter();
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [payingCommission, setPayingCommission] = useState<CustomerAgentCommissionWithDetails | null>(null);
   const [payMethod, setPayMethod] = useState("Cash");
@@ -76,7 +78,7 @@ export default function AgentCommissionsPage() {
   const [decliningId, setDecliningId] = useState<number | null>(null);
 
   const { data: customers = [] } = useQuery({
-    queryKey: ["customers"],
+    queryKey: ["customers", "list", 0, 100000, true],  // FE-10: the key carries the paging arguments
     queryFn: () => customersApi.getAll(),
   });
   const agents = (customers as any[]).filter((c: any) => c.is_customer_agent && c.active);
@@ -147,6 +149,11 @@ export default function AgentCommissionsPage() {
       setPayError(`Amount cannot exceed the commission of ${currencySymbol} ${fmtAmount(maxAmount)}.`);
       return;
     }
+    // FE-4: the payment is booked in the user's own branch (it was hard-coded to "MAIN")
+    if (!getDefaultBranchCode) {
+      setPayError("You have no branch assigned to record the payment in.");
+      return;
+    }
     setPaying(true);
     setPayError("");
     try {
@@ -156,7 +163,7 @@ export default function AgentCommissionsPage() {
         payment_method: payMethod,
         payment_amount: requested,
         reference_number: payReference || undefined,
-        branch_code: "MAIN",
+        branch_code: getDefaultBranchCode,
         remarks: `Commission for Invoice ${payingCommission.invoice_no ?? payingCommission.invoice_id}`,
         items: [
           { commission_id: payingCommission.id, paid_amount: requested },

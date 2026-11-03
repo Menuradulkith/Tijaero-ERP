@@ -12,7 +12,8 @@ class BranchRepository:
         query = db.query(Branch)
         if active_only:
             query = query.filter(Branch.active == True)
-        return query.offset(skip).limit(limit).all()
+        # Stable order: without one, page windows can repeat or miss rows.
+        return query.order_by(Branch.id).offset(skip).limit(limit).all()
     
     def get_by_id(self, db: Session, branch_id: int) -> Optional[Branch]:
         return db.query(Branch).filter(Branch.id == branch_id).first()
@@ -84,6 +85,7 @@ class BranchRepository:
             return None
 
         update_data = branch.model_dump(exclude_unset=True)
+        update_data.pop("branch_code", None)  # immutable; the service rejects a change
         if "email" in update_data:
             update_data["email"] = update_data.get("email") or None
         self._sync_legacy_address(update_data, set(update_data), db_branch)

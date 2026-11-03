@@ -44,7 +44,7 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { GridPaginationModel } from "@mui/x-data-grid";
 import { useDebounce } from "@/hooks";
 import { fetchAllPages } from "@/utils/fetchAllPages";
@@ -185,6 +185,7 @@ const resetFormFromOrder = (
           unit_price: item.unit_price,
           warrenty_month: item.warrenty_month || "0",
           remark: item.remark || "",
+          quote_item_id: item.quote_item_id ?? null,
         }))
       : [],
 });
@@ -215,6 +216,8 @@ export default function PurchaseOrdersPage() {
 
   // Short-Close reason dialog
   const [shortCloseDialogOpen, setShortCloseDialogOpen] = useState(false);
+  // The same reason dialog serves Short Close and Cancel (a not-yet-approved order).
+  const [closeMode, setCloseMode] = useState<"short" | "cancel">("short");
   const [shortCloseReason, setShortCloseReason] = useState("");
 
   // Validation state - track which fields have been touched/blurred
@@ -329,6 +332,7 @@ export default function PurchaseOrdersPage() {
           unit_price: item.unit_price,
           warrenty_month: item.warrenty_month || "0",
           remark: item.remark || "",
+          quote_item_id: item.quote_item_id ?? null,
         })),
       );
     }
@@ -411,6 +415,7 @@ export default function PurchaseOrdersPage() {
             unit_price: item.unit_price,
             warrenty_month: item.warrenty_month || "0",
             remark: item.remark || "",
+            quote_item_id: item.quote_item_id ?? null,
           }));
           setLineItems(mappedItems);
         } else {
@@ -487,6 +492,51 @@ export default function PurchaseOrdersPage() {
   const getAvailableQty = useCallback(
     (productId: number) => availableStockByProduct?.[productId] ?? 0,
     [availableStockByProduct],
+  );
+
+  // Only suppliers that carry every product on the order are offered (the
+  // supplier-product mappings are the source of truth). An empty cart, or
+  // mappings still loading, leaves the full list.
+  const lineProductIds = useMemo(
+    () => Array.from(new Set(lineItems.map((i) => i.product_id).filter((id): id is number => !!id))),
+    [lineItems],
+  );
+  const lineProductSupplierQueries = useQueries({
+    queries: lineProductIds.map((productId) => ({
+      queryKey: ["product-suppliers-compare", productId],
+      queryFn: () => productsApi.getSuppliers(productId),
+    })),
+  });
+  const mappingsReady = lineProductSupplierQueries.every((q) => q.data !== undefined);
+  const allowedSupplierIds = useMemo(() => {
+    if (lineProductIds.length === 0 || !mappingsReady) return null;
+    const sets = lineProductSupplierQueries.map(
+      (q) => new Set((q.data as SupplierProduct[]).filter((sp) => sp.active !== false).map((sp) => sp.supplier_id)),
+    );
+    return sets.reduce((acc, cur) => new Set([...acc].filter((id) => cur.has(id))));
+  }, [lineProductIds, mappingsReady, lineProductSupplierQueries]);
+  // Suppliers flagged as preferred for any product on the order (listed first, tagged).
+  const preferredSupplierIds = useMemo(() => {
+    const ids = new Set<number>();
+    lineProductSupplierQueries.forEach((q) =>
+      ((q.data as SupplierProduct[] | undefined) ?? []).forEach((sp) => {
+        if (sp.is_preferred && sp.active !== false) ids.add(sp.supplier_id);
+      }),
+    );
+    return ids;
+  }, [lineProductSupplierQueries]);
+  const supplierOptions = useMemo(
+    () =>
+      (suppliers || [])
+        .filter(
+          (s: Supplier) =>
+            !allowedSupplierIds || allowedSupplierIds.has(s.id) || s.id === formData.first_suppliers_id,
+        )
+        .sort(
+          (a: Supplier, b: Supplier) =>
+            Number(preferredSupplierIds.has(b.id)) - Number(preferredSupplierIds.has(a.id)),
+        ),
+    [suppliers, allowedSupplierIds, formData.first_suppliers_id, preferredSupplierIds],
   );
 
   // The reverse lookup: every supplier who can supply the product currently
@@ -835,6 +885,19 @@ export default function PurchaseOrdersPage() {
     },
   });
 
+  const cancelOrderMutation = useCrudMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      purchaseOrdersApi.cancel(id, reason),
+    invalidateQueryKeys: [["purchaseOrders"]],
+    successMessage: "Purchase order cancelled",
+    errorMessage: "Failed to cancel purchase order",
+    onSuccess: (updatedOrder) => {
+      setSelectedOrder((prev) => (prev ? { ...prev, ...updatedOrder } : updatedOrder));
+      setShortCloseDialogOpen(false);
+      setShortCloseReason("");
+    },
+  });
+
   // Check if order can be edited (no GRN created)
   const canCreateOrder = usePermission("purchase_orders", "create");
   const canUpdateOrder = usePermission("purchase_orders", "update");
@@ -843,9 +906,13 @@ export default function PurchaseOrdersPage() {
     !["completed", "partially_completed", "cancelled", "short_closed"].includes(selectedOrder.status?.toLowerCase() || "")
   );
 
-  // Short-close only makes sense once something has been received but the
-  // rest never will be.
-  const canShortCloseOrder = canUpdateOrder && selectedOrder?.status?.toLowerCase() === "partially_completed";
+  // Short-close: the rest of the order (or, for an approved order, all of it)
+  // will never be delivered. An approved order can't be cancelled, only closed.
+  const canShortCloseOrder =
+    canUpdateOrder && ["partially_completed", "approved"].includes(selectedOrder?.status?.toLowerCase() || "");
+  // Cancel is for orders not yet approved (an approved one is short-closed instead).
+  const canCancelOrder =
+    canUpdateOrder && ["pending_approval", "pending", "draft"].includes(selectedOrder?.status?.toLowerCase() || "");
 
   const handleAddLineItem = () => {
     const newItem: OrderLineItem = {
@@ -876,10 +943,26 @@ export default function PurchaseOrdersPage() {
   };
 
   const [isPreSaveChecking, setIsPreSaveChecking] = useState(false);
+  const saveBusyRef = useRef(false);
 
   const handleSave = useCallback(async () => {
     // Prevent double-submit during async credit-check / confirm-dialog window
-    if (isPreSaveChecking || createMutation.isPending || updateMutation.isPending) return;
+    if (saveBusyRef.current || isPreSaveChecking || createMutation.isPending || updateMutation.isPending) return;
+    // Every line needs a product, a whole quantity of at least 1 and a price above 0.
+    const badLine = lineItems.find(
+      (i) => !i.product_id || !Number.isInteger(Number(i.quantity)) || Number(i.quantity) < 1 || !(Number(i.unit_price) > 0),
+    );
+    if (lineItems.length === 0 || badLine) {
+      showErrorToast(
+        lineItems.length === 0
+          ? "Add at least one product to the order."
+          : "Each line needs a product, a quantity of at least 1 and a unit price above 0.",
+      );
+      return;
+    }
+    // A ref (not state) so a fast double click can't slip past before re-render.
+    saveBusyRef.current = true;
+    let handedOff = false;
     setIsPreSaveChecking(true);
     try {
     const dataToSave: PurchasingOrderCreate = {
@@ -952,7 +1035,8 @@ export default function PurchaseOrdersPage() {
     }
 
     if (isCreating) {
-      createMutation.mutate(dataToSave);
+      handedOff = true;
+      createMutation.mutate(dataToSave, { onSettled: () => { saveBusyRef.current = false; } });
     } else if (selectedOrder) {
       // If order was approved, reset status to pending for re-approval
       const wasApproved = selectedOrder.status?.toLowerCase() === "approved";
@@ -974,6 +1058,8 @@ export default function PurchaseOrdersPage() {
           unit_price: item.unit_price,
           warrenty_month: item.warrenty_month,
           remark: item.remark,
+          // keep the quotation link, or the line would lose its reservation trail
+          quote_item_id: item.quote_item_id ?? null,
         })),
       };
 
@@ -990,12 +1076,14 @@ export default function PurchaseOrdersPage() {
         );
       }
 
-      updateMutation.mutate({
-        id: selectedOrder.id,
-        data: updateData,
-      });
+      handedOff = true;
+      updateMutation.mutate(
+        { id: selectedOrder.id, data: updateData },
+        { onSettled: () => { saveBusyRef.current = false; } },
+      );
     }
     } finally {
+      if (!handedOff) saveBusyRef.current = false;
       setIsPreSaveChecking(false);
     }
   }, [
@@ -1318,9 +1406,19 @@ export default function PurchaseOrdersPage() {
                   size="small"
                   variant="outlined"
                   color="warning"
-                  onClick={() => setShortCloseDialogOpen(true)}
+                  onClick={() => { setCloseMode("short"); setShortCloseDialogOpen(true); }}
                 >
                   Short Close
+                </Button>
+              )}
+              {canCancelOrder && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  onClick={() => { setCloseMode("cancel"); setShortCloseDialogOpen(true); }}
+                >
+                  Cancel Order
                 </Button>
               )}
               {canPrintDocument(selectedOrder.status, ["cancelled"]) && (<Tooltip title={!canPrintDocument(selectedOrder.status, ["cancelled"]) ? `Cannot email: order is ${(selectedOrder.status || "").replace(/_/g, " ")}` : "Send via Email"}>
@@ -1428,7 +1526,8 @@ export default function PurchaseOrdersPage() {
                   {/* Searchable Supplier Dropdown */}
                   <Autocomplete
                     size="small"
-                    options={suppliers || []}
+                    options={supplierOptions}
+                    noOptionsText="No supplier carries all the products on this order"
                     getOptionLabel={(option: Supplier) => {
                       const name = option.company_name;
                       return option.active ? name : `${name} (Inactive)`;
@@ -1481,6 +1580,11 @@ export default function PurchaseOrdersPage() {
                         <Box sx={{ display: "flex", flexDirection: "column", width: "100%" }}>
                           <Typography variant="body2">
                             {option.active ? option.company_name : `${option.company_name} (Inactive)`}
+                            {preferredSupplierIds.has(option.id) && (
+                              <Typography component="span" variant="caption" color="primary" sx={{ ml: 1 }}>
+                                (preferred)
+                              </Typography>
+                            )}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             Est. lead time: {option.lead_time_days != null ? `${option.lead_time_days} days` : "-"}
@@ -2176,17 +2280,19 @@ export default function PurchaseOrdersPage() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Short Close Purchase Order</DialogTitle>
+        <DialogTitle>{closeMode === "cancel" ? "Cancel Purchase Order" : "Short Close Purchase Order"}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            This closes "{selectedOrder?.purchasing_order_no}" as-is, with no more units expected for the remaining ordered quantity.
+            {closeMode === "cancel"
+              ? `This cancels "${selectedOrder?.purchasing_order_no}". It cannot be undone.`
+              : `This closes "${selectedOrder?.purchasing_order_no}" as-is, with no more units expected for the remaining ordered quantity.`}
           </Typography>
           <TextField
             fullWidth
             multiline
             rows={3}
             autoFocus
-            label="Short Close Reason"
+            label={closeMode === "cancel" ? "Cancellation Reason" : "Short Close Reason"}
             placeholder="e.g. Supplier confirmed remaining stock is discontinued..."
             value={shortCloseReason}
             onChange={(e) => setShortCloseReason(e.target.value)}
@@ -2204,13 +2310,16 @@ export default function PurchaseOrdersPage() {
           <Button
             variant="contained"
             color="warning"
-            disabled={!shortCloseReason.trim() || shortCloseMutation.isPending}
+            disabled={!shortCloseReason.trim() || shortCloseMutation.isPending || cancelOrderMutation.isPending}
             onClick={() =>
               selectedOrder &&
-              shortCloseMutation.mutate({ id: selectedOrder.id, reason: shortCloseReason.trim() })
+              (closeMode === "cancel" ? cancelOrderMutation : shortCloseMutation).mutate({
+                id: selectedOrder.id,
+                reason: shortCloseReason.trim(),
+              })
             }
           >
-            Short Close
+            {closeMode === "cancel" ? "Cancel Order" : "Short Close"}
           </Button>
         </DialogActions>
       </Dialog>

@@ -10,7 +10,7 @@ import { Box, Button, IconButton, Tooltip } from "@mui/material";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
-import { showErrorToast, showSuccessToast, handleApiError } from "@/components/tijaero";
+import { showErrorToast, showSuccessToast, handleApiError, TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 import { productsApi, productImageUrl } from "../api";
 import { Product } from "../types";
 
@@ -99,7 +99,8 @@ export default function ProductImageUploader({
       onUpdated?.(updated);
       showSuccessToast("Image uploaded");
     } catch (err) {
-      showErrorToast(handleApiError(err, "Failed to upload image"));
+      // API errors are already toasted by the shared client; only report anything else.
+      if (!(err as { isAxiosError?: boolean })?.isAxiosError) showErrorToast(handleApiError(err, "Failed to upload image"));
     } finally {
       // Hand display back to the saved image_url (the object URL is revoked
       // below, so keeping it as the preview would show a dead blob).
@@ -111,11 +112,19 @@ export default function ProductImageUploader({
     }
   };
 
+  const confirmDialog = useConfirmDialog();
   const handleRemove = async () => {
     if (isDraftMode) {
       onDraftFileChange?.(null);
       return;
     }
+    const confirmed = await confirmDialog.confirm({
+      title: "Remove image",
+      message: "Remove the current image? This cannot be undone.",
+      confirmText: "Remove",
+      confirmColor: "error",
+    });
+    if (!confirmed) return;
     const productId = product!.id;
     setUploading(true);
     try {
@@ -123,7 +132,7 @@ export default function ProductImageUploader({
       onUpdated?.(updated);
       showSuccessToast("Image removed");
     } catch (err) {
-      showErrorToast(handleApiError(err, "Failed to remove image"));
+      if (!(err as { isAxiosError?: boolean })?.isAxiosError) showErrorToast(handleApiError(err, "Failed to remove image"));
     } finally {
       if (currentProductIdRef.current === productId) {
         setPreviewUrl(null);
@@ -195,6 +204,7 @@ export default function ProductImageUploader({
           </Tooltip>
         )}
       </Box>
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </Box>
   );
 }

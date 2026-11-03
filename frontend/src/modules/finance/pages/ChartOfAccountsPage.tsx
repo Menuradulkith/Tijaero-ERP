@@ -58,6 +58,7 @@ import {
 } from "@/components/tijaero";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
+import { usePermission } from "@/auth/permissions";
 import { chartOfAccountsApi } from "@/modules/finance/api";
 import type {
   ChartOfAccount,
@@ -233,6 +234,11 @@ export default function ChartOfAccountsPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
+  // Same permissions the backend checks on each endpoint.
+  const canCreateCoa = usePermission("chart_of_accounts", "create");
+  const canUpdateCoa = usePermission("chart_of_accounts", "update");
+  const canDeleteCoa = usePermission("chart_of_accounts", "delete");
+
   const createMutation = useCrudMutation({
     mutationFn: chartOfAccountsApi.create,
     invalidateQueryKeys: [["chart-of-accounts"], ["chart-of-accounts-all"]],
@@ -318,8 +324,8 @@ export default function ChartOfAccountsPage() {
     }
   }, [selectedAccount, confirmDialog, deleteMutation]);
 
-  const canEdit = !!selectedAccount;
-  const canDelete = !!(selectedAccount && !selectedAccount.is_system_account);
+  const canEdit = !!selectedAccount && canUpdateCoa;
+  const canDelete = !!(selectedAccount && !selectedAccount.is_system_account && canDeleteCoa);
   // Whitespace-only text counts as empty.
   const isFormValid = !!(
     formData.account_code.trim() &&
@@ -471,7 +477,7 @@ export default function ChartOfAccountsPage() {
         isEditing={isEditing}
         isSaving={isSaving}
         isFormValid={isFormValid}
-        onNew={handleNew}
+        onNew={canCreateCoa ? handleNew : undefined}
         onSave={handleSave}
         onCancel={handleCancelAccount}
         onEdit={canEdit ? handleStartEdit : undefined}
@@ -770,10 +776,12 @@ export default function ChartOfAccountsPage() {
         headerActions={
           isAccountDetailMode ? undefined : (
             <>
+              {canCreateCoa && (
               <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
                 Add Account
               </Button>
-              {accounts.length === 0 && (
+              )}
+              {accounts.length === 0 && canCreateCoa && (
                 <button
                   onClick={() => submitOnce("coa-seed", seedMutation)}
                   disabled={seedMutation.isPending}

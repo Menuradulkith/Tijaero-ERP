@@ -1,3 +1,4 @@
+import axios from "axios";
 import apiClient from "@/api/client";
 import {
   ItemTransferNote,
@@ -6,7 +7,6 @@ import {
   ItemTransferNoteItem,
   ItemTransferNoteItemCreate,
   ItemReceiveNote,
-  ItemReceiveNoteCreate,
   BarcodeValidationRequest,
   LotValidationRequest,
   LotValidationResponse,
@@ -15,6 +15,22 @@ import {
   ReceiveItemsResponse,
   TransferNoteStatusResponse,
 } from "./types";
+
+/**
+ * True when the shared axios interceptor (api/client.ts) has already toasted this error:
+ * network / timeout failures and API errors with a detail, except 401 / 403. Call sites
+ * that toast their own message use it to avoid showing the same error twice.
+ */
+export const errorAlreadyToasted = (error: unknown): boolean => {
+  if (!axios.isAxiosError(error)) return false;
+  const res = error.response;
+  if (!res) return true;
+  if (res.status === 401) return false;
+  // api/client.ts toasts a 403 on POST/PUT/PATCH/DELETE; GET 403s stay quiet.
+  if (res.status === 403) return !!error.config?.method && !/^(get|head)$/i.test(error.config.method);
+  const data = res.data as { detail?: unknown; message?: unknown } | undefined;
+  return !!(data?.detail || data?.message) || res.status >= 500;
+};
 
 // Item Transfer Notes API
 export const transferNotesApi = {
@@ -102,13 +118,6 @@ export const transferNoteItemsApi = {
     return response.data;
   },
 
-  markAsReceived: async (id: number) => {
-    const response = await apiClient.patch<ItemTransferNoteItem>(
-      `/warehouse/transfer-note-items/${id}/receive`
-    );
-    return response.data;
-  },
-
   delete: async (id: number) => {
     await apiClient.delete(`/warehouse/transfer-note-items/${id}`);
   },
@@ -143,22 +152,6 @@ export const receiveNotesApi = {
     return response.data;
   },
 
-  create: async (data: ItemReceiveNoteCreate) => {
-    const response = await apiClient.post<ItemReceiveNote>(
-      "/warehouse/receive-notes",
-      data
-    );
-    return response.data;
-  },
-
-  update: async (id: number, data: ItemReceiveNoteCreate) => {
-    const response = await apiClient.put<ItemReceiveNote>(
-      `/warehouse/receive-notes/${id}`,
-      data
-    );
-    return response.data;
-  },
-
   receiveItems: async (transferNoteId: number, data: ReceiveItemsRequest) => {
     const response = await apiClient.post<ReceiveItemsResponse>(
       `/warehouse/transfer-notes/${transferNoteId}/receive-items`,
@@ -189,6 +182,14 @@ export const transferWorkflowApi = {
   dispatch: async (transferNoteId: number) => {
     const response = await apiClient.post<ItemTransferNote>(
       `/warehouse/transfer-notes/${transferNoteId}/dispatch`
+    );
+    return response.data;
+  },
+
+  // Pending or approved (not dispatched) notes; units reserved at approval become available again.
+  cancel: async (transferNoteId: number) => {
+    const response = await apiClient.post<ItemTransferNote>(
+      `/warehouse/transfer-notes/${transferNoteId}/cancel`
     );
     return response.data;
   },

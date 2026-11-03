@@ -36,6 +36,14 @@ class EmailSendRequest(BaseModel):
     subject: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
     body: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50000)]
 
+    @field_validator("subject", "display_id")
+    @classmethod
+    def _one_line(cls, v: str) -> str:
+        # Mail headers / file names: a CR or LF would be refused when sending.
+        if "\r" in v or "\n" in v:
+            raise ValueError("must be a single line")
+        return v
+
     @field_validator("to_email", "cc_email")
     @classmethod
     def _email_len(cls, v):
@@ -60,6 +68,13 @@ class EmailTemplateUpdate(BaseModel):
     @classmethod
     def _tags_ok(cls, v):
         return check_template_text(v) if v is not None else v
+
+    @field_validator("subject_template")
+    @classmethod
+    def _subject_one_line(cls, v):
+        if v is not None and ("\r" in v or "\n" in v):
+            raise ValueError("must be a single line")
+        return v
 
 class EmailLogResponse(BaseModel):
     id: int

@@ -630,6 +630,13 @@ class SalesStockService:
         ).first()
         if not grn:
             raise ValueError(f"Goods received note {item.good_received_note_id} not found")
+        if grn.status == "cancelled":
+            raise ValueError(f"Goods received note {grn.good_received_no} is cancelled.")
+        # The unit lands where the GRN received it, never in another branch/location.
+        if item.branch_code != grn.branch_code:
+            raise ValueError(f"Goods received note {grn.good_received_no} belongs to branch {grn.branch_code}.")
+        if item.location_id is not None and item.location_id != grn.good_received_locations_id:
+            raise ValueError(f"Location {item.location_id} is not the receiving location of {grn.good_received_no}.")
         if grn.purchasingorders_id != po_item.purchasingorders_id:
             raise ValueError(
                 f"Goods received note {grn.good_received_no} does not belong to the purchase order "

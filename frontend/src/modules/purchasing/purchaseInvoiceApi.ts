@@ -238,14 +238,6 @@ export const purchaseInvoicesApi = {
     return response.data;
   },
 
-  // Verify invoice (makes it payable)
-  verify: async (id: number) => {
-    const response = await apiClient.post<PurchaseInvoice>(
-      `/purchasing/invoices/${id}/verify`
-    );
-    return response.data;
-  },
-
   // Cancel invoice
   cancel: async (id: number) => {
     const response = await apiClient.post<PurchaseInvoice>(

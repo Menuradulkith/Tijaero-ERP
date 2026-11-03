@@ -30,9 +30,16 @@ from . import schemas
 LOW_STOCK_THRESHOLD = 5
 
 
+def _in(col, branch_codes: Optional[List[str]]) -> list:
+    """Filter list limiting ``col`` to the caller's branches (None = all branches)."""
+    return [] if branch_codes is None else [col.in_(branch_codes)]
+
+
 class ReportingService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, branch_codes: Optional[List[str]] = None):
+        """``branch_codes``: the caller's branches; None = every branch (superuser)."""
         self.db = db
+        self.branch_codes = branch_codes
 
     def get_sales_report(
         self, request: schemas.SalesReportRequest
@@ -68,6 +75,7 @@ class ReportingService:
             Invoice.created_date <= request.end_date,
             *counted_invoice_filters(),
         ]
+        conds += _in(Invoice.branch_code, self.branch_codes)
         if request.branch_code:
             conds.append(Invoice.branch_code == request.branch_code)
         if request.customer_id:
@@ -90,6 +98,7 @@ class ReportingService:
                 SaleReturn.added_date <= request.end_date,
             )
         )
+        ret_q = ret_q.filter(*_in(SaleReturn.branch_code, self.branch_codes))
         if request.branch_code:
             ret_q = ret_q.filter(SaleReturn.branch_code == request.branch_code)
         if request.customer_id:
@@ -283,6 +292,7 @@ class ReportingService:
                 and_(
                     BankDeposits.created_date >= request.start_date,
                     BankDeposits.created_date < day_after_end,
+                    *_in(BankDeposits.branch_code, self.branch_codes),
                 )
             )
             .scalar()
@@ -290,8 +300,14 @@ class ReportingService:
         )
 
         # Card payments
+        card_q = self.db.query(func.sum(CardPayments.amount))
+        if self.branch_codes is not None:
+            # A card payment has no branch of its own; it is the branch of its sale.
+            card_q = card_q.filter(CardPayments.id.in_(
+                self.db.query(Invoice.card_payment_id).filter(Invoice.branch_code.in_(self.branch_codes))
+            ))
         card_payments = (
-            self.db.query(func.sum(CardPayments.amount))
+            card_q
             .filter(
                 and_(
                     func.date(CardPayments.date_time) >= request.start_date,
@@ -309,6 +325,7 @@ class ReportingService:
                 and_(
                     ChequePayments.cheque_date >= request.start_date,
                     ChequePayments.cheque_date <= request.end_date,
+                    *_in(ChequePayments.branch_code, self.branch_codes),
                 )
             )
             .scalar()
@@ -322,6 +339,7 @@ class ReportingService:
                 and_(
                     Expenses.created_date >= request.start_date,
                     Expenses.created_date <= request.end_date,
+                    *_in(Expenses.branch_code, self.branch_codes),
                 )
             )
             .scalar()
@@ -341,7 +359,8 @@ class ReportingService:
         ]
         for fy in sorted(fiscal_years):
             stmt = gl_service.get_income_statement(
-                fiscal_year=fy, date_from=request.start_date, date_to=request.end_date
+                fiscal_year=fy, date_from=request.start_date, date_to=request.end_date,
+                branch_codes=self.branch_codes,
             )
             total_income += float(stmt.revenue.total) + float(stmt.other_income.total)
             total_gl_expenses += (
@@ -360,6 +379,7 @@ class ReportingService:
                 and_(
                     Expenses.created_date >= request.start_date,
                     Expenses.created_date <= request.end_date,
+                    *_in(Expenses.branch_code, self.branch_codes),
                 )
             )
             .group_by(Expenses.expenses_method)
@@ -381,6 +401,7 @@ class ReportingService:
                 and_(
                     BankDeposits.created_date >= request.start_date,
                     BankDeposits.created_date < day_after_end,
+                    *_in(BankDeposits.branch_code, self.branch_codes),
                 )
             )
             .group_by("month")
@@ -453,7 +474,8 @@ class ReportingService:
             self.db.query(func.coalesce(func.sum(SalesStock.quantity * unit_cost), 0))
             .join(Product, Product.id == SalesStock.product_id)
             .outerjoin(PurchasingOrderItems, PurchasingOrderItems.id == SalesStock.purchasing_order_items_id)
-            .filter(SalesStock.status.in_(SalesStockService._SUMMARY_ON_HAND_STATUSES))
+            .filter(SalesStock.status.in_(SalesStockService._SUMMARY_ON_HAND_STATUSES),
+                    *_in(SalesStock.branch_code, self.branch_codes))
         )
         if category_filter:  # not the active filter: an inactive product's stock still has value
             value_q = value_q.filter(*category_filter)
@@ -470,6 +492,7 @@ class ReportingService:
             .filter(
                 SalesStock.status == "available",
                 SalesStock.is_active == True,
+                *_in(SalesStock.branch_code, self.branch_codes),
             )
             .group_by(SalesStock.product_id)
             .subquery()
@@ -521,7 +544,9 @@ class ReportingService:
     ) -> schemas.HRReportResponse:
         """Generate HR report"""
         # Total employees
-        total_employees = self.db.query(func.count(Employee.id)).scalar() or 0
+        total_employees = (
+            self.db.query(func.count(Employee.id)).filter(*_in(Employee.branch_code, self.branch_codes)).scalar() or 0
+        )
 
         # Payroll: the records of the payroll batches for the months in the range
         # that have been paid (the GL posts a batch when its salaries are paid).
@@ -534,6 +559,9 @@ class ReportingService:
             )
             .join(PayrollBatch, PayrollBatch.batch_no == EmployeePayroll.payroll_batch_no)
             .filter(
+                *([EmployeePayroll.employee_id.in_(
+                    self.db.query(Employee.employee_id).filter(Employee.branch_code.in_(self.branch_codes))
+                )] if self.branch_codes is not None else []),
                 PayrollBatch.status.in_(("salary_paid", "statutory_paid", "completed")),
                 (PayrollBatch.payroll_year * 100 + PayrollBatch.payroll_month).between(first_period, last_period),
             )
@@ -542,7 +570,8 @@ class ReportingService:
 
         # Reimbursements
         total_reimbursements = (
-            self.db.query(func.sum(Reimbursements.total_amount)).scalar() or 0
+            self.db.query(func.sum(Reimbursements.total_amount))
+            .filter(*_in(Reimbursements.branch_code, self.branch_codes)).scalar() or 0
         )
 
         return schemas.HRReportResponse(
@@ -565,6 +594,7 @@ class ReportingService:
                 and_(
                     ItemTransferNote.created_date >= request.start_date,
                     ItemTransferNote.created_date <= request.end_date,
+                    *_in(ItemTransferNote.branch_code, self.branch_codes),
                 )
             )
             .scalar()
@@ -577,7 +607,7 @@ class ReportingService:
         # Pending approvals
         pending_approvals = (
             self.db.query(func.count(ItemTransferNote.id))
-            .filter(ItemTransferNote.approval_id == None)
+            .filter(ItemTransferNote.approval_id == None, *_in(ItemTransferNote.branch_code, self.branch_codes))
             .scalar()
             or 0
         )
@@ -601,6 +631,7 @@ class ReportingService:
             )
         )
 
+        query = query.filter(*_in(CustomerSupport.branch_code, self.branch_codes))
         if request.branch_code:
             query = query.filter(CustomerSupport.branch_code == request.branch_code)
         if request.job_type:
@@ -617,6 +648,9 @@ class ReportingService:
                     WarrantyClaims.created_date >= request.start_date,
                     # timestamp column: keep claims made on the last day
                     WarrantyClaims.created_date < request.end_date + timedelta(days=1),
+                    *([WarrantyClaims.order_id.in_(
+                        self.db.query(Invoice.id).filter(Invoice.branch_code.in_(self.branch_codes))
+                    )] if self.branch_codes is not None else []),
                 )
             )
             .scalar()
@@ -632,6 +666,7 @@ class ReportingService:
                 and_(
                     CustomerSupport.date >= request.start_date,
                     CustomerSupport.date <= request.end_date,
+                    *_in(CustomerSupport.branch_code, self.branch_codes),
                 )
             )
             .group_by(CustomerSupport.job_type)
@@ -658,6 +693,8 @@ class ReportingService:
         from app.modules.sales.models import SaleReturn
         from app.modules.warehouse.models import ItemTransferNote
 
+        bc = self.branch_codes  # branch-limited users only see their branches' figures
+
         today = tz.today()
         month_start = date(today.year, today.month, 1)
         # Last month range
@@ -677,13 +714,13 @@ class ReportingService:
 
         sales_today = (
             self.db.query(func.coalesce(func.sum(_sales_sum_expr), 0))
-            .filter(Invoice.created_date == today)
+            .filter(Invoice.created_date == today, *_in(Invoice.branch_code, bc))
             .scalar()
         )
 
         sales_month = (
             self.db.query(func.coalesce(func.sum(_sales_sum_expr), 0))
-            .filter(Invoice.created_date >= month_start)
+            .filter(Invoice.created_date >= month_start, *_in(Invoice.branch_code, bc))
             .scalar()
         )
 
@@ -693,6 +730,7 @@ class ReportingService:
                 and_(
                     Invoice.created_date >= last_month_start,
                     Invoice.created_date <= last_month_end,
+                    *_in(Invoice.branch_code, bc),
                 )
             )
             .scalar()
@@ -701,14 +739,14 @@ class ReportingService:
         # Orders
         orders_today = (
             self.db.query(func.count(Invoice.id))
-            .filter(Invoice.created_date == today)
+            .filter(Invoice.created_date == today, *_in(Invoice.branch_code, bc))
             .scalar()
             or 0
         )
 
         orders_month = (
             self.db.query(func.count(Invoice.id))
-            .filter(Invoice.created_date >= month_start)
+            .filter(Invoice.created_date >= month_start, *_in(Invoice.branch_code, bc))
             .scalar()
             or 0
         )
@@ -719,6 +757,7 @@ class ReportingService:
                 and_(
                     Invoice.created_date >= last_month_start,
                     Invoice.created_date <= last_month_end,
+                    *_in(Invoice.branch_code, bc),
                 )
             )
             .scalar()
@@ -759,6 +798,7 @@ class ReportingService:
                 .filter(
                     SalesStock.status == "available",
                     SalesStock.is_active == True,
+                    *_in(SalesStock.branch_code, bc),
                 )
                 .group_by(SalesStock.product_id)
                 .subquery()
@@ -808,6 +848,7 @@ class ReportingService:
                     and_(
                         GoodReceivedNote.good_received_date >= month_start,
                         GoodReceivedItems.active == True,
+                        *_in(GoodReceivedNote.branch_code, bc),
                     )
                 )
                 .scalar()
@@ -819,7 +860,7 @@ class ReportingService:
         try:
             pending_po_count = (
                 self.db.query(func.count(PurchasingOrder.id))
-                .filter(PurchasingOrder.status == "pending")
+                .filter(PurchasingOrder.status == "pending", *_in(PurchasingOrder.branch_code, bc))
                 .scalar()
                 or 0
             )
@@ -833,7 +874,7 @@ class ReportingService:
         # customer payments (symmetric with the net payables figure below).
         total_credit_outstanding = (
             self.db.query(func.coalesce(func.sum(Invoice.balance_due), 0))
-            .filter(and_(Invoice.credit_amount > 0, Invoice.payment_status != "paid"))
+            .filter(and_(Invoice.credit_amount > 0, Invoice.payment_status != "paid", *_in(Invoice.branch_code, bc)))
             .scalar()
         )
 
@@ -861,7 +902,7 @@ class ReportingService:
                     GoodReceivedItems,
                     GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id,
                 )
-                .filter(GoodReceivedItems.active == True)
+                .filter(GoodReceivedItems.active == True, *_in(GoodReceivedItems.branch_code, bc))
                 .scalar()
                 or 0
             )
@@ -878,6 +919,7 @@ class ReportingService:
                     SupplierCreditsSettleTransaction.supplier_credit_settle_id
                     == SupplierCreditsSettle.id,
                 )
+                .filter(*_in(SupplierCreditsSettle.branch_code, bc))
                 .scalar()
                 or 0
             )
@@ -887,7 +929,7 @@ class ReportingService:
                 self.db.query(
                     func.coalesce(func.sum(SupplierPayment.payment_amount), 0)
                 )
-                .filter(SupplierPayment.status == "verified")
+                .filter(SupplierPayment.status == "verified", *_in(SupplierPayment.branch_code, bc))
                 .scalar()
                 or 0
             )
@@ -899,6 +941,9 @@ class ReportingService:
                         func.sum(SupplierAdvanceApplication.applied_amount), 0
                     )
                 )
+                .filter(*([SupplierAdvanceApplication.grn_id.in_(
+                    self.db.query(GoodReceivedNote.id).filter(GoodReceivedNote.branch_code.in_(bc))
+                )] if bc is not None else []))
                 .scalar()
                 or 0
             )
@@ -912,7 +957,7 @@ class ReportingService:
                     PurchasingReturn,
                     PurchasingReturnItems.purchasingreturn_id == PurchasingReturn.id,
                 )
-                .filter(PurchasingReturn.status == "approved")
+                .filter(PurchasingReturn.status == "approved", *_in(PurchasingReturn.branch_code, bc))
                 .scalar()
                 or 0
             )
@@ -937,7 +982,7 @@ class ReportingService:
             # (pending_bank_verification) invoices awaiting approval/verification.
             pending_sales = (
                 self.db.query(func.count(Invoice.id))
-                .filter(Invoice.approval == False)  # noqa: E712
+                .filter(Invoice.approval == False, *_in(Invoice.branch_code, bc))  # noqa: E712
                 .scalar()
                 or 0
             )
@@ -948,7 +993,7 @@ class ReportingService:
         try:
             pending_purchases = (
                 self.db.query(func.count(PurchasingOrder.id))
-                .filter(PurchasingOrder.status == "pending")
+                .filter(PurchasingOrder.status == "pending", *_in(PurchasingOrder.branch_code, bc))
                 .scalar()
                 or 0
             )
@@ -959,13 +1004,13 @@ class ReportingService:
         try:
             pending_sale_returns = (
                 self.db.query(func.count(SaleReturn.id))
-                .filter(SaleReturn.status == "pending")
+                .filter(SaleReturn.status == "pending", *_in(SaleReturn.branch_code, bc))
                 .scalar()
                 or 0
             )
             pending_purchase_returns = (
                 self.db.query(func.count(PurchasingReturn.id))
-                .filter(PurchasingReturn.status == "pending")
+                .filter(PurchasingReturn.status == "pending", *_in(PurchasingReturn.branch_code, bc))
                 .scalar()
                 or 0
             )
@@ -977,7 +1022,7 @@ class ReportingService:
         try:
             pending_expenses = (
                 self.db.query(func.count(Expenses.id))
-                .filter(Expenses.status == "submitted")
+                .filter(Expenses.status == "submitted", *_in(Expenses.branch_code, bc))
                 .scalar()
                 or 0
             )
@@ -988,7 +1033,7 @@ class ReportingService:
         try:
             pending_transfers = (
                 self.db.query(func.count(ItemTransferNote.id))
-                .filter(ItemTransferNote.status == "pending")
+                .filter(ItemTransferNote.status == "pending", *_in(ItemTransferNote.branch_code, bc))
                 .scalar()
                 or 0
             )
@@ -1005,7 +1050,7 @@ class ReportingService:
         )
 
         # ── Support ──────────────────────────────────────────────────────
-        open_tickets = self.db.query(func.count(CustomerSupport.id)).scalar() or 0
+        open_tickets = self.db.query(func.count(CustomerSupport.id)).filter(*_in(CustomerSupport.branch_code, bc)).scalar() or 0
 
         # ── Daily sales trend (last 7 days) ──────────────────────────────
         daily_sales = []
@@ -1013,12 +1058,12 @@ class ReportingService:
             d = today - timedelta(days=i)
             day_sales = (
                 self.db.query(func.coalesce(func.sum(_sales_sum_expr), 0))
-                .filter(Invoice.created_date == d)
+                .filter(Invoice.created_date == d, *_in(Invoice.branch_code, bc))
                 .scalar()
             )
             day_orders = (
                 self.db.query(func.count(Invoice.id))
-                .filter(Invoice.created_date == d)
+                .filter(Invoice.created_date == d, *_in(Invoice.branch_code, bc))
                 .scalar()
                 or 0
             )
@@ -1043,7 +1088,7 @@ class ReportingService:
                 )
                 .join(InvoiceItems, InvoiceItems.product_id == Product.id)
                 .join(Invoice, Invoice.id == InvoiceItems.invoice_id)
-                .filter(Invoice.created_date >= month_start)
+                .filter(Invoice.created_date >= month_start, *_in(Invoice.branch_code, bc))
                 .group_by(Product.id, Product.name, Product.item_code)
                 .order_by(desc("total_qty"))
                 .limit(5)
@@ -1068,6 +1113,7 @@ class ReportingService:
         try:
             recent_invoices = (
                 self.db.query(Invoice)
+                .filter(*_in(Invoice.branch_code, bc))
                 .order_by(desc(Invoice.created_date))
                 .limit(3)
                 .all()
@@ -1091,6 +1137,7 @@ class ReportingService:
 
             recent_grns = (
                 self.db.query(GoodReceivedNote)
+                .filter(*_in(GoodReceivedNote.branch_code, bc))
                 .order_by(desc(GoodReceivedNote.good_received_date))
                 .limit(2)
                 .all()

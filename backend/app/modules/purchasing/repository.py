@@ -762,7 +762,9 @@ class PurchasingOrderRepository:
         return self.db.query(models.PurchasingOrder).filter(
             and_(
                 models.PurchasingOrder.branch_code == branch_code,
-                func.date(models.PurchasingOrder.added_date) == target_date
+                func.date(models.PurchasingOrder.added_date) == target_date,
+                # a cancelled PO (typo, duplicate) does not use up the day's allowance
+                models.PurchasingOrder.status != "cancelled",
             )
         ).count()
 

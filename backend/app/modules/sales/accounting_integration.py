@@ -150,8 +150,28 @@ class SalesAccountingIntegration:
         return self._gl._generate_je_number(prefix)
 
     def _unit_cost_for_invoice_item(self, item) -> Optional[Decimal]:
-        """Cost basis the sale's COGS used for one invoice line: the selected
-        price tier's cost first, then the product's legacy cost_price."""
+        """Cost basis the sale's COGS used for one invoice line. PUR-18: the sold stock unit's real cost (its PO line
+        price plus that line's landed-cost share, the value Inventory was debited with) first; then the selected
+        price tier's cost, then the product's legacy cost_price."""
+        stock = (
+            self.db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+            if getattr(item, "sales_stock_id", None) else None
+        )
+        if stock is not None and getattr(stock, "purchasing_order_items_id", None):
+            from app.modules.purchasing.models import LandedCostAllocation, LandedCostVoucher, PurchasingOrderItems
+
+            po_price = self.db.query(PurchasingOrderItems.unit_price).filter(
+                PurchasingOrderItems.id == stock.purchasing_order_items_id).scalar()
+            if po_price:
+                amount, qty = self.db.query(
+                    func.coalesce(func.sum(LandedCostAllocation.amount), 0),
+                    func.coalesce(func.sum(LandedCostAllocation.quantity), 0),
+                ).join(LandedCostVoucher, LandedCostVoucher.id == LandedCostAllocation.voucher_id).filter(
+                    LandedCostAllocation.purchasing_order_items_id == stock.purchasing_order_items_id,
+                    LandedCostVoucher.status != "cancelled",
+                ).one()
+                landed = (Decimal(str(amount)) / Decimal(str(qty))) if qty else Decimal("0")
+                return (Decimal(str(po_price)) + landed).quantize(Decimal("0.0001"))
         if item.price_tier_id:
             tier = self.db.query(ProductPriceTier).filter(
                 ProductPriceTier.id == item.price_tier_id
@@ -895,9 +915,12 @@ class SalesAccountingIntegration:
             JournalEntry.description.like(f"%Invoice ID: {invoice_id}%"),
         ).scalar() or 0
 
+        # SAL-01: a COGS-only posting is not "posted" - the sale itself is the Revenue journal entry
+        revenue_posted = self._check_already_posted(invoice_id, "Revenue")
         return {
             "invoice_id": invoice_id,
-            "gl_posted": gl_count > 0,
+            "gl_posted": revenue_posted,
+            "revenue_posted": revenue_posted,
             "gl_entry_count": gl_count,
             "journal_entry_count": je_count,
         }

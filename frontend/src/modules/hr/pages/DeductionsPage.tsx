@@ -60,6 +60,10 @@ export default function DeductionsPage() {
       amount: d.amount,
       deduction_period: (d as { deduction_period?: string }).deduction_period,
       remarks: d.remarks || "",
+      // the update replaces the whole record: carry the component amounts the form does not show, or they are wiped
+      epf_employee: d.epf_employee, etf_employee: d.etf_employee, stamp_duty: d.stamp_duty,
+      late_deductions: d.late_deductions, salary_advance_repayment: d.salary_advance_repayment,
+      loan_repayment: d.loan_repayment, other_deductions: d.other_deductions,
     }),
     defaultSortField: "created_desc",
   });

@@ -56,6 +56,8 @@ import {
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
+import { usePermission } from "@/auth/permissions";
+import { useAuthStore } from "@/state/authStore";
 import { expensesApi } from "@/modules/finance/api";
 import type { Expense } from "@/modules/finance/types";
 import { useCurrencyStore } from "@/state/currencyStore";
@@ -172,6 +174,11 @@ export default function ExpenseApprovalsPage() {
       setSelectedExpense(filteredExpenses[0]);
     }
   }, [filteredExpenses, selectedExpense]);
+
+  // Approve / reject need expense_approvals.approve; the submitter can't approve
+  // their own expense (the backend enforces it for everyone but a superuser).
+  const canApprove = usePermission("expense_approvals", "approve");
+  const currentUser = useAuthStore((s) => s.user);
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
@@ -332,7 +339,7 @@ export default function ExpenseApprovalsPage() {
       />
 
       {/* Action Bar */}
-      {detail && detail.status === "submitted" && (
+      {detail && detail.status === "submitted" && canApprove && (
         <Box
           sx={{
             display: "flex",
@@ -349,7 +356,8 @@ export default function ExpenseApprovalsPage() {
             color="success"
             startIcon={<CheckCircleIcon />}
             onClick={handleApprove}
-            disabled={approveMutation.isPending}
+            disabled={approveMutation.isPending || (!currentUser?.is_superuser && detail.submitted_by === currentUser?.id)}
+            title={!currentUser?.is_superuser && detail.submitted_by === currentUser?.id ? "You submitted this expense: another user must approve it" : undefined}
           >
             Approve
           </Button>

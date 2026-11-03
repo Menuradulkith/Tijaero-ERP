@@ -145,7 +145,7 @@ const validatePassword = (password: string): string | null => {
   if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter";
   if (!/[a-z]/.test(password)) return "Password must contain at least one lowercase letter";
   if (!/[0-9]/.test(password)) return "Password must contain at least one number";
-  if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) return "Password must contain at least one special character";
+  if (!/[^A-Za-z0-9\s]/.test(password)) return "Password must contain at least one special character";
   return null;
 };
 
@@ -234,10 +234,20 @@ export default function UsersPage() {
       setLoading(true);
       setError(null);
 
+      const failed: string[] = [];
       const [groupsData, branchesData] = await Promise.all([
-        groupsApi.getGroups().catch(() => []),
-        branchApi.getAll(1, 1000, true).catch(() => ({ items: [] })),
+        groupsApi.getGroups().catch(() => {
+          failed.push("roles");
+          return [];
+        }),
+        branchApi.getAll(1, 1000, true).catch(() => {
+          failed.push("branches");
+          return { items: [] };
+        }),
       ]);
+      if (failed.length && seq === loadDataSeqRef.current) {
+        showErrorToast(`Could not load ${failed.join(" and ")}; the pickers may be incomplete.`);
+      }
 
       // A newer loadData() call has since started — this response is stale.
       if (seq !== loadDataSeqRef.current) return;
@@ -818,7 +828,8 @@ export default function UsersPage() {
                   helperText={passwordError || "Min 8 chars, uppercase, lowercase, number, special char"}
                 />
               )}
-              {isEditing && !isCreating && (
+              {/* Own password: Settings > Profile (needs the current password). */}
+              {isEditing && !isCreating && selectedUser?.id !== currentUser?.id && (
                 <TextField
                   label="Reset Password (Optional)"
                   inputProps={{ maxLength: 128 }}
@@ -849,12 +860,17 @@ export default function UsersPage() {
                 inputProps={{ maxLength: 255 }}
                 value={formData.employee_id}
                 onChange={(e) => handleEmployeeIdChange(e.target.value)}
-                disabled={isDisabled}
+                disabled={isDisabled || !isCreating}
                 required
                 size="small"
                 fullWidth
                 error={!!employeeIdError}
-                helperText={employeeIdError || "Unique identifier for the employee (letters, numbers, hyphens, underscores)"}
+                helperText={
+                  employeeIdError ||
+                  (isCreating
+                    ? "Unique identifier for the employee (letters, numbers, hyphens, underscores)"
+                    : "Cannot be changed after the user is created")
+                }
               />
             </FormSection>
 
@@ -1085,7 +1101,14 @@ export default function UsersPage() {
                       <Button
                         size="small"
                         variant="outlined"
-                        onClick={() => unblockUserMutation.mutate(selectedUser.id)}
+                        onClick={async () => {
+                          const ok = await confirmDialog.confirm({
+                            title: "Unblock user",
+                            message: `Allow ${selectedUser.username} to sign in again?`,
+                            confirmText: "Unblock",
+                          });
+                          if (ok) unblockUserMutation.mutate(selectedUser.id);
+                        }}
                         disabled={unblockUserMutation.isPending}
                       >
                         Unblock User
@@ -1106,7 +1129,15 @@ export default function UsersPage() {
                       <Button
                         size="small"
                         variant="outlined"
-                        onClick={() => forcePasswordResetMutation.mutate(selectedUser.id)}
+                        onClick={async () => {
+                          const ok = await confirmDialog.confirm({
+                            title: "Force password reset",
+                            message: `${selectedUser.username} will have to set a new password before using the app again.`,
+                            confirmText: "Force reset",
+                            confirmColor: "warning",
+                          });
+                          if (ok) forcePasswordResetMutation.mutate(selectedUser.id);
+                        }}
                         disabled={forcePasswordResetMutation.isPending}
                       >
                         Force Password Reset

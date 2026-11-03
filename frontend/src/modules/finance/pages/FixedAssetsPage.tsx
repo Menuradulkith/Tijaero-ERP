@@ -79,6 +79,7 @@ import {
   type FixedAssetStatus,
 } from "@/modules/finance/api/fixedAssets";
 import { submitOnce } from "@/modules/finance/submitOnce";
+import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
 
 const fmt = (v: number | string | null | undefined) =>
   Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -320,6 +321,7 @@ function AssetCreatePanel({
     onSuccess: (a) => {
       showSuccessToast(`${a.asset_no} ${a.name} added. Book value ${fmt(a.book_value)}.`);
       queryClient.invalidateQueries({ queryKey: ["fixed-assets"] });
+      invalidateLedgerQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["depreciation-preview"] });
       onSaved(a);
     },
@@ -572,6 +574,7 @@ function DisposeDialog({
     onSuccess: (a) => {
       showSuccessToast(`${a.asset_no} ${a.name} marked as ${STATUS_LABEL[a.status].toLowerCase()}.`);
       queryClient.invalidateQueries({ queryKey: ["fixed-assets"] });
+      invalidateLedgerQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["depreciation-preview"] });
       onDone(a);
     },
@@ -929,6 +932,7 @@ function DepreciationCreatePanel({
     onSuccess: (r) => {
       showSuccessToast(`Depreciation for ${monthLabel(r.period_year, r.period_month)} posted: ${fmt(r.total)}.`);
       queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] });
+      invalidateLedgerQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["depreciation-preview"] });
       queryClient.invalidateQueries({ queryKey: ["fixed-assets"] });
       onPosted(r);
@@ -1053,6 +1057,7 @@ function DepreciationRunPanel({
     onSuccess: (r) => {
       showSuccessToast(`Depreciation for ${monthLabel(r.period_year, r.period_month)} reversed.`);
       queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] });
+      invalidateLedgerQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["depreciation-preview"] });
       queryClient.invalidateQueries({ queryKey: ["fixed-assets"] });
       onReversed(r);

@@ -4,7 +4,7 @@
  * Uses Tijaero component library for consistent ERP UI.
  */
 
-import { formatDateTimeReadable } from "@/utils/formatters";
+import { formatDate, formatDateTimeReadable } from "@/utils/formatters";
 import {
     Add as AddIcon,
     CheckCircle as ApproveIcon,
@@ -68,6 +68,7 @@ import {
 
 import { useReferenceData } from "@/hooks";
 import { reimbursementsApi } from "@/modules/hr/api";
+import { usePermission } from "@/auth/permissions";
 import type {
     Reimbursement,
     ReimbursementCreate,
@@ -85,7 +86,7 @@ interface ReimbursementFormData extends ReimbursementCreate {
 const INITIAL_FORM_DATA: ReimbursementFormData = {
   employee_id: "",
   branch_code: "",
-  claim_date: new Date().toISOString().split("T")[0],
+  claim_date: formatDate(new Date()),   // local date (toISOString is UTC: yesterday before 05:30 in Sri Lanka)
   description: "",
   reimbursement_type: "general",
   remark: "",
@@ -118,6 +119,9 @@ const resetFormFromItem = (item: Reimbursement): ReimbursementFormData => ({
 // ---------------------------------------------------------------------------
 export default function ReimbursementsPage() {
   const queryClient = useQueryClient();
+  // approve / verify / pay need reimbursement_approvals:approve on the server; delete needs reimbursements:delete
+  const canResolve = usePermission("reimbursement_approvals", "approve");
+  const canRemove = usePermission("reimbursements", "delete");
   const confirmDialog = useConfirmDialog();
   const currencySymbol = useCurrencyStore((s) => s.symbol);
 
@@ -1095,10 +1099,10 @@ export default function ReimbursementsPage() {
     }
 
     const status = selectedItem?.status || "";
-    const canApprove = !isCreating && status === "pending";
-    const canVerify = !isCreating && ["approved", "partial_approved"].includes(status);
-    const canPay = !isCreating && status === "verified";
-    const canDelete = !isCreating && ["pending", "rejected"].includes(status);
+    const canApprove = canResolve && !isCreating && status === "pending";
+    const canVerify = canResolve && !isCreating && ["approved", "partial_approved"].includes(status);
+    const canPay = canResolve && !isCreating && status === "verified";
+    const canDelete = canRemove && !isCreating && ["pending", "rejected"].includes(status);
     const anyWorkflowPending =
       approveMutation.isPending ||
       rejectMutation.isPending ||

@@ -13,8 +13,11 @@ from .models import ItemReceiveNote, ItemTransferNoteApproved, ItemTransferNoteI
 router = APIRouter(prefix="/warehouse", tags=["warehouse"])
 
 
-def _ensure_itn_access(db: Session, user: User, transfer_note_id: Optional[int]) -> None:
-    """403 unless the user works at the sending branch or at the receiving location's branch.
+def _ensure_itn_access(db: Session, user: User, transfer_note_id: Optional[int], side: str = "any") -> None:
+    """403 unless the user may act on the transfer note from ``side``:
+    "sender"   - the note's (sending) branch: edit, lines, approve, dispatch, cancel;
+    "receiver" - the receiving location's branch: receive;
+    "any"      - either of them (reads).
     A missing transfer note falls through so the service raises its usual 404."""
     from app.modules.common.models import Locations
     from .models import ItemTransferNote
@@ -24,12 +27,29 @@ def _ensure_itn_access(db: Session, user: User, transfer_note_id: Optional[int])
         .filter(ItemTransferNote.id == transfer_note_id)
         .first()
     )
-    if not itn or validate_branch_access(user, itn.branch_code):
+    if not itn:
         return
-    dest_branch = db.query(Locations.branch_code).filter(Locations.id == itn.to_location_id).scalar()
-    if dest_branch and validate_branch_access(user, dest_branch):
+    if side != "receiver" and validate_branch_access(user, itn.branch_code):
         return
+    if side != "sender":
+        dest_branch = db.query(Locations.branch_code).filter(Locations.id == itn.to_location_id).scalar()
+        if dest_branch and validate_branch_access(user, dest_branch):
+            return
+        if side == "receiver":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Only the receiving branch ({dest_branch or 'unknown'}) can receive this transfer note.",
+            )
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {itn.branch_code}")
+
+
+def _ensure_location_access(db: Session, user: User, location_id: int) -> None:
+    """403 unless the location belongs to one of the user's branches (unknown locations fall through)."""
+    from app.modules.common.models import Locations
+
+    branch = db.query(Locations.branch_code).filter(Locations.id == location_id).scalar()
+    if branch and not validate_branch_access(user, branch):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch}")
 
 
 def _itn_id_of(db: Session, model, column, row_id: int) -> Optional[int]:
@@ -141,7 +161,7 @@ def update_transfer_note(
     current_user: User = Depends(get_current_user),
 ):
     """Update a transfer note"""
-    _ensure_itn_access(db, current_user, transfer_note_id)
+    _ensure_itn_access(db, current_user, transfer_note_id, side="sender")
     if not validate_branch_access(current_user, transfer_note.branch_code):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {transfer_note.branch_code}")
     transfer_note_service = service.ItemTransferNoteService(db)
@@ -150,7 +170,7 @@ def update_transfer_note(
 @router.delete("/transfer-notes/{transfer_note_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission(*Permissions.ITN_DELETE))])
 def delete_transfer_note(transfer_note_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Delete a transfer note"""
-    _ensure_itn_access(db, current_user, transfer_note_id)
+    _ensure_itn_access(db, current_user, transfer_note_id, side="sender")
     transfer_note_service = service.ItemTransferNoteService(db)
     transfer_note_service.delete_transfer_note(transfer_note_id)
 
@@ -162,7 +182,7 @@ def create_transfer_note_item(
     current_user: User = Depends(get_current_user),
 ):
     """Create a new transfer note item"""
-    _ensure_itn_access(db, current_user, item.itemtransfernote_id)
+    _ensure_itn_access(db, current_user, item.itemtransfernote_id, side="sender")
     item_service = service.ItemTransferNoteItemService(db)
     return item_service.create_item(item)
 
@@ -188,22 +208,15 @@ def update_transfer_note_item(
     current_user: User = Depends(get_current_user),
 ):
     """Update a transfer note item"""
-    _ensure_itn_access(db, current_user, _itn_id_of(db, ItemTransferNoteItems, ItemTransferNoteItems.itemtransfernote_id, item_id))
-    _ensure_itn_access(db, current_user, item.itemtransfernote_id)
+    _ensure_itn_access(db, current_user, _itn_id_of(db, ItemTransferNoteItems, ItemTransferNoteItems.itemtransfernote_id, item_id), side="sender")
+    _ensure_itn_access(db, current_user, item.itemtransfernote_id, side="sender")
     item_service = service.ItemTransferNoteItemService(db)
     return item_service.update_item(item_id, item)
-
-@router.patch("/transfer-note-items/{item_id}/receive", response_model=schemas.ItemTransferNoteItem, dependencies=[Depends(require_permission(*Permissions.ITN_UPDATE))])
-def mark_item_as_received(item_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Mark a transfer note item as received"""
-    _ensure_itn_access(db, current_user, _itn_id_of(db, ItemTransferNoteItems, ItemTransferNoteItems.itemtransfernote_id, item_id))
-    item_service = service.ItemTransferNoteItemService(db)
-    return item_service.mark_as_received(item_id)
 
 @router.delete("/transfer-note-items/{item_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission(*Permissions.ITN_DELETE))])
 def delete_transfer_note_item(item_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Delete a transfer note item"""
-    _ensure_itn_access(db, current_user, _itn_id_of(db, ItemTransferNoteItems, ItemTransferNoteItems.itemtransfernote_id, item_id))
+    _ensure_itn_access(db, current_user, _itn_id_of(db, ItemTransferNoteItems, ItemTransferNoteItems.itemtransfernote_id, item_id), side="sender")
     item_service = service.ItemTransferNoteItemService(db)
     item_service.delete_item(item_id)
 
@@ -219,11 +232,13 @@ def create_transfer_note_approval(
     Decisions go through PUT /transfer-note-approvals/{id} (or the central /approvals
     endpoints), which run the pending-status and stock-availability guards.
     """
-    _ensure_itn_access(db, current_user, approval.item_transfer_note_id)
+    _ensure_itn_access(db, current_user, approval.item_transfer_note_id, side="sender")
     if approval.approved_status != 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New approval records must be pending; approve or reject them afterwards.")
     approval = approval.model_copy(update={"approved_user_id": None})
     approval_service = service.ItemTransferNoteApprovalService(db)
+    if approval_service.get_by_transfer_note(approval.item_transfer_note_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This transfer note already has an approval record.")
     return approval_service.create_approval(approval)
 
 @router.get("/transfer-note-approvals/{approval_id}", response_model=schemas.ItemTransferNoteApproved, dependencies=[Depends(require_permission(*Permissions.ITN_APPROVAL_VIEW))])
@@ -262,7 +277,7 @@ def update_transfer_note_approval(
     approval_service = service.ItemTransferNoteApprovalService(db)
     db_approval = approval_service.get_approval(approval_id)
     itn_id = db_approval.item_transfer_note_id
-    _ensure_itn_access(db, current_user, itn_id)
+    _ensure_itn_access(db, current_user, itn_id, side="sender")
     if approval.item_transfer_note_id != itn_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="An approval record cannot be moved to another transfer note.")
     if approval.approved_status not in (1, 2):
@@ -283,18 +298,7 @@ def update_transfer_note_approval(
     db.refresh(db_approval)
     return db_approval
 
-# Receive Note Endpoints
-@router.post("/receive-notes", response_model=schemas.ItemReceiveNote, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.RECEIVE_NOTE_CREATE))])
-def create_receive_note(
-    receive_note: schemas.ItemReceiveNoteCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Create a new receive note"""
-    _ensure_itn_access(db, current_user, receive_note.item_transfer_note_id)
-    receive_note_service = service.ItemReceiveNoteService(db)
-    return receive_note_service.create_receive_note(receive_note)
-
+# Receive Note Endpoints (read-only: receive notes are written by /transfer-notes/{id}/receive-items)
 @router.get("/receive-notes/{receive_note_id}", response_model=schemas.ItemReceiveNote, dependencies=[Depends(require_permission(*Permissions.RECEIVE_NOTE_VIEW))])
 def get_receive_note(receive_note_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get receive note by ID"""
@@ -344,25 +348,13 @@ def list_receive_notes(
     )
     return receive_note_service.list_receive_notes(filters)
 
-@router.put("/receive-notes/{receive_note_id}", response_model=schemas.ItemReceiveNote, dependencies=[Depends(require_permission(*Permissions.RECEIVE_NOTE_UPDATE))])
-def update_receive_note(
-    receive_note_id: int,
-    receive_note: schemas.ItemReceiveNoteCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Update a receive note"""
-    _ensure_itn_access(db, current_user, _itn_id_of(db, ItemReceiveNote, ItemReceiveNote.item_transfer_note_id, receive_note_id))
-    _ensure_itn_access(db, current_user, receive_note.item_transfer_note_id)
-    receive_note_service = service.ItemReceiveNoteService(db)
-    return receive_note_service.update_receive_note(receive_note_id, receive_note)
-
 
 # Barcode Validation for Transfer Notes
 @router.post("/transfer-notes/validate-barcode", response_model=schemas.BarcodeValidationResponse, dependencies=[Depends(require_permission(*Permissions.ITN_VIEW))])
 def validate_barcode_for_transfer(
     request: schemas.BarcodeValidationRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Validate a barcode for transfer.
@@ -371,6 +363,7 @@ def validate_barcode_for_transfer(
     - Item status is 'available'
     - Item is in the specified from_location
     """
+    _ensure_location_access(db, current_user, request.from_location_id)
     transfer_service = service.ItemTransferNoteService(db)
     return transfer_service.validate_barcode_for_transfer(request)
 
@@ -378,9 +371,11 @@ def validate_barcode_for_transfer(
 @router.post("/transfer-notes/validate-lot", response_model=schemas.LotValidationResponse, dependencies=[Depends(require_permission(*Permissions.ITN_VIEW))])
 def validate_lot_for_transfer(
     request: schemas.LotValidationRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Validate a quantity of a batch/none-tracked product for transfer (availability at the source location)."""
+    _ensure_location_access(db, current_user, request.from_location_id)
     return service.ItemTransferNoteService(db).validate_lot_for_transfer(request)
 
 
@@ -396,9 +391,20 @@ def dispatch_transfer_note(
     - Updates transfer note status to 'dispatched'
     - Marks all stock items as 'in_transit'
     """
-    _ensure_itn_access(db, current_user, transfer_note_id)
+    _ensure_itn_access(db, current_user, transfer_note_id, side="sender")
     transfer_service = service.ItemTransferNoteService(db)
     return transfer_service.dispatch_transfer_note(transfer_note_id)
+
+
+@router.post("/transfer-notes/{transfer_note_id}/cancel", response_model=schemas.ItemTransferNote, dependencies=[Depends(require_permission(*Permissions.ITN_UPDATE))])
+def cancel_transfer_note(
+    transfer_note_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel a pending or approved (not yet dispatched) transfer note; units it reserved become available again."""
+    _ensure_itn_access(db, current_user, transfer_note_id, side="sender")
+    return service.ItemTransferNoteService(db).cancel_transfer_note(transfer_note_id, user_id=current_user.id)
 
 
 # Receive Items (receiving side workflow)
@@ -416,7 +422,7 @@ def receive_transfer_items(
     - Updates sales_stock location and status
     - Creates/updates item_receive_note
     """
-    _ensure_itn_access(db, current_user, transfer_note_id)
+    _ensure_itn_access(db, current_user, transfer_note_id, side="receiver")
     receive_service = service.ItemReceiveNoteService(db)
     request.received_user_id = current_user.id  # the receiver is the signed-in user, never a client claim
     return receive_service.receive_items(transfer_note_id, request)

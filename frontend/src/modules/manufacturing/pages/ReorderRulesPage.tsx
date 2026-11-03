@@ -88,7 +88,7 @@ export default function ReorderRulesPage() {
 
   const branchResolved = defaultBranchCode === undefined || filterBranch !== null;
 
-  const { data: rules = [], isLoading } = useQuery({
+  const { data: rules = [], isLoading, isError: loadFailed } = useQuery({
     queryKey: ["reorder-rules", filterBranch],
     queryFn: () => reorderRulesApi.getAll({ branch_code: filterBranch || undefined }),
     enabled: branchResolved,
@@ -315,7 +315,7 @@ export default function ReorderRulesPage() {
               onRowClick={(row) => (canEdit ? openEdit(row) : undefined)}
               pageSizeOptions={[10, 25, 50, 100]}
               pageSize={25}
-              emptyMessage="No reordering rules — add one to keep a minimum stock of an item"
+              emptyMessage={loadFailed ? "Could not load reordering rules. Use refresh to try again." : "No reordering rules — add one to keep a minimum stock of an item"}
               autoHeight={false}
               height="100%"
             />

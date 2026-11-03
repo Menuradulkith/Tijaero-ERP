@@ -3,6 +3,7 @@
 Issuing one posts  Dr 1130 Employee Advances / Cr Cash or Bank; payroll then credits 1130 with each
 instalment (less_loan_repayment). A cash repayment posts Dr Cash or Bank / Cr 1130."""
 import logging
+from datetime import timedelta
 from decimal import Decimal
 from typing import Dict, List, Optional
 
@@ -162,9 +163,16 @@ class LoanService:
 
     def create(self, data: inputs.LoanIn, actor: User) -> dict:
         emp = self._employee(data.employee_pk)
-        from app.modules.hr_core.service import LIVE_STATUSES
-        if emp.status not in LIVE_STATUSES:
+        from app.modules.hr_core.service import in_service
+        if not in_service(emp):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This employee is no longer in service")
+        # A double submit (same employee, type, amount and issue date within a minute) must not issue - and post - it twice
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"hr-loan-{emp.id}"})
+        if self.db.query(HREmployeeLoan.id).filter(
+                HREmployeeLoan.employee_pk == emp.id, HREmployeeLoan.loan_type == data.loan_type, HREmployeeLoan.amount == data.amount,
+                HREmployeeLoan.issue_date == data.issue_date, HREmployeeLoan.status != "cancelled",
+                HREmployeeLoan.created_at >= tz.now() - timedelta(minutes=1)).first():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This loan was just recorded; check the loan list before adding it again")
         loan = HREmployeeLoan(
             loan_no=self._next_no(data.loan_type), employee_pk=emp.id, loan_type=data.loan_type, issue_date=data.issue_date,
             amount=data.amount, installments=data.installments, installment_amount=data.installment_amount,
@@ -184,6 +192,11 @@ class LoanService:
         loan = self._get(loan_id, lock=True)
         if loan.status != "active":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"A {loan.status} loan cannot be changed")
+        # the same plan rules as when the loan was issued
+        if data.installment_amount > Decimal(loan.amount):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The instalment cannot be more than the loan")
+        if data.start_period < loan.issue_date.strftime("%Y-%m"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Recovery cannot start before the month the loan is issued")
         loan.installment_amount, loan.start_period, loan.remarks = data.installment_amount, data.start_period, data.remarks
         bal = loan_balance(self.db, loan)
         loan.installments = max(1, int((bal / Decimal(data.installment_amount)).to_integral_value(rounding="ROUND_CEILING"))) if bal > 0 else loan.installments

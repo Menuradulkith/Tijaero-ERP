@@ -55,6 +55,7 @@ import {
 
 import { useReferenceData } from "@/hooks";
 import { payrollBatchApi } from "@/modules/hr/api";
+import { usePermission } from "@/auth/permissions";
 import type { PayrollBatch, EmployeePayroll } from "@/modules/hr/types";
 import { useCurrencyStore } from "@/state/currencyStore";
 
@@ -73,6 +74,7 @@ const STATUS_FILTER_OPTIONS = [
 
 export default function PayrollApprovalsPage() {
   const queryClient = useQueryClient();
+  const canApprove = usePermission("payroll_approvals", "approve");
   const currencySymbol = useCurrencyStore((s) => s.symbol);
 
   // State
@@ -150,6 +152,7 @@ export default function PayrollApprovalsPage() {
     queryClient.invalidateQueries({ queryKey: ["payroll-approvals"] });
     queryClient.invalidateQueries({ queryKey: ["payroll-approval-detail"] });
     queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
+    queryClient.invalidateQueries({ queryKey: ["payroll"] });
   };
 
   const approveMutation = useMutation({
@@ -251,7 +254,7 @@ export default function PayrollApprovalsPage() {
       />
 
       {/* Approve / Reject on the right, as on PO Approvals */}
-      {detail && detail.status === "pending_approval" && (
+      {detail && detail.status === "pending_approval" && canApprove && (
         <ActionToolbar
           hasSelectedItem
           isCreating={false}

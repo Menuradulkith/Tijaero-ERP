@@ -144,7 +144,7 @@ export default function WorkCentersPage() {
   const { filteredBranches } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
 
-  const { data: workCenters, isLoading } = useQuery({
+  const { data: workCenters, isLoading, isError: loadFailed } = useQuery({
     queryKey: ["mfg-work-centers"],
     queryFn: () => workCentersApi.getAll(),
   });
@@ -199,7 +199,7 @@ export default function WorkCentersPage() {
 
   const createMutation = useCrudMutation({
     mutationFn: workCentersApi.create,
-    invalidateQueryKeys: [["mfg-work-centers"]],
+    invalidateQueryKeys: [["mfg-work-centers"], ["work-centers"], ["job-cards"]],
     successMessage: "Work center created",
     errorMessage: "Failed to create work center",
     onSuccess: afterSave,
@@ -207,7 +207,7 @@ export default function WorkCentersPage() {
 
   const updateMutation = useCrudMutation({
     mutationFn: workCentersApi.update,
-    invalidateQueryKeys: [["mfg-work-centers"]],
+    invalidateQueryKeys: [["mfg-work-centers"], ["work-centers"], ["job-cards"]],
     successMessage: "Work center updated",
     errorMessage: "Failed to update work center",
     onSuccess: afterSave,
@@ -215,7 +215,7 @@ export default function WorkCentersPage() {
 
   const deleteMutation = useCrudMutation({
     mutationFn: workCentersApi.delete,
-    invalidateQueryKeys: [["mfg-work-centers"]],
+    invalidateQueryKeys: [["mfg-work-centers"], ["work-centers"], ["job-cards"]],
     successMessage: "Work center deleted",
     errorMessage: "Failed to delete work center",
     onSuccess: () => setSelectedWorkCenter(null),
@@ -365,7 +365,7 @@ export default function WorkCentersPage() {
           onRowClick={(row) => handleSelectItem(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
-          emptyMessage="No work centers found"
+          emptyMessage={loadFailed ? "Could not load work centers. Use refresh to try again." : "No work centers found"}
           autoHeight={false}
           height="100%"
         />

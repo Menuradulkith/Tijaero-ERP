@@ -30,7 +30,7 @@ import { format } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
 
 import { handleApiError, modernTableStyles, showErrorToast, showSuccessToast } from "@/components/tijaero";
-import { productionOrdersApi } from "@/modules/manufacturing/api";
+import { productionOrdersApi, errorAlreadyToasted } from "@/modules/manufacturing/api";
 import { PRIORITY_OPTIONS, type Priority, type ProductionOrder, type QuoteDemandLine } from "@/modules/manufacturing/types";
 import { formatDate } from "@/utils/formatters";
 
@@ -112,7 +112,7 @@ export default function FromQuotationDialog({ open, branchCode, onClose, onCreat
       showSuccessToast(`Production order ${order.order_no} created for ${selected.quote_no}`);
       onCreated(order);
     } catch (err) {
-      showErrorToast(handleApiError(err, "Failed to create the production order"));
+      if (!errorAlreadyToasted(err)) showErrorToast(handleApiError(err, "Failed to create the production order"));
     } finally {
       setSaving(false);
     }

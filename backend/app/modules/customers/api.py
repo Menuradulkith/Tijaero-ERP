@@ -1,6 +1,6 @@
 from typing import Annotated, List, Literal, Optional
 
-from app.auth.dependencies import get_current_active_user
+from app.auth.dependencies import get_current_active_user, get_user_branch_filter
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
@@ -287,6 +287,21 @@ from datetime import date
 from app.modules.customers.credit_service import customer_credit_service
 
 
+def _check_date_range(date_from: Optional[date], date_to: Optional[date]) -> None:
+    from fastapi import HTTPException
+
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="The start date cannot be after the end date.")
+
+
+def _check_branch_filter(branch_code: Optional[str], user_branches: Optional[List[str]]) -> None:
+    """SAL-09: an explicit branch filter outside the caller's branches is refused (same rule as the aging report)."""
+    from fastapi import HTTPException
+
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
+
+
 @router.get(
     "/{customer_id}/credit-summary",
     summary="Get Customer Credit Summary",
@@ -370,9 +385,10 @@ def get_customer_aging_report(
     customer_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
 
-    return customer_credit_service.get_aging_report(db, customer_id)
+    return customer_credit_service.get_aging_report(db, customer_id, branch_codes=user_branches)
 
 
 @router.get(
@@ -411,10 +427,11 @@ def get_customer_statement(
     to_date: Optional[date] = Query(None, description="End date for statement"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-
+    _check_date_range(from_date, to_date)
     return customer_credit_service.get_customer_statement(
-        db, customer_id, from_date, to_date
+        db, customer_id, from_date, to_date, branch_codes=user_branches
     )
 
 
@@ -456,10 +473,11 @@ def list_customer_credit_settlements(
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
 
     return customer_credit_service.get_customer_settlements(
-        db, customer_id, skip, limit
+        db, customer_id, skip, limit, branch_codes=user_branches
     )
 
 
@@ -475,9 +493,12 @@ def get_customer_credit_settlement(
     settlement_id: RowId,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
 
-    return customer_credit_service.get_settlement_with_transactions(db, settlement_id)
+    return customer_credit_service.get_settlement_with_transactions(
+        db, settlement_id, customer_id=customer_id, branch_codes=user_branches
+    )
 
 
 # ==================== PAYMENT REPORT ENDPOINT ====================
@@ -491,19 +512,19 @@ def get_customer_credit_settlement(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def get_customer_payment_report(
-    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    customer_id: Optional[int] = Query(None),
-    branch_code: Optional[str] = Query(None),
+    # SAL-17: typed dates - a malformed date is a 422, not a 500
+    date_from: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
+    customer_id: Optional[int] = Query(None, ge=1, le=2_147_483_647),
+    branch_code: Optional[str] = Query(None, max_length=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    from datetime import date as date_type
-
-    parsed_from = date_type.fromisoformat(date_from) if date_from else None
-    parsed_to = date_type.fromisoformat(date_to) if date_to else None
+    _check_date_range(date_from, date_to)
+    _check_branch_filter(branch_code, user_branches)
     return customer_credit_service.get_payment_report(
-        db, parsed_from, parsed_to, customer_id, branch_code
+        db, date_from, date_to, customer_id, branch_code, branch_codes=user_branches
     )
 
 
@@ -518,13 +539,15 @@ def get_customer_payment_report(
     dependencies=[Depends(require_permission(*Permissions.CUSTOMER_VIEW))],
 )
 def get_outstanding_documents(
-    customer_id: Optional[int] = Query(None),
-    branch_code: Optional[str] = Query(None),
+    customer_id: Optional[int] = Query(None, ge=1, le=2_147_483_647),
+    branch_code: Optional[str] = Query(None, max_length=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
+    _check_branch_filter(branch_code, user_branches)
     return customer_credit_service.get_outstanding_documents(
-        db, customer_id=customer_id, branch_code=branch_code
+        db, customer_id=customer_id, branch_code=branch_code, branch_codes=user_branches
     )
 
 
@@ -746,6 +769,12 @@ def create_voucher(
     current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_CREATE)),
 ):
     """Create a new gift voucher"""
+    from fastapi import HTTPException
+    from app.auth.dependencies import validate_branch_access
+
+    # SAL-14: a voucher is sold (and its cash booked) only in one of the seller's branches
+    if voucher.branch_code and not validate_branch_access(current_user, voucher.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {voucher.branch_code}")
     return service.voucher_service.create_voucher(db, voucher, user_id=current_user.id)
 
 

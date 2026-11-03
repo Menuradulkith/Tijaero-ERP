@@ -55,6 +55,11 @@ class LandedCostService:
             raise _bad("Landed cost can only be added to a posted GRN.")
         if data.supplier_id and not self.db.query(models.Supplier.id).filter(models.Supplier.id == data.supplier_id).first():
             raise _bad("Supplier not found.")
+        from app.modules.finance.posting_dates import check_posting_date
+
+        check_posting_date(self.db, data.voucher_date, "Voucher date")
+        if data.voucher_date and data.voucher_date < grn.good_received_date:
+            raise _bad("The voucher date cannot be before the GRN date.")
         if data.payment_method == "credit" and not data.supplier_id:
             # Cr Trade Creditors needs someone to owe it to.
             raise _bad("Choose the supplier (forwarder) this charge is owed to, or record it as paid by cash or bank.")

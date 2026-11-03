@@ -3,6 +3,8 @@ import {
   handleApiError,
   showErrorToast,
   showSuccessToast,
+  showInfoToast,
+  showWarningToast,
 } from "@/components/tijaero";
 import { useAuthStore } from "@/state/authStore";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
@@ -174,10 +176,6 @@ export default function LoginPage() {
   const [passcodeError, setPasscodeError] = useState<PasscodeErrorDetail | null>(null);
   const [attemptsRemaining, setAttemptsRemaining] = useState<number | null>(null);
 
-  // ── Passcode-expired notification after password login ────────────────────
-  const [showExpiredBanner, setShowExpiredBanner] = useState(false);
-  const [showLockedBanner, setShowLockedBanner] = useState(false);
-
   // Auto-focus first PIN cell when switching to Passcode tab
   useEffect(() => {
     if (activeTab === 1) setPin("");
@@ -192,11 +190,11 @@ export default function LoginPage() {
         const user = await authApi.getCurrentUser();
         login(data.access_token, user);
         showSuccessToast("Login successful");
+        // Toasts, not banners: this page unmounts as soon as we navigate away.
         if ((data as any).passcode_locked_out) {
-          setTimeout(() => setShowLockedBanner(true), 600);
+          showWarningToast("Your passcode was locked after too many failed attempts and has been removed. Create a new one in Profile → Security.");
         } else if ((data as any).passcode_expired) {
-          // Delay so the page has time to mount the dashboard notification
-          setTimeout(() => setShowExpiredBanner(true), 600);
+          showInfoToast("Your passcode has expired. Visit Profile → Security to set a new one.");
         }
         navigate(from, { replace: true });
       } catch (error: unknown) {
@@ -359,29 +357,6 @@ export default function LoginPage() {
               onClose={() => setPasscodeError(null)}
             >
               {passcodeError!.message}
-            </Alert>
-          )}
-
-          {/* Passcode-expired nudge after successful password login */}
-          {showExpiredBanner && (
-            <Alert
-              severity="info"
-              sx={{ mb: 2, fontSize: "0.85rem" }}
-              onClose={() => setShowExpiredBanner(false)}
-            >
-              Your passcode has expired. Visit <strong>Profile → Security</strong> to set a new one.
-            </Alert>
-          )}
-
-          {/* Passcode-locked nudge after successful password login */}
-          {showLockedBanner && (
-            <Alert
-              severity="error"
-              icon={<LockIcon />}
-              sx={{ mb: 2, fontSize: "0.85rem" }}
-              onClose={() => setShowLockedBanner(false)}
-            >
-              Your passcode was locked due to too many failed attempts. Create a new one in <strong>Profile → Security</strong>.
             </Alert>
           )}
 

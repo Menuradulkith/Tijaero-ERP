@@ -100,6 +100,10 @@ class BankReconciliationService:
                 raise _bad("The chosen GL account does not exist or is inactive.")
             if acc.account_type != "Asset":
                 raise _bad(f"{acc.account_code} is not an asset account.")
+            # Only a bank/cash ledger account: never a control account (debtors,
+            # inventory) whose balance belongs to its sub-ledger.
+            if (acc.account_category or "").strip() not in ("Bank", "Cash"):
+                raise _bad(f"{acc.account_code} is not a bank or cash account ({acc.account_category or 'no category'}).")
             if self.db.query(ChartOfAccounts.id).filter(
                 ChartOfAccounts.parent_account_id == acc.id, ChartOfAccounts.is_active.is_(True)
             ).first():
@@ -192,6 +196,18 @@ class BankReconciliationService:
         ).first():
             raise _bad(f"Statement {statement_no} was already entered for this bank account.",
                        status.HTTP_400_BAD_REQUEST)
+        # Statements of one account follow each other: an overlapping one would
+        # fight the other over the same bank lines and GL rows.
+        overlap = self.db.query(BankStatement).filter(
+            BankStatement.bank_account_id == ba.id,
+            BankStatement.date_from <= data.date_to, BankStatement.date_to >= data.date_from,
+        ).first()
+        if overlap:
+            raise _bad(
+                f"This period overlaps statement {overlap.statement_no or overlap.id} "
+                f"({overlap.date_from} - {overlap.date_to}) of this bank account.",
+                status.HTTP_400_BAD_REQUEST,
+            )
         st = BankStatement(
             bank_account_id=ba.id, statement_no=statement_no, date_from=data.date_from, date_to=data.date_to,
             opening_balance=data.opening_balance, closing_balance=data.closing_balance, status="open",

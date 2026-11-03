@@ -14,7 +14,7 @@ from typing import Annotated, List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_user_branch_filter, validate_branch_access
+from app.auth.dependencies import get_current_user, get_user_branch_filter, validate_branch_access
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_any_permission, require_permission, user_has_permission
 from app.db.session import get_db
@@ -64,6 +64,12 @@ def _order_access(db: Session, user: User, order_id: int) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {order.branch_code}")
 
 
+def _work_center_access(user: User, branch_code: Optional[str]) -> None:
+    """Work centers tied to a branch belong to that branch; centers with no branch are shared by all."""
+    if branch_code:
+        _branch_access(user, branch_code)
+
+
 # ═══════════════════════════ work centers ═══════════════════════════
 @router.get("/work-centers", response_model=List[s.WorkCenterOut], dependencies=[WC_READ])
 def list_work_centers(q: Optional[str] = Query(None, max_length=100), active: Optional[bool] = None,
@@ -72,25 +78,31 @@ def list_work_centers(q: Optional[str] = Query(None, max_length=100), active: Op
 
 
 @router.get("/work-centers/{wc_id}", response_model=s.WorkCenterOut, dependencies=[WC_READ])
-def get_work_center(wc_id: RowId, db: Session = Depends(get_db)):
+def get_work_center(wc_id: RowId, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _work_center_access(user, WorkCenterService(db).get(wc_id).branch_code)
     return WorkCenterService(db).get_out(wc_id)
 
 
 @router.post("/work-centers", response_model=s.WorkCenterOut, status_code=201)
 def create_work_center(data: s.WorkCenterIn, db: Session = Depends(get_db),
                        user: User = Depends(require_permission(*Permissions.WORK_CENTER_CREATE))):
+    _work_center_access(user, data.branch_code)
     return WorkCenterService(db).create(data, user.id)
 
 
 @router.put("/work-centers/{wc_id}", response_model=s.WorkCenterOut)
 def update_work_center(wc_id: RowId, data: s.WorkCenterUpdate, db: Session = Depends(get_db),
                        user: User = Depends(require_permission(*Permissions.WORK_CENTER_UPDATE))):
+    _work_center_access(user, WorkCenterService(db).get(wc_id).branch_code)
+    if "branch_code" in data.model_fields_set:
+        _work_center_access(user, data.branch_code)
     return WorkCenterService(db).update(wc_id, data, user.id)
 
 
 @router.delete("/work-centers/{wc_id}", status_code=204)
 def delete_work_center(wc_id: RowId, db: Session = Depends(get_db),
                        user: User = Depends(require_permission(*Permissions.WORK_CENTER_DELETE))):
+    _work_center_access(user, WorkCenterService(db).get(wc_id).branch_code)
     WorkCenterService(db).delete(wc_id, user.id)
 
 

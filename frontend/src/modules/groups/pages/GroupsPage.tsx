@@ -44,7 +44,7 @@ import {
     SelectableListItem,
     type TDataGridColumn,
 } from "@/components/tijaero";
-import { hasPermission } from "@/auth/permissions";
+import { hasPermission, usePermission } from "@/auth/permissions";
 import { useAuthStore } from "@/state/authStore";
 
 import {
@@ -75,6 +75,8 @@ export default function GroupsPage() {
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const currentUser = useAuthStore((state) => state.user);
+  const canCreateRole = usePermission("groups", "create");
+  const canUpdateRole = usePermission("groups", "update");
 
   // Use reusable state hook
   const {
@@ -197,9 +199,10 @@ export default function GroupsPage() {
         // Select new group after state reset and data reload
         setTimeout(() => setSelectedGroup(newGroup), 0);
       } else if (selectedGroup) {
-        await groupsApi.updateGroup(selectedGroup.id, payload as GroupUpdate);
+        const updated = await groupsApi.updateGroup(selectedGroup.id, payload as GroupUpdate);
         showSuccessToast("Role updated successfully");
         setIsEditing(false);
+        setSelectedGroup(updated);
         await loadData();
       }
     } catch (err: unknown) {
@@ -279,8 +282,9 @@ export default function GroupsPage() {
     (perm: Permission) => isSuperuser || hasPermission(currentUser, perm.resource, perm.action),
     [isSuperuser, currentUser],
   );
-  const canEditSelectedRole =
-    isCreating || isSuperuser || !selectedGroup || selectedGroup.permissions.every(canGrant);
+  const canEditSelectedRole = isCreating
+    ? canCreateRole
+    : canUpdateRole && (isSuperuser || !selectedGroup || selectedGroup.permissions.every(canGrant));
 
   const isFormValid = !!formData.name.trim() && !saving;
 
@@ -387,6 +391,8 @@ export default function GroupsPage() {
         isFormValid={isFormValid}
         isSaving={saving}
         canUpdate={canEditSelectedRole}
+        canCreate={canCreateRole}
+        canDuplicate={canCreateRole}
         onNew={handleNewGroup}
         onDuplicate={handleDuplicate}
         onSave={handleSave}
@@ -554,7 +560,7 @@ export default function GroupsPage() {
         onRefresh={loadData}
         isLoading={loading}
         headerActions={
-          isGroupDetailMode ? undefined : (
+          isGroupDetailMode || !canCreateRole ? undefined : (
             <Button
               variant="contained"
               size="small"

@@ -1124,8 +1124,17 @@ def create_purchase_return(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access denied to branch: {return_data.branch_code}",
         )
+    # Skipping the approval step is only for users who could approve the return themselves.
+    if not return_data.require_approval and not user_has_permission(
+        current_user, *Permissions.PURCHASE_RETURN_APPROVAL_APPROVE
+    ):
+        return_data = return_data.model_copy(update={"require_approval": True})
     return_service = service.PurchasingReturnService(db)
-    return return_service.create_return(return_data, user_id=current_user.id)
+    created = return_service.create_return(return_data, user_id=current_user.id)
+    # Same header fields as the list (GRN / PO / supplier, totals) plus the lines.
+    payload = _enrich_purchase_returns(db, [created])[0]
+    payload["items"] = [schemas.PurchasingReturnItem.model_validate(i).model_dump() for i in created.items]
+    return payload
 
 
 # NOTE: Purchase return approvals are handled through the centralized Approval Dashboard
@@ -1276,7 +1285,8 @@ def receive_grn(
         action_url="/purchasing/grn",
         exclude_user_id=current_user.id,
     )
-    return {"grn": grn, "units_received": result["units_received"], "units_rejected": result["units_rejected"]}
+    # Enriched like the GRN list (po_no, supplier_name, units, total_value).
+    return {"grn": _enrich_grns(db, [grn])[0], "units_received": result["units_received"], "units_rejected": result["units_rejected"]}
 
 
 @router.post(
@@ -1527,13 +1537,18 @@ def get_grn_items(grn_id: int, db: Session = Depends(get_db)):
     dependencies=[Depends(require_permission(*Permissions.GRN_CREATE))],
 )
 def create_grn_item(
-    item: schemas.GoodReceivedItemCreate, db: Session = Depends(get_db)
+    item: schemas.GoodReceivedItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Receive one GRN line at a time (older two-step flow: post this, then
     POST /inventory/sales-stock for each unit). Not used by the current
     frontend — POST /grn/receive posts a whole receipt atomically — but kept
     live: it's guarded and covered by
     tests/test_purchasing_receipt_approval_audit.py::TestGrnItemGuards."""
+    grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.good_received_no == item.good_received_note).first()
+    if grn and not validate_branch_access(current_user, grn.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {grn.branch_code}")
     grn_service = service.GoodReceivedNoteService(db)
     try:
         return grn_service.create_item(item)
@@ -1570,8 +1585,13 @@ def check_grn_item_barcode_exists(barcode: str, db: Session = Depends(get_db)):
     response_model=List[schemas.GoodReceivedItem],
     dependencies=[Depends(require_permission(*Permissions.GRN_VIEW))],
 )
-def get_grn_items_by_po(po_id: int, db: Session = Depends(get_db)):
+def get_grn_items_by_po(
+    po_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     """Get all GRN items for a specific Purchase Order"""
+    po = db.query(PurchasingOrder).filter(PurchasingOrder.id == po_id).first()
+    if po and not validate_branch_access(current_user, po.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {po.branch_code}")
     grn_service = service.GoodReceivedNoteService(db)
     return grn_service.get_items_by_po(po_id)
 
@@ -1827,7 +1847,10 @@ def get_supplier_statement(
     "/grn/{grn_id}/payment-history",
     dependencies=[Depends(require_permission(*Permissions.SUPPLIER_PAYMENT_VIEW))],
 )
-def get_grn_payment_history(grn_id: int, db: Session = Depends(get_db)):
+def get_grn_payment_history(
+    grn_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    _grn_for_branch_check(db, current_user, grn_id)
     return supplier_credit_service.get_grn_payment_history(db, grn_id)
 
 

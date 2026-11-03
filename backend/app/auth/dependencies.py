@@ -3,6 +3,7 @@ from typing import List, Optional
 from app.auth.models import Group, User
 from app.auth.token_revocation import is_revoked
 from app.auth.user_cache import load_user
+from app.core.config import settings
 from app.core.security import decode_token, get_password_marker
 from app.db.session import get_db
 from fastapi import Depends, HTTPException, Query, Request, status
@@ -10,6 +11,22 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+# While an administrator-forced password reset is pending, the user's token is
+# good for nothing but changing the password (plus reading their own account).
+# Logout needs no authenticated user, so it always works.
+_PASSWORD_CHANGE_ALLOWED_PATHS = (
+    f"{settings.API_V1_STR}/settings/change-password",
+    f"{settings.API_V1_STR}/users/me",
+)
+
+
+def _enforce_pending_password_change(request: Request, user: User) -> None:
+    if user.must_change_password and request.url.path.rstrip("/") not in _PASSWORD_CHANGE_ALLOWED_PATHS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You must change your password before continuing.",
+        )
 
 
 def _resolve_token(request: Request, token: Optional[str] = None) -> str:
@@ -31,7 +48,7 @@ def _resolve_token(request: Request, token: Optional[str] = None) -> str:
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+    request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
 ) -> User:
     payload = decode_token(token)
     if not payload:
@@ -69,6 +86,7 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session expired due to password change. Please log in again.",
         )
+    _enforce_pending_password_change(request, user)
     return user
 
 
@@ -76,6 +94,10 @@ def get_current_active_user(current_user: User = Depends(get_current_user)) -> U
     if not current_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user"
+        )
+    if current_user.blocked:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="User account is blocked"
         )
     return current_user
 
@@ -130,6 +152,11 @@ def get_current_user_flexible(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user"
         )
+    if user.blocked:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="User account is blocked"
+        )
+    _enforce_pending_password_change(request, user)
     return user
 
 

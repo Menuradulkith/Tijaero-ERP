@@ -91,7 +91,8 @@ def login(
     # Handle passcode lockout and expiry checks
     from app.auth.passcode_service import check_and_reset_passcode_lockout, is_passcode_expired
     
-    # If the user was locked out, we delete their passcode and notify the frontend
+    # The password proves the owner: reset passcode failures; a locked-out
+    # passcode is removed (the user sets a new one) and the frontend is told.
     passcode_locked_out = check_and_reset_passcode_lockout(db, user.id)
 
     # Inform the frontend whether the passcode has expired so it can show a nudge
@@ -111,12 +112,13 @@ def login(
 
 @router.post(
     "/passcode-login",
-    response_model=schemas.Token,
+    response_model=schemas.PasscodeLoginResponse,
     summary="Passcode Login",
     description=(
         "Authenticate with a 6-digit numeric passcode instead of a full password. "
         "Returns structured error codes (PASSCODE_EXPIRED, PASSCODE_LOCKED, "
-        "PASSCODE_INVALID) so the UI can react appropriately."
+        "PASSCODE_INVALID) so the UI can react appropriately. Unknown, inactive "
+        "and passcode-less accounts all get the same PASSCODE_INVALID answer."
     ),
     dependencies=[Depends(rate_limit(LOGIN_RATE_LIMIT_PER_MIN))],
     responses={
@@ -134,7 +136,9 @@ def passcode_login(
 
     expiry_days = _get_expiry_days(db)
     user = verify_passcode_login(db, body.username, body.passcode, expiry_days)
-    return _issue_tokens(user, response, db)
+    # A pending forced password reset applies here too: the token issued is
+    # limited to changing the password (see dependencies._enforce_pending_password_change).
+    return {**_issue_tokens(user, response, db), "must_change_password": user.must_change_password}
 
 
 @router.post(

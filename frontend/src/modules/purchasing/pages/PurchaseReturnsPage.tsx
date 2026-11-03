@@ -984,13 +984,14 @@ export default function PurchaseReturnsPage() {
         isEditing={isEditing}
         isSaving={isSaving}
         isFormValid={!!isFormValid}
-        canDelete={canDelete}
+        // A posted return is never edited or deleted (the API has no such routes):
+        // it is approved or rejected through the approval dashboard.
+        canDelete={false}
         canCreate={canCreateReturn}
         canDuplicate={canCreateReturn}
-        canUpdate={canUpdateReturn}
+        canUpdate={false}
         onNew={handleNewReturn}
         onDuplicate={handleDuplicate}
-        onDelete={handleDelete}
         onSave={isCreating && formStep < FORM_STEPS.length - 1 ? undefined : handleSave}
         onCancel={() => handleCancel(filteredReturns)}
         startActions={

@@ -498,6 +498,33 @@ export const journalEntriesApi = {
     );
     return response.data;
   },
+
+  /** draft -> submitted (runs the backend validation first). */
+  submit: async (id: number, remarks?: string) => {
+    const response = await apiClient.post<JournalEntry>(
+      `${ACCT_BASE}/journal-entries/${id}/submit`,
+      { remarks }
+    );
+    return response.data;
+  },
+
+  /** submitted -> approved; the creator/submitter can't approve (403). */
+  approve: async (id: number, remarks?: string) => {
+    const response = await apiClient.post<JournalEntry>(
+      `${ACCT_BASE}/journal-entries/${id}/approve`,
+      { remarks }
+    );
+    return response.data;
+  },
+
+  /** submitted / approved (unposted) -> back to draft. */
+  reject: async (id: number, reason: string) => {
+    const response = await apiClient.post<JournalEntry>(
+      `${ACCT_BASE}/journal-entries/${id}/reject`,
+      { reason }
+    );
+    return response.data;
+  },
 };
 
 // General Ledger API

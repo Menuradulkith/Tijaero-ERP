@@ -181,7 +181,9 @@ class ShiftIn(BaseModel):
     break_minutes: int = Field(default=60, ge=0, le=240)
     work_minutes: int = Field(default=480, ge=60, le=960)
     half_day_minutes: int = Field(default=240, ge=30, le=480)
-    weekly_off_days: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^([0-6](,[0-6]){0,6})?$")] = "6"
+    # "" (or null, as the form sends it) = no weekly off
+    weekly_off_days: Annotated[str, BeforeValidator(lambda v: "" if v is None else v),
+                               StringConstraints(strip_whitespace=True, pattern=r"^([0-6](,[0-6]){0,6})?$")] = "6"
     is_default: bool = False
     active: bool = True
 
@@ -326,6 +328,12 @@ class LeaveAllocationIn(BaseModel):
     adjustment: float = Field(default=0, ge=-366, le=366)
     remarks: OptStr(500) = None
 
+    @model_validator(mode="after")
+    def _total(self):
+        if self.allocated + self.carried_forward + self.adjustment < 0:
+            raise ValueError("The adjustment cannot take the total below zero")
+        return self
+
 
 class LeaveAllocationUpdate(BaseModel):
     allocated: float = Field(..., ge=0, le=366)
@@ -333,6 +341,12 @@ class LeaveAllocationUpdate(BaseModel):
     adjustment: float = Field(default=0, ge=-366, le=366)
     remarks: OptStr(500) = None
     expected_version: Optional[str] = Field(default=None, max_length=40)
+
+    @model_validator(mode="after")
+    def _total(self):
+        if self.allocated + self.carried_forward + self.adjustment < 0:
+            raise ValueError("The adjustment cannot take the total below zero")
+        return self
 
 
 class LeaveAllocationOut(AuditOut, VersionedSchema):
@@ -513,7 +527,7 @@ class DocumentOut(AuditOut):
     doc_number: Optional[str] = None
     issue_date: Optional[date] = None
     expiry_date: Optional[date] = None
-    file_path: Optional[str] = None
+    has_file: bool = False   # the private storage path is not exposed
     file_name: Optional[str] = None
     remarks: Optional[str] = None
     expired: bool = False

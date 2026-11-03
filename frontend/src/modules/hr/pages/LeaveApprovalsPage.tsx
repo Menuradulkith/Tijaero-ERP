@@ -73,6 +73,8 @@ export default function LeaveApprovalsPage() {
       qc.invalidateQueries({ queryKey: ["hr-leaves-pending"] });
       qc.invalidateQueries({ queryKey: ["hr-leaves"] });
       qc.invalidateQueries({ queryKey: ["leaves-pending-count"] });
+      qc.invalidateQueries({ queryKey: ["leave-balance"] });
+      qc.invalidateQueries({ queryKey: ["hr", "allocations"] });
       showSuccessToast("Leave approved");
       setSelectedLeave(null);
       setApproveDialog(false);
@@ -87,6 +89,8 @@ export default function LeaveApprovalsPage() {
       qc.invalidateQueries({ queryKey: ["hr-leaves-pending"] });
       qc.invalidateQueries({ queryKey: ["hr-leaves"] });
       qc.invalidateQueries({ queryKey: ["leaves-pending-count"] });
+      qc.invalidateQueries({ queryKey: ["leave-balance"] });
+      qc.invalidateQueries({ queryKey: ["hr", "allocations"] });
       showSuccessToast("Leave rejected");
       setSelectedLeave(null);
       setRejectDialog(false);

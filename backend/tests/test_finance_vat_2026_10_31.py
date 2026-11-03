@@ -18,6 +18,7 @@ import pytest
 from sqlalchemy import func
 
 from app.modules.finance.accounting_models import JournalEntry, TaxCode, TaxTransaction
+from app.modules.finance.accounting_service import JournalEntryService
 from tests.integration.test_workflows.test_grn_receive_cancel import P, _body, _uid, world  # noqa: F401
 from tests.money_invariants import Books
 from tests.test_sales_return_money_2026_10_12 import _place, _return, shop  # noqa: F401
@@ -138,8 +139,12 @@ class TestSupplierInvoiceVat:
 
     def test_edit_reposts_the_vat(self, db, superclient, credit_world):
         w = credit_world
-        inv = _invoice(superclient, w, _receive(superclient, w), tax=18.0).json()
-        r = superclient.patch(f"{P}/invoices/{inv['id']}", json={"tax_amount": 10.0, "total_amount": 110.0})
+        grn = _receive(superclient, w)
+        inv = _invoice(superclient, w, grn, tax=18.0).json()
+        # VAT lives on the lines (an edit is checked like a new invoice), so the edit sends them.
+        items = [{"grn_id": grn["id"], "purchasing_order_id": w["po"].id, "product_id": w["products"]["none"].id,
+                  "quantity": 10, "unit_price": 10.0, "line_total": 100.0, "tax_amount": 10.0}]
+        r = superclient.patch(f"{P}/invoices/{inv['id']}", json={"tax_amount": 10.0, "total_amount": 110.0, "items": items})
         assert r.status_code == 200, r.text
         assert _net(_tax_rows(db, "PurchaseInvoice", inv["id"])) == D("10.00")
         je = Books(db).entries_for("PurchaseInvoice", inv["id"])
@@ -161,8 +166,10 @@ class TestReversal:
         w = credit_world
         inv = _invoice(superclient, w, _receive(superclient, w), tax=18.0).json()
         je_id = _tax_rows(db, "PurchaseInvoice", inv["id"])[0].journal_entry_id
-        r = superclient.post(f"{A}/journal-entries/{je_id}/reverse", json={"reason": "test"})
-        assert r.status_code == 200, r.text
+        # Auto entries can't be reversed by hand any more (FIN-06); the source document reverses them
+        assert superclient.post(f"{A}/journal-entries/{je_id}/reverse", json={"reason": "test"}).status_code == 400
+        JournalEntryService(db).reverse_journal_entry(je_id, reversed_by=0, reason="test", commit=False)
+        db.flush()
         assert _net(_tax_rows(db, "PurchaseInvoice", inv["id"])) == D("0")
 
 

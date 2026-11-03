@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.common.base_schemas import TijaeroBaseSchema
 
@@ -43,10 +43,11 @@ class NotificationCreate(BaseModel):
     ``broadcast=True``.
     """
 
-    title: str = Field(..., max_length=200)
-    message: str
+    title: str = Field(..., min_length=1, max_length=200)
+    message: str = Field(..., min_length=1, max_length=5000)
     notification_type: str = "info"
-    category: str = "system"
+    category: str = Field("system", min_length=1, max_length=50)
+    # An in-app path ("/sales/orders") or an http(s) link; never javascript: and the like.
     action_url: Optional[str] = Field(None, max_length=500)
     extra_data: Optional[Dict[str, Any]] = None
 
@@ -54,6 +55,22 @@ class NotificationCreate(BaseModel):
     user_ids: Optional[List[int]] = None
     branch_codes: Optional[List[str]] = None
     broadcast: bool = False
+
+    @field_validator("title", "message", "category", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("action_url")
+    @classmethod
+    def _safe_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not v.strip():
+            return None
+        v = v.strip()
+        lower = v.lower()
+        if (v.startswith("/") and not v.startswith("//")) or lower.startswith(("https://", "http://")):
+            return v
+        raise ValueError("action_url must be an in-app path starting with / or an http(s) link")
 
     @model_validator(mode="after")
     def _validate(self) -> "NotificationCreate":

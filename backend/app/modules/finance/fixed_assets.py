@@ -174,9 +174,10 @@ class FixedAssetService:
         if data.funding != "existing":
             # the purchase is booked on this date, so it must be in an open period
             # (an asset already in the books posts nothing and may be years old)
-            from .posting_dates import check_posting_date
+            from .posting_dates import check_posting_date, require_open_period
 
             check_posting_date(self.db, data.acquisition_date, "The purchase date")
+            require_open_period(self.db, data.acquisition_date, "The purchase date")
         if data.depreciation_start and data.depreciation_start < data.acquisition_date:
             raise _bad("Depreciation can't start before the asset was bought.")
         method = data.depreciation_method or cls.depreciation_method
@@ -336,7 +337,9 @@ class FixedAssetService:
         je_svc = JournalEntryService(self.db)
         for je_id in {l.journal_entry_id for l in run.lines if l.journal_entry_id}:
             je_svc.reverse_journal_entry(je_id, reversed_by=user_id, reason=f"Depreciation {run.period_year}-{run.period_month:02d} reversed",
-                                         reversal_date=max(run.run_date, tz.today()), commit=False)
+                                         # today: the run posted on or before today, and a
+                                         # reversal is never dated in the future
+                                         reversal_date=tz.today(), commit=False)
         for l in run.lines:
             l.asset.accumulated_depreciation = _d(l.asset.accumulated_depreciation) - _d(l.amount)
             if l.asset.status == "fully_depreciated":

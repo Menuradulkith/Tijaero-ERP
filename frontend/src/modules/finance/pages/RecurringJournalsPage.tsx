@@ -65,6 +65,7 @@ import {
   type RecurringLine,
 } from "@/modules/finance/api/periodEnd";
 import { submitOnce } from "@/modules/finance/submitOnce";
+import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
 
 const fmt = (v: number | string | null | undefined) =>
   Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -344,6 +345,7 @@ function RecurringTab({ nav, canWrite }: { nav: TabNav; canWrite: boolean }) {
     onSuccess: (nos) => {
       queryClient.invalidateQueries({ queryKey: ["recurring-journals"] });
       queryClient.invalidateQueries({ queryKey: ["journal-entries"] });
+      invalidateLedgerQueries(queryClient);
       showSuccessToast(nos.length ? `Created ${nos.length} draft journal(s): ${nos.join(", ")}. Approve and post them on Journal Entries.` : "Nothing is due.");
     },
     onError: (err) => handleApiError(err, "Could not create the journals"),

@@ -1084,6 +1084,32 @@ class PurchasingOrderService:
         new_grn_date = order_update.good_received_note_date or existing_po.good_received_note_date
         if new_grn_date < new_order_date:
             raise HTTPException(status_code=422, detail="Expected delivery date cannot be before the order date")
+        new_required = order_update.required_date if "required_date" in submitted_fields else existing_po.required_date
+        if new_required and new_required < new_order_date:
+            raise HTTPException(status_code=422, detail="Required date cannot be before the order date")
+        if order_update.items is not None:
+            # Same line rules as a new PO: products must exist and be active; quotation-sourced
+            # lines cannot be bought above the quotation selling price.
+            from app.modules.products.models import Product
+            from app.modules.sales.quotation_models import SalesQuoteItem as _QuoteItem
+            for line in order_update.items:
+                product = self.db.query(Product).filter(Product.id == line.product_id).first()
+                if not product:
+                    raise HTTPException(status_code=404, detail=f"Product with id {line.product_id} not found")
+                if not product.active:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Product '{product.name}' (ID: {product.id}) is inactive. Please reactivate the product before adding it to a purchase order.",
+                    )
+                if line.quote_item_id:
+                    qi = self.db.query(_QuoteItem).filter(_QuoteItem.id == line.quote_item_id).first()
+                    if not qi:
+                        raise HTTPException(status_code=404, detail=f"Quotation item with id {line.quote_item_id} not found")
+                    if line.unit_price > qi.selling_price:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Unit price {line.unit_price} for quotation item {qi.id} is higher than its selling price {qi.selling_price}.",
+                        )
         new_first = order_update.first_suppliers_id or existing_po.first_suppliers_id
         new_second = order_update.second_suppliers_id if "second_suppliers_id" in submitted_fields else existing_po.second_suppliers_id
         if new_second and new_second == new_first:
@@ -1220,8 +1246,9 @@ class PurchasingOrderService:
             self.db.commit()
             self.db.refresh(order)
 
-        # If an approved PO was edited, reset it back to pending_approval
-        if was_approved:
+        # If an approved PO was really changed, reset it back to pending_approval
+        # (an empty or no-op save keeps the approval and its approver).
+        if was_approved and (item_changes or diff_changes(before_values, submitted_fields)):
             from app.modules.common.models import Approvals
             
             order.status = PurchaseOrderStatus.PENDING_APPROVAL
@@ -1325,11 +1352,15 @@ class PurchasingOrderService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Purchase order with id {order_id} not found"
             )
-        if order.status != PurchaseOrderStatus.PARTIALLY_COMPLETED:
+        # An approved order the supplier will never deliver can be closed too (it cannot be
+        # cancelled once approved); nothing was received, so its quotation lines are freed.
+        if order.status not in (PurchaseOrderStatus.PARTIALLY_COMPLETED, PurchaseOrderStatus.APPROVED):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Short-close is only allowed for partially received orders (current status: '{order.status}')."
+                detail=f"Short-close is only allowed for approved or partially received orders (current status: '{order.status}')."
             )
+        if order.status == PurchaseOrderStatus.APPROVED and not order.good_received_notes:
+            self._release_quote_items(order)
 
         order.status = PurchaseOrderStatus.SHORT_CLOSED
         order.short_close_reason = reason
@@ -2022,6 +2053,11 @@ class PurchasingReturnService:
                         grn, po_item_id, item.quantity, lot_qty_in_request.get(po_item_id, 0)
                     )
                     lot_qty_in_request[po_item_id] = lot_qty_in_request.get(po_item_id, 0) + item.quantity
+                if lot_row.product_id != item.product_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Product {item.product_id} does not match stock lot {item.sales_stock_id}.",
+                    )
                 self._check_return_price(item, lot_validation, f"lot {item.sales_stock_id}")
                 piece = split_lot(self.db, lot_row, item.quantity)
                 lot_validation.sales_stock_id = piece.id
@@ -2054,6 +2090,11 @@ class PurchasingReturnService:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Barcode {item.barcode} is already on purchase return #{open_returns[0]}.",
+                )
+            if validation.product_id is not None and validation.product_id != item.product_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Product {item.product_id} does not match barcode {item.barcode}.",
                 )
             self._check_return_price(item, validation, f"barcode {item.barcode}")
             seen_stock_ids.add(validation.sales_stock_id)
@@ -2469,6 +2510,25 @@ class GoodReceivedNoteService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot create GRN: purchase order {po.purchasing_order_no} is '{po.status}', not approved."
+            )
+
+        # The goods belong to the branch that ordered them: the GRN branch and the
+        # receiving location must both be the PO's branch (the API checks the user's
+        # access to grn.branch_code, so this also keeps users out of other branches' POs).
+        if grn.branch_code != po.branch_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Purchase order {po.purchasing_order_no} belongs to branch {po.branch_code}; receive it there.",
+            )
+        if location.branch_code != po.branch_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Location '{location.name}' is not in branch {po.branch_code}.",
+            )
+        if po.purchasing_order_date and grn.good_received_date < po.purchasing_order_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The receipt date cannot be before the purchase order date.",
             )
 
         repository.SupplierRepository(self.db).lock_for_document(po.first_suppliers_id, po.second_suppliers_id)
@@ -3317,6 +3377,8 @@ class GoodReceivedNoteService:
         ).first()
         if not grn_row:
             raise ValueError(f"Goods received note '{item.good_received_note}' not found")
+        if grn_row.status == "cancelled":
+            raise ValueError(f"Goods received note '{item.good_received_note}' is cancelled.")
         if grn_row.purchasingorders_id != po.id:
             raise ValueError(
                 f"Goods received note '{item.good_received_note}' does not belong to purchase order "
@@ -3743,6 +3805,12 @@ class SupplierPaymentService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Purchase order does not belong to this supplier"
                 )
+            if order.branch_code != payment.branch_code:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Purchase order {order.purchasing_order_no} belongs to branch {order.branch_code}.",
+                )
+            self._check_po_payment_limit(order, Decimal(str(payment.payment_amount)))
         
         created_payment = self.repo.create(payment, created_by)
         log_audit(
@@ -3835,8 +3903,34 @@ class SupplierPaymentService:
         
         return result
     
+    def _check_po_payment_limit(self, order, amount: Decimal, exclude_payment_id: Optional[int] = None) -> None:
+        """A payment against a PO cannot exceed what is still unpaid on that PO."""
+        po_total = self.db.query(
+            func.coalesce(func.sum(models.PurchasingOrderItems.quantity * models.PurchasingOrderItems.unit_price), 0)
+        ).filter(models.PurchasingOrderItems.purchasingorders_id == order.id).scalar()
+        paid = self.db.query(func.coalesce(func.sum(models.SupplierPayment.payment_amount), 0)).filter(
+            models.SupplierPayment.purchasing_order_id == order.id,
+            models.SupplierPayment.status != "cancelled",
+            models.SupplierPayment.id != (exclude_payment_id or 0),
+        ).scalar()
+        left = Decimal(str(po_total)) - Decimal(str(paid))
+        if amount > left:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Payment {amount} exceeds the unpaid amount {max(left, Decimal('0'))} of purchase order {order.purchasing_order_no}.",
+            )
+
+    def _has_allocations(self, payment_id: int) -> bool:
+        return self.db.query(PurchaseInvoicePayment.id).filter(
+            PurchaseInvoicePayment.supplier_payment_id == payment_id
+        ).first() is not None
+
     def update_payment(self, payment_id: int, payment_update: schemas.SupplierPaymentUpdate) -> models.SupplierPayment:
-        payment = self.repo.get_by_id(payment_id)
+        from app.modules.finance.posting_dates import check_posting_date
+
+        payment = self.db.query(models.SupplierPayment).filter(
+            models.SupplierPayment.id == payment_id
+        ).with_for_update().first()
         if not payment:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -3848,8 +3942,36 @@ class SupplierPaymentService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot update payment with status '{payment.status}'"
             )
-        
-        return self.repo.update(payment_id, payment_update)
+
+        fields = payment_update.model_dump(exclude_unset=True)
+        # Status only moves through verify / cancel (which post GL and restore invoices).
+        if "status" in fields and fields.pop("status") not in (None, payment.status):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Use verify or cancel to change a payment's status.",
+            )
+        if fields.get("payment_date") is not None:
+            check_posting_date(self.db, fields["payment_date"], "Payment date")
+        if fields.get("payment_method") is not None:
+            try:
+                fields["payment_method"] = schemas._payment_method(fields["payment_method"])
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        new_amount = fields.get("payment_amount")
+        if new_amount is not None and Decimal(str(new_amount)) != Decimal(str(payment.payment_amount)):
+            if self._has_allocations(payment_id):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This payment is allocated to invoices; cancel it and enter a new payment to change the amount.",
+                )
+            if payment.purchasing_order_id:
+                order = self.db.query(models.PurchasingOrder).filter(
+                    models.PurchasingOrder.id == payment.purchasing_order_id
+                ).first()
+                if order:
+                    self._check_po_payment_limit(order, Decimal(str(new_amount)), exclude_payment_id=payment_id)
+
+        return self.repo.update(payment_id, schemas.SupplierPaymentUpdate.model_construct(**fields))
     
     def verify_payment(self, payment_id: int, verified_by: int) -> models.SupplierPayment:
         # Row lock: parallel verifies queue here, so only the first sees "pending".
@@ -3991,6 +4113,11 @@ class SupplierPaymentService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete payment with status '{payment.status}'. Only pending payments can be deleted."
+            )
+        if self._has_allocations(payment_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This payment is allocated to invoices; cancel it instead (cancelling restores the invoice balances).",
             )
         
         return self.repo.delete(payment_id)

@@ -20,6 +20,44 @@ router = APIRouter(
     prefix="/common", tags=["common"], dependencies=[Depends(get_current_active_user)]
 )
 
+P = Permissions
+
+# reference-data include -> permissions that unlock it (any one). Like peek: the entity's own view
+# permission plus the documents whose forms pick that entity. Names-only lists (branches,
+# categories, brands, locations, countries, currencies) stay open to any signed-in user.
+REFERENCE_DATA_ACCESS: Dict[str, tuple] = {
+    "products": (
+        P.PRODUCT_VIEW, P.PURCHASE_ORDER_VIEW, P.PURCHASE_ORDER_CREATE, P.PURCHASE_ORDER_UPDATE,
+        P.PO_APPROVAL_VIEW, P.GRN_VIEW, P.GRN_CREATE, P.PURCHASE_RETURN_VIEW, P.PURCHASE_RETURN_APPROVAL_VIEW,
+        P.QUOTATION_VIEW, P.QUOTATION_CREATE, P.QUOTATION_APPROVAL_VIEW, P.SALES_ORDER_VIEW,
+        P.SALES_ORDER_CREATE, P.SO_APPROVAL_VIEW, P.SALES_RETURN_VIEW, P.SALES_RETURN_APPROVAL_VIEW,
+        P.ITN_VIEW, P.ITN_CREATE, P.ITN_APPROVAL_VIEW, P.SALES_STOCK_VIEW, P.COMPANY_ASSET_VIEW,
+        P.BOM_VIEW, P.PRODUCTION_ORDER_VIEW, P.MRP_VIEW, P.BANK_TRANSFER_VERIFY_VIEW,
+    ),
+    "customers": (
+        P.CUSTOMER_VIEW, P.QUOTATION_VIEW, P.QUOTATION_CREATE, P.QUOTATION_UPDATE, P.QUOTATION_APPROVAL_VIEW,
+        P.SALES_ORDER_VIEW, P.SALES_ORDER_CREATE, P.SO_APPROVAL_VIEW, P.SALES_RETURN_VIEW,
+        P.CUSTOMER_PAYMENT_VIEW, P.BANK_TRANSFER_VERIFY_VIEW,
+    ),
+    "suppliers": (
+        P.SUPPLIER_VIEW, P.PURCHASE_ORDER_VIEW, P.PURCHASE_ORDER_CREATE, P.PURCHASE_ORDER_UPDATE,
+        P.PO_APPROVAL_VIEW, P.GRN_VIEW, P.GRN_CREATE, P.SUPPLIER_PAYMENT_VIEW, P.PURCHASE_RETURN_VIEW,
+    ),
+    "employees": (
+        P.EMPLOYEE_VIEW, P.REIMBURSEMENT_VIEW, P.REIMBURSEMENT_CREATE, P.REIMBURSEMENT_APPROVAL_VIEW,
+        P.LEAVE_VIEW, P.LEAVE_CREATE, P.PAYROLL_VIEW, P.HR_SALES_COMMISSION_VIEW,
+        P.QUOTATION_CREATE, P.SALES_ORDER_CREATE,
+    ),
+    "sales_stock": (
+        P.SALES_STOCK_VIEW, P.SALES_ORDER_VIEW, P.SALES_ORDER_CREATE, P.SALES_RETURN_VIEW, P.ITN_CREATE,
+    ),
+}
+
+
+def _may_include(user: User, name: str) -> bool:
+    perms = REFERENCE_DATA_ACCESS.get(name)
+    return perms is None or any(user_has_permission(user, r, a) for r, a in perms)
+
 
 @router.get("/reference-data", response_model=schemas.ReferenceDataResponse)
 def get_reference_data(
@@ -31,10 +69,15 @@ def get_reference_data(
         500, ge=1, le=2000, description="Max products to return"
     ),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
+    """An include the caller may not see comes back as an empty list (not a 403), so a page that
+    asks for several lists still loads the ones the user may use."""
+    from app.auth.dependencies import get_user_branch_codes
 
-    includes = [i.strip().lower() for i in include.split(",")]
-    result = {}
+    requested = [i.strip().lower() for i in include.split(",")]
+    includes = [i for i in requested if _may_include(current_user, i)]
+    result = {i: [] for i in requested if i in REFERENCE_DATA_ACCESS and i not in includes}
 
     if "branches" in includes:
         from app.modules.branches.service import branch_service
@@ -82,9 +125,12 @@ def get_reference_data(
             .all()
         )
         result["products"] = []
+        # Cost / minimum prices and price tiers only for users who may open the Products page
+        # (same rule as peek); catalogue selling prices stay, quotations default to them.
+        show_pricing = user_has_permission(current_user, *P.PRODUCT_VIEW)
         for p in products:
             minimum_price = None
-            if p.minimum_prices:
+            if show_pricing and p.minimum_prices:
                 latest_min_price = max(p.minimum_prices, key=lambda x: x.created_date)
                 minimum_price = float(latest_min_price.minimum_price) if latest_min_price else None
             
@@ -117,6 +163,8 @@ def get_reference_data(
                 ],
                 "image_url": p.image_url,
             })
+            if not show_pricing:
+                result["products"][-1].update(cost_price=None, price_tiers=[])
 
     if "countries" in includes:
         country_service = service.CountryService(db)
@@ -191,7 +239,12 @@ def get_reference_data(
 
         # Use the sales service to get available products from stock
         # This returns products grouped with their available quantities
-        result["sales_stock"] = sales_service.get_available_products_from_stock(db)
+        # Only the caller's branches' stock (superusers: all branches).
+        branch_codes = None if current_user.is_superuser else get_user_branch_codes(current_user)
+        result["sales_stock"] = (
+            [] if branch_codes == [] else
+            sales_service.get_available_products_from_stock(db, branch_codes=branch_codes)
+        )
 
     return result
 
@@ -201,40 +254,54 @@ def get_reference_data(
 # the app. Extend this list as more entities grow an "Activity History"
 # panel; it exists to stop the endpoint being used as an open-ended probe of
 # the audit_logs table for unrelated entity types.
-ACTIVITY_LOG_ENTITY_TYPES = {
-    "supplier",
-    "customer",
-    "purchase_order",
-    "purchase_return",
-    "good_received_note",
-    "sales_order",
-    "sale_return",
-    "sales_quote",
-    "product",
-    "category",
-    "brand",
-    "chart_of_account",
-    "journal_entry",
-    "cash_flow_statement",
-    "credit_settlement",
-    "credit_payment",
-    "commission_payment",
-    "supplier_payment",
-    "supplier_advance",
-    "supplier_advance_application",
-    "sales_stock",
-    "company_asset",
-    "accounting_period",
-    "bank_deposit",
-    "card_payment",
-    "cheque_payment",
-    "expense",
-    "customer_advance_payment",
-    "customer_credit_note",
-    "user",
-    "branch",
-    "group",
+ACTIVITY_LOG_ENTITY_TYPES: Dict[str, tuple] = {
+    # entity_type: (view permission needed to read its history, model class for the branch check or None)
+    "supplier": (P.SUPPLIER_VIEW, None),
+    "customer": (P.CUSTOMER_VIEW, None),
+    "purchase_order": (P.PURCHASE_ORDER_VIEW, "PurchasingOrder"),
+    "purchase_return": (P.PURCHASE_RETURN_VIEW, "PurchasingReturn"),
+    "good_received_note": (P.GRN_VIEW, "GoodReceivedNote"),
+    "sales_order": (P.SALES_ORDER_VIEW, "Invoice"),
+    "sale_return": (P.SALES_RETURN_VIEW, "SaleReturn"),
+    "sales_quote": (P.QUOTATION_VIEW, "SalesQuote"),
+    "product": (P.PRODUCT_VIEW, None),
+    "category": (P.CATEGORY_VIEW, None),
+    "brand": (P.BRAND_VIEW, None),
+    "chart_of_account": (P.CHART_OF_ACCOUNTS_VIEW, None),
+    "journal_entry": (P.JOURNAL_ENTRY_VIEW, "JournalEntry"),
+    "cash_flow_statement": (P.CASH_FLOW_VIEW, "CashFlowStatement"),
+    "credit_settlement": (P.SUPPLIER_PAYMENT_VIEW, None),
+    "credit_payment": (P.CREDIT_PAYMENT_VIEW, "CreditPayments"),
+    "commission_payment": (P.COMMISSION_PAYMENT_VIEW, None),
+    "supplier_payment": (P.SUPPLIER_PAYMENT_VIEW, "SupplierPayment"),
+    "supplier_advance": (P.SUPPLIER_ADVANCE_VIEW, None),
+    "supplier_advance_application": (P.SUPPLIER_ADVANCE_VIEW, None),
+    "sales_stock": (P.SALES_STOCK_VIEW, "SalesStock"),
+    "company_asset": (P.COMPANY_ASSET_VIEW, "CompanyAssets"),
+    "accounting_period": (P.ACCOUNTING_PERIOD_VIEW, None),
+    "bank_deposit": (P.BANK_DEPOSIT_VIEW, "BankDeposits"),
+    "card_payment": (P.CARD_PAYMENT_VIEW, "CardPayments"),
+    "cheque_payment": (P.CHEQUE_PAYMENT_VIEW, "ChequePayments"),
+    "expense": (P.EXPENSE_VIEW, "Expenses"),
+    "customer_advance_payment": (P.CUSTOMER_ADVANCE_VIEW, "CustomerAdvancePayments"),
+    "customer_credit_note": (P.CREDIT_NOTE_VIEW, "CustomerCreditNotes"),
+    "user": (P.USER_VIEW, None),
+    "branch": (P.BRANCH_VIEW, None),
+    "group": (P.GROUP_VIEW, None),
 }
+
+
+def _entity_branch_code(db: Session, class_name: Optional[str], entity_id: int) -> Optional[str]:
+    """Branch of the audited record, when its model is branch-bound (None: not branch-bound / gone)."""
+    if not class_name:
+        return None
+    from app.db.base import Base
+
+    model = next((m.class_ for m in Base.registry.mappers if m.class_.__name__ == class_name), None)
+    if model is None or not hasattr(model, "branch_code"):
+        return None
+    row = db.query(model.branch_code).filter(model.id == entity_id).first()
+    return row[0] if row else None
 
 
 @router.get("/activity-log", response_model=List[schemas.ActivityLogEntry])
@@ -254,6 +321,18 @@ def get_activity_log(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown entity_type '{entity_type}'",
         )
+    # The history of a record is as sensitive as the record: same view permission, same branch scope.
+    perm, class_name = ACTIVITY_LOG_ENTITY_TYPES[entity_type]
+    if not user_has_permission(current_user, *perm):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied. Required: {perm[0]}:{perm[1]}",
+        )
+    from app.auth.dependencies import validate_branch_access
+
+    code = _entity_branch_code(db, class_name, entity_id)
+    if code is not None and not validate_branch_access(current_user, code):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
 
     entries = (
         db.query(AuditLog)
@@ -320,10 +399,21 @@ def get_location(location_id: int, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission(*Permissions.COMMON_CREATE))],
 )
-def create_location(location: schemas.LocationCreate, db: Session = Depends(get_db)):
-
+def create_location(
+    location: schemas.LocationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    _require_location_branch(current_user, location.branch_code)
     location_service = service.LocationService(db)
     return location_service.create(location)
+
+
+def _require_location_branch(user: User, branch_code: str) -> None:
+    from app.auth.dependencies import validate_branch_access
+
+    if not validate_branch_access(user, branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
 
 
 @router.put(
@@ -332,10 +422,14 @@ def create_location(location: schemas.LocationCreate, db: Session = Depends(get_
     dependencies=[Depends(require_permission(*Permissions.COMMON_UPDATE))],
 )
 def update_location(
-    location_id: int, location: schemas.LocationCreate, db: Session = Depends(get_db)
+    location_id: int,
+    location: schemas.LocationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
-
     location_service = service.LocationService(db)
+    _require_location_branch(current_user, location_service.get_by_id(location_id).branch_code)
+    _require_location_branch(current_user, location.branch_code)
     return location_service.update(location_id, location)
 
 
@@ -344,9 +438,13 @@ def update_location(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission(*Permissions.COMMON_DELETE))],
 )
-def delete_location(location_id: int, db: Session = Depends(get_db)):
-
+def delete_location(
+    location_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     location_service = service.LocationService(db)
+    _require_location_branch(current_user, location_service.get_by_id(location_id).branch_code)
     location_service.delete(location_id)
 
 
@@ -447,10 +545,16 @@ def get_approval_types(
     response_model=schemas.Approval,
     dependencies=[Depends(require_permission(*Permissions.COMMON_VIEW))],
 )
-def get_approval(approval_id: RowId, db: Session = Depends(get_db)):
-
-    approval_service = service.ApprovalService(db)
-    return approval_service.get_by_id(approval_id)
+def get_approval(
+    approval_id: RowId,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    approval = service.ApprovalService(db).get_by_id(approval_id)
+    # Same branch rule as the list: an approval of another branch's document does not exist here.
+    if not centralized_approval_service.user_can_see_approval(db, approval, current_user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Approval with id {approval_id} not found")
+    return approval
 
 
 @router.post(
@@ -459,7 +563,29 @@ def get_approval(approval_id: RowId, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission(*Permissions.COMMON_CREATE))],
 )
-def create_approval(approval: schemas.ApprovalCreate, db: Session = Depends(get_db)):
+def create_approval(
+    approval: schemas.ApprovalCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Open a PENDING approval for a known document type ("<type>:<id>:<no>"). Decisions are only
+    recorded through approve/reject."""
+    if approval.status not in (None, ApprovalStatus.PENDING.value):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A new approval is always pending; use the approve/reject endpoints to decide it.",
+        )
+    kind, ref, _ = centralized_approval_service._parse_approval_for(approval.approval_for)
+    if kind not in {t.value for t in ApprovalType} or ref is None or ref < 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="approval_for must look like '<approval type>:<record id>:<reference no>' with a known approval type.",
+        )
+    approval = approval.model_copy(update={"status": ApprovalStatus.PENDING.value})
+    from .models import Approvals
+
+    if not centralized_approval_service.user_can_see_approval(db, Approvals(approval_for=approval.approval_for), current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this document's branch")
     approval_service = service.ApprovalService(db)
     return approval_service.create(approval)
 

@@ -107,6 +107,14 @@ class RecurringJournalService:
         if t is None:
             raise _bad("Recurring journal not found", status.HTTP_404_NOT_FOUND)
         fields = data.model_dump(exclude_unset=True)
+        # name and is_active are required columns: a null means "leave as is".
+        for key in ("name", "is_active"):
+            if key in fields and fields[key] is None:
+                fields.pop(key)
+        if "name" in fields:
+            fields["name"] = fields["name"].strip()
+            if not fields["name"]:
+                raise _bad("The name can't be blank.")
         self._check_end_date(fields.get("next_date", t.next_date), fields.get("end_date", t.end_date))
         for k, v in fields.items():
             setattr(t, k, v)
@@ -115,40 +123,61 @@ class RecurringJournalService:
         self.db.refresh(t)
         return t
 
-    def create_due(self, user_id: int, until: Optional[date] = None) -> List[str]:
-        """Draft journals for every due date up to ``until`` (default today). Returns their numbers."""
+    def create_due(
+        self, user_id: int, until: Optional[date] = None, branch_codes: Optional[List[str]] = None,
+    ) -> List[str]:
+        """Draft journals for every due date up to ``until`` (default today). Returns their numbers.
+
+        ``branch_codes`` (a branch-limited user) limits the run to those branches'
+        and company-wide templates. A template that can't make its journal (an
+        account since deactivated...) is skipped and left due, so it doesn't stop
+        everyone else's journals."""
+        import logging
+
+        from sqlalchemy import or_
+
         from .accounting_service import JournalEntryService
 
         until = until or tz.today()
         je_svc = JournalEntryService(self.db)
         created: List[str] = []
-        due = (
-            self.db.query(RecurringJournal)
-            .filter(RecurringJournal.is_active.is_(True), RecurringJournal.next_date <= until)
-            .with_for_update().all()
+        q = self.db.query(RecurringJournal).filter(
+            RecurringJournal.is_active.is_(True), RecurringJournal.next_date <= until
         )
+        if branch_codes is not None:
+            q = q.filter(or_(RecurringJournal.branch_code.in_(branch_codes), RecurringJournal.branch_code.is_(None)))
+        due = q.order_by(RecurringJournal.id).with_for_update().all()
         for t in due:
-            while t.is_active and t.next_date <= until:
-                if t.end_date and t.next_date > t.end_date:
-                    t.is_active = False
-                    break
-                on = t.next_date
-                je = je_svc.create_journal_entry(
-                    schemas.JournalEntryCreate(
-                        entry_date=on, entry_type="Manual", branch_code=t.branch_code,
-                        description=f"{t.description} ({on:%b %Y})",
-                        auto_reverse_date=first_of_next_month(on) if t.auto_reverse else None,
-                        lines=[schemas.JournalEntryLineCreate(
-                            line_number=l.line_number, account_id=l.account_id, debit_amount=l.debit_amount,
-                            credit_amount=l.credit_amount, description=l.description, cost_center_id=l.cost_center_id,
-                            reference_type="RecurringJournal", reference_id=t.id,
-                        ) for l in t.lines],
-                    ),
-                    created_by=user_id, commit=False,
-                )
-                created.append(je.journal_entry_no)
-                t.last_journal_entry_id = je.id
-                t.next_date = add_months(on, FREQUENCIES[t.frequency])
+            savepoint = self.db.begin_nested()
+            made: List[str] = []
+            try:
+                while t.is_active and t.next_date <= until:
+                    if t.end_date and t.next_date > t.end_date:
+                        t.is_active = False
+                        break
+                    on = t.next_date
+                    je = je_svc.create_journal_entry(
+                        schemas.JournalEntryCreate(
+                            entry_date=on, entry_type="Manual", branch_code=t.branch_code,
+                            description=f"{t.description} ({on:%b %Y})",
+                            auto_reverse_date=first_of_next_month(on) if t.auto_reverse else None,
+                            lines=[schemas.JournalEntryLineCreate(
+                                line_number=l.line_number, account_id=l.account_id, debit_amount=l.debit_amount,
+                                credit_amount=l.credit_amount, description=l.description, cost_center_id=l.cost_center_id,
+                                reference_type="RecurringJournal", reference_id=t.id,
+                            ) for l in t.lines],
+                        ),
+                        created_by=user_id, commit=False,
+                    )
+                    made.append(je.journal_entry_no)
+                    t.last_journal_entry_id = je.id
+                    t.next_date = add_months(on, FREQUENCIES[t.frequency])
+                savepoint.commit()
+            except HTTPException as err:
+                savepoint.rollback()
+                logging.getLogger(__name__).warning("Recurring journal %s skipped: %s", t.id, err.detail)
+                continue
+            created.extend(made)
         self.db.commit()
         return created
 

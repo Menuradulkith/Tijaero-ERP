@@ -299,7 +299,10 @@ export default function PayrollPage() {
           ) : undefined
         }
       />
-      <ActionToolbar canCreate={canCreate} canUpdate={canUpdate} canDelete={canDelete} hasSelectedItem={!!selectedItem}
+      <ActionToolbar canCreate={canCreate} hasSelectedItem={!!selectedItem}
+        // a record from a payroll run, or one past draft, is read-only on the server
+        canUpdate={canUpdate && !(selectedItem && (selectedItem.payroll_batch_no || (selectedItem.status ?? "draft") !== "draft"))}
+        canDelete={canDelete && !(selectedItem && (selectedItem.payroll_batch_no || (selectedItem.status ?? "draft") !== "draft"))}
         isCreating={isCreating} isEditing={isEditing} isSaving={isSaving} isFormValid={isFormValid}
         onNew={handleNew} onDelete={handleDelete} onSave={handleSave} onCancel={handleCancelPayroll} onEdit={handleStartEdit}
       />

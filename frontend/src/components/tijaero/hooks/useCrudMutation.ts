@@ -34,7 +34,7 @@ export function useCrudMutation<TData = unknown, TVariables = void, TContext = u
       if (queryKeys.length > 0) {
         await Promise.all(
           queryKeys.map((queryKey) =>
-            queryClient.refetchQueries({ queryKey }),
+            queryClient.invalidateQueries({ queryKey }),
           ),
         );
       }

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 from typing import Annotated, Optional, Dict, Any, List, Literal
 from datetime import datetime, date
 
@@ -52,10 +52,14 @@ class DateRangeFilter(BaseModel):
     start_date: date
     end_date: date
 
+    @model_validator(mode="after")
+    def _ordered(self):
+        if self.start_date > self.end_date:
+            raise ValueError("start_date must be on or before end_date")
+        return self
 
-class SalesReportRequest(BaseModel):
-    start_date: date
-    end_date: date
+
+class SalesReportRequest(DateRangeFilter):
     branch_code: Optional[str] = None
     customer_id: Optional[int] = None
     product_id: Optional[int] = None
@@ -71,10 +75,8 @@ class SalesReportResponse(BaseModel):
     sales_by_branch: List[Dict[str, Any]]
 
 
-class FinanceReportRequest(BaseModel):
-    start_date: date
-    end_date: date
-    report_type: str  # income, expenses, cashflow, balance
+class FinanceReportRequest(DateRangeFilter):
+    report_type: Literal["income", "expenses", "cashflow", "balance", "summary"] = "summary"
 
 
 class FinanceReportResponse(BaseModel):
@@ -106,9 +108,7 @@ class InventoryReportResponse(BaseModel):
     stock_by_branch: List[Dict[str, Any]]
 
 
-class HRReportRequest(BaseModel):
-    start_date: date
-    end_date: date
+class HRReportRequest(DateRangeFilter):
     department: Optional[str] = None
 
 
@@ -121,9 +121,7 @@ class HRReportResponse(BaseModel):
     department_summary: List[Dict[str, Any]]
 
 
-class WarehouseReportRequest(BaseModel):
-    start_date: date
-    end_date: date
+class WarehouseReportRequest(DateRangeFilter):
     warehouse_id: Optional[int] = None
 
 
@@ -135,9 +133,7 @@ class WarehouseReportResponse(BaseModel):
     warehouse_activity: List[Dict[str, Any]]
 
 
-class SupportReportRequest(BaseModel):
-    start_date: date
-    end_date: date
+class SupportReportRequest(DateRangeFilter):
     branch_code: Optional[str] = None
     job_type: Optional[str] = None
 

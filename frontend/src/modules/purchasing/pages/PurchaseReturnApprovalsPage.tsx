@@ -72,7 +72,10 @@ import { PurchasingReturn, PurchasingReturnWithItems, GoodReceivedNote } from "@
 type ReturnApprovalRow = PurchasingReturn & { grn_display_no: string };
 
 export default function PurchaseReturnApprovalsPage() {
-  const canApprove = usePermission("purchase_return_approvals", "approve") || usePermission("common", "update");
+  // Both hooks run on every render (rules of hooks); only then combine them.
+  const canApproveReturn = usePermission("purchase_return_approvals", "approve");
+  const canUpdateCommon = usePermission("common", "update");
+  const canApprove = canApproveReturn || canUpdateCommon;
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");

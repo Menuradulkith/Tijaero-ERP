@@ -72,7 +72,7 @@ import {
 } from "@/components/tijaero";
 
 
-import { transferNotesApi, transferNoteItemsApi, transferWorkflowApi } from "@/modules/warehouse/api";
+import { transferNotesApi, transferNoteItemsApi, transferWorkflowApi, errorAlreadyToasted } from "@/modules/warehouse/api";
 import { locationsApi } from "@/modules/common/api";
 import { productsApi } from "@/modules/inventory/api";
 import { useReferenceData } from "@/hooks";
@@ -84,6 +84,7 @@ import {
   ItemTransferNoteWithItems,
 } from "@/modules/warehouse/types";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { usePermission } from "@/auth/permissions";
 
 import CancelIcon from "@mui/icons-material/Cancel";
 const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
@@ -523,7 +524,7 @@ export default function ItemTransferNotesPage() {
     loadITNItems(itn.id);
   }, [handleSelectITN, loadITNItems]);
 
-  const { data: transferNotes, isLoading } = useQuery({
+  const { data: transferNotes, isLoading, isError: transferNotesFailed } = useQuery({
     queryKey: ["transfer-notes", filterBranch],
     // "All Branches" (no filter) lists every note the user may see; the server limits it to their branches.
     queryFn: () => transferNotesApi.getAll({ limit: 5000, ...(filterBranch ? { branch_code: filterBranch } : {}) }),
@@ -566,15 +567,14 @@ export default function ItemTransferNotesPage() {
         throw new Error("No items to transfer. Please scan barcodes or add a quantity to add items.");
       }
 
-      const toLine = (item: ITNLineItem, noteId: number) => ({
+      const lineOf = (item: ITNLineItem) => ({
         product_id: item.product_id,
         barcode: item.barcode || undefined,
         quantity: item.barcode ? 1 : (item.quantity ?? 1),
         branch_code: item.branch_code || data.branch_code,
         remark: item.remark,
-        item_recieved: false,
-        itemtransfernote_id: noteId,
       });
+      const toLine = (item: ITNLineItem, noteId: number) => ({ ...lineOf(item), itemtransfernote_id: noteId });
       const itemCount = lineItems.reduce((n, i) => n + (i.barcode ? 1 : (i.quantity ?? 1)), 0);
 
       if (isEditing && selectedITN) {
@@ -596,13 +596,8 @@ export default function ItemTransferNotesPage() {
         return { itn: updatedITN, itemCount, updated: true };
       }
 
-      // Create the ITN
-      const newITN = await transferNotesApi.create(data);
-
-      // Create ITN items
-      for (const item of lineItems) {
-        await transferNoteItemsApi.create(toLine(item, newITN.id));
-      }
+      // Header and lines in one request: the server saves both or neither.
+      const newITN = await transferNotesApi.create({ ...data, items: lineItems.map(lineOf) });
 
       return { itn: newITN, itemCount, updated: false };
     },
@@ -618,7 +613,7 @@ export default function ItemTransferNotesPage() {
       setTimeout(() => handleSelectITNWithItems(newITN), 0);
     },
     onError: (error: unknown) => {
-      showErrorToast(handleApiError(error, "Failed to save transfer note"));
+      if (!errorAlreadyToasted(error)) showErrorToast(handleApiError(error, "Failed to save transfer note"));
     },
   });
 
@@ -719,6 +714,63 @@ export default function ItemTransferNotesPage() {
 
   const isSaving = createMutation.isPending;
 
+  // Pending notes can be deleted, pending / approved (not yet dispatched) ones cancelled.
+  const canCreateITN = usePermission("item_transfer_notes", "create");
+  const canUpdateITN = usePermission("item_transfer_notes", "update");
+  const canDeleteITN = usePermission("item_transfer_notes", "delete");
+  const selectedStatus = selectedITN ? getITNStatus(selectedITN) : "";
+  const afterStatusChange = () => {
+    queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
+    queryClient.invalidateQueries({ queryKey: ["salesStock"] });
+    queryClient.invalidateQueries({ queryKey: ["salesStockSummary"] });
+    queryClient.invalidateQueries({ queryKey: ["approvals"] });
+  };
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => transferNotesApi.delete(id),
+    onSuccess: () => {
+      afterStatusChange();
+      showSuccessToast("Transfer note deleted");
+      setSelectedITN(null);
+      setLineItems([]);
+    },
+    onError: (error: unknown) => {
+      if (!errorAlreadyToasted(error)) showErrorToast(handleApiError(error, "Failed to delete transfer note"));
+    },
+  });
+  const cancelMutation = useMutation({
+    mutationFn: (id: number) => transferWorkflowApi.cancel(id),
+    onSuccess: (itn) => {
+      afterStatusChange();
+      showSuccessToast("Transfer note cancelled");
+      setSelectedITN(itn);
+    },
+    onError: (error: unknown) => {
+      if (!errorAlreadyToasted(error)) showErrorToast(handleApiError(error, "Failed to cancel transfer note"));
+    },
+  });
+  const handleDeleteITN = async () => {
+    if (!selectedITN || deleteMutation.isPending) return;
+    const ok = await confirmDialog.confirm({
+      title: "Delete Transfer Note",
+      message: `Delete ${selectedITN.item_transfer_note} and its lines? This cannot be undone.`,
+      confirmText: "Delete",
+      cancelText: "Keep",
+      confirmColor: "error",
+    });
+    if (ok) deleteMutation.mutate(selectedITN.id);
+  };
+  const handleCancelITN = async () => {
+    if (!selectedITN || cancelMutation.isPending) return;
+    const ok = await confirmDialog.confirm({
+      title: "Cancel Transfer Note",
+      message: `Cancel ${selectedITN.item_transfer_note}? Units it reserved become available again at the source.`,
+      confirmText: "Cancel Transfer",
+      cancelText: "Keep",
+      confirmColor: "warning",
+    });
+    if (ok) cancelMutation.mutate(selectedITN.id);
+  };
+
   // Whether we're showing a single transfer note's detail view (selected or
   // being created) instead of the browse table.
   const isITNDetailMode = !!selectedITN || isCreating;
@@ -785,7 +837,7 @@ export default function ItemTransferNotesPage() {
           onRowClick={(row) => handleSelectITNWithItems(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
-          emptyMessage="No transfer notes found"
+          emptyMessage={transferNotesFailed ? "Could not load transfer notes. Use refresh to try again." : "No transfer notes found"}
           autoHeight={false}
           height="100%"
         />
@@ -833,8 +885,10 @@ export default function ItemTransferNotesPage() {
           ) : undefined
         }
         onEdit={handleStartEdit}
-        canUpdate={selectedITN ? getITNStatus(selectedITN) === "pending" : false}
-        canDelete={selectedITN ? getITNStatus(selectedITN) === "pending" : false}
+        onDelete={handleDeleteITN}
+        canCreate={canCreateITN}
+        canUpdate={canUpdateITN && selectedStatus === "pending"}
+        canDelete={canDeleteITN && selectedStatus === "pending" && !deleteMutation.isPending}
         endActions={
           isCreating && formStep === 0 ? (
             <Button
@@ -846,6 +900,19 @@ export default function ItemTransferNotesPage() {
               Next: Select Items
             </Button>
           ) : selectedITN && !isCreating && !isEditing ? (
+            <>
+            {canUpdateITN && (selectedStatus === "pending" || selectedStatus === "approved") && (
+              <Button
+                size="small"
+                variant="outlined"
+                color="warning"
+                startIcon={<CancelIcon />}
+                onClick={handleCancelITN}
+                disabled={cancelMutation.isPending}
+              >
+                Cancel Transfer
+              </Button>
+            )}
             <TPrintButton
               documentType="item-transfer-note"
               documentId={selectedITN.id}
@@ -853,6 +920,7 @@ export default function ItemTransferNotesPage() {
               disabledReason={`Cannot print: transfer note is ${(getITNStatus(selectedITN) || "").replace(/_/g, " ")}`}
               onClick={() => setPrintDialogOpen(true)}
             />
+            </>
           ) : undefined
         }
       />
@@ -972,6 +1040,7 @@ export default function ItemTransferNotesPage() {
                     disabled={!isCreating && !isEditing}
                     multiline
                     rows={2}
+                    inputProps={{ maxLength: 2000 }}
                   />
                 </FormSection>
 
@@ -1342,7 +1411,7 @@ export default function ItemTransferNotesPage() {
           queryClient.invalidateQueries({ queryKey: ["locations"] });
         }}
         headerActions={
-          isITNDetailMode ? undefined : (
+          isITNDetailMode || !canCreateITN ? undefined : (
             <Button
               variant="contained"
               size="small"

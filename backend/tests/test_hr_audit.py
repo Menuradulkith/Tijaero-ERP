@@ -412,7 +412,8 @@ class TestAttendance:
                                                        "check_in": "09:30", "check_out": "18:00", "work_mins": 1, "ot_mins": 999, "late_mins": 0})
         assert r.status_code == 201, r.text
         a = r.json()
-        assert a["work_mins"] == 510 and a["late_mins"] == 30 and a["ot_mins"] == 30
+        # default shift 9-17 with a 60-minute break: 510 minutes on site = 450 worked, 30 past the 420-minute day
+        assert a["work_mins"] == 450 and a["late_mins"] == 30 and a["ot_mins"] == 30
         assert superclient.post(f"{HR}/attendance", json={"employee_id": emp.employee_id, "branch_code": a["branch_code"], "date": date.today().isoformat()}).status_code == 400   # duplicate day
 
     def test_update_rules_and_branch_scope(self, superclient, api, make_user, emp, make_branch, superuser):
@@ -427,7 +428,7 @@ class TestAttendance:
         assert c.get(f"{HR}/attendance", params={"branch_code": other.branch_code}).status_code == 403
         api(superuser[1])
         assert superclient.put(f"{HR}/attendance/{a['id']}", json={"check_out": "08:00"}).status_code in (400, 422)
-        assert superclient.put(f"{HR}/attendance/{a['id']}", json={"check_out": "17:00"}).json()["work_mins"] == 480
+        assert superclient.put(f"{HR}/attendance/{a['id']}", json={"check_out": "17:00"}).json()["work_mins"] == 420   # net of the break
         assert superclient.get(f"{HR}/attendance/summary", params={"date_from": "2026-01-02", "date_to": "2026-01-01"}).status_code == 400
 
     def test_left_employee_cannot_check_in(self, superclient, emp, make_branch, db):
