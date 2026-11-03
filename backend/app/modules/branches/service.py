@@ -84,6 +84,15 @@ class BranchService:
                 detail="Branch not found"
             )
 
+        if branch.branch_code is not None and branch.branch_code.strip().lower() != db_branch.branch_code.strip().lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Branch code cannot be changed",
+            )
+
+        if branch.active is False and db_branch.active:
+            self._assert_can_deactivate(db, db_branch)
+
         if branch.branch_name and branch.branch_name != db_branch.branch_name:
             existing_name = self.repository.get_by_name(db, branch.branch_name)
             if existing_name and existing_name.id != branch_id:
@@ -108,6 +117,35 @@ class BranchService:
             )
         self._attach_user_names(db, [updated_branch])
         return updated_branch
+
+    def _assert_can_deactivate(self, db: Session, branch: Branch) -> None:
+        """Deactivating the only branch of an active user would leave them with
+        no usable branch (they could no longer work anywhere)."""
+        from sqlalchemy import func
+
+        from app.auth.models import User, user_branches
+
+        single_branch_users = (
+            db.query(user_branches.c.user_id)
+            .group_by(user_branches.c.user_id)
+            .having(func.count(user_branches.c.branches_id) == 1)
+            .subquery()
+        )
+        stranded = (
+            db.query(func.count(User.id))
+            .filter(
+                User.is_active.is_(True),
+                User.id.in_(db.query(single_branch_users.c.user_id)),
+                User.branches.any(Branch.id == branch.id),
+            )
+            .scalar()
+            or 0
+        )
+        if stranded:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot deactivate this branch: it is the only branch of {stranded} active user(s). Assign them another branch first.",
+            )
 
     def get_total_count(self, db: Session, active_only: bool = False) -> int:
         return self.repository.count(db, active_only)

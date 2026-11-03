@@ -11,6 +11,7 @@ import { usePermission } from "@/auth/permissions";
 import { TChip, handleApiError, showSuccessToast } from "@/components/tijaero";
 import { CHEQUE_STATUS_LABEL, chequeActionsApi, type ChequeStatus } from "@/modules/finance/api/receivables";
 import { submitOnce } from "@/modules/finance/submitOnce";
+import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
 
 export interface ChequeRegisterFields {
   id: number;
@@ -41,6 +42,7 @@ export default function ChequeStatusSection({ cheque, onChanged }: { cheque: Che
   const done = (msg: string) => {
     showSuccessToast(msg);
     queryClient.invalidateQueries({ queryKey: ["chequePayments"] });
+    invalidateLedgerQueries(queryClient);
     queryClient.invalidateQueries({ queryKey: ["cheque-payments"] });
     onChanged?.();
   };

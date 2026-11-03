@@ -513,7 +513,7 @@ class SalesService:
             for r in rows
         ]
 
-    def validate_product_availability(self, db: Session, product_id: int, requested_quantity: int, branch_code: Optional[str] = None):
+    def validate_product_availability(self, db: Session, product_id: int, requested_quantity: int, branch_code: Optional[str] = None, source_quote_id: Optional[int] = None):
         """
         Validate if a product is available in sales stock with sufficient quantity.
         
@@ -532,6 +532,17 @@ class SalesService:
             SalesStock.is_active == True,
             *([SalesStock.branch_code == branch_code] if branch_code else []),
         ).scalar() or 0
+        if source_quote_id:
+            # units procured for (reserved to) the order's source quotation are consumed first by create_invoice
+            from app.modules.sales.quotation_models import SalesQuoteItem
+            available_count += db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).join(
+                SalesQuoteItem, SalesStock.reserved_for_quote_item_id == SalesQuoteItem.id
+            ).filter(
+                SalesQuoteItem.quote_id == source_quote_id,
+                SalesStock.product_id == product_id,
+                SalesStock.status == StockStatus.RESERVED,
+                SalesStock.is_active == True,
+            ).scalar() or 0
         
         if available_count == 0:
             raise HTTPException(
@@ -743,7 +754,7 @@ class SalesService:
         # Validate all products are available in sales stock before creating invoice
         from app.modules.products.repository import minimum_price_repository
         for item_data in invoice_data.items:
-            self.validate_product_availability(db, item_data.product_id, item_data.quantity, invoice_data.branch_code)
+            self.validate_product_availability(db, item_data.product_id, item_data.quantity, invoice_data.branch_code, getattr(invoice_data, 'source_quote_id', None))
 
             # Server-authoritative minimum price. NEVER trust the client-supplied
             # item_data.minimum_selling_price — look the floor up from the
@@ -1158,6 +1169,17 @@ class SalesService:
             else:
                 invoice_dict['payment_status'] = PaymentStatus.UNPAID
         elif payment_method == "bank_transfer":
+            # SAL-03: the transfer (plus any other tender) must cover the order exactly - verification later books
+            # the whole order as paid, so a short transfer would leave revenue unposted and the shortfall uncollected.
+            _bt_total = immediate_payment + Decimal(str(invoice_data.bank_transfer_amount or 0))
+            if abs(_bt_total - grand_total) > PAYMENT_EPSILON:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"The bank transfer and other payments ({float(_bt_total):.2f}) must equal the amount due "
+                        f"({float(grand_total):.2f})."
+                    ),
+                )
             # Bank transfer - needs verification by finance manager
             invoice_dict['approval'] = False
             invoice_dict['approval_status'] = "pending_bank_verification"
@@ -1887,6 +1909,45 @@ class SalesService:
         paid = Decimal(str(invoice.paid_amount or 0))
         invoice.balance_due = float((grand_total - paid).quantize(Decimal("0.01")))
 
+    def _sync_edited_credit(self, db: Session, invoice) -> None:
+        """SAL-01/02: after the lines of a pending credit order change, keep credit_amount (and its CreditPayments row)
+        equal to the new total minus what was tendered, so the approval journal entry balances, and apply the same
+        credit-limit rule as creation when the edit raises the customer's exposure. No commit."""
+        is_credit = (invoice.payment_method or "").lower() == "credit" or (invoice.credit_amount or 0) > 0
+        if not is_credit:
+            return
+        grand_total = Decimal(str(invoice.grand_total or 0))
+        tendered = Decimal(str(invoice.paid_amount or 0)) + Decimal(str(invoice.bank_transfer_amount or 0))
+        if tendered > grand_total + PAYMENT_EPSILON:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"The payments already taken ({float(tendered):.2f}) are more than the new order total ({float(grand_total):.2f}).",
+            )
+        old_credit = Decimal(str(invoice.credit_amount or 0))
+        new_credit = max(grand_total - tendered, Decimal("0")).quantize(Decimal("0.01"))
+        invoice.credit_amount = float(new_credit)
+        db.flush()
+
+        from app.modules.customers.models import Customer
+        customer = db.query(Customer).filter(Customer.id == invoice.customer_id).with_for_update().first()
+        if customer is not None and new_credit > old_credit:
+            outstanding = customer_credit_service._calculate_outstanding_credit(db, invoice.customer_id)
+            limit = Decimal(str(customer.max_credit_limit or 0))
+            if outstanding > limit:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Credit limit exceeded. Max: Rs. {limit:,.2f}, New total would be: Rs. {outstanding:,.2f}. "
+                        f"Exceeds limit by Rs. {(outstanding - limit):,.2f}"
+                    ),
+                )
+        if invoice.credit_payment_id:
+            from app.modules.finance.models import CreditPayments
+            credit_payment = db.query(CreditPayments).filter(CreditPayments.id == invoice.credit_payment_id).first()
+            if credit_payment is not None:
+                credit_payment.amount = float(new_credit)
+        customer_credit_service.refresh_customer_left_credit(db, invoice.customer_id)
+
     def _store_edited_lines(self, db: Session, invoice, items) -> None:
         """Write the new lines of an edited, still-pending order. Each line gets real stock units (the scanned barcode, or the
         next available units of the product), the units are reserved, one row per unit is stored when no barcode was given and
@@ -2110,6 +2171,7 @@ class SalesService:
         if invoice_data.items is not None:
             db.flush()
             self._recompute_invoice_totals(db, invoice)
+            self._sync_edited_credit(db, invoice)
 
         changes = diff_changes(before_header_values, update_data)
         if item_changes:
@@ -2915,6 +2977,25 @@ class SalesService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot create return for invoice with status: {invoice.approval_status}"
             )
+
+        # SAL-07: a return is booked in the branch that made the sale (its refund, stock and GL belong there), and the
+        # caller must have access to that branch - the same rule as every other invoice action.
+        if sale_return_data.branch_code != invoice.branch_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A return is booked in the invoice's branch ({invoice.branch_code}), not {sale_return_data.branch_code}.",
+            )
+        self._assert_branch_access(db, user_id, invoice.branch_code)
+        # SAL-12: a return without items has nothing to refund or restock
+        if not sale_return_data.items:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A sale return needs at least one item.")
+        from app.modules.common.models import Locations
+        _loc_branch = db.query(Locations.branch_code).filter(Locations.id == sale_return_data.good_received_locations_id).scalar()
+        if _loc_branch is None or _loc_branch != invoice.branch_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"The receiving location must be a stock location of branch {invoice.branch_code}.",
+            )
         
         # ── Over-return guards: what has already been returned on this invoice? ──
         active_return_filter = SaleReturn.status.notin_(
@@ -2968,37 +3049,25 @@ class SalesService:
             invoice_item = None
             sales_stock = None
             
-            if item_data.barcode:
-                # Find by barcode - look up in sales stock
-                sales_stock = db.query(SalesStock).filter(
-                    SalesStock.barcode == item_data.barcode
-                ).first()
-                
-                if sales_stock:
-                    # Find the invoice item that sold this stock
-                    invoice_item = db.query(InvoiceItems).filter(
-                        InvoiceItems.invoice_id == invoice.id,
-                        InvoiceItems.sales_stock_id == sales_stock.id
-                    ).first()
-                    
-                    if not invoice_item:
-                        # Try to find by barcode string match
-                        invoice_item = db.query(InvoiceItems).filter(
-                            InvoiceItems.invoice_id == invoice.id,
-                            InvoiceItems.barcode == item_data.barcode
-                        ).first()
-            
             if item_data.invoice_item_id:
                 invoice_item = db.query(InvoiceItems).filter(
                     InvoiceItems.id == item_data.invoice_item_id,
                     InvoiceItems.invoice_id == invoice.id
                 ).first()
-                
-                if invoice_item and invoice_item.sales_stock_id:
-                    sales_stock = db.query(SalesStock).filter(
-                        SalesStock.id == invoice_item.sales_stock_id
+            elif item_data.barcode:
+                # Find by barcode: the invoice line that sold this stock unit, else the line carrying the barcode
+                _bc_stock = db.query(SalesStock).filter(SalesStock.barcode == item_data.barcode).first()
+                if _bc_stock:
+                    invoice_item = db.query(InvoiceItems).filter(
+                        InvoiceItems.invoice_id == invoice.id,
+                        InvoiceItems.sales_stock_id == _bc_stock.id
                     ).first()
-            
+                if not invoice_item:
+                    invoice_item = db.query(InvoiceItems).filter(
+                        InvoiceItems.invoice_id == invoice.id,
+                        InvoiceItems.barcode == item_data.barcode
+                    ).first()
+
             # ── The item must actually belong to the invoice being returned ──
             identifier = item_data.barcode or f"invoice item #{item_data.invoice_item_id}"
             if invoice_item is None:
@@ -3006,6 +3075,20 @@ class SalesService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=(
                         f"Item '{identifier}' was not sold on invoice "
+                        f"{invoice.invoice_no} and cannot be returned against it."
+                    ),
+                )
+            # SAL-11: the unit restocked is always the one the invoice line sold, and a barcode sent with the line
+            # must be that unit's barcode (a foreign barcode would put the wrong unit back on the shelf)
+            if invoice_item.sales_stock_id:
+                sales_stock = db.query(SalesStock).filter(SalesStock.id == invoice_item.sales_stock_id).first()
+            elif item_data.barcode and item_data.barcode == invoice_item.barcode:
+                sales_stock = db.query(SalesStock).filter(SalesStock.barcode == item_data.barcode).first()
+            if item_data.barcode and item_data.barcode not in {invoice_item.barcode, getattr(sales_stock, "barcode", None)}:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Item '{item_data.barcode}' was not sold on invoice "
                         f"{invoice.invoice_no} and cannot be returned against it."
                     ),
                 )
@@ -3130,7 +3213,7 @@ class SalesService:
                 'barcode': item_data.barcode,
                 'return_price': float(validated['return_price']),
                 'sold_price': item_data.sold_price,
-                'branch_code': item_data.branch_code or sale_return_data.branch_code,
+                'branch_code': invoice.branch_code,
                 'sale_return_id': sale_return.id,
                 'added_date': tz.now(),
                 'invoice_item_id': item_data.invoice_item_id or (validated['invoice_item'].id if validated['invoice_item'] else None),
@@ -3169,6 +3252,11 @@ class SalesService:
         db.commit()
         db.refresh(sale_return)
         return sale_return
+
+    @staticmethod
+    def _first_branch_location(db: Session, branch_code: str) -> Optional[int]:
+        from app.modules.common.models import Locations
+        return db.query(Locations.id).filter(Locations.branch_code == branch_code).order_by(Locations.id).limit(1).scalar()
 
     def create_full_invoice_return(
         self,
@@ -3269,7 +3357,7 @@ class SalesService:
         sale_return_data = schemas.SaleReturnCreate(
             branch_code=invoice.branch_code,
             invoice_id=invoice.id,
-            good_received_locations_id=resolved_location or 1,
+            good_received_locations_id=resolved_location or self._first_branch_location(db, invoice.branch_code) or 1,
             payment_method=payment_method,
             remark=remark or f"Full invoice return for {invoice.invoice_no}",
             return_reason=return_reason or "customer_changed_mind",
@@ -3694,22 +3782,23 @@ class SalesService:
         db.commit()
         return {"message": "Sale return deleted successfully"}
     
-    def get_return_statistics(self, db: Session):
-        """Get sale return statistics for dashboard."""
+    def get_return_statistics(self, db: Session, branch_codes: Optional[List[str]] = None):
+        """Get sale return statistics for dashboard. ``branch_codes`` limits it to those branches (None = all)."""
         today = tz.today()
         current_month_start = today.replace(day=1)
+        scope = [SaleReturn.branch_code.in_(branch_codes)] if branch_codes is not None else []
         
-        total_returns = db.query(func.count(SaleReturn.id)).scalar() or 0
+        total_returns = db.query(func.count(SaleReturn.id)).filter(*scope).scalar() or 0
         pending_returns = db.query(func.count(SaleReturn.id)).filter(
-            SaleReturn.status == DocumentStatus.PENDING
+            SaleReturn.status == DocumentStatus.PENDING, *scope
         ).scalar() or 0
         
         current_month_returns = db.query(func.count(SaleReturn.id)).filter(
-            SaleReturn.added_date >= current_month_start
+            SaleReturn.added_date >= current_month_start, *scope
         ).scalar() or 0
         
         total_refunded = db.query(func.coalesce(func.sum(SaleReturn.refund_amount), 0)).filter(
-            SaleReturn.refund_status == 'processed'
+            SaleReturn.refund_status == 'processed', *scope
         ).scalar() or 0
         
         return {
@@ -3719,23 +3808,22 @@ class SalesService:
             "total_refunded": float(total_refunded)
         }
     
-    def settle_credit_payment(self, db: Session, payment_data: schemas.CreditPaymentCreate, user_id: int):
-        """
-        Settle (full or partial) payment for a credit sales order.
-        Creates settlement record and updates invoice payment status.
-        Standard ERP credit payment settlement flow.
-        """
-        from app.modules.customers.models import CustomerCreditsSettle, CustomerCreditsSettleTransaction
-        from app.modules.finance.models import ChequePayments, CardPayments, BankDeposits
-        
-        # Lock the invoice row to prevent concurrent payment updates
-        invoice = db.query(Invoice).filter(Invoice.id == payment_data.invoice_id).with_for_update().first()
-        if not invoice:
+    def check_credit_settlement(self, db: Session, invoice, payment_data: schemas.CreditPaymentCreate, user_id: int,
+                                amount: Optional[float] = None, require_cheque_bank: bool = True) -> None:
+        """Every rule a credit settlement must pass, without writing anything. ``amount`` is the total being settled
+        on this invoice (a multi-line settlement checks the sum of its lines before applying the first - SAL-06)."""
+        from app.modules.customers.models import CustomerCreditsSettleTransaction
+
+        # SAL-18: a cheque settlement is only traceable (and depositable) with its number and bank
+        # (the customer-settlement API has no bank field, so only the number is required there)
+        if (payment_data.payment_method or "").lower() == "cheque" and not (
+            payment_data.cheque_number and (payment_data.cheque_bank or not require_cheque_bank)
+        ):
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Invoice with id {payment_data.invoice_id} not found"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A cheque payment needs the cheque number and the bank." if require_cheque_bank else "A cheque payment needs the cheque number.",
             )
-        
+
         # Branch isolation: only settle payments for invoices in the user's branch(es).
         self._assert_branch_access(db, user_id, invoice.branch_code)
         
@@ -3773,15 +3861,36 @@ class SalesService:
             CustomerCreditsSettleTransaction.status == "pending_verification"
         ).scalar() or 0
         effective_balance = float(Decimal(str(invoice.balance_due)) - Decimal(str(pending_bt_amount)))
-        if payment_data.payment_amount > effective_balance:
-            detail_msg = f"Payment amount (Rs. {payment_data.payment_amount:,.2f}) exceeds available balance (Rs. {effective_balance:,.2f})"
+        requested = payment_data.payment_amount if amount is None else amount
+        if requested > effective_balance + 1e-9:
+            detail_msg = f"Payment amount (Rs. {requested:,.2f}) exceeds available balance (Rs. {effective_balance:,.2f})"
             if float(pending_bt_amount) > 0:
                 detail_msg += f". Note: Rs. {float(pending_bt_amount):,.2f} is pending bank transfer verification."
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=detail_msg
             )
+
+    def settle_credit_payment(self, db: Session, payment_data: schemas.CreditPaymentCreate, user_id: int,
+                              require_cheque_bank: bool = True):
+        """
+        Settle (full or partial) payment for a credit sales order.
+        Creates settlement record and updates invoice payment status.
+        Standard ERP credit payment settlement flow.
+        """
+        from app.modules.customers.models import CustomerCreditsSettle, CustomerCreditsSettleTransaction
+        from app.modules.finance.models import ChequePayments, CardPayments, BankDeposits
         
+        # Lock the invoice row to prevent concurrent payment updates
+        invoice = db.query(Invoice).filter(Invoice.id == payment_data.invoice_id).with_for_update().first()
+        if not invoice:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Invoice with id {payment_data.invoice_id} not found"
+            )
+        
+        self.check_credit_settlement(db, invoice, payment_data, user_id, require_cheque_bank=require_cheque_bank)
+
         # Generate settlement number with advisory lock for concurrency safety
         year = tz.year()
         settle_prefix = f"CCS-{year}"
@@ -4207,6 +4316,22 @@ class SalesService:
             )
         
         if action == "verify":
+            # SAL-03: an order whose transfer does not cover it (created before the create-time check) is not paid
+            _tendered = sum(
+                (Decimal(str(v or 0)) for v in (
+                    invoice.cash_amount, invoice.card_visa_amount, invoice.card_mastercard_amount,
+                    invoice.card_amex_amount, invoice.cheque_amount, invoice.bank_transfer_amount,
+                )),
+                Decimal("0"),
+            )
+            if abs(_tendered - Decimal(str(invoice.grand_total or 0))) > PAYMENT_EPSILON:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"The recorded payments ({float(_tendered):.2f}) do not match the order total "
+                        f"({float(invoice.grand_total or 0):.2f}). Reject this transfer and record the order again."
+                    ),
+                )
             # Mark as verified and complete the sale
             invoice.bank_transfer_status = "verified"
             invoice.bank_transfer_verified_by = user_id
@@ -4489,9 +4614,9 @@ class PaymentCardService:
         """Create a new payment card."""
         from app.modules.sales.models import PaymentCard
         
-        # Check for duplicate card name
+        # Check for duplicate card name (SAL-21: names differing only in case are the same card)
         existing = db.query(PaymentCard).filter(
-            PaymentCard.card_name == card_data.card_name
+            func.lower(PaymentCard.card_name) == card_data.card_name.lower()
         ).first()
         if existing:
             raise HTTPException(
@@ -4518,9 +4643,11 @@ class PaymentCardService:
         card = self.get_by_id(db, card_id)
         
         # Check for duplicate card name if name is being changed
+        if "card_name" in card_data.model_fields_set and card_data.card_name is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="card_name cannot be empty")
         if card_data.card_name and card_data.card_name != card.card_name:
             existing = db.query(PaymentCard).filter(
-                PaymentCard.card_name == card_data.card_name,
+                func.lower(PaymentCard.card_name) == card_data.card_name.lower(),
                 PaymentCard.id != card_id
             ).first()
             if existing:

@@ -1,6 +1,7 @@
 """Pydantic schemas for Attendance and Leaves."""
 from __future__ import annotations
 
+import datetime as dt
 from datetime import date, datetime, time
 from typing import List, Optional
 
@@ -171,7 +172,7 @@ class AttendanceCheckIn(BaseModel):
     employee_id: _Code
     branch_code: _Branch
     check_in: Optional[time] = None
-    date: Optional[date] = None
+    date: Optional[dt.date] = None   # dt.date: a field called `date` shadows the type inside the class
 
     @field_validator("date")
     @classmethod
@@ -182,7 +183,7 @@ class AttendanceCheckIn(BaseModel):
 class AttendanceCheckOut(BaseModel):
     employee_id: _Code
     check_out: Optional[time] = None
-    date: Optional[date] = None
+    date: Optional[dt.date] = None
 
     @field_validator("date")
     @classmethod
@@ -225,6 +226,11 @@ class LeaveUpdate(BaseModel):
     leave_reason: Optional[_Reason] = None
     leave_duration: Optional[float] = Field(default=None, gt=0, le=366)
     leave_time: Optional[LeaveTime] = None
+
+    @field_validator("from_date", "to_date")
+    @classmethod
+    def _window(cls, v):
+        return LeaveCreate._window(v) if v else v
 
 
 class LeaveApprove(BaseModel):

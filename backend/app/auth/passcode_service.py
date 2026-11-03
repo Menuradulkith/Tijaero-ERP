@@ -9,7 +9,8 @@ Security model:
 - Expiry is enforced by comparing created_at_ts to the admin-configured
   passcode_expiry_days (1-30, default 30 — a hard monthly cap).
 - Failed attempts are counted in the DB row.  Reaching 3 sets locked_out=True.
-  Successful password login resets both counters silently.
+  A successful password login resets the counter; a locked-out passcode is
+  removed then, so the user has to set a new one.
 - A timing-safe dummy bcrypt call is executed whenever the user is not found
   to prevent user enumeration via response-time analysis.
 """
@@ -49,6 +50,13 @@ def _bcrypt_verify(plain: str, hashed: str) -> bool:
         return bcrypt.checkpw(plain.encode(), hashed.encode())
     except Exception:
         return False
+
+
+def _invalid_login() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"code": "PASSCODE_INVALID", "message": "Invalid username or passcode."},
+    )
 
 
 def _utcnow() -> datetime:
@@ -102,6 +110,11 @@ def set_passcode(db: Session, user_id: int, passcode_plain: str, confirm: str) -
     current = (
         db.query(UserPasscode).filter(UserPasscode.user_id == user_id).first()
     )
+    if current and _bcrypt_verify(passcode_plain, current.hashed_passcode):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The new passcode must be different from your current passcode.",
+        )
     if current:
         history_entry = UserPasscodeHistory(
             user_id=user_id,
@@ -202,36 +215,25 @@ def verify_passcode_login(
     Error codes:
       PASSCODE_EXPIRED  — passcode has passed its expiry window
       PASSCODE_LOCKED   — account locked after 3 failed attempts
-      PASSCODE_INVALID  — wrong passcode (attempt count returned in detail)
-      USER_INACTIVE     — user account is blocked or inactive
+      PASSCODE_INVALID  — unknown user, inactive user, no passcode set, or wrong
+                          passcode (attempt count returned for a wrong passcode)
     """
     user = db.query(User).filter(User.username == username).first()
 
     if not user:
         # Timing-safe: always run a verify so response time doesn't reveal user existence
         _bcrypt_verify(passcode_plain, _DUMMY_PASSCODE_HASH)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "PASSCODE_INVALID", "message": "Invalid username or passcode."},
-        )
-
-    if not user.is_active or user.blocked:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "USER_INACTIVE", "message": "User account is inactive or blocked."},
-        )
+        raise _invalid_login()
 
     passcode_row = (
         db.query(UserPasscode).filter(UserPasscode.user_id == user.id).first()
     )
 
-    if not passcode_row:
-        # Timing-safe dummy check
+    # Unknown user, inactive/blocked user and "no passcode set" all get the same
+    # answer (and the same bcrypt cost), so the endpoint cannot enumerate accounts.
+    if not passcode_row or not user.is_active or user.blocked:
         _bcrypt_verify(passcode_plain, _DUMMY_PASSCODE_HASH)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "PASSCODE_INVALID", "message": "No passcode is configured for this account."},
-        )
+        raise _invalid_login()
 
     # --- Expiry check (before lockout, to give the correct UX signal) ---
     expires_at = passcode_row.created_at_ts + timedelta(days=expiry_days)
@@ -280,16 +282,17 @@ def verify_passcode_login(
 
 def check_and_reset_passcode_lockout(db: Session, user_id: int) -> bool:
     """
-    Called after a successful password login.
-    If the passcode is locked out (>= 3 attempts), it leaves it locked out and returns True.
-    If it's just partially failed (< 3), it resets the attempts to 0 and returns False.
+    Called after a successful password login: the password proves the owner, so
+    the passcode failure counter is reset. A locked-out passcode (3 failures) is
+    removed, so the user must set a new one; returns True in that case so the UI
+    can tell them.
     """
     passcode_row = (
         db.query(UserPasscode).filter(UserPasscode.user_id == user_id).first()
     )
     if passcode_row:
-        if passcode_row.locked_out or passcode_row.failed_attempts >= 3:
-            passcode_row.locked_out = True
+        if passcode_row.locked_out or passcode_row.failed_attempts >= _MAX_ATTEMPTS:
+            db.delete(passcode_row)
             db.commit()
             return True
         elif passcode_row.failed_attempts > 0:

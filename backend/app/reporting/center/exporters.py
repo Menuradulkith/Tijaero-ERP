@@ -165,7 +165,9 @@ def _sheet_name(title: str, used: set[str]) -> str:
 
 _env = Environment(autoescape=select_autoescape(default=True))
 _HTML = _env.from_string("""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>{{ title }}</title>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<title>{{ title }}</title>
 <style>
 @page{size:A4 {{ 'landscape' if landscape else 'portrait' }};margin:12mm}
 *{box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:9px;color:#212529;margin:0}

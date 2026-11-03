@@ -51,6 +51,7 @@ export interface Invoice {
   status: boolean;
   approval: boolean;
   approval_status: string;
+  approval_id?: number | null;  // central approval queue entry
   // Tax and discount
   tax_rate: number;
   tax_amount: number;

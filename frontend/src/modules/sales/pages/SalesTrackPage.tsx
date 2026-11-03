@@ -264,7 +264,7 @@ export default function SalesTrackPage() {
   // Customers
   const canViewCustomers = usePermission("customers", "view");
   const { data: customers = [] } = useQuery({
-    queryKey: ["customers"],
+    queryKey: ["customers", "list", 0, 100000, true],  // FE-10: the key carries the paging arguments
     queryFn: () => customersApi.getAll(),
     enabled: canViewCustomers,
     staleTime: 300000,

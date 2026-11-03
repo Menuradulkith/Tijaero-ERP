@@ -6,7 +6,6 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Visibility as ViewIcon,
 } from "@mui/icons-material";
 import { useForm } from "react-hook-form";
 import {
@@ -25,6 +24,8 @@ import { formatDateTime } from "@/utils/formatters";
 import { supportTicketsApi } from "@/modules/support/api";
 import { CustomerSupportCreate } from "@/modules/support/types";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
+import { usePermission } from "@/auth/permissions";
+import { handleApiError } from "@/utils/errorHandling";
 
 export default function SupportTicketsPage() {
   const queryClient = useQueryClient();
@@ -32,10 +33,13 @@ export default function SupportTicketsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const { dialogProps, confirm } = useTConfirmDialog();
   const { getDefaultBranchCode } = useBranchFilter();
+  const canCreate = usePermission("support_tickets", "create");
+  const canUpdate = usePermission("support_tickets", "update");
+  const canDelete = usePermission("support_tickets", "delete");
 
   const { data: tickets, isLoading } = useQuery({
     queryKey: ["support-tickets"],
-    queryFn: () => supportTicketsApi.getAll(),
+    queryFn: () => supportTicketsApi.getAll({ limit: 1000 }),
   });
 
   const { control, handleSubmit, reset } = useForm<CustomerSupportCreate>({
@@ -60,8 +64,8 @@ export default function SupportTicketsPage() {
       setOpenDialog(false);
       reset();
     },
-    onError: () => {
-      showErrorToast("Failed to create support ticket");
+    onError: (error) => {
+      showErrorToast(handleApiError(error, "Failed to create support ticket"));
     },
   });
 
@@ -75,8 +79,8 @@ export default function SupportTicketsPage() {
       setEditingId(null);
       reset();
     },
-    onError: () => {
-      showErrorToast("Failed to update support ticket");
+    onError: (error) => {
+      showErrorToast(handleApiError(error, "Failed to update support ticket"));
     },
   });
 
@@ -86,8 +90,8 @@ export default function SupportTicketsPage() {
       queryClient.invalidateQueries({ queryKey: ["support-tickets"] });
       showSuccessToast("Support ticket deleted successfully");
     },
-    onError: () => {
-      showErrorToast("Failed to delete support ticket");
+    onError: (error) => {
+      showErrorToast(handleApiError(error, "Failed to delete support ticket"));
     },
   });
 
@@ -137,10 +141,7 @@ export default function SupportTicketsPage() {
       display: "flex",
       renderCell: (params) => (
         <Box sx={{ display: "flex", gap: 0.5 }}>
-          <TIconButton size="small" color="primary" tooltip="View">
-            <ViewIcon />
-          </TIconButton>
-          <TIconButton
+          {canUpdate && <TIconButton
             size="small"
             color="primary"
             tooltip="Edit"
@@ -151,15 +152,15 @@ export default function SupportTicketsPage() {
             }}
           >
             <EditIcon />
-          </TIconButton>
-          <TIconButton
+          </TIconButton>}
+          {canDelete && <TIconButton
             size="small"
             color="danger"
             tooltip="Delete"
             onClick={() => handleDelete(params.row.id)}
           >
             <DeleteIcon />
-          </TIconButton>
+          </TIconButton>}
         </Box>
       ),
     },
@@ -223,9 +224,9 @@ export default function SupportTicketsPage() {
               }
               disabled={(tickets || []).length === 0}
             />
-            <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+            {canCreate && <TButton startIcon={<AddIcon />} onClick={handleAdd}>
               New Ticket
-            </TButton>
+            </TButton>}
           </Box>
         }
       />
@@ -252,13 +253,6 @@ export default function SupportTicketsPage() {
         maxWidth="md"
       >
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
-          <TFormField
-            name="job_number"
-            control={control}
-            label="Job Number"
-            required
-            rules={{ required: "Job number is required" }}
-          />
           <TFormField
             name="job_type"
             control={control}

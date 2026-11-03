@@ -1,12 +1,12 @@
 """
 Purchase Invoice Schemas
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
 
-from app.modules.purchasing.schemas import MoneyInput, PositiveMoneyInput
+from app.modules.purchasing.schemas import MoneyInput, PositiveMoneyInput, _payment_method
 
 
 # ==================== PURCHASE INVOICE ITEM SCHEMAS ====================
@@ -148,6 +148,11 @@ class PaymentWithAllocationsCreate(BaseModel):
     remarks: Optional[str] = None
     # Allocations to invoices
     allocations: List[PaymentAllocationItem]
+
+    @field_validator("payment_method")
+    @classmethod
+    def _method(cls, v):
+        return _payment_method(v)
 
 
 class PaymentAllocationResponse(BaseModel):

@@ -778,7 +778,9 @@ export default function SaleReturnsPage() {
                 isSaving={isSaving}
                 isFormValid={!!isFormValid}
                 canDelete={canDelete && selectedReturn?.status === 'pending'}
-                canUpdate={selectedReturn?.status === 'pending'}
+                // FE-9: a sale return has no update endpoint - Edit led to a Save that did nothing.
+                // A pending return is corrected by deleting it and creating a new one.
+                canUpdate={false}
                 onNew={handleNewReturn}
                 onSave={isCreating && formStep < FORM_STEPS.length - 1 ? undefined : handleSave}
                 onCancel={handleCancel}

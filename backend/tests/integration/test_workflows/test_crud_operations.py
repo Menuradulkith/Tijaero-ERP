@@ -234,7 +234,9 @@ class TestProductDeleteGuard:
 # FINANCE — Expense lifecycle
 # =========================================================================== #
 class TestExpenseLifecycle:
-    """Expense CRUD: create → submit → approve/reject → pay → delete guards."""
+    """Expense CRUD: create → submit → approve/reject → pay → delete guards.
+    One user plays every role here, so maker-checker is switched off; it is
+    pinned in test_qa_audit_fixes_2026_11_03_finance.py."""
 
     def _make_expense(self, db, branch):
         from app.modules.finance.service import ExpenseService
@@ -306,14 +308,14 @@ class TestExpenseLifecycle:
         branch = make_branch()
         expense, svc = self._make_expense(db, branch)
         svc.submit_expense(expense.id, submitted_by=1)
-        approved = svc.approve_expense(expense.id, approved_by=1, remarks="OK")
+        approved = svc.approve_expense(expense.id, approved_by=1, remarks="OK", maker_checker=False)
         assert approved.status == "approved"
 
     def test_cannot_approve_pending(self, db, make_branch):
         branch = make_branch()
         expense, svc = self._make_expense(db, branch)
         with pytest.raises(HTTPException) as exc:
-            svc.approve_expense(expense.id, approved_by=1)
+            svc.approve_expense(expense.id, approved_by=1, maker_checker=False)
         assert exc.value.status_code == 400
 
     def test_reject_expense(self, db, make_branch):
@@ -351,7 +353,7 @@ class TestExpenseLifecycle:
         branch = make_branch()
         expense, svc = self._make_expense(db, branch)
         svc.submit_expense(expense.id, submitted_by=1)
-        svc.approve_expense(expense.id, approved_by=1)
+        svc.approve_expense(expense.id, approved_by=1, maker_checker=False)
         with pytest.raises(HTTPException) as exc:
             svc.delete_expense(expense.id)
         assert exc.value.status_code == 400

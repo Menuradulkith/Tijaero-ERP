@@ -54,7 +54,7 @@ import {
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { useReferenceData } from "@/hooks";
-import { planningApi } from "@/modules/manufacturing/api";
+import { planningApi, errorAlreadyToasted } from "@/modules/manufacturing/api";
 import { ProduceFirmDialog, PurchaseFirmDialog } from "@/modules/manufacturing/components/MrpFirmDialogs";
 import type { MrpDemandSource, MrpLine } from "@/modules/manufacturing/types";
 import { useCurrencyStore } from "@/state/currencyStore";
@@ -153,18 +153,37 @@ export default function MaterialRequirementsPage() {
   const selectable = rows.filter((r) => r.suggested_quantity > 0);
   const allSelected = selectable.length > 0 && selectable.every((r) => selected.has(lineKey(r)));
 
-  const afterFirm = (kind: string, numbers: string[]) => {
-    showSuccessToast(`${numbers.length} ${kind} created: ${numbers.join(", ")}`);
-    setDialog(null);
-    setSelected(new Set());
+  const refreshAfterFirm = () => {
     for (const key of [["mrp"], ["purchaseOrders"], ["production-orders"], ["manufacturing-dashboard"]]) {
       queryClient.invalidateQueries({ queryKey: key });
     }
   };
 
+  const afterFirm = (kind: string, numbers: string[]) => {
+    showSuccessToast(`${numbers.length} ${kind} created: ${numbers.join(", ")}`);
+    setDialog(null);
+    setSelected(new Set());
+    refreshAfterFirm();
+  };
+
+  // Firming runs one request per branch. When a later branch fails, the earlier ones are already
+  // created: close the dialog and drop those lines, so a retry (on the refreshed MRP) cannot repeat them.
+  const afterPartialFirm = (kind: string, numbers: string[], doneBranches: string[], error: unknown) => {
+    const reason = handleApiError(error, `Failed to create ${kind}`);
+    if (!numbers.length) {
+      if (!errorAlreadyToasted(error)) showErrorToast(reason);
+      return;
+    }
+    showErrorToast(`${numbers.length} ${kind} created (${numbers.join(", ")}), then: ${reason}`);
+    setDialog(null);
+    setSelected((prev) => new Set([...prev].filter((k) => !doneBranches.some((b) => k.endsWith(`:${b}`)))));
+    refreshAfterFirm();
+  };
+
   const handlePurchase: React.ComponentProps<typeof PurchaseFirmDialog>["onSubmit"] = async (data) => {
     setSaving(true);
     const numbers: string[] = [];
+    const doneBranches: string[] = [];
     try {
       for (const [branch, rowsOfBranch] of Object.entries(groupByBranch(data.rows))) {
         const res = await planningApi.createPurchaseOrders({
@@ -178,11 +197,11 @@ export default function MaterialRequirementsPage() {
           })),
         });
         numbers.push(...res.documents.map((d) => d.number));
+        doneBranches.push(branch);
       }
       afterFirm("purchase order(s)", numbers);
     } catch (error) {
-      showErrorToast(handleApiError(error, "Failed to create purchase orders"));
-      if (numbers.length) queryClient.invalidateQueries({ queryKey: ["mrp"] });
+      afterPartialFirm("purchase order(s)", numbers, doneBranches, error);
     } finally {
       setSaving(false);
     }
@@ -191,6 +210,7 @@ export default function MaterialRequirementsPage() {
   const handleProduce: React.ComponentProps<typeof ProduceFirmDialog>["onSubmit"] = async (data) => {
     setSaving(true);
     const numbers: string[] = [];
+    const doneBranches: string[] = [];
     try {
       for (const [branch, rowsOfBranch] of Object.entries(groupByBranch(data.rows))) {
         const res = await planningApi.createProductionOrders({
@@ -205,11 +225,11 @@ export default function MaterialRequirementsPage() {
           })),
         });
         numbers.push(...res.documents.map((d) => d.number));
+        doneBranches.push(branch);
       }
       afterFirm("production order(s)", numbers);
     } catch (error) {
-      showErrorToast(handleApiError(error, "Failed to create production orders"));
-      if (numbers.length) queryClient.invalidateQueries({ queryKey: ["mrp"] });
+      afterPartialFirm("production order(s)", numbers, doneBranches, error);
     } finally {
       setSaving(false);
     }

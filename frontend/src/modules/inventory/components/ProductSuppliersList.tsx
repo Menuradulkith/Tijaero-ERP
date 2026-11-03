@@ -152,7 +152,10 @@ export default function ProductSuppliersList({
   const deleteMut = useMutation({
     mutationFn: (mapping: SupplierProduct) => suppliersApi.deleteProduct(mapping.supplier_id, mapping.id),
     onSuccess: () => { invalidate(); showSuccessToast("Supplier removed"); closePanel(); },
-    onError: () => showErrorToast("Cannot delete this supplier mapping."),
+    // HTTP errors are toasted (with the real reason) by the shared client; only report anything else.
+    onError: (e: unknown) => {
+      if (!(e as { isAxiosError?: boolean })?.isAxiosError) showErrorToast("Cannot delete this supplier mapping.");
+    },
   });
 
   const formFromMapping = (mapping: MappingRow): MappingFormState => ({

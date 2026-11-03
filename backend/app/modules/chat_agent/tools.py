@@ -2251,7 +2251,8 @@ def _v_post_journal_entry(db: Session, user: User, args: Dict) -> Dict:
 def _x_post_journal_entry(db: Session, user: User, args: Dict) -> Dict:
     from app.modules.finance.accounting_service import JournalEntryService
 
-    je = JournalEntryService(db).post_journal_entry(int(args["je_id"]), posted_by=user.id)
+    # Same open-period rule as POST /finance/.../post.
+    je = JournalEntryService(db).post_journal_entry(int(args["je_id"]), posted_by=user.id, require_period=True)
     return {
         "journal_entry_id": je.id,
         "status": je.status,

@@ -9,10 +9,11 @@ import { Box, Button, IconButton, Tooltip } from "@mui/material";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
-import { showErrorToast, showSuccessToast, handleApiError } from "@/components/tijaero";
+import { showErrorToast, showSuccessToast, handleApiError, TConfirmDialog, useConfirmDialog } from "@/components/tijaero";
 import { usersApi } from "../api";
 
-const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
+// Raster only: the API rejects SVG avatars (SVG can carry script).
+const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 // The API client's baseURL includes /api/v1; uploaded files are served from
 // the plain origin at /uploads, so strip /api/v1 the same way other
@@ -55,6 +56,7 @@ export default function UserAvatarUploader({
   // user is shown, and remember which one is current so a late response for
   // one user does not touch another user's preview/spinner.
   const currentUserIdRef = useRef<number | undefined>(user?.id);
+  const confirmDialog = useConfirmDialog();
   useEffect(() => {
     currentUserIdRef.current = user?.id;
     setPreviewUrl(null);
@@ -81,7 +83,7 @@ export default function UserAvatarUploader({
     if (!file) return;
 
     if (!ALLOWED_TYPES.includes(file.type)) {
-      showErrorToast("Unsupported image type. Use PNG, JPEG, WEBP, or SVG.");
+      showErrorToast("Unsupported image type. Use PNG, JPEG or WEBP.");
       return;
     }
 
@@ -115,6 +117,13 @@ export default function UserAvatarUploader({
       onDraftFileChange?.(null);
       return;
     }
+    const ok = await confirmDialog.confirm({
+      title: "Remove profile picture",
+      message: "Remove this user's profile picture?",
+      confirmText: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
     const userId = user!.id;
     setUploading(true);
     try {
@@ -194,6 +203,7 @@ export default function UserAvatarUploader({
           </Tooltip>
         )}
       </Box>
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </Box>
   );
 }

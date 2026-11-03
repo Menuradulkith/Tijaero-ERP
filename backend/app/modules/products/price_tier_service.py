@@ -169,16 +169,20 @@ class PriceTierService:
                 ),
             )
 
-        # Check at least one other tier remains (active or not)
-        total_tiers = (
+        # At least one other ACTIVE tier must remain (sales/quotations pick from active tiers)
+        other_active = (
             db.query(ProductPriceTier)
-            .filter(ProductPriceTier.product_id == product_id, ProductPriceTier.id != tier_id)
+            .filter(
+                ProductPriceTier.product_id == product_id,
+                ProductPriceTier.id != tier_id,
+                ProductPriceTier.is_active == True,
+            )
             .count()
         )
-        if total_tiers == 0:
+        if other_active == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot delete the only price tier for this product.",
+                detail="Cannot delete the last active price tier. A product must have at least one active tier.",
             )
 
         from sqlalchemy.exc import IntegrityError

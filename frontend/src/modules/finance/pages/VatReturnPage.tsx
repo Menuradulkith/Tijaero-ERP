@@ -32,6 +32,7 @@ import {
 import { vatReturnApi } from "@/modules/finance/api";
 import { submitOnce } from "@/modules/finance/submitOnce";
 import type { TaxTransaction, VatReturnLine, VatSettlement } from "@/modules/finance/types";
+import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
 
 const fmt = (v: number | string | null | undefined) =>
   Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -107,6 +108,7 @@ export default function VatReturnPage() {
     onSuccess: (s) => {
       showSuccessToast(`VAT settled as ${s.settlement_no}.`);
       queryClient.invalidateQueries({ queryKey: ["vat-return"] });
+      invalidateLedgerQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["vat-settlements"] });
       queryClient.invalidateQueries({ queryKey: ["vat-return-transactions"] });
     },

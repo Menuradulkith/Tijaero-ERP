@@ -101,6 +101,8 @@ class CustomerCreditNoteBase(BaseModel):
 
 class CustomerCreditNoteCreate(CustomerCreditNoteBase):
     amount: PositiveMoneyIn
+    # Why the customer is owed money: required, so the credit can be audited.
+    remark: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
 
 class CustomerCreditNote(CustomerCreditNoteBase, TijaeroBaseSchema):
     id: int

@@ -82,9 +82,10 @@ def update_group(
     """Update group information and permissions.
 
     A non-superuser may only change a role whose permissions they fully hold,
-    and may only grant permissions they hold themselves."""
+    that no one outside their branches holds, and may only grant permissions
+    they hold themselves."""
     target = service.group_service.get_group(db, group_id)
-    user_access.assert_can_edit_role(current_user, target)
+    user_access.assert_can_edit_role(current_user, target, db)
     if group.permission_ids is not None:
         user_access.assert_can_grant_permissions(
             current_user, user_access.load_permissions(db, group.permission_ids)

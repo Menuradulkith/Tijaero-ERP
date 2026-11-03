@@ -408,11 +408,20 @@ class CustomerCreditService:
         if not settlement_data.transactions:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one payment is required")
 
-        # Pre-validate every transaction (customer match, amounts per invoice) before the first one is applied
+        # SAL-06: build and validate every transaction (method, customer, invoice state, branch, dates, the summed
+        # amount per invoice) before the first one is applied - settle_credit_payment commits each one.
+        allowed_methods = ("cash", "cheque", "card", "card_visa", "card_mastercard", "card_amex", "bank_transfer")
+        sales_service = SalesService()
+        payments = []
         requested_per_invoice: Dict[int, Decimal] = {}
         for trans in settlement_data.transactions:
             if Decimal(str(trans.payment_amount)) <= 0:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment amount must be greater than zero")
+            method = (trans.payment_method or "").strip().lower()
+            if method == "bank":
+                method = "bank_transfer"
+            if method not in allowed_methods:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported payment method '{trans.payment_method}'")
             invoice = db.query(Invoice).filter(Invoice.id == trans.invoice_id).first()
             if not invoice:
                 raise HTTPException(
@@ -424,25 +433,6 @@ class CustomerCreditService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invoice {trans.invoice_id} does not belong to customer {settlement_data.customer_id}"
                 )
-            requested_per_invoice[invoice.id] = requested_per_invoice.get(invoice.id, Decimal("0")) + Decimal(str(trans.payment_amount))
-            if requested_per_invoice[invoice.id] > Decimal(str(invoice.balance_due or 0)):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        f"Payment amount {requested_per_invoice[invoice.id]} exceeds the balance "
-                        f"{Decimal(str(invoice.balance_due or 0))} of invoice {invoice.invoice_no}"
-                    ),
-                )
-
-        allowed_methods = ("cash", "cheque", "card", "card_visa", "card_mastercard", "card_amex", "bank_transfer")
-        sales_service = SalesService()
-        first_settlement_id = None
-        for trans in settlement_data.transactions:
-            method = (trans.payment_method or "").strip().lower()
-            if method == "bank":
-                method = "bank_transfer"
-            if method not in allowed_methods:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported payment method '{trans.payment_method}'")
             payment = sales_schemas.CreditPaymentCreate(
                 invoice_id=trans.invoice_id,
                 payment_method=method,
@@ -454,7 +444,15 @@ class CustomerCreditService:
                 bank_transfer_ref=trans.payment_method_number if method == "bank_transfer" else None,
                 remarks=trans.remarks,
             )
-            result = sales_service.settle_credit_payment(db, payment, user_id)
+            requested_per_invoice[invoice.id] = requested_per_invoice.get(invoice.id, Decimal("0")) + Decimal(str(trans.payment_amount))
+            sales_service.check_credit_settlement(
+                db, invoice, payment, user_id, amount=float(requested_per_invoice[invoice.id]), require_cheque_bank=False
+            )
+            payments.append(payment)
+
+        first_settlement_id = None
+        for payment in payments:
+            result = sales_service.settle_credit_payment(db, payment, user_id, require_cheque_bank=False)
             if first_settlement_id is None:
                 first_settlement_id = result["settlement_record_id"]
 
@@ -476,9 +474,19 @@ class CustomerCreditService:
     def get_settlement_with_transactions(
         self, 
         db: Session, 
-        settlement_id: int
+        settlement_id: int,
+        customer_id: Optional[int] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> schemas.CustomerCreditsSettleWithTransactions:
         settlement = self.get_settlement(db, settlement_id)
+        # SAL-26 / SAL-09: a settlement of another customer (or another branch) does not exist under this URL
+        if (customer_id is not None and settlement.customer_id != customer_id) or (
+            branch_codes is not None and settlement.branch_code not in branch_codes
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Credit settlement {settlement_id} not found"
+            )
         transactions = db.query(CustomerCreditsSettleTransaction).filter(
             CustomerCreditsSettleTransaction.customer_credit_settle_id == settlement_id
         ).all()
@@ -500,11 +508,13 @@ class CustomerCreditService:
         db: Session, 
         customer_id: int,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
+        branch_codes: Optional[List[str]] = None,
     ) -> List[CustomerCreditsSettle]:
 
         return db.query(CustomerCreditsSettle).filter(
-            CustomerCreditsSettle.customer_id == customer_id
+            CustomerCreditsSettle.customer_id == customer_id,
+            *([CustomerCreditsSettle.branch_code.in_(branch_codes)] if branch_codes is not None else []),
         ).order_by(
             CustomerCreditsSettle.created_date.desc()
         ).offset(skip).limit(limit).all()
@@ -516,6 +526,7 @@ class CustomerCreditService:
         date_to: Optional[date] = None,
         customer_id: Optional[int] = None,
         branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Get consolidated customer payment report with one efficient DB query."""
         # Query settlements joined with customer
@@ -533,6 +544,8 @@ class CustomerCreditService:
             settle_query = settle_query.filter(CustomerCreditsSettle.customer_id == customer_id)
         if branch_code:
             settle_query = settle_query.filter(CustomerCreditsSettle.branch_code == branch_code)
+        if branch_codes is not None:
+            settle_query = settle_query.filter(CustomerCreditsSettle.branch_code.in_(branch_codes))
 
         settlement_rows = settle_query.order_by(CustomerCreditsSettle.created_date.desc()).all()
 
@@ -730,8 +743,10 @@ class CustomerCreditService:
         db: Session, 
         customer_id: int,
         from_date: Optional[date] = None,
-        to_date: Optional[date] = None
+        to_date: Optional[date] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
+        """``branch_codes`` is the caller's branch scope (None = all branches)."""
         customer = db.query(Customer).filter(Customer.id == customer_id).first()
         if not customer:
             raise HTTPException(
@@ -749,6 +764,7 @@ class CustomerCreditService:
             Invoice.credit_amount > 0,
             Invoice.status == True,
             Invoice.approval_status.in_(["approved", "completed"]),
+            *([Invoice.branch_code.in_(branch_codes)] if branch_codes is not None else []),
         ).order_by(Invoice.created_date, Invoice.id).all()
         invoice_ids = [inv.id for inv in invoices]
 
@@ -865,6 +881,7 @@ class CustomerCreditService:
         db: Session,
         customer_id: Optional[int] = None,
         branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Get all outstanding (unpaid/partial) credit invoices across all customers.
         Only includes completed invoices with credit_amount > 0 that haven't been fully settled."""
@@ -875,6 +892,8 @@ class CustomerCreditService:
             query = query.filter(Invoice.customer_id == customer_id)
         if branch_code:
             query = query.filter(Invoice.branch_code == branch_code)
+        if branch_codes is not None:
+            query = query.filter(Invoice.branch_code.in_(branch_codes))
 
         rows = query.order_by(Invoice.created_date.desc()).all()
 

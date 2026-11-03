@@ -39,6 +39,12 @@ def _quote(c, world, approve=True, **kw):
 CONV = {"payment_method": "credit"}
 
 
+def _cash(q):
+    # Conversion now runs the normal order rules (SAL-04), so pay the quote in full in cash;
+    # a credit conversion would need an eligible customer within credit hours.
+    return {"payment_method": "cash", "cash_amount": q["total_amount"]}
+
+
 class TestConvertGate:
     def test_unapproved_quote_cannot_be_converted(self, superclient, world):
         q = _quote(superclient, world, approve=False)
@@ -67,14 +73,14 @@ class TestConvertToOrder:
                    tax_mode="exclusive", tax_rate=5, item={"discount_percent": 10})
         # 2 x 100 less 10% line = 180, less 10% header = 162, +5% tax = 170.10
         assert q["total_amount"] == pytest.approx(170.10)
-        r = superclient.post(f"{Q}/{q['id']}/convert", json=CONV)
+        r = superclient.post(f"{Q}/{q['id']}/convert", json=_cash(q))
         assert r.status_code == 200, r.text
         inv = superclient.get(f"{S}/{r.json()['invoice_id']}")
         assert inv.status_code == 200, inv.text
         o = inv.json()
         assert o["sale_rep_id"] is None
         assert o["subtotal"] == pytest.approx(162.0) and o["tax_amount"] == pytest.approx(8.10)
-        assert o["grand_total"] == pytest.approx(170.10) and o["balance_due"] == pytest.approx(170.10)
+        assert o["grand_total"] == pytest.approx(170.10) and o["balance_due"] == pytest.approx(0)
         assert o["grand_total"] == pytest.approx(q["total_amount"])
         assert len(o["items"]) == 2 and all(i["barcode"] for i in o["items"])
         assert o["approval"] is True and o["approval_status"] in ("approved", "completed")
@@ -88,7 +94,7 @@ class TestConvertToOrder:
     def test_with_rep_maps_employee_to_user(self, superclient, world, make_employee):
         emp = make_employee()
         q = _quote(superclient, world, qty=1, sale_rep_id=emp.id)
-        r = superclient.post(f"{Q}/{q['id']}/convert", json=CONV)
+        r = superclient.post(f"{Q}/{q['id']}/convert", json=_cash(q))
         assert r.status_code == 200, r.text
         o = superclient.get(f"{S}/{r.json()['invoice_id']}").json()
         assert o["sale_rep_id"] == emp.user_id and o["sale_rep_id"] != emp.id or emp.user_id == emp.id
@@ -96,8 +102,8 @@ class TestConvertToOrder:
 
     def test_convert_twice_is_rejected(self, superclient, world):
         q = _quote(superclient, world, qty=1)
-        assert superclient.post(f"{Q}/{q['id']}/convert", json=CONV).status_code == 200
-        assert superclient.post(f"{Q}/{q['id']}/convert", json=CONV).status_code == 400
+        assert superclient.post(f"{Q}/{q['id']}/convert", json=_cash(q)).status_code == 200
+        assert superclient.post(f"{Q}/{q['id']}/convert", json=_cash(q)).status_code == 400
 
 
 class TestQuoteNumbers:

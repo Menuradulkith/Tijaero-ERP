@@ -116,7 +116,9 @@ def test_update_duplicate_name_case_insensitive(superclient):
 
 def test_update_ignores_mass_assignment(superclient):
     b = _make(superclient)
-    r = superclient.put(f"{URL}{b['id']}", json={"branch_code": "HACKED", "id": 1, "created_by": 999, "address_line1": "x"})
+    # Changing the code is refused (ADM-13); echoing it back unchanged is fine.
+    assert superclient.put(f"{URL}{b['id']}", json={"branch_code": "HACKED"}).status_code == 400
+    r = superclient.put(f"{URL}{b['id']}", json={"branch_code": b["branch_code"], "id": 1, "created_by": 999, "address_line1": "x"})
     assert r.status_code == 200
     assert r.json()["branch_code"] == b["branch_code"] and r.json()["id"] == b["id"]
 

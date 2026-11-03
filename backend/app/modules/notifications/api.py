@@ -100,6 +100,14 @@ def create_notification(
     """
     _require_superuser(current_user)
 
+    if payload.branch_codes:
+        from app.auth.models import Branch
+
+        known = {c for (c,) in db.query(Branch.branch_code).filter(Branch.branch_code.in_(payload.branch_codes))}
+        unknown = sorted(set(payload.branch_codes) - known)
+        if unknown:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown branch: {', '.join(unknown)}")
+
     svc = service.NotificationService(db)
 
     # Explicit users and/or broadcast → one dispatch (not tagged to a branch).

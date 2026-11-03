@@ -383,7 +383,7 @@ export interface ChartOfAccountTree extends ChartOfAccount {
 
 // ─── Journal Entry Types ──────────────────────────────────────────────────────
 
-export type JournalEntryStatus = "draft" | "posted" | "reversed";
+export type JournalEntryStatus = "draft" | "submitted" | "approved" | "posted" | "reversed";
 export type JournalEntryType =
   | "standard"
   | "adjusting"
@@ -441,6 +441,7 @@ export interface JournalEntry {
   submitted_by?: number;
   approved_by?: number;
   posted_by?: number;
+  rejection_reason?: string | null;
   created_at?: string;
   updated_at?: string;
   created_by_name?: string;

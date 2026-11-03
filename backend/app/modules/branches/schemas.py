@@ -35,7 +35,7 @@ class BranchBase(BaseModel):
     city: Optional[str] = None
     state: Optional[str] = None
     postal_code: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None  # plain str: legacy stored emails must serialize
     contact_number: Optional[str] = None
     active: bool = True
 
@@ -64,6 +64,9 @@ class BranchUpdate(_AddressInput):
     # NB: only *explicitly sent* values are validated (unset defaults are not),
     # so the null-rejection below applies to `"branch_name": null` in the body.
     branch_name: Optional[_NameCode] = None
+    # The code is the branch's key across documents and stock: it cannot change.
+    # Accepted only so a form that echoes it back is not rejected (see service).
+    branch_code: Optional[str] = Field(None, max_length=255)
     email: Optional[EmailStr] = None
     contact_number: Optional[str] = None
     active: Optional[bool] = None

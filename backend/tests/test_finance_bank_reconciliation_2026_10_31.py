@@ -14,6 +14,7 @@ from decimal import Decimal
 import pytest
 
 from app.modules.finance.accounting_models import ChartOfAccounts
+from app.modules.finance.accounting_service import JournalEntryService
 from app.modules.finance.gl_posting_service import GLPostingService
 
 A = "/api/v1/finance/accounting"
@@ -146,8 +147,10 @@ class TestReconciliation:
     def test_reversed_entry_drops_off_the_outstanding_list(self, db, superclient):
         b = _bank(superclient)
         je = _move(db, b, -80, TODAY - timedelta(days=2), "VOID")
-        r = superclient.post(f"{A}/journal-entries/{je.id}/reverse", json={"reason": "cheque voided"})
-        assert r.status_code == 200, r.text
+        # Auto entries can't be reversed by hand any more (FIN-06); the source document reverses them
+        assert superclient.post(f"{A}/journal-entries/{je.id}/reverse", json={"reason": "cheque voided"}).status_code == 400
+        JournalEntryService(db).reverse_journal_entry(je.id, reversed_by=0, reason="cheque voided", commit=False)
+        db.flush()
         st = _statement(superclient, b, [], opening=0, closing=0)
         assert st["summary"]["outstanding_count"] == 0 and D(str(st["summary"]["difference"])) == 0
 

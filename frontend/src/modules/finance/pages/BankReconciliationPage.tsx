@@ -86,6 +86,7 @@ import type {
   ChartOfAccount,
 } from "@/modules/finance/types";
 import { submitOnce } from "@/modules/finance/submitOnce";
+import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v: BankAmount | null | undefined) =>
@@ -885,6 +886,7 @@ function NewStatementPanel({
     onSuccess: (d) => {
       queryClient.setQueryData(bankKeys.statement(d.id), d);
       queryClient.invalidateQueries({ queryKey: bankKeys.statements(d.bank_account_id) });
+      invalidateLedgerQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: bankKeys.accounts });
       const matched = d.lines.filter((l) => l.status !== "unmatched").length;
       showSuccessToast(`Statement saved. ${matched} of ${d.lines.length} lines matched automatically.`);
@@ -1208,6 +1210,7 @@ function StatementDetailPanel({
 
   const refreshLists = () => {
     queryClient.invalidateQueries({ queryKey: bankKeys.accounts });
+    invalidateLedgerQueries(queryClient);
     if (st) queryClient.invalidateQueries({ queryKey: bankKeys.statements(st.bank_account_id) });
   };
   const onFresh = (d: BankStatementDetail) => {

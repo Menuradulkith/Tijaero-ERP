@@ -1,10 +1,10 @@
 from typing import Annotated, List
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_active_user
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.orm import Session
 
 from . import schemas, service
@@ -21,7 +21,7 @@ def get_notifications(
     unread_only: bool = Query(False),
     skip: int = Query(0, ge=0, le=1_000_000),
     limit: int = Query(50, ge=1, le=1000),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Get user notifications"""
@@ -33,7 +33,7 @@ def get_notifications(
 
 @router.get("/notifications/stats", response_model=schemas.NotificationStats)
 def get_notification_stats(
-    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)
 ):
     """Get notification statistics"""
     notification_service = service.NotificationService(db)
@@ -45,7 +45,7 @@ def get_notification_stats(
 )
 def mark_notification_as_read(
     notification_id: RowId,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Mark notification as read"""
@@ -55,7 +55,7 @@ def mark_notification_as_read(
 
 @router.put("/notifications/read-all")
 def mark_all_notifications_as_read(
-    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)
 ):
     """Mark all notifications as read"""
     notification_service = service.NotificationService(db)
@@ -66,7 +66,7 @@ def mark_all_notifications_as_read(
 @router.delete("/notifications/{notification_id}")
 def delete_notification(
     notification_id: RowId,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Delete a notification"""
@@ -78,7 +78,7 @@ def delete_notification(
 # User Preferences Endpoints
 @router.get("/preferences", response_model=schemas.UserPreferences)
 def get_preferences(
-    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)
 ):
     """Get user preferences"""
     preferences_service = service.PreferencesService(db)
@@ -88,7 +88,7 @@ def get_preferences(
 @router.put("/preferences", response_model=schemas.UserPreferences)
 def update_preferences(
     preferences: schemas.UserPreferencesUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Update user preferences"""
@@ -100,7 +100,7 @@ def update_preferences(
 @router.put("/profile", response_model=schemas.ProfileOut)
 def update_profile(
     profile: schemas.ProfileUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Update user profile"""
@@ -111,7 +111,7 @@ def update_profile(
 @router.post("/change-password")
 def change_password(
     password_change: schemas.PasswordChange,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Change user password"""
@@ -122,7 +122,7 @@ def change_password(
 # Company Settings Endpoints
 @router.get("/company", response_model=schemas.CompanySettings, dependencies=[Depends(require_permission(*Permissions.SETTINGS_VIEW))])
 def get_company_settings(
-    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)
 ):
     """Get company wide settings"""
     # Later add a specific check for admin if needed
@@ -133,13 +133,13 @@ def get_company_settings(
 @router.put("/company", response_model=schemas.CompanySettings, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
 def update_company_settings(
     settings_update: schemas.CompanySettingsUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Update company wide settings"""
     # Later add a specific check for admin if needed
     comp_service = service.CompanySettingsService(db)
-    return comp_service.update_company_settings(settings_update)
+    return comp_service.update_company_settings(settings_update, updated_by=current_user.id)
 
 
 @router.get("/company/logo", response_model=schemas.CompanyLogo, dependencies=[Depends(require_permission(*Permissions.SETTINGS_VIEW))])
@@ -149,9 +149,21 @@ def get_company_logo(db: Session = Depends(get_db)):
 
 
 @router.put("/company/logo", response_model=schemas.CompanyLogo, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
-def update_company_logo(body: schemas.CompanyLogo, db: Session = Depends(get_db)):
+def update_company_logo(
+    body: schemas.CompanyLogo,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
     """Set (or, with null, remove) the company logo."""
+    from app.common.audit import log_audit
+
     settings = service.CompanySettingsService(db).get_company_settings()
+    if settings.company_logo != body.logo:
+        # The image itself is too big for the audit trail; record the change only.
+        log_audit(
+            db, user_id=current_user.id, action="update", entity_type="company_settings",
+            entity_id=settings.id, changes={"fields": ["company_logo"]},
+        )
     settings.company_logo = body.logo
     db.commit()
     return {"logo": settings.company_logo}
@@ -161,7 +173,7 @@ def update_company_logo(body: schemas.CompanyLogo, db: Session = Depends(get_db)
 @router.get("/currencies", response_model=List[schemas.Currency], dependencies=[Depends(require_permission(*Permissions.SETTINGS_VIEW))])
 def list_currencies(
     active_only: bool = Query(False),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """List all currencies available for selection"""
@@ -169,56 +181,56 @@ def list_currencies(
     return currency_service.list_currencies(active_only=active_only)
 
 
-@router.post("/currencies", response_model=schemas.Currency, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
+@router.post("/currencies", response_model=schemas.Currency, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
 def create_currency(
     currency: schemas.CurrencyCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Add a new currency to the manageable list"""
     currency_service = service.CurrencyService(db)
-    return currency_service.create_currency(currency)
+    return currency_service.create_currency(currency, created_by=current_user.id)
 
 
 @router.put("/currencies/{currency_id}", response_model=schemas.Currency, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
 def update_currency(
     currency_id: RowId,
     currency: schemas.CurrencyUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Update a currency's details"""
     currency_service = service.CurrencyService(db)
-    return currency_service.update_currency(currency_id, currency)
+    return currency_service.update_currency(currency_id, currency, updated_by=current_user.id)
 
 
 @router.delete("/currencies/{currency_id}", dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
 def delete_currency(
     currency_id: RowId,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Delete a currency (cannot delete the active one)"""
     currency_service = service.CurrencyService(db)
-    currency_service.delete_currency(currency_id)
+    currency_service.delete_currency(currency_id, deleted_by=current_user.id)
     return {"message": "Currency deleted"}
 
 
 @router.put("/currencies/active/{code}", response_model=schemas.CompanySettings, dependencies=[Depends(require_permission(*Permissions.SETTINGS_UPDATE))])
 def set_active_currency(
     code: Annotated[str, Path(pattern=r"^[A-Za-z]{3}$")],
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Set the ERP-wide active currency"""
     currency_service = service.CurrencyService(db)
-    return currency_service.set_active_currency(code)
+    return currency_service.set_active_currency(code, updated_by=current_user.id)
 
 
 # Timezone Endpoints
 @router.get("/timezones", response_model=List[schemas.TimezoneOption], dependencies=[Depends(require_permission(*Permissions.SETTINGS_VIEW))])
 def list_timezones(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     """List every IANA timezone with its current UTC offset"""
     return service.list_timezones()

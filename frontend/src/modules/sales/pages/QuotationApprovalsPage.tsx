@@ -63,6 +63,7 @@ import { quotationApi } from "@/modules/sales/quotation-api";
 import { customersApi } from "@/modules/customers/api";
 import { approvalsApi } from "@/modules/common/api";
 import ApproverAuthDialog from "@/modules/purchasing/components/ApproverAuthDialog";
+import { usePermission } from "@/auth/permissions";
 import { useDebounce } from "@/hooks";
 import { useReferenceData } from "@/hooks";
 import type { SalesQuote, SalesQuoteDetail } from "@/modules/sales/quotation-types";
@@ -90,6 +91,8 @@ export default function QuotationApprovalsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  // FE-5: the approve / reject actions follow the same permission the backend checks
+  const canApprove = usePermission("quotation_approvals", "approve");
 
   const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
   const products = (refData?.products || []) as Product[];
@@ -430,7 +433,7 @@ export default function QuotationApprovalsPage() {
                 color="primary"
                 startIcon={<CheckCircleIcon />}
                 onClick={handleApprove}
-                disabled={approveMutation.isPending}
+                disabled={!canApprove || approveMutation.isPending}
               >
                 Approve
               </Button>
@@ -440,7 +443,7 @@ export default function QuotationApprovalsPage() {
                 color="error"
                 startIcon={<CancelIcon />}
                 onClick={() => setRejectDialogOpen(true)}
-                disabled={rejectMutation.isPending}
+                disabled={!canApprove || rejectMutation.isPending}
               >
                 Reject
               </Button>

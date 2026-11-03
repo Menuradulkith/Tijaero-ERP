@@ -30,16 +30,54 @@ def check_posting_date(db: Session, value: Optional[date | datetime], label: str
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"{label} can't be in the future ({day:%d %b %Y}).",
         )
-    from .gl_posting_service import GLPostingService
+    # Every period covering the day (fiscal years may overlap): one closed or
+    # locked period is enough to refuse, so an overlapping open one can't be
+    # used to post around a close.
+    for period in covering_periods(db, day):
+        if period.status != "open":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"The accounting period for {day:%d %b %Y} is {period.status}. "
+                    "Use a date in an open period, or ask a finance manager to reopen it."
+                ),
+            )
 
-    gl = GLPostingService(db)
-    fiscal_year, fiscal_period = gl._get_fiscal_period(day)
-    period_status = gl._period_status(fiscal_year, fiscal_period)
-    if period_status is not None and period_status != "open":
+
+def covering_periods(db: Session, day: date) -> list:
+    """Accounting periods whose range covers ``day``, oldest first (deterministic)."""
+    from .accounting_models import AccountingPeriod
+
+    return (
+        db.query(AccountingPeriod)
+        .filter(AccountingPeriod.start_date <= day, AccountingPeriod.end_date >= day)
+        .order_by(AccountingPeriod.start_date, AccountingPeriod.id)
+        .all()
+    )
+
+
+def require_open_period(db: Session, day: date, label: str = "Date"):
+    """Like check_posting_date's period part, but a period must exist for the day.
+
+    Used where a person posts straight to the ledger (manual / opening / recurring
+    journals and their reversals): those must land in a set-up fiscal year, not
+    in a year with no periods (1990, 2099). Returns the period to post into."""
+    periods = covering_periods(db, day)
+    if not periods:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"The accounting period for {day:%d %b %Y} is {period_status}. "
-                "Use a date in an open period, or ask a finance manager to reopen it."
+                f"No accounting period covers {label.lower()} {day:%d %b %Y}. "
+                "Generate the fiscal year's periods first, or use a date in an open period."
             ),
         )
+    for period in periods:
+        if period.status != "open":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"The accounting period for {day:%d %b %Y} is {period.status}. "
+                    "Use a date in an open period, or ask a finance manager to reopen it."
+                ),
+            )
+    return periods[0]

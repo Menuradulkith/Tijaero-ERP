@@ -57,7 +57,11 @@ class ProductRepository:
         default_tier = ProductPriceTier(
             product_id=db_product.id,
             cost_price=db_product.cost_price,
-            minimum_selling_price=db_product.selling_price if db_product.selling_price is not None else db_product.cost_price,
+            # the product's own minimum price when given (else the selling price, as before)
+            minimum_selling_price=(
+                product.minimum_selling_price if getattr(product, "minimum_selling_price", None) is not None
+                else db_product.selling_price if db_product.selling_price is not None else db_product.cost_price
+            ),
             selling_price=db_product.selling_price if db_product.selling_price is not None else db_product.cost_price,
             website_price=db_product.website_price,
             remark="Default",

@@ -63,8 +63,12 @@ export function handleApiError(error: unknown, fallback: string): string {
       return formatFieldMessages(messages as { field: string; message: string }[]);
     }
 
-    // detail is a plain string  →  use it directly
+    // detail is a plain string  →  use it directly (a bare permission / branch denial
+    // gets a plain-language lead so the user knows why nothing happened)
     if (typeof detail === "string" && detail.length > 0) {
+      if (error.response.status === 403 && /^(Permission denied|Access denied)/i.test(detail)) {
+        return `You don't have permission to do this. ${detail}`;
+      }
       return detail;
     }
 

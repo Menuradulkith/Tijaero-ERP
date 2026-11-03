@@ -24,6 +24,12 @@ from sqlalchemy.orm import Session
 router = APIRouter()
 
 
+def _ensure_branch(user: User, branch_code: Optional[str]) -> None:
+    """403 when the row's branch is outside the user's branches (None = no row; the caller 404s)."""
+    if branch_code and not validate_branch_access(user, branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
+
+
 # Reclassification: serial unit stock <-> company asset (audited, reason required)
 @router.post(
     "/sales-stock/{stock_id}/move-to-company-assets",
@@ -401,8 +407,14 @@ def check_barcode_exists(barcode: str, db: Session = Depends(get_db)):
 
 
 @router.get("/sales-stock/grn/{grn_id}", response_model=List[schemas.SalesStock], dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))])
-def get_sales_stock_by_grn(grn_id: int, db: Session = Depends(get_db)):
+def get_sales_stock_by_grn(
+    grn_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     """Get all sales stock items for a GRN"""
+    from app.modules.purchasing.models import GoodReceivedNote
+
+    grn_branch = db.query(GoodReceivedNote.branch_code).filter(GoodReceivedNote.id == grn_id).scalar()
+    _ensure_branch(current_user, grn_branch)
     sales_stock_service = service.SalesStockService(db)
     return sales_stock_service.get_by_grn(grn_id)
 
@@ -428,12 +440,20 @@ def get_available_sales_stock(
 
 
 @router.get("/sales-stock/barcode/{barcode}", dependencies=[Depends(require_permission(*Permissions.SALES_STOCK_VIEW))])
-def get_sales_stock_by_barcode(barcode: str, db: Session = Depends(get_db)):
+def get_sales_stock_by_barcode(
+    barcode: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     """Get sales stock item by barcode with enriched product data"""
     sales_stock_service = service.SalesStockService(db)
     item = sales_stock_service.get_by_barcode(barcode)
     if not item:
         raise HTTPException(status_code=404, detail="Sales stock item not found")
+    _ensure_branch(current_user, item.get("branch_code"))
+    # Hide cost price from users without cost_price:view (same as the list endpoints)
+    if not user_has_permission(current_user, *Permissions.COST_PRICE_VIEW):
+        item["cost_price"] = None
+        if item.get("product"):
+            item["product"]["cost_price"] = None
     return item
 
 
@@ -473,6 +493,9 @@ def get_sales_stock_tracking(
     Aggregates events from GRN, invoices, sale returns, purchase returns,
     and item transfer notes into a chronological timeline.
     """
+    from app.modules.inventory.models import SalesStock
+
+    _ensure_branch(current_user, db.query(SalesStock.branch_code).filter(SalesStock.id == id).scalar())
     sales_stock_service = service.SalesStockService(db)
     return sales_stock_service.get_tracking(id)
 

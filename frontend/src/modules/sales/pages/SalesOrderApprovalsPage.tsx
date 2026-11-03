@@ -84,6 +84,8 @@ export default function SalesOrderApprovalsPage() {
     const currencySymbol = useCurrencyStore((s) => s.symbol);
     const queryClient = useQueryClient();
     const canViewCustomers = usePermission("customers", "view");
+    // FE-5: the approve / reject actions follow the same permission the backend checks
+    const canApprove = usePermission("so_approvals", "approve");
     const [searchQuery, setSearchQuery] = useState("");
     const [sortField, setSortField] = useState("created_date");
     const [selectedOrder, setSelectedOrder] = useState<InvoiceWithItems | null>(null);
@@ -113,7 +115,7 @@ export default function SalesOrderApprovalsPage() {
 
     // Fetch customers (needed for names)
     const { data: customers = [] } = useQuery({
-        queryKey: ["customers"],
+        queryKey: ["customers", "list", 0, 100000, true],  // FE-10: the key carries the paging arguments
         queryFn: () => customersApi.getAll(),
         enabled: canViewCustomers,
     });
@@ -397,7 +399,7 @@ export default function SalesOrderApprovalsPage() {
                         color="primary"
                         startIcon={<CheckCircleIcon />}
                         onClick={handleApprove}
-                        disabled={approveMutation.isPending}
+                        disabled={!canApprove || approveMutation.isPending}
                     >
                         Approve
                     </Button>
@@ -406,7 +408,7 @@ export default function SalesOrderApprovalsPage() {
                         color="error"
                         startIcon={<CancelIcon />}
                         onClick={() => setRejectDialogOpen(true)}
-                        disabled={rejectMutation.isPending}
+                        disabled={!canApprove || rejectMutation.isPending}
                     >
                         Reject
                     </Button>

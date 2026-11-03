@@ -116,7 +116,7 @@ def create_commission(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.AGENT_COMMISSION_CREATE)),
 ):
-    return commission_service.create_commission(db, data)
+    return commission_service.create_commission(db, data, user=current_user)
 
 
 @router.put(
@@ -220,6 +220,7 @@ def get_payment_details(
 
 @router.post(
     "/payments/",
+    response_model=schemas.CustomerAgentCommissionPayment,  # SAL-27: the ORM row was serialised as {}
     status_code=status.HTTP_201_CREATED,
     summary="Create Commission Payment",
     description="Create a new commission payment with items",
@@ -230,11 +231,17 @@ def create_payment(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.COMMISSION_PAYMENT_CREATE)),
 ):
+    from fastapi import HTTPException
+    from app.auth.dependencies import validate_branch_access
+
+    if not validate_branch_access(current_user, data.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {data.branch_code}")
     return commission_service.create_payment(db, data, current_user.id)
 
 
 @router.post(
     "/payments/{payment_id}/verify",
+    response_model=schemas.CustomerAgentCommissionPayment,
     summary="Verify Commission Payment",
     description="Verify a pending commission payment",
     dependencies=[Depends(require_permission(*Permissions.COMMISSION_PAYMENT_APPROVAL_APPROVE))],
@@ -249,6 +256,7 @@ def verify_payment(
 
 @router.post(
     "/payments/{payment_id}/cancel",
+    response_model=schemas.CustomerAgentCommissionPayment,
     summary="Cancel Commission Payment",
     description="Cancel a pending commission payment",
     dependencies=[Depends(require_permission(*Permissions.COMMISSION_PAYMENT_UPDATE))],

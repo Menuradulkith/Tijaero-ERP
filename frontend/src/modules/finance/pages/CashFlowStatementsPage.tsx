@@ -61,6 +61,8 @@ import {
 import { formatDateTimeReadable } from "@/utils/formatters";
 import { useCurrencyStore } from "@/state/currencyStore";
 
+import { usePermission } from "@/auth/permissions";
+import { useAuthStore } from "@/state/authStore";
 import { cashFlowStatementsApi } from "@/modules/finance/api";
 import type {
   CashFlowStatement,
@@ -172,6 +174,12 @@ export default function CashFlowStatementsPage() {
     }
   }, [filteredStatements, selectedStatement]);
 
+  // Same permissions the backend checks: generate/finalize/delete need
+  // accounting_periods.update, approve needs payment_approvals.approve.
+  const canManage = usePermission("accounting_periods", "update");
+  const canApprove = usePermission("payment_approvals", "approve");
+  const currentUserId = useAuthStore((s) => s.user?.id);
+
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
   const generateMutation = useCrudMutation({
@@ -250,7 +258,7 @@ export default function CashFlowStatementsPage() {
     if (confirmed) deleteMutation.mutate(selectedStatement.id);
   }, [selectedStatement, confirmDialog, deleteMutation]);
 
-  const canDelete = !!(selectedStatement && selectedStatement.status === "draft");
+  const canDelete = !!(selectedStatement && selectedStatement.status === "draft" && canManage);
   const detail = statementDetail || selectedStatement;
 
   // Group lines by section
@@ -379,13 +387,13 @@ export default function CashFlowStatementsPage() {
         isEditing={false}
         isSaving={false}
         isFormValid={false}
-        onNew={() => setGenerateDialogOpen(true)}
+        onNew={canManage ? () => setGenerateDialogOpen(true) : undefined}
         onDelete={canDelete ? handleDelete : undefined}
         canDelete={canDelete || false}
         endActions={
           detail ? (
             <Box sx={{ display: "flex", gap: 1 }}>
-              {detail.status === "draft" && (
+              {detail.status === "draft" && canManage && (
                 <Button
                   variant="contained"
                   size="small"
@@ -395,16 +403,21 @@ export default function CashFlowStatementsPage() {
                   Finalize
                 </Button>
               )}
-              {detail.status === "final" && (
-                <Button
-                  variant="contained"
-                  size="small"
-                  color="success"
-                  startIcon={<CheckCircleIcon />}
-                  onClick={handleApprove}
-                >
-                  Approve
-                </Button>
+              {detail.status === "final" && canApprove && (
+                <Tooltip title={detail.prepared_by === currentUserId ? "You prepared this statement: another user must approve it" : ""}>
+                  <span>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      color="success"
+                      startIcon={<CheckCircleIcon />}
+                      onClick={handleApprove}
+                      disabled={detail.prepared_by === currentUserId || approveMutation.isPending}
+                    >
+                      Approve
+                    </Button>
+                  </span>
+                </Tooltip>
               )}
             </Box>
           ) : undefined

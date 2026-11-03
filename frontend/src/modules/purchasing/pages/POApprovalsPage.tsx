@@ -81,7 +81,10 @@ import { Product } from "@/modules/inventory/types";
 type POApprovalRow = PurchasingOrder & { supplier_display_name: string };
 
 export default function POApprovalsPage() {
-  const canApprove = usePermission("po_approvals", "approve") || usePermission("common", "update");
+  // Both hooks run on every render (rules of hooks); only then combine them.
+  const canApprovePo = usePermission("po_approvals", "approve");
+  const canUpdateCommon = usePermission("common", "update");
+  const canApprove = canApprovePo || canUpdateCommon;
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");

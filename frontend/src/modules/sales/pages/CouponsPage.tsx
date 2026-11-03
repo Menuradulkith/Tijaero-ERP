@@ -126,9 +126,9 @@ export default function CouponsPage() {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   // Permissions
-  const canCreate = usePermission("customers", "create");
-  const canUpdate = usePermission("customers", "update");
-  const canDelete = usePermission("customers", "delete");
+  const canCreate = usePermission("coupons", "create");
+  const canUpdate = usePermission("coupons", "update");
+  const canDelete = usePermission("coupons", "delete");
 
   // Filter state - all filters apply live as the user types/selects, no
   // separate "Search" step needed.

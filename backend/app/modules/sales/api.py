@@ -430,9 +430,10 @@ def list_sale_returns(
 def get_return_statistics(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.SALES_RETURN_VIEW)),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    """Get sale return statistics for dashboard."""
-    return service.sales_service.get_return_statistics(db)
+    """Get sale return statistics for dashboard (the caller's branches only)."""
+    return service.sales_service.get_return_statistics(db, user_branches)
 
 
 @router.get(
@@ -479,6 +480,7 @@ def create_sale_return(
     current_user: User = Depends(require_permission(*Permissions.SALES_RETURN_CREATE)),
 ):
     """Create a new sale return."""
+    _scope_invoice(db, current_user, sale_return.invoice_id)  # SAL-07: same scoping as every other invoice endpoint
     created = service.sales_service.create_sale_return(db, sale_return, current_user.id)
 
     # Notify the branch (everyone but the creator) about the sale return.

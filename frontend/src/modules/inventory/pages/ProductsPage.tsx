@@ -509,10 +509,11 @@ export default function ProductsPage({
       ? pendingSupplierMappings.length === 0
       : productSupplierMappings.length === 0;
 
+  // Filling an empty section is still an update: it needs the update permission.
   const isPricingEditable =
-    productState.isEditing || productState.isCreating || isPricingUnfilled;
+    productState.isEditing || productState.isCreating || (canUpdate && isPricingUnfilled);
   const isProductSuppliersEditable =
-    productState.isEditing || productState.isCreating || isProductSuppliersUnfilled;
+    productState.isEditing || productState.isCreating || (canUpdate && isProductSuppliersUnfilled);
 
   // Supplier mappings are added/edited through their own side-panel dialog
   // (its own Save button) — the main toolbar's Save/Cancel is redundant
@@ -931,8 +932,24 @@ export default function ProductsPage({
         queryClient.invalidateQueries({ queryKey: ["products"] });
         queryClient.invalidateQueries({ queryKey: ["minimum-price", fresh.id] });
         if (selectedProductIdRef.current === fresh.id) {
-          selectProductInternal(fresh);
-          setProductTouched({});
+          // Don't silently throw the user's edits away: let them choose to keep
+          // editing (and copy their values) or load the other user's version.
+          const reload = await confirmDialog.confirm({
+            title: "Product changed by someone else",
+            message:
+              "Another user saved this product while you were editing, so your changes were not saved. " +
+              "Load their version now? (Choose Keep Editing to note your changes first.)",
+            confirmText: "Load latest",
+            cancelText: "Keep Editing",
+            confirmColor: "warning",
+          });
+          if (reload && selectedProductIdRef.current === fresh.id) {
+            selectProductInternal(fresh);
+            setProductTouched({});
+          } else if (selectedProductIdRef.current === fresh.id) {
+            // Keep the user's values; a new Save is now based on the latest version.
+            productState.setSelectedItem(fresh);
+          }
         }
       } catch {
         // The 409's toast already told the user; nothing more to do.
@@ -1045,7 +1062,8 @@ export default function ProductsPage({
       model: product.model || "",
       item_type: product.item_type,
       unit_of_measure: product.unit_of_measure || "pcs",
-      tracking_type: product.tracking_type || "serial",
+      // no silent "serial": a product without a tracking type must get an explicit choice on save
+      tracking_type: (product.tracking_type || "") as ProductCreate["tracking_type"],
       over_receipt_tolerance_pct: Number(product.over_receipt_tolerance_pct ?? 0),
       under_receipt_tolerance_pct: Number(product.under_receipt_tolerance_pct ?? 0),
       description: product.description || "",
@@ -1136,6 +1154,23 @@ export default function ProductsPage({
     }
     if (typeof minPriceInput === "number" && minPriceInput < productState.formData.cost_price) {
       showErrorToast("Minimum selling price cannot be less than cost price");
+      return;
+    }
+    if (typeof minPriceInput === "number" && minPriceInput > productState.formData.selling_price) {
+      showErrorToast("Minimum selling price cannot be greater than the selling price");
+      return;
+    }
+    // The minimum price is a price history: it can be changed but not removed.
+    if (
+      minPriceInput === "" &&
+      !productState.isCreating &&
+      currentMinPrice?.minimum_price !== undefined &&
+      currentMinPrice?.minimum_price !== null
+    ) {
+      setActiveProductSection("pricing");
+      showErrorToast(
+        "The minimum selling price can't be removed, only changed. Enter the cost price for no extra floor.",
+      );
       return;
     }
 
@@ -2046,8 +2081,21 @@ export default function ProductsPage({
                       );
                     }}
                     disabled={!isPricingEditable}
-                    error={typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0)}
-                    helperText={typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0) ? `Cannot be less than cost price (${currencySymbol} ${productState.formData.cost_price || 0})` : ""}
+                    error={
+                      typeof minPriceInput === "number" &&
+                      (minPriceInput < (productState.formData.cost_price || 0) ||
+                        (typeof productState.formData.selling_price === "number" &&
+                          minPriceInput > productState.formData.selling_price))
+                    }
+                    helperText={
+                      typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0)
+                        ? `Cannot be less than cost price (${currencySymbol} ${productState.formData.cost_price || 0})`
+                        : typeof minPriceInput === "number" &&
+                            typeof productState.formData.selling_price === "number" &&
+                            minPriceInput > productState.formData.selling_price
+                          ? `Cannot be more than selling price (${currencySymbol} ${productState.formData.selling_price})`
+                          : ""
+                    }
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">{currencySymbol}</InputAdornment>

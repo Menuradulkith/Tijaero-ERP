@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import literal, or_
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_active_user
+from app.auth.dependencies import get_current_active_user, validate_branch_access
 from app.auth.models import Branch, User
 from app.auth.rbac import Permissions, user_has_permission
 from app.core import timezone as tz
@@ -186,6 +186,11 @@ def _validated_storage(user: User, db: Session, key: str, params: dict, view: Op
     parse_params(report, params)
     known = {p.key for p in report.params}
     kept = {k: v for k, v in params.items() if k in known and v not in (None, "")}
+    # A branch filter must be one of the user's branches (running it would be refused anyway).
+    for p in report.params:
+        value = kept.get(p.key)
+        if p.type == "branch" and value and not validate_branch_access(user, str(value)):
+            raise HTTPException(status_code=403, detail=f"Access denied to branch: {value}")
     payload = json.dumps({"params": kept, "view": view or {}}, default=str)
     if len(payload) > 20_000:
         raise HTTPException(status_code=422, detail="The saved view is too large")

@@ -26,6 +26,7 @@ import {
 import { usePermission } from "@/auth/permissions";
 import { useDebounce } from "@/hooks";
 import { fetchAllPages } from "@/utils/fetchAllPages";
+import { formatDate } from "@/utils/formatters";
 import { branchApi } from "@/modules/branches/api";
 import { usersApi } from "@/modules/users/api";
 import MasterTab, { type FieldDef } from "@/modules/hr/components/MasterTab";
@@ -464,6 +465,10 @@ export default function EmployeesPage() {
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
+      // the same checks the server makes, before sending the file
+      if (!["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(file.type)) { showErrorToast("Only PDF, PNG, JPEG or WEBP files are accepted"); return; }
+      if (file.size > 5 * 1024 * 1024) { showErrorToast("File too large. Maximum size is 5 MB"); return; }
+      if (doc.has_file && !window.confirm(`Replace the attached file "${doc.file_name ?? "document"}"?`)) return;
       try { await employeeCoreApi.uploadDocument(selectedId!, doc.id, file); showSuccessToast("File attached"); qc.invalidateQueries({ queryKey: ["hr", "employee", selectedId, "documents"] }); }
       catch (e) { showErrorToast(handleApiError(e, "Upload failed")); }
     };
@@ -482,8 +487,8 @@ export default function EmployeesPage() {
             {p.row.expired ? <Chip size="small" color="error" label="Expired" /> : p.row.expires_in_days !== null && p.row.expires_in_days <= 60 ? <Chip size="small" color="warning" label={`${p.row.expires_in_days} d`} /> : null}</Box>) : "—") },
         { field: "file_name", header: "File", width: 150, sortable: false, renderCell: (p) => (
           <Box sx={{ display: "flex", alignItems: "center" }}>
-            {p.row.file_path && <Tooltip title={`Download ${p.row.file_name}`}><IconButton size="small" onClick={(e) => { e.stopPropagation(); employeeCoreApi.downloadDocument(selectedId!, p.row.id, p.row.file_name ?? "document").catch((err) => showErrorToast(handleApiError(err, "Download failed"))); }}><DownloadIcon fontSize="small" /></IconButton></Tooltip>}
-            {canSensitiveEdit && !left && <Tooltip title={p.row.file_path ? "Replace file" : "Attach file"}><IconButton size="small" onClick={(e) => { e.stopPropagation(); uploadDoc(p.row); }}><UploadFileIcon fontSize="small" /></IconButton></Tooltip>}
+            {p.row.has_file && <Tooltip title={`Download ${p.row.file_name}`}><IconButton size="small" onClick={(e) => { e.stopPropagation(); employeeCoreApi.downloadDocument(selectedId!, p.row.id, p.row.file_name ?? "document").catch((err) => showErrorToast(handleApiError(err, "Download failed"))); }}><DownloadIcon fontSize="small" /></IconButton></Tooltip>}
+            {canSensitiveEdit && !left && <Tooltip title={p.row.has_file ? "Replace file" : "Attach file"}><IconButton size="small" onClick={(e) => { e.stopPropagation(); uploadDoc(p.row); }}><UploadFileIcon fontSize="small" /></IconButton></Tooltip>}
           </Box>) },
       ]} />
   );
@@ -672,7 +677,7 @@ export default function EmployeesPage() {
 }
 
 function SeparationDialog({ open, onClose, detail, onDone }: { open: boolean; onClose: () => void; detail?: EmployeeDetail; onDone: () => void }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatDate(new Date());   // local date, not UTC
   const [form, setForm] = useState<SeparationInput>({ exit_type: "resignation", last_working_date: today, resignation_date: today, exit_reason: "", deactivate_user: false });
   useEffect(() => { if (open) setForm({ exit_type: "resignation", last_working_date: today, resignation_date: today, exit_reason: "", deactivate_user: false }); }, [open, today]);
   const mutation = useMutation({

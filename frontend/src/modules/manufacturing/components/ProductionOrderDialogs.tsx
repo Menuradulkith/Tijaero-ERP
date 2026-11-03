@@ -210,8 +210,14 @@ export function OutputDialog({ open, order, locations, saving, onClose, onSubmit
   let error: string | null = null;
   if (goodQty === 0 && scrapQty === 0) error = "Enter a good or a scrap quantity";
   else if (goodQty > remaining) error = `Only ${remaining} more good unit(s) can be recorded`;
+  else if (order && order.scrapped_quantity + scrapQty > order.planned_quantity)
+    error = `Only ${Math.max(order.planned_quantity - order.scrapped_quantity, 0)} more scrap unit(s) can be recorded`;
   else if (tracking === "serial" && serialList.length > 0 && serialList.length !== goodQty)
     error = `Enter one serial number per good unit (${goodQty} needed, ${serialList.length} given)`;
+  else if (tracking === "serial" && new Set(serialList).size !== serialList.length)
+    error = "Serial numbers must be unique";
+  else if (tracking === "serial" && serialList.some((x) => x.length > 100))
+    error = "A serial number can be at most 100 characters";
 
   return (
     <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="sm" fullWidth>
@@ -335,6 +341,9 @@ export function TimeLogDialog({ open, order, saving, initialOperationId, onClose
     if (!start || !end) error = "Enter a start and an end time";
     else if (new Date(end) <= new Date(start)) error = "End time must be after the start time";
   } else if (!(mins > 0)) error = "Enter the minutes worked";
+  const qtyLimit = order ? Math.max(order.planned_quantity, order.produced_quantity + order.scrapped_quantity) : 0;
+  if (!error && op && order && (op.completed_quantity ?? 0) + Math.max(Math.floor(Number(qty) || 0), 0) > qtyLimit)
+    error = `Only ${Math.max(qtyLimit - (op.completed_quantity ?? 0), 0)} more unit(s) can be completed on this operation`;
 
   return (
     <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="sm" fullWidth>

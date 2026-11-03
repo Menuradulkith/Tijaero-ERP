@@ -917,6 +917,10 @@ class ProductionOrderService:
     def issue_materials(self, order_id: int, data: s.MaterialMoveIn, user_id: int) -> dict:
         order = self.get(order_id, lock=True)
         self._ensure_running(order, "issue materials")
+        ids = [line.material_id for line in data.lines]
+        if len(set(ids)) != len(ids):
+            raise _bad("Each material line can appear only once per issue; combine the quantities")
+        # Issuing more than required is allowed on purpose (the surplus is returned with return-materials)
         for line in data.lines:
             mat = self._material(order, line.material_id)
             self._consume(order, mat, line.quantity, "issue", user_id, data.remark)
@@ -983,6 +987,13 @@ class ProductionOrderService:
         if order.produced_quantity + data.quantity > order.planned_quantity:
             left = order.planned_quantity - order.produced_quantity
             raise _bad(f"Only {left} more good unit(s) can be recorded on this order (planned {order.planned_quantity})")
+        if order.scrapped_quantity + data.scrap_quantity > order.planned_quantity:
+            left = max(order.planned_quantity - order.scrapped_quantity, 0)
+            raise _bad(f"Only {left} more scrap unit(s) can be recorded on this order (planned {order.planned_quantity})")
+        tracking = order.product.tracking_type or TrackingType.SERIAL
+        if data.serial_numbers and (tracking != TrackingType.SERIAL or not data.quantity):
+            # MFG-06: never drop what the user typed
+            raise _bad("Serial numbers are only for good units of a serial-tracked product")
         location_id = data.location_id or order.location_id
         if data.location_id:
             self._check_location(data.location_id, order.branch_code)
@@ -1000,7 +1011,6 @@ class ProductionOrderService:
         self.db.flush()
         output.order = order
         if data.quantity:
-            tracking = order.product.tracking_type or TrackingType.SERIAL
             # Make-to-order output is reserved for the quotation line, the rest is free stock
             to_reserve = self._units_to_reserve(order, data.quantity)
             base = dict(product_id=order.product_id, branch_code=order.branch_code, location_id=location_id,
@@ -1023,8 +1033,6 @@ class ProductionOrderService:
                                                **base, **_status(reserved)))
                 if tracking == TrackingType.BATCH and not output.batch_no:
                     output.batch_no = batch
-        elif data.serial_numbers:
-            raise _bad("Serial numbers are only for good units")
         order.produced_quantity += data.quantity
         order.scrapped_quantity += data.scrap_quantity
         order.output_value = _money(D(str(order.output_value)) + D(str(output.total_value)))
@@ -1047,6 +1055,10 @@ class ProductionOrderService:
             raise _bad("That operation is not on this order")
         if op.status == "completed":
             raise _bad(f"Operation '{op.name}' is already completed")
+        limit = max(order.planned_quantity, order.produced_quantity + order.scrapped_quantity)
+        if op.completed_quantity + data.completed_quantity > limit:
+            raise _bad(f"Only {max(limit - op.completed_quantity, 0)} more unit(s) can be completed on "
+                       f"operation '{op.name}' (order quantity {limit})")
         if data.employee_id:
             from app.modules.employees.models import Employee
             if not self.db.query(Employee.id).filter(Employee.id == data.employee_id).first():

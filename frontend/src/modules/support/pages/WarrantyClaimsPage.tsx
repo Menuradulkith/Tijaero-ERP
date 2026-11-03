@@ -22,6 +22,8 @@ import {
 } from "@/components/tijaero";
 import { formatDateTime } from "@/utils/formatters";
 import { warrantyClaimsApi } from "@/modules/support/api";
+import { usePermission } from "@/auth/permissions";
+import { handleApiError } from "@/utils/errorHandling";
 import { WarrantyClaimCreate } from "@/modules/support/types";
 
 export default function WarrantyClaimsPage() {
@@ -30,9 +32,13 @@ export default function WarrantyClaimsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const { dialogProps, confirm } = useTConfirmDialog();
 
+  const canCreate = usePermission("warranty_claims", "create");
+  const canUpdate = usePermission("warranty_claims", "update");
+  const canDelete = usePermission("warranty_claims", "delete");
+
   const { data: claims, isLoading } = useQuery({
     queryKey: ["warranty-claims"],
-    queryFn: () => warrantyClaimsApi.getAll(),
+    queryFn: () => warrantyClaimsApi.getAll({ limit: 1000 }),
   });
 
   const { control, handleSubmit, reset } = useForm<WarrantyClaimCreate>({
@@ -55,8 +61,8 @@ export default function WarrantyClaimsPage() {
       setOpenDialog(false);
       reset();
     },
-    onError: () => {
-      showErrorToast("Failed to create warranty claim");
+    onError: (error) => {
+      showErrorToast(handleApiError(error, "Failed to create warranty claim"));
     },
   });
 
@@ -70,8 +76,8 @@ export default function WarrantyClaimsPage() {
       setEditingId(null);
       reset();
     },
-    onError: () => {
-      showErrorToast("Failed to update warranty claim");
+    onError: (error) => {
+      showErrorToast(handleApiError(error, "Failed to update warranty claim"));
     },
   });
 
@@ -81,8 +87,8 @@ export default function WarrantyClaimsPage() {
       queryClient.invalidateQueries({ queryKey: ["warranty-claims"] });
       showSuccessToast("Warranty claim deleted successfully");
     },
-    onError: () => {
-      showErrorToast("Failed to delete warranty claim");
+    onError: (error) => {
+      showErrorToast(handleApiError(error, "Failed to delete warranty claim"));
     },
   });
 
@@ -133,7 +139,7 @@ export default function WarrantyClaimsPage() {
       display: "flex",
       renderCell: (params) => (
         <Box sx={{ display: "flex", gap: 0.5 }}>
-          <TIconButton
+          {canUpdate && <TIconButton
             size="small"
             color="primary"
             tooltip="Edit"
@@ -144,15 +150,15 @@ export default function WarrantyClaimsPage() {
             }}
           >
             <EditIcon />
-          </TIconButton>
-          <TIconButton
+          </TIconButton>}
+          {canDelete && <TIconButton
             size="small"
             color="danger"
             tooltip="Delete"
             onClick={() => handleDelete(params.row.id)}
           >
             <DeleteIcon />
-          </TIconButton>
+          </TIconButton>}
         </Box>
       ),
     },
@@ -211,9 +217,9 @@ export default function WarrantyClaimsPage() {
               }
               disabled={(claims || []).length === 0}
             />
-            <TButton startIcon={<AddIcon />} onClick={handleAdd}>
+            {canCreate && <TButton startIcon={<AddIcon />} onClick={handleAdd}>
               New Claim
-            </TButton>
+            </TButton>}
           </Box>
         }
       />

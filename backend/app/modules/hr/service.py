@@ -15,7 +15,7 @@ from app.common.enums import DocumentStatus, PaymentStatus
 from app.modules.finance.gl_posting_service import record_gl_commit_failure
 from app.common.audit import log_audit
 from app.auth.models import Branch, User
-from app.modules.hr_core.service import LIVE_STATUSES
+from app.modules.hr_core.service import LIVE_STATUSES, in_service
 from .scope import employee_names, scope
 
 LEFT_STATUSES = ("resigned", "terminated", "retired", "inactive")
@@ -26,7 +26,7 @@ def _live_employee(db: Session, employee_code: str) -> Employee:
     emp = db.query(Employee).filter(Employee.employee_id == employee_code).first()
     if not emp:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{employee_code}' not found")
-    if (emp.status or "active") not in LIVE_STATUSES:
+    if not in_service(emp):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Employee '{employee_code}' is no longer in service")
     return emp
 
@@ -58,7 +58,7 @@ class SalaryDeductionService:
         emp = self.db.query(Employee).filter(Employee.id == employee_pk).first()
         if not emp:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee with id {employee_pk} not found")
-        if (emp.status or "active") not in LIVE_STATUSES:
+        if not in_service(emp):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This employee is no longer in service")
         return emp
 
@@ -420,8 +420,10 @@ class PayrollService:
     ]
     APIT_TOP_RATE = Decimal("0.36")              # above Rs 4.3m a year (358,333.33 a month)
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, branches: Optional[List[str]] = None):
         self.db = db
+        # Batches are company-wide, but a branch-scoped user only sees the records of their branches' employees.
+        self.branches = branches
 
     def _resolve_employee_name(self, employee_id: str) -> str:
         employee = self.db.query(Employee).filter(Employee.employee_id == employee_id).first()
@@ -505,9 +507,9 @@ class PayrollService:
     def _batch_to_response(self, b: PayrollBatch, include_records: bool = False) -> schemas.PayrollBatchResponse:
         records = None
         if include_records:
-            payrolls = self.db.query(EmployeePayroll).filter(
+            payrolls = scope(self.db.query(EmployeePayroll).filter(
                 EmployeePayroll.payroll_batch_no == b.batch_no
-            ).all()
+            ), EmployeePayroll.employee_id, self.branches).all()
             names = employee_names(self.db, [p.employee_id for p in payrolls])   # one query, not two per record
             records = [self._payroll_to_response(p, names.get(p.employee_id, p.employee_id)) for p in payrolls]
         return schemas.PayrollBatchResponse(
@@ -696,6 +698,8 @@ class PayrollService:
 
     def create_payroll(self, payroll: schemas.EmployeePayrollCreate, user_id: int = 0) -> schemas.EmployeePayrollResponse:
         _live_employee(self.db, payroll.employee_id)
+        # The run lock too, so a manual record and a payroll run for the same month cannot both slip in
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"payroll-run-{payroll.payroll_year}-{payroll.payroll_month:02d}"})
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"payroll-{payroll.employee_id}-{payroll.payroll_year}-{payroll.payroll_month}"})
         self._check_manual_period(payroll.employee_id, payroll.payroll_month, payroll.payroll_year)
         db_payroll = EmployeePayroll(**self._manual_values(payroll), status="draft", created_by=user_id)
@@ -804,13 +808,28 @@ class PayrollService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                 detail="No employee with a salary profile is in service for this month. Set up salary profiles first.")
 
+        # An employee already paid by a manual payroll record for this month is skipped (same rule as _check_manual_period)
+        manual = {code for (code,) in self.db.query(EmployeePayroll.employee_id).filter(
+            EmployeePayroll.payroll_month == month, EmployeePayroll.payroll_year == year,
+            func.coalesce(EmployeePayroll.status, "draft") != "cancelled",
+            EmployeePayroll.employee_id.in_([e[0].employee_id for e in eligible]),
+        )}
+        if manual:
+            eligible = [e for e in eligible if e[0].employee_id not in manual]
+            if not eligible:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail=f"Every employee in service already has a payroll record for {year}-{month:02d}")
+        description = data.description or f"Payroll for {year}-{month:02d}"
+        if manual:
+            description = f"{description}\n[Skipped - already has a manual payroll record: {', '.join(sorted(manual))}]"[:2000]
+
         # Create the batch
         batch_no = self._generate_batch_no(month, year)
         batch = PayrollBatch(
             batch_no=batch_no,
             payroll_month=month,
             payroll_year=year,
-            description=data.description or f"Payroll for {year}-{month:02d}",
+            description=description,
             status="draft",
             created_by=user_id,
             created_at=tz.now(),
@@ -1323,9 +1342,24 @@ class SalaryProfileService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Salary profile not found")
         if profile.employee_id != db_profile.employee_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A salary profile cannot be moved to another employee")
+        _live_employee(self.db, db_profile.employee_id)   # a leaver's pay is settled; it no longer changes
+        from .sl_payroll import allowance_list
+        pay = lambda p: (Decimal(p.basic_salary or 0), [(a["name"], a["amount"], a["epf_liable"], a["taxable"]) for a in allowance_list(p)])
+        before_pay = pay(db_profile)
         before = str(db_profile.basic_salary)
         for key, value in self._values(profile).items():
             setattr(db_profile, key, value)
+        if pay(db_profile) != before_pay:
+            # A pay change may not reach back into a month a payroll run has already used
+            when = db_profile.effective_from_date or tz.today()
+            used = self.db.query(EmployeePayroll.payroll_year, EmployeePayroll.payroll_month).filter(
+                EmployeePayroll.employee_id == db_profile.employee_id, func.coalesce(EmployeePayroll.status, "draft") != "cancelled",
+                EmployeePayroll.payroll_batch_no.isnot(None),
+                (EmployeePayroll.payroll_year * 100 + EmployeePayroll.payroll_month) >= when.year * 100 + when.month,
+            ).order_by(EmployeePayroll.payroll_year.desc(), EmployeePayroll.payroll_month.desc()).first()
+            if used:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail=f"Payroll has already been run for {used[0]}-{used[1]:02d}; give the new salary an effective date after that month")
         db_profile.updated_by = user_id
         self.db.flush()
         self._revise(db_profile, profile, user_id, first=False)

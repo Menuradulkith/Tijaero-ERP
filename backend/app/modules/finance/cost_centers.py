@@ -79,6 +79,8 @@ class CostCenterService:
 
     def create(self, data: schemas.CostCenterCreate, user_id: int) -> CostCenter:
         code = data.code.strip().upper()
+        if not code or not data.name.strip():
+            raise _bad("A cost center needs a code and a name.")
         if self.db.query(CostCenter.id).filter(func.upper(CostCenter.code) == code).first():
             raise _bad(f"Cost center {code} already exists.")
         cc = CostCenter(code=code, name=data.name.strip(), branch_code=data.branch_code or None,

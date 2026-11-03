@@ -68,7 +68,7 @@ export default function SalaryHistory({ employeeId, canDelete }: Props) {
                   <TableCell padding="checkbox">
                     {rows.length > 1 && (
                       <Tooltip title="Remove (only before payroll has used it)">
-                        <IconButton size="small" aria-label="Remove revision" onClick={() => del.mutate(r.id)} disabled={del.isPending}>
+                        <IconButton size="small" aria-label="Remove revision" onClick={() => { if (window.confirm(`Remove the salary revision from ${r.effective_from}?`)) del.mutate(r.id); }} disabled={del.isPending}>
                           <DeleteOutlineIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>

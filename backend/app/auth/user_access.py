@@ -108,12 +108,17 @@ def assert_can_set_active(db: Session, actor: User, target: User, is_active: boo
     if target.id == actor.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot deactivate your own account")
     if target.is_superuser:
-        others = (
-            db.query(User)
-            .filter(User.is_superuser.is_(True), User.is_active.is_(True), User.id != target.id)
-            .count()
-        )
-        if others == 0:
+        # Lock every active superuser row (in id order) so two concurrent
+        # requests cannot each deactivate "one of the remaining two".
+        active_ids = [
+            row.id
+            for row in db.query(User.id)
+            .filter(User.is_superuser.is_(True), User.is_active.is_(True))
+            .order_by(User.id)
+            .with_for_update()
+            .all()
+        ]
+        if not [i for i in active_ids if i != target.id]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="The last active superuser cannot be deactivated",
@@ -150,15 +155,32 @@ def load_groups(db: Session, group_ids: Iterable[int]) -> List[Group]:
 
 
 # ----------------------------------------------------------------------- roles
-def assert_can_edit_role(actor: User, group: Group) -> None:
+def assert_can_edit_role(actor: User, group: Group, db: Optional[Session] = None) -> None:
     """A non-superuser may only change a role whose permissions they already
     hold in full. That keeps the Admin role (and any role bigger than the
-    caller's own access) out of reach."""
+    caller's own access) out of reach. Roles are shared, so they also may not
+    change one held by a superuser or by anyone with access to a branch the
+    caller does not belong to (that would change those users' access too)."""
     if actor.is_superuser:
         return
     role_perms = {(p.resource, p.action) for p in group.permissions}
     if not role_perms <= effective_permissions(actor):
         raise _forbidden("You cannot modify a role that grants permissions you do not have")
+    if db is not None:
+        from sqlalchemy import or_
+
+        own = [b.id for b in actor.branches] or [-1]
+        outside = (
+            db.query(User.id)
+            .filter(
+                User.id != actor.id,
+                User.groups.any(Group.id == group.id),
+                or_(User.is_superuser.is_(True), User.branches.any(~Branch.id.in_(own))),
+            )
+            .first()
+        )
+        if outside:
+            raise _forbidden("You cannot modify this role: it is also held by users outside your branches")
 
 
 def assert_can_grant_permissions(actor: User, permissions: Iterable[Permission]) -> None:

@@ -69,7 +69,9 @@ import {
 
 
 import { useReferenceData } from "@/hooks";
+import { usePermission } from "@/auth/permissions";
 import { expensesApi } from "@/modules/finance/api";
+import { LEDGER_QUERY_KEYS } from "@/modules/finance/ledgerQueries";
 import type { Expense, ExpenseCreate, ExpensePaymentData } from "@/modules/finance/types";
 import { useCurrencyStore } from "@/state/currencyStore";
 
@@ -267,6 +269,12 @@ export default function ExpensesPage() {
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
+  // Same permissions the backend checks on each endpoint.
+  const canCreateExpense = usePermission("expenses", "create");
+  const canUpdateExpense = usePermission("expenses", "update");
+  const canDeleteExpense = usePermission("expenses", "delete");
+  const canApproveExpense = usePermission("expense_approvals", "approve");
+
   const createMutation = useCrudMutation({
     mutationFn: expensesApi.create,
     invalidateQueryKeys: [["expenses"], ["expense-detail"]],
@@ -326,7 +334,7 @@ export default function ExpensesPage() {
   const paymentMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: ExpensePaymentData }) =>
       expensesApi.processPayment(id, data),
-    invalidateQueryKeys: [["expenses"], ["expense-detail"]],
+    invalidateQueryKeys: [["expenses"], ["expense-detail"], ...LEDGER_QUERY_KEYS],
     successMessage: "Payment processed",
     errorMessage: "Failed to process payment",
     onSuccess: (data) => {
@@ -343,7 +351,7 @@ export default function ExpensesPage() {
       id: number;
       data: { account_code: string; cost_center?: string };
     }) => expensesApi.record(id, data),
-    invalidateQueryKeys: [["expenses"], ["expense-detail"]],
+    invalidateQueryKeys: [["expenses"], ["expense-detail"], ...LEDGER_QUERY_KEYS],
     successMessage: "Expense recorded in accounting",
     errorMessage: "Failed to record expense",
     onSuccess: (data) => {
@@ -553,7 +561,7 @@ export default function ExpensesPage() {
 
     const actions: React.ReactNode[] = [];
 
-    if (selectedExpense.status === "pending") {
+    if (selectedExpense.status === "pending" && canUpdateExpense) {
       actions.push(
         <Button
           key="submit"
@@ -565,7 +573,7 @@ export default function ExpensesPage() {
           Submit
         </Button>
       );
-    } else if (selectedExpense.status === "submitted") {
+    } else if (selectedExpense.status === "submitted" && canApproveExpense) {
       actions.push(
         <Button
           key="approve"
@@ -588,7 +596,7 @@ export default function ExpensesPage() {
           Reject
         </Button>
       );
-    } else if (selectedExpense.status === "approved") {
+    } else if (selectedExpense.status === "approved" && canUpdateExpense) {
       actions.push(
         <Button
           key="payment"
@@ -608,7 +616,7 @@ export default function ExpensesPage() {
           Process Payment
         </Button>
       );
-    } else if (selectedExpense.status === "paid") {
+    } else if (selectedExpense.status === "paid" && canUpdateExpense) {
       actions.push(
         <Button
           key="record"
@@ -624,7 +632,7 @@ export default function ExpensesPage() {
           Record in Accounting
         </Button>
       );
-    } else if (selectedExpense.status === "rejected") {
+    } else if (selectedExpense.status === "rejected" && canUpdateExpense) {
       actions.push(
         <Button
           key="resubmit"
@@ -641,8 +649,8 @@ export default function ExpensesPage() {
     return actions.length > 0 ? <>{actions}</> : null;
   };
 
-  const canEdit = selectedExpense && (selectedExpense.status === "pending" || selectedExpense.status === "rejected");
-  const canDelete = selectedExpense && selectedExpense.status === "pending" ? true : false;
+  const canEdit = canUpdateExpense && selectedExpense && (selectedExpense.status === "pending" || selectedExpense.status === "rejected");
+  const canDelete = canDeleteExpense && selectedExpense && selectedExpense.status === "pending" ? true : false;
 
   const detailPanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -667,7 +675,7 @@ export default function ExpensesPage() {
         isEditing={isEditing}
         isSaving={isSaving}
         isFormValid={isFormValid}
-        onNew={handleNewExpense}
+        onNew={canCreateExpense ? handleNewExpense : undefined}
         onSave={handleSave}
         onCancel={handleCancelExpense}
         onEdit={canEdit ? handleStartEdit : undefined}
@@ -1058,7 +1066,7 @@ export default function ExpensesPage() {
           )
         }
         headerActions={
-          isExpenseDetailMode ? undefined : (
+          isExpenseDetailMode || !canCreateExpense ? undefined : (
             <Button
               variant="contained"
               size="small"

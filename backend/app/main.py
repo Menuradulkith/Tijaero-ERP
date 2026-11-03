@@ -283,6 +283,13 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
         # If it somehow bubbles up unwrapped, give a meaningful message.
         logging.warning(f"Uncaught IntegrityError: {exc}")
         pgcode = getattr(getattr(exc, "orig", None), "pgcode", None) or getattr(getattr(exc, "orig", None), "sqlstate", None)
+        # On a DELETE both codes mean child rows still point at the record (the ORM
+        # tries to null their FK, which trips NOT NULL), not a missing field.
+        if request.method == "DELETE" and pgcode in ("23503", "23502"):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "This record is still referenced by other records and cannot be deleted."},
+            )
         if pgcode == "23503":
             return JSONResponse(
                 status_code=400,

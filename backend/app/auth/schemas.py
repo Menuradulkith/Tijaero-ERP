@@ -11,7 +11,7 @@ class BranchBase(BaseModel):
     branch_name: str = Field(..., max_length=255)
     branch_code: str = Field(..., max_length=255)
     address: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
     contact_number: Optional[str] = Field(None, max_length=255)
 
 
@@ -89,7 +89,10 @@ class Group(TijaeroBaseSchema, GroupBase):
 
 
 class UserBase(BaseModel):
-    email: Optional[EmailStr] = None
+    # Plain str: this is also the response shape, and stored emails (e.g. on a
+    # ".test" domain) that EmailStr rejects must still serialize. Input models
+    # (UserCreate / UserUpdate) validate with EmailStr.
+    email: Optional[str] = None
     username: str = Field(..., max_length=50)
     first_name: str = Field(..., max_length=30)
     middle_name: Optional[str] = Field(None, max_length=30)
@@ -152,6 +155,7 @@ def _check_dates(birthdate: Optional[date], date_joined: Optional[date]) -> None
 
 
 class UserCreate(UserBase):
+    email: Optional[EmailStr] = None
     username: _Username
     first_name: _Name
     last_name: _Name
@@ -374,6 +378,8 @@ class PasscodeLoginResponse(Token):
     """Extends the standard Token response with an expiry flag used to
     prompt the user to set a new passcode after a password login."""
     passcode_expired: bool = False
+    # True when a locked-out passcode was removed by this password login.
+    passcode_locked_out: bool = False
     must_change_password: bool = False
 
 

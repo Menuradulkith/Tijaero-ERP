@@ -786,8 +786,9 @@ export default function SuppliersPage() {
   // Terms/Max Credit Limit are always required at creation, so they're
   // "filled" the instant the supplier is first saved and always need Edit
   // afterward, like before.
-  const isAddressEditable = isEditing || isCreating || isAddressUnfilled;
-  const isContactPersonEditable = isEditing || isCreating || isContactPersonUnfilled;
+  // Filling an empty section is still an update: it needs the update permission.
+  const isAddressEditable = isEditing || isCreating || (canUpdateSupplier && isAddressUnfilled);
+  const isContactPersonEditable = isEditing || isCreating || (canUpdateSupplier && isContactPersonUnfilled);
 
   // Contact Person rows are added/edited through their own side-panel
   // dialog (its own Save button) — the main toolbar's Save/Cancel is
@@ -869,8 +870,9 @@ export default function SuppliersPage() {
       }
       await refreshContactPersons(selectedSupplier.id);
       handleCloseContactPersonPanel();
-    } catch {
-      showErrorToast("Failed to save contact person");
+    } catch (err) {
+      // HTTP errors are toasted (with the real reason) by the shared client; only report anything else.
+      if (!(err as { isAxiosError?: boolean })?.isAxiosError) showErrorToast("Failed to save contact person");
     } finally {
       setSavingContactPerson(false);
     }

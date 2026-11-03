@@ -54,8 +54,16 @@ export const salesApi = {
   },
 
   // Approve a pending credit invoice
-  approve: async (id: number, credentials?: any) => {
-    const response = await apiClient.post<InvoiceWithItems>(`/sales/${id}/approve`, credentials || null);
+  // Goes through the central approval queue, which verifies the approver credentials (step-up sign-in),
+  // like the quotation and sale-return approvals. /sales/{id}/approve takes no credentials.
+  approve: async (id: number, credentials?: { approver_username?: string; approver_password?: string }) => {
+    const order = await salesApi.getById(id);
+    if (order.approval_id) {
+      const { approvalsApi } = await import("@/modules/common/api");
+      await approvalsApi.approve(order.approval_id, undefined, credentials);
+      return salesApi.getById(id);
+    }
+    const response = await apiClient.post<InvoiceWithItems>(`/sales/${id}/approve`);
     return response.data;
   },
 

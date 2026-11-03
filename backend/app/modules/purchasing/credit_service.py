@@ -1738,9 +1738,10 @@ class SupplierCreditService:
                 "due_date": self.calculate_due_date(grn.good_received_date, (supplier.credit_days or 0)),
             }))
 
+        # Only verified payments/settlements reduce the statement: a pending one has not paid yet.
         for settlement in db.query(SupplierCreditsSettle).filter(
             SupplierCreditsSettle.suppliers_id == supplier_id,
-            or_(SupplierCreditsSettle.status.is_(None), SupplierCreditsSettle.status != "cancelled"),
+            or_(SupplierCreditsSettle.status.is_(None), SupplierCreditsSettle.status == "verified"),
         ).order_by(SupplierCreditsSettle.created_date).all():
             total_payment = sum(
                 (Decimal(str(t.payment_amount)) for t in db.query(SupplierCreditsSettleTransaction).filter(
@@ -1783,7 +1784,7 @@ class SupplierCreditService:
         ).filter(
             PurchaseInvoice.supplier_id == supplier_id,
             PurchaseInvoice.status != "cancelled",
-            or_(SupplierPayment.status.is_(None), SupplierPayment.status != "cancelled"),
+            or_(SupplierPayment.status.is_(None), SupplierPayment.status == "verified"),
         ).order_by(PurchaseInvoicePayment.id).all():
             events.append((_d(pay_date), 1, {
                 "date": _d(pay_date), "type": "PAYMENT", "reference": pay_no, "description": f"Invoice payment - {pay_no}",

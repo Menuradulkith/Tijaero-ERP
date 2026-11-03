@@ -428,6 +428,17 @@ class MrpService:
 
         today = tz.today()
         expected = max(data.expected_date or today, today)
+        from app.modules.purchasing.models import Supplier
+
+        supplier_ids = {line.supplier_id for line in data.lines}
+        product_ids = {line.product_id for line in data.lines}
+        known_suppliers = {i for (i,) in self.db.query(Supplier.id).filter(Supplier.id.in_(supplier_ids)).all()}
+        known_products = {i for (i,) in self.db.query(Product.id).filter(Product.id.in_(product_ids)).all()}
+        for line in data.lines:
+            if line.product_id not in known_products:
+                raise _bad(f"Product #{line.product_id} does not exist")
+            if line.supplier_id not in known_suppliers:
+                raise _bad(f"Supplier #{line.supplier_id} does not exist")
         groups: Dict[int, list] = defaultdict(list)
         for line in data.lines:
             groups[line.supplier_id].append(line)

@@ -154,8 +154,21 @@ apiClient.interceptors.response.use(
         showErrorToast("Network error - please check your internet connection");
     }
 
+    // A refused change (403 on POST/PUT/PATCH/DELETE) must not fail silently. Reads stay
+    // quiet: pages probe cross-module lookups the user may not hold. Pages that also toast
+    // handleApiError(error) show the same text, so the toasts collapse into one (same id).
+    const method = (originalRequest as { method?: string } | undefined)?.method?.toLowerCase() ?? "get";
+    if (
+      error.response?.status === 403 &&
+      !hideErrorToast &&
+      method !== "get" &&
+      method !== "head"
+    ) {
+      showErrorToast(handleApiError(error, "You don't have permission to do this."));
+    }
+
     // Capture standard API error responses to display
-    // Do not toast permission-denied (403) to avoid noisy cross-module lookups.
+    // Do not toast permission-denied (403) here (see above) or 401.
     if (
       error.response &&
       !hideErrorToast &&

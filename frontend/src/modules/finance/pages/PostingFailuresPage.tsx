@@ -42,7 +42,9 @@ import {
   useConfirmDialog,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
+import { usePermission } from "@/auth/permissions";
 import { postingFailuresApi } from "@/modules/finance/api";
+import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
 import type { GLPostingFailure, GLPostingFailureStatus } from "@/modules/finance/types";
 
 type StatusFilter = GLPostingFailureStatus | "all";
@@ -82,7 +84,11 @@ export default function PostingFailuresPage() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["gl-posting-failures"] });
     queryClient.invalidateQueries({ queryKey: ["day-end-reconciliation"] });
+    invalidateLedgerQueries(queryClient); // a retry posts a journal
   };
+
+  // Retry / ignore need journal_entries.update (same as the backend).
+  const canResolve = usePermission("journal_entries", "update");
 
   const retryMutation = useMutation({
     mutationFn: (id: number) => postingFailuresApi.retry(id),
@@ -226,7 +232,7 @@ export default function PostingFailuresPage() {
         isCreating={false}
         isEditing={false}
         endActions={
-          selected.status === "pending" ? (
+          selected.status === "pending" && canResolve ? (
             <>
               <Button
                 size="small"

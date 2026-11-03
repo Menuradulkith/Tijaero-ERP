@@ -62,6 +62,9 @@ def get_branch_performance(
     current_user: User = Depends(get_current_active_user),
 ):
     """Quick sales/stock KPIs for a branch, for the detail-panel widget."""
+    existing = service.branch_service.get_branch(db, branch_id)
+    if not validate_branch_access(current_user, existing.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {existing.branch_code}")
     return service.branch_service.get_branch_performance(db, branch_id)
 
 

@@ -327,7 +327,10 @@ class AuthService:
         if "password" in update_data and update_data["password"]:
             # The schema already enforced the policy; re-check against the stored
             # username when the request did not change it.
-            validate_password_strength(update_data["password"], update_data.get("username") or user.username)
+            try:
+                validate_password_strength(update_data["password"], update_data.get("username") or user.username)
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
             update_data["hashed_password"] = get_password_hash(
                 update_data.pop("password")
             )

@@ -183,6 +183,8 @@ export default function LeavesPage() {
     mutationFn: (d: LeaveCreate) => leavesApi.create(d),
     onSuccess: (rec) => {
       qc.invalidateQueries({ queryKey: ["hr-leaves"] });
+      qc.invalidateQueries({ queryKey: ["leave-balance"] });
+      qc.invalidateQueries({ queryKey: ["hr", "allocations"] });
       showSuccessToast("Leave application submitted");
       setIsCreating(false);
       setIsEditing(false);
@@ -196,6 +198,8 @@ export default function LeavesPage() {
       leavesApi.update(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hr-leaves"] });
+      qc.invalidateQueries({ queryKey: ["leave-balance"] });
+      qc.invalidateQueries({ queryKey: ["hr", "allocations"] });
       showSuccessToast("Leave updated");
       setIsEditing(false);
     },
@@ -206,6 +210,8 @@ export default function LeavesPage() {
     mutationFn: (id: number) => leavesApi.delete(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hr-leaves"] });
+      qc.invalidateQueries({ queryKey: ["leave-balance"] });
+      qc.invalidateQueries({ queryKey: ["hr", "allocations"] });
       showSuccessToast("Leave application cancelled");
       setSelectedItem(null);
     },
@@ -216,6 +222,8 @@ export default function LeavesPage() {
     mutationFn: ({ id, reason }: { id: number; reason: string }) => leavesApi.cancel(id, { rejection_reason: reason }),
     onSuccess: (lv) => {
       qc.invalidateQueries({ queryKey: ["hr-leaves"] });
+      qc.invalidateQueries({ queryKey: ["leave-balance"] });
+      qc.invalidateQueries({ queryKey: ["hr", "allocations"] });
       showSuccessToast("Approved leave cancelled; the days are back in the balance");
       setCancelReason(null);
       setSelectedItem(lv);

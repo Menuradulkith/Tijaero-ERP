@@ -56,7 +56,8 @@ import {
   useTConfirmDialog,
 } from "@/components/tijaero";
 
-import { transferNotesApi } from "@/modules/warehouse/api";
+import { transferNotesApi, errorAlreadyToasted } from "@/modules/warehouse/api";
+import { usePermission } from "@/auth/permissions";
 import { approvalsApi, locationsApi, Location } from "@/modules/common/api";
 import ApproverAuthDialog from "../../purchasing/components/ApproverAuthDialog";
 import { useReferenceData, ProductRef } from "@/hooks";
@@ -117,7 +118,7 @@ export default function ItemTransferNoteApprovalsPage() {
   }, []);
 
   // Fetch transfer notes with approval status
-  const { data: transferNotes = [], isLoading, refetch } = useQuery({
+  const { data: transferNotes = [], isLoading, isError: loadFailed, refetch } = useQuery({
     queryKey: ["transfer-notes", filterBranch, filterStatus],
     queryFn: () => {
       // "All Branches" (no filter) lists every note the user may see; the server limits it to their branches.
@@ -199,8 +200,8 @@ export default function ItemTransferNoteApprovalsPage() {
       
       setSelectedITN(fullITN);
       setSelectedItems(fullITN.items || []);
-    } catch {
-      showErrorToast("Failed to load transfer note details");
+    } catch (error) {
+      if (!errorAlreadyToasted(error)) showErrorToast(handleApiError(error, "Failed to load transfer note details"));
     } finally {
       setLoadingItems(false);
     }
@@ -212,6 +213,9 @@ export default function ItemTransferNoteApprovalsPage() {
     mutationFn: async ({ approvalId, itnId, credentials }: { approvalId: number; itnId: number; credentials?: any }) => approvalsApi.approve(approvalId, undefined, credentials),
     onSuccess: async (_data, { itnId }) => {
       queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
+      queryClient.invalidateQueries({ queryKey: ["salesStock"] });
+      queryClient.invalidateQueries({ queryKey: ["salesStockSummary"] });
+      queryClient.invalidateQueries({ queryKey: ["approvals"] });
       showSuccessToast("Transfer note approved successfully");
       setAuthDialogOpen(false);
       // Refresh the selected ITN
@@ -219,7 +223,9 @@ export default function ItemTransferNoteApprovalsPage() {
       setSelectedITN(updatedITN);
     },
     // show the server's reason (wrong approver password, a unit no longer free, ...), not a bare "Failed"
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to approve transfer note")),
+    onError: (error: unknown) => {
+      if (!errorAlreadyToasted(error)) showErrorToast(handleApiError(error, "Failed to approve transfer note"));
+    },
   });
 
   // Reject mutation
@@ -228,6 +234,7 @@ export default function ItemTransferNoteApprovalsPage() {
       approvalsApi.reject(approvalId, reason, credentials),
     onSuccess: async (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["transfer-notes"] });
+      queryClient.invalidateQueries({ queryKey: ["approvals"] });
       showSuccessToast("Transfer note rejected");
       setRejectDialogOpen(false);
       setRejectReason("");
@@ -236,7 +243,9 @@ export default function ItemTransferNoteApprovalsPage() {
       const updatedITN = await fetchITNDetails(variables.id);
       setSelectedITN(updatedITN);
     },
-    onError: (error: unknown) => showErrorToast(handleApiError(error, "Failed to reject transfer note")),
+    onError: (error: unknown) => {
+      if (!errorAlreadyToasted(error)) showErrorToast(handleApiError(error, "Failed to reject transfer note"));
+    },
   });
 
   const handleApprove = async () => {
@@ -290,6 +299,7 @@ export default function ItemTransferNoteApprovalsPage() {
   }, []);
 
   const selectedIsPending = selectedITN ? (selectedITN.status || "pending") === "pending" : false;
+  const canApprove = usePermission("itn_approvals", "approve");
 
   // The table shows the looked-up location names, so the grid sorts on them.
   const itnColumns: TDataGridColumn<ItemTransferNote>[] = useMemo(
@@ -352,7 +362,7 @@ export default function ItemTransferNoteApprovalsPage() {
           onRowClick={(row) => handleSelectITN(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}
-          emptyMessage="No transfer notes found"
+          emptyMessage={loadFailed ? "Could not load transfer notes. Use refresh to try again." : "No transfer notes found"}
           autoHeight={false}
           height="100%"
         />
@@ -387,7 +397,7 @@ export default function ItemTransferNoteApprovalsPage() {
       />
 
       {/* Approve/Reject, grouped on the right like the other approval pages. */}
-      {selectedITN && selectedIsPending && (
+      {selectedITN && selectedIsPending && canApprove && (
         <ActionToolbar
           hasSelectedItem
           isCreating={false}

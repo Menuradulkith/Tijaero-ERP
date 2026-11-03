@@ -11,7 +11,10 @@ import {
   TPhoneField,
   normalizePhone,
   isValidPhone,
+  TConfirmDialog,
+  useConfirmDialog,
 } from "@/components/tijaero";
+import { usePermission } from "@/auth/permissions";
 import BusinessIcon from "@mui/icons-material/Business";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import AddIcon from "@mui/icons-material/Add";
@@ -101,6 +104,9 @@ interface CompanySettingsForm {
 
 export default function CompanySettingsPage() {
   const queryClient = useQueryClient();
+  // View-only users see the settings but get no save / change controls.
+  const canUpdate = usePermission("settings", "update");
+  const confirmDialog = useConfirmDialog();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
@@ -188,6 +194,16 @@ export default function CompanySettingsPage() {
     errorMessage: "Failed to delete currency",
     showError: true,
   });
+
+  const handleDeleteCurrency = async (currency: Currency) => {
+    const ok = await confirmDialog.confirm({
+      title: "Delete currency",
+      message: `Delete ${currency.code} (${currency.name})? This cannot be undone.`,
+      confirmText: "Delete",
+      danger: true,
+    });
+    if (ok) deleteCurrencyMutation.mutate(currency.id);
+  };
 
   const handleOpenCreateCurrency = () => {
     setEditingCurrency(null);
@@ -445,7 +461,7 @@ export default function CompanySettingsPage() {
                     variant={isActive ? "contained" : "outlined"}
                     color={isActive ? "success" : "primary"}
                     startIcon={isActive ? <CheckCircleIcon /> : <RadioButtonUncheckedIcon />}
-                    disabled={isActive || !params.row.is_active || settingActiveCode === params.row.code}
+                    disabled={!canUpdate || isActive || !params.row.is_active || settingActiveCode === params.row.code}
                     onClick={() => handleSetActiveCurrency(params.row)}
                   >
                     {isActive ? "Active" : "Set Active"}
@@ -465,27 +481,31 @@ export default function CompanySettingsPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<Currency>) => (
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", gap: 0.5 }}>
+            {canUpdate && (
             <Tooltip title="Edit">
               <IconButton size="small" onClick={() => handleOpenEditCurrency(params.row)}>
                 <EditIcon fontSize="small" />
               </IconButton>
             </Tooltip>
+            )}
+            {canUpdate && (
             <Tooltip title={params.row.code === activeCurrencyCode ? "Cannot delete the active currency" : "Delete"}>
               <span>
                 <IconButton
                   size="small"
                   disabled={params.row.code === activeCurrencyCode}
-                  onClick={() => deleteCurrencyMutation.mutate(params.row.id)}
+                  onClick={() => handleDeleteCurrency(params.row)}
                 >
                   <DeleteIcon fontSize="small" />
                 </IconButton>
               </span>
             </Tooltip>
+            )}
           </Box>
         ),
       },
     ],
-    [activeCurrencyCode, settingActiveCode] // eslint-disable-line react-hooks/exhaustive-deps
+    [activeCurrencyCode, settingActiveCode, canUpdate] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // ── Company Settings form ────────────────────────────────────────────
@@ -541,6 +561,7 @@ export default function CompanySettingsPage() {
     try {
       setSaving(true);
       await settingsApi.updateCompanySettings(data);
+      queryClient.invalidateQueries({ queryKey: ["company-settings"] });
       useTimezoneStore.getState().setTimezone(data.default_timezone);
       showSuccessToast("Company settings updated successfully");
       reset(data); // reset form to clear isDirty state
@@ -611,13 +632,14 @@ export default function CompanySettingsPage() {
             </Avatar>
             <Box>
               <Typography variant="h6">Company Logo</Typography>
-              <Button size="small" sx={{ mt: 1 }}>
-                Change Logo
-              </Button>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Set the logo printed on documents in the Documents tab.
+              </Typography>
             </Box>
           </Box>
 
           <form onSubmit={handleSubmit(onSubmit)}>
+            <fieldset disabled={!canUpdate} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
             <Typography variant="h6" sx={{ mb: 2 }}>
               Basic Details
             </Typography>
@@ -794,6 +816,8 @@ export default function CompanySettingsPage() {
               </Grid>
             </Grid>
 
+            </fieldset>
+            {canUpdate && (
             <Grid container spacing={3} sx={{ mt: 2 }}>
               <Grid item xs={12}>
                 <Button variant="contained" color="success" startIcon={<SaveIcon />} type="submit" disabled={saving || !isDirty}>
@@ -801,6 +825,7 @@ export default function CompanySettingsPage() {
                 </Button>
               </Grid>
             </Grid>
+            )}
           </form>
         </TabPanel>
 
@@ -858,7 +883,7 @@ export default function CompanySettingsPage() {
               checked={hideServiceCharge}
               onChange={(e) => handleToggleHideServiceCharge(e.target.checked)}
               color="success"
-              disabled={savingCardSettings}
+              disabled={!canUpdate || savingCardSettings}
             />
           </Paper>
 
@@ -969,9 +994,11 @@ export default function CompanySettingsPage() {
                 Add currencies and choose which one is active across the ERP
               </Typography>
             </Box>
-            <TButton variant="primary" startIcon={<AddIcon />} onClick={handleOpenCreateCurrency}>
-              Add Currency
-            </TButton>
+            {canUpdate && (
+              <TButton variant="primary" startIcon={<AddIcon />} onClick={handleOpenCreateCurrency}>
+                Add Currency
+              </TButton>
+            )}
           </Box>
 
           <Divider sx={{ mb: 2 }} />
@@ -993,7 +1020,7 @@ export default function CompanySettingsPage() {
             <TEmptyState
               title="No Currencies"
               message="Add a currency to make it available for selection as the ERP's active currency."
-              action={{ label: "Add Currency", onClick: handleOpenCreateCurrency, icon: <AddIcon /> }}
+              action={canUpdate ? { label: "Add Currency", onClick: handleOpenCreateCurrency, icon: <AddIcon /> } : undefined}
               icon={<PaymentsIcon sx={{ fontSize: 64 }} />}
             />
           )}
@@ -1090,6 +1117,7 @@ export default function CompanySettingsPage() {
               <Slider
                 value={passcodeExpiryDays}
                 onChange={(_, v) => setPasscodeExpiryDays(v as number)}
+                disabled={!canUpdate}
                 min={1}
                 max={30}
                 step={1}
@@ -1125,6 +1153,7 @@ export default function CompanySettingsPage() {
               </Typography>
             </Box>
 
+            {canUpdate && (
             <Button
               variant="contained"
               startIcon={<SecurityIcon />}
@@ -1144,6 +1173,7 @@ export default function CompanySettingsPage() {
             >
               {savingPasscodeSetting ? "Saving…" : "Save Security Settings"}
             </Button>
+            )}
           </Box>
         </TabPanel>
 
@@ -1152,6 +1182,7 @@ export default function CompanySettingsPage() {
           <CompanyDocumentSettings />
         </TabPanel>
       </Paper>
+      <TConfirmDialog {...confirmDialog.dialogProps} />
     </Box>
   );
 }

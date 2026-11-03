@@ -55,6 +55,7 @@ import {
   TActivityHistoryPanel,
 } from "@/components/tijaero";
 
+import { usePermission } from "@/auth/permissions";
 import { accountingPeriodsApi } from "@/modules/finance/api";
 import type { AccountingPeriod, PeriodStatus } from "@/modules/finance/types";
 
@@ -151,6 +152,10 @@ export default function AccountingPeriodsPage() {
   const openCount = periods.filter((p) => p.status === "open").length;
   const closedCount = periods.filter((p) => p.status === "closed").length;
   const lockedCount = periods.filter((p) => p.status === "locked").length;
+
+  // Same permissions the backend checks (generate = create; close/reopen/lock = update).
+  const canGenerate = usePermission("accounting_periods", "create");
+  const canChangeStatus = usePermission("accounting_periods", "update");
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
@@ -342,9 +347,9 @@ export default function AccountingPeriodsPage() {
         isEditing={false}
         isSaving={false}
         isFormValid={false}
-        onNew={() => setGenerateDialogOpen(true)}
+        onNew={canGenerate ? () => setGenerateDialogOpen(true) : undefined}
         endActions={
-          selectedPeriod ? (
+          selectedPeriod && canChangeStatus ? (
             <Box sx={{ display: "flex", gap: 1 }}>
               {selectedPeriod.status === "open" && (
                 <Button
@@ -570,6 +575,7 @@ export default function AccountingPeriodsPage() {
         detailPanel={detailPanel}
         headerActions={
           <Box sx={{ display: "flex", gap: 1 }}>
+          {canGenerate && (
           <Button
             size="small"
             variant="contained"
@@ -579,6 +585,7 @@ export default function AccountingPeriodsPage() {
           >
             Generate Year
           </Button>
+          )}
           <TExportButton
             filename="accounting_periods"
             headers={[

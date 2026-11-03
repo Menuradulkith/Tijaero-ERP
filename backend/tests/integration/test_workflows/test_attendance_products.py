@@ -39,18 +39,18 @@ class TestAttendanceCalc:
 
     def test_normal_day_no_ot(self, db):
         svc = AttendanceService(db)
-        # 09:00 to 17:00 = 480 mins = exactly WORK_DAY_MINUTES, 0 OT
+        # 09:00 to 17:00 = 480 mins on site, less the 60-minute break = 420 worked (the whole shift), 0 OT
         result = svc._calc_minutes(time(9, 0), time(17, 0))
-        assert result["work_mins"] == 480
+        assert result["work_mins"] == 420
         assert result["ot_mins"] == 0
         assert result["late_mins"] == 0
         assert result["early_mins"] == 0
 
     def test_overtime(self, db):
         svc = AttendanceService(db)
-        # 09:00 to 19:00 = 600 mins, OT = 600-480 = 120
+        # 09:00 to 19:00 = 600 mins on site = 540 worked after the break; OT = 540 - 420 = 120
         result = svc._calc_minutes(time(9, 0), time(19, 0))
-        assert result["work_mins"] == 600
+        assert result["work_mins"] == 540
         assert result["ot_mins"] == 120
 
     def test_late_arrival(self, db):
@@ -114,7 +114,7 @@ class TestCheckInOut:
             user_id=1,
         )
         assert co.check_out == time(17, 30)
-        assert co.work_mins == 510  # 8.5h
+        assert co.work_mins == 450  # 8.5h on site less the 60-minute break
         assert co.ot_mins == 30
 
     def test_duplicate_check_in_rejected(self, db, make_employee, make_branch):

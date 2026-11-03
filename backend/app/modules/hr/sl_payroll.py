@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth.models import User
@@ -165,15 +165,17 @@ def _epf_base(p: EmployeePayroll) -> Decimal:
 STATUTORY_KINDS = ("epf", "etf", "apit", "bank")
 
 
-def statutory_return(db: Session, batch_id: int, kind: str) -> dict:
-    """Rows + totals for one return of a payroll batch."""
+def statutory_return(db: Session, batch_id: int, kind: str, branches: Optional[List[str]] = None) -> dict:
+    """Rows + totals for one return of a payroll batch (only `branches`' employees when given)."""
     batch = _batch(db, batch_id)
     settings = payroll_settings(db)
-    records = (db.query(EmployeePayroll, Employee)
-               .join(Employee, Employee.employee_id == EmployeePayroll.employee_id)
-               .options(joinedload(Employee.user))   # _name() falls back to the user: load it with the row
-               .filter(EmployeePayroll.payroll_batch_no == batch.batch_no)
-               .order_by(Employee.employee_id).all())
+    q = (db.query(EmployeePayroll, Employee)
+         .join(Employee, Employee.employee_id == EmployeePayroll.employee_id)
+         .options(joinedload(Employee.user))   # _name() falls back to the user: load it with the row
+         .filter(EmployeePayroll.payroll_batch_no == batch.batch_no))
+    if branches is not None:
+        q = q.filter(or_(Employee.branch_code.in_(branches), Employee.branch_code.is_(None)))
+    records = q.order_by(Employee.employee_id).all()
     period = date(batch.payroll_year, batch.payroll_month, 1).strftime("%B %Y")
     rows, warnings = [], []
     for p, e in records:

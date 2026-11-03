@@ -179,6 +179,15 @@ class CustomerService:
             # (legacy rows missing unrelated person fields can still be edited)
             self._rules_for_type(merged)
         self._check_unique(db, submitted_fields, exclude_id=customer_id)
+        # SAL-28: a customer who still owes money (or has orders waiting on credit) stays active until settled
+        if submitted_fields.get("active") is False and before.active:
+            from app.modules.customers.credit_service import customer_credit_service
+            owed = customer_credit_service._calculate_outstanding_credit(db, customer_id)
+            if owed > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Customer '{before.customer_name}' still has Rs. {owed:,.2f} outstanding on credit orders. Settle it before deactivating.",
+                )
         before_values = {field: getattr(before, field) for field in submitted_fields}
 
         try:
@@ -288,31 +297,42 @@ class CouponService:
             coupon.brand_ids = [b.id for b in coupon.brands]
         return coupon
     
+    @staticmethod
+    def _check_coupon_rules(db: Session, values: dict, exclude_id: Optional[int] = None, check_date: bool = True) -> None:
+        """The rules a coupon must satisfy, applied on create and (to the merged values) on update - SAL-10/22."""
+        code = (values.get("cupon_code") or "").strip()
+        if not code:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Coupon code cannot be blank")
+        dup = db.query(CustomerCuponCodes.id).filter(func.upper(CustomerCuponCodes.cupon_code) == code.upper())
+        if exclude_id is not None:
+            dup = dup.filter(CustomerCuponCodes.id != exclude_id)
+        if dup.first():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Coupon code '{code}' already exists")
+        if values.get("discount_type") not in ("PERCENT", "AMOUNT"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="discount_type must be 'PERCENT' or 'AMOUNT'")
+        if values.get("discount_type") == "PERCENT" and Decimal(str(values.get("discount_value") or 0)) > 100:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Percent discount cannot exceed 100%")
+        if (values.get("limit_for_customer") or 0) > (values.get("limit_by_usage") or 0):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The per-customer limit cannot be more than the total usage limit",
+            )
+        if check_date and values.get("valid_until_date") and values["valid_until_date"] < tz.today():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Valid-until date cannot be in the past")
+        # SAL-22a: an unknown product / category / brand would silently drop the restriction
+        from app.modules.products.models import Category, ItemsBrand
+        for key, model, label in (("product_ids", Product, "product"), ("category_ids", Category, "category"), ("brand_ids", ItemsBrand, "brand")):
+            ids = set(values.get(key) or [])
+            if ids:
+                found = {r[0] for r in db.query(model.id).filter(model.id.in_(ids)).all()}
+                missing = sorted(ids - found)
+                if missing:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown {label} id(s): {missing}")
+
     def create_coupon(self, db: Session, coupon_data: schemas.CustomerCuponCodesCreate) -> CustomerCuponCodes:
         """Create a new coupon"""
-        # Check if coupon code already exists
-        existing = db.query(CustomerCuponCodes).filter(
-            CustomerCuponCodes.cupon_code == coupon_data.cupon_code
-        ).first()
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Coupon code '{coupon_data.cupon_code}' already exists"
-            )
-        
-        # Validate discount type
-        if coupon_data.discount_type not in ["PERCENT", "AMOUNT"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="discount_type must be 'PERCENT' or 'AMOUNT'"
-            )
-        
-        # Validate percent range
-        if coupon_data.discount_type == "PERCENT" and coupon_data.discount_value > 100:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Percent discount cannot exceed 100%"
-            )
+        coupon_data.cupon_code = coupon_data.cupon_code.strip()
+        self._check_coupon_rules(db, coupon_data.model_dump())
         
         coupon = CustomerCuponCodes(
             cupon_code=coupon_data.cupon_code,
@@ -364,22 +384,24 @@ class CouponService:
             )
         
         update_data = coupon_data.model_dump(exclude_unset=True)
+        for required in ("cupon_code", "discount_type", "discount_value", "limit_by_usage", "limit_for_customer", "valid_until_date", "active"):
+            if required in update_data and update_data[required] is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{required} cannot be empty")
+        if "cupon_code" in update_data:
+            update_data["cupon_code"] = update_data["cupon_code"].strip()
+
+        # SAL-10: the merged coupon must pass the same rules as a new one (the date only when it is changed)
+        merged = {c.name: getattr(coupon, c.name) for c in CustomerCuponCodes.__table__.columns}
+        merged.update(update_data)
+        self._check_coupon_rules(
+            db, merged, exclude_id=coupon.id,
+            check_date="valid_until_date" in update_data and update_data["valid_until_date"] != coupon.valid_until_date,
+        )
         
         # Handle product_ids, category_ids, brand_ids separately
         product_ids = update_data.pop('product_ids', None)
         category_ids = update_data.pop('category_ids', None)
         brand_ids = update_data.pop('brand_ids', None)
-        
-        # Check if code is being changed and if new code exists
-        if "cupon_code" in update_data and update_data["cupon_code"] != coupon.cupon_code:
-            existing = db.query(CustomerCuponCodes).filter(
-                CustomerCuponCodes.cupon_code == update_data["cupon_code"]
-            ).first()
-            if existing:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Coupon code '{update_data['cupon_code']}' already exists"
-                )
         
         for field, value in update_data.items():
             setattr(coupon, field, value)
@@ -933,8 +955,21 @@ class VoucherService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot change amount of a voucher that has been used"
             )
+        # SAL-13: the sale of the voucher is already booked (cash in, 2510 liability) at its amount, so the face
+        # value cannot drift from the balance or the ledger: refund (delete) it and issue a new one instead.
+        if voucher_data.amount is not None and Decimal(str(voucher_data.amount)) != Decimal(str(voucher.amount)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The amount of a sold voucher cannot be changed. Refund it and issue a new voucher instead.",
+            )
+        if voucher_data.status is not None and voucher_data.status != voucher.status and voucher.status != "active":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A {voucher.status} voucher cannot be changed to '{voucher_data.status}'.",
+            )
         
         update_data = voucher_data.model_dump(exclude_unset=True)
+        update_data.pop("amount", None)
         for key, value in update_data.items():
             if hasattr(voucher, key):
                 setattr(voucher, key, value)

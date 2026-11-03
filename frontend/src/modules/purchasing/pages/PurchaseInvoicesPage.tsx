@@ -79,9 +79,14 @@ interface InvoiceFormData {
   remarks: string;
 }
 
+// Local calendar date (YYYY-MM-DD). toISOString() is UTC, which is still "yesterday"
+// before 05:30 in Sri Lanka.
+const localYmd = (d: Date = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 const INITIAL_FORM_DATA: InvoiceFormData = {
   supplier_invoice_no: "",
-  supplier_invoice_date: new Date().toISOString().split("T")[0],
+  supplier_invoice_date: localYmd(),
   supplier_id: 0,
   branch_code: "",
   payment_type: "non_credit",
@@ -441,15 +446,14 @@ export default function PurchaseInvoicesPage() {
 
   const handleSave = useCallback(() => {
     const total = calculateSelectedTotal();
-    const today = new Date().toISOString().split("T")[0];
+    const today = localYmd();
     const invoiceDate = formData.supplier_invoice_date || today;
     
     // Calculate due date based on payment type and credit period
     let calculatedDueDate = invoiceDate;
     if (formData.payment_type === "credit" && typeof creditPeriod === "number" && creditPeriod > 0) {
-      const date = new Date(invoiceDate);
-      date.setDate(date.getDate() + creditPeriod);
-      calculatedDueDate = date.toISOString().split("T")[0];
+      const [y, m, d] = invoiceDate.split("-").map(Number);
+      calculatedDueDate = localYmd(new Date(y, m - 1, d + creditPeriod));
     }
     
     // Build per-product items from selected GRNs

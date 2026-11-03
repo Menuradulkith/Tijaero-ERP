@@ -1,4 +1,4 @@
-import { TChip, handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { GENDER_CHOICES, TChip, handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import { useAuthStore } from "@/state/authStore";
 import {
   Alert,
@@ -66,20 +66,21 @@ export default function ProfileSettings() {
         middle_name: data.middle_name,
         last_name: data.last_name,
         gender: data.gender,
-        date_joined: data.date_joined,
+        // date_joined is maintained by administrators; not sent.
         birthdate: data.birthdate,
       });
 
       // Update local storage state
       if (user) {
+        const { date_joined: _ignored, ...profile } = data;
         updateUser({
           ...user,
-          ...data,
+          ...profile,
         });
       }
       showSuccessToast("Profile updated successfully");
     } catch (error) {
-      showErrorToast("Failed to update profile");
+      showErrorToast(handleApiError(error, "Failed to update profile"));
     } finally {
       setLoading(false);
     }
@@ -194,9 +195,9 @@ export default function ProfileSettings() {
                       control={control}
                       render={({ field }) => (
                         <TextField {...field} select label="Gender" fullWidth size="small">
-                          <MenuItem value="m">Male</MenuItem>
-                          <MenuItem value="f">Female</MenuItem>
-                          <MenuItem value="other">Other</MenuItem>
+                          {GENDER_CHOICES.map((g) => (
+                            <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>
+                          ))}
                         </TextField>
                       )}
                     />
@@ -212,6 +213,8 @@ export default function ProfileSettings() {
                           type="date"
                           fullWidth
                           size="small"
+                          disabled
+                          helperText="Set by your administrator"
                           InputLabelProps={{ shrink: true }}
                           inputProps={{ min: "1900-01-01", max: new Date().toISOString().slice(0, 10) }}
                         />

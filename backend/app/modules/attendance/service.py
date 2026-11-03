@@ -41,6 +41,34 @@ def _branches_of(actor: Optional[User]) -> Optional[List[str]]:
         return None
     return [b.branch_code for b in actor.branches]
 
+
+def _run_batches(db: Session, start: date, end: date) -> list:
+    """Payroll batches (not cancelled) of the months between two dates, oldest first."""
+    from app.modules.hr.models import PayrollBatch
+
+    months, d = [], date(start.year, start.month, 1)
+    while d <= end:
+        months.append(d.year * 100 + d.month)
+        d = date(d.year + (d.month == 12), d.month % 12 + 1, 1)
+    rows = db.query(PayrollBatch).filter(PayrollBatch.status != "cancelled",
+                                         (PayrollBatch.payroll_year * 100 + PayrollBatch.payroll_month).in_(months)).all()
+    return sorted(rows, key=lambda b: (b.payroll_year, b.payroll_month))
+
+
+def _payroll_open(db: Session, day: date) -> None:
+    """Attendance feeds overtime and late cuts: once a month's payroll has been run, its days are read-only."""
+    batch = next(iter(_run_batches(db, day, day)), None)
+    if batch:
+        raise HTTPException(status_code=400, detail=f"Payroll {batch.batch_no} has already been run for {day.year}-{day.month:02d}; "
+                                                    "attendance for that month can no longer change (cancel the batch first)")
+
+
+def _unpaid(db: Session, leave_type: Optional[str]) -> bool:
+    from app.modules.hr_core.models import HRLeaveType
+
+    lt = db.query(HRLeaveType).filter(func.lower(HRLeaveType.code) == (leave_type or "").lower()).first()
+    return lt is not None and not lt.is_paid
+
 from . import schemas
 from .models import Attendance, Leaves
 from .repository import attendance_repo, leave_repo
@@ -129,6 +157,15 @@ class AttendanceService:
             )
         return emp
 
+    @staticmethod
+    def _in_service(emp: Employee, day: date) -> None:
+        from app.modules.hr_core.service import in_service
+
+        if not in_service(emp):
+            raise HTTPException(status_code=400, detail="This employee is no longer in service")
+        if emp.last_working_date and day > emp.last_working_date:
+            raise HTTPException(status_code=400, detail=f"The employee's last working day was {emp.last_working_date}")
+
     def _shift_params(self, employee: Optional[Employee]) -> dict:
         """Working hours of the employee's shift (default shift, then the built-in 9-5 as a last resort)."""
         from app.modules.hr_core.models import HRShift
@@ -139,21 +176,37 @@ class AttendanceService:
         if shift is None:
             shift = self.db.query(HRShift).filter(HRShift.is_default.is_(True), HRShift.active.is_(True)).first()
         if shift is None:
-            return {"start": self.SCHEDULED_START, "end": self.SCHEDULED_END, "grace": self.LATE_GRACE_MINUTES, "work": self.WORK_DAY_MINUTES}
-        return {"start": shift.start_time, "end": shift.end_time, "grace": shift.grace_minutes, "work": shift.work_minutes}
+            return {"start": self.SCHEDULED_START, "end": self.SCHEDULED_END, "grace": self.LATE_GRACE_MINUTES, "work": self.WORK_DAY_MINUTES,
+                    "break": 60, "half": 240}
+        return {"start": shift.start_time, "end": shift.end_time, "grace": shift.grace_minutes, "work": shift.work_minutes,
+                "break": shift.break_minutes or 0, "half": shift.half_day_minutes or 0}
 
-    def _calc_minutes(self, check_in: Optional[time], check_out: Optional[time], employee: Optional[Employee] = None) -> dict:
+    def _calc_minutes(self, check_in: Optional[time], check_out: Optional[time], employee: Optional[Employee] = None,
+                      day: Optional[date] = None) -> dict:
+        """Worked time is net of the shift break (taken on anything longer than a half day). Overtime is work beyond
+        the shift's normal day; on a weekly off or holiday every worked minute is overtime and nobody is late or early."""
         sh = self._shift_params(employee)
         result = {"work_mins": 0, "late_mins": 0, "early_mins": 0, "ot_mins": 0, "full_attended_mins": 0}
+        off_day = False
+        if employee is not None and day is not None:
+            from app.modules.hr_core.service import TimeService
+            off_day = TimeService(self.db).is_non_working(employee, day) is not None
         if check_in and check_out:
             ci_mins = check_in.hour * 60 + check_in.minute
             co_mins = check_out.hour * 60 + check_out.minute
             if co_mins > ci_mins:
-                worked = co_mins - ci_mins
+                span = co_mins - ci_mins
+                worked = span - sh["break"] if span > max(sh["half"], sh["break"]) else span
                 result["work_mins"] = worked
-                result["full_attended_mins"] = worked
-                if worked > sh["work"]:
-                    result["ot_mins"] = worked - sh["work"]
+                result["full_attended_mins"] = span
+                shift_span = (sh["end"].hour * 60 + sh["end"].minute) - (sh["start"].hour * 60 + sh["start"].minute)
+                normal = min(sh["work"], max(0, shift_span - sh["break"])) or sh["work"]
+                if off_day:
+                    result["ot_mins"] = worked
+                elif worked > normal:
+                    result["ot_mins"] = worked - normal
+        if off_day:
+            return result
         if check_in:
             sched_start = sh["start"].hour * 60 + sh["start"].minute
             ci_mins = check_in.hour * 60 + check_in.minute
@@ -168,12 +221,12 @@ class AttendanceService:
 
     def check_in(self, data: schemas.AttendanceCheckIn, user_id: int, actor: Optional[User] = None) -> schemas.Attendance:
         emp = self._ensure_employee(data.employee_id)
-        if emp.status not in ("active", "probation", "notice_period"):
-            raise HTTPException(status_code=400, detail="This employee is no longer in service")
+        self._in_service(emp, data.date or tz.today())
         self._branch_ok(data.branch_code)
         _need_branch(actor, data.branch_code)
         _need_branch(actor, emp.branch_code)   # the employee's own branch too, not just the one on the record
         _lock(self.db, f"att-{data.employee_id}-{data.date or tz.today()}")
+        _payroll_open(self.db, data.date or tz.today())
         if data.check_in and (data.date or tz.today()) == tz.today():
             import datetime as _dt
             if _dt.datetime.combine(tz.today(), data.check_in) > tz.now() + _dt.timedelta(minutes=5):
@@ -184,7 +237,7 @@ class AttendanceService:
         if existing:
             if existing.check_in:
                 raise HTTPException(status_code=400, detail="Already checked in for today")
-            metrics = self._calc_minutes(check_in, existing.check_out, emp)
+            metrics = self._calc_minutes(check_in, existing.check_out, emp, day)
             updated = attendance_repo.update(self.db, existing, check_in=check_in, **metrics)
             return _to_attendance_response(self.db, updated)
         weekday = calendar.day_name[day.weekday()]
@@ -195,7 +248,7 @@ class AttendanceService:
             date=day,
             weekday=weekday,
             check_in=check_in,
-            **self._calc_minutes(check_in, None, emp),
+            **self._calc_minutes(check_in, None, emp, day),
         )
         return _to_attendance_response(self.db, att)
 
@@ -207,11 +260,12 @@ class AttendanceService:
         if not att:
             raise HTTPException(status_code=404, detail="No check-in found for today")
         _need_branch(actor, att.branch_code)
+        _payroll_open(self.db, day)
         if att.check_in and check_out <= att.check_in:
             raise HTTPException(status_code=400, detail="Check-out must be after check-in")
         if not att.check_in:
             raise HTTPException(status_code=400, detail="Cannot check out without checking in")
-        metrics = self._calc_minutes(att.check_in, check_out, emp)
+        metrics = self._calc_minutes(att.check_in, check_out, emp, day)
         updated = attendance_repo.update(self.db, att, check_out=check_out, **metrics)
         return _to_attendance_response(self.db, updated)
 
@@ -226,14 +280,14 @@ class AttendanceService:
 
     def create(self, data: schemas.AttendanceCreate, actor: Optional[User] = None) -> schemas.Attendance:
         emp = self._ensure_employee(data.employee_id)
-        if (emp.status or "active") not in LIVE:
-            raise HTTPException(status_code=400, detail="This employee is no longer in service")
+        self._in_service(emp, data.date)
         if emp.date_of_joining and data.date < emp.date_of_joining:
             raise HTTPException(status_code=400, detail="The date is before the employee joined")
         self._branch_ok(data.branch_code)
         _need_branch(actor, data.branch_code)
         _need_branch(actor, emp.branch_code)
         _lock(self.db, f"att-{data.employee_id}-{data.date}")
+        _payroll_open(self.db, data.date)
         existing = attendance_repo.get_by_employee_date(self.db, data.employee_id, data.date)
         if existing:
             raise HTTPException(status_code=400, detail="Attendance already recorded for this date")
@@ -241,7 +295,7 @@ class AttendanceService:
             "employee_id": data.employee_id, "branch_code": data.branch_code, "date": data.date,
             "weekday": calendar.day_name[data.date.weekday()], "check_in": data.check_in, "check_out": data.check_out,
             "leave_mins": data.leave_mins, "absent_mins": data.absent_mins,
-            **self._calc_minutes(data.check_in, data.check_out, emp),
+            **self._calc_minutes(data.check_in, data.check_out, emp, data.date),
         }
         att = attendance_repo.create(self.db, **payload)
         return _to_attendance_response(self.db, att)
@@ -251,7 +305,11 @@ class AttendanceService:
         if not att:
             raise HTTPException(status_code=404, detail="Attendance not found")
         _need_branch(actor, att.branch_code)
+        _payroll_open(self.db, att.date)
         update_data = data.model_dump(exclude_unset=True)
+        for k in ("leave_mins", "absent_mins"):
+            if k in update_data and update_data[k] is None:
+                update_data[k] = 0
         # If check_in/check_out changed, recalc metrics
         if "check_in" in update_data or "check_out" in update_data:
             ci = update_data.get("check_in", att.check_in)
@@ -260,16 +318,21 @@ class AttendanceService:
                 raise HTTPException(status_code=400, detail="Check-out must be after check-in")
             if co and not ci:
                 raise HTTPException(status_code=400, detail="Check-out needs a check-in")
-            metrics = self._calc_minutes(ci, co, att.employee)
+            metrics = self._calc_minutes(ci, co, att.employee, att.date)
             update_data.update(metrics)
-        updated = attendance_repo.update(self.db, att, **update_data)
-        return _to_attendance_response(self.db, updated)
+        # set directly: an explicit null clears the time (the repository's update skips None values)
+        for k, v in update_data.items():
+            setattr(att, k, v)
+        self.db.commit()
+        self.db.refresh(att)
+        return _to_attendance_response(self.db, att)
 
     def delete(self, attendance_id: int, actor: Optional[User] = None) -> None:
         att = attendance_repo.get(self.db, attendance_id)
         if not att:
             raise HTTPException(status_code=404, detail="Attendance not found")
         _need_branch(actor, att.branch_code)
+        _payroll_open(self.db, att.date)
         attendance_repo.delete(self.db, att)
 
     def get(self, attendance_id: int, actor: Optional[User] = None) -> schemas.Attendance:
@@ -370,6 +433,7 @@ class LeaveService:
             raise HTTPException(status_code=400, detail="to_date must be on or after from_date")
         # leave type, balance, overlap, half-day, working-day count ... (see LeavePolicyService)
         lt = LeavePolicyService(self.db).validate_application(emp, data.leave_type, data.from_date, data.to_date, data.leave_duration, data.leave_time)
+        self._nopay_open(lt.code, data.from_date, data.to_date)
 
         leave = leave_repo.create(
             self.db,
@@ -420,9 +484,19 @@ class LeaveService:
         _lock(self.db, f"leave-{leave.employee_id}")
         lt = LeavePolicyService(self.db).validate_application(
             emp, merged["leave_type"], merged["from_date"], merged["to_date"], float(merged["leave_duration"]), merged["leave_time"], ignore_leave_id=leave.id)
+        self._nopay_open(lt.code, merged["from_date"], merged["to_date"])
         update_data["leave_type"] = lt.code
         leave_repo.update(self.db, leave, **update_data)
         return _to_leave_response(self.db, leave)
+
+    def _nopay_open(self, leave_type: Optional[str], start: date, end: date) -> None:
+        """No-pay leave is deducted by the payroll run, so a month that has already been run cannot take more."""
+        if not _unpaid(self.db, leave_type):
+            return
+        batch = next(iter(_run_batches(self.db, start, end)), None)
+        if batch:
+            raise HTTPException(status_code=400, detail=f"Payroll {batch.batch_no} has already been run for {batch.payroll_year}-{batch.payroll_month:02d}, "
+                                                        "so this no-pay leave would never be deducted; cancel the batch first or record a salary deduction")
 
     def _scope_leave(self, leave: Leaves, actor: Optional[User]) -> None:
         emp = self.db.query(Employee).filter(Employee.employee_id == leave.employee_id).first()
@@ -464,6 +538,7 @@ class LeaveService:
         approver = self.db.query(User).filter(User.id == approver_id).first()
         if applicant and applicant.user_id == approver_id and not (approver and approver.is_superuser):
             raise HTTPException(status_code=400, detail="You cannot approve your own leave request")
+        self._nopay_open(leave.leave_type, leave.from_date, leave.to_date)
         if leave.approval_id:
             approval_service.approve(
                 db=self.db,
@@ -507,24 +582,18 @@ class LeaveService:
         """Cancel approved leave (plans changed, or entered wrongly): the days go back to the balance.
         No-pay leave in a month whose payroll has been run cannot be cancelled any more."""
         from app.modules.attendance.models import Leaves
-        from app.modules.hr.models import PayrollBatch
-        from app.modules.hr_core.models import HRLeaveType
         leave = self.db.query(Leaves).filter(Leaves.id == leave_id).with_for_update().first()
         if not leave:
             raise HTTPException(status_code=404, detail="Leave not found")
         self._scope_leave(leave, actor)
         if leave.status != "approved":
             raise HTTPException(status_code=400, detail="Only approved leave can be cancelled; pending leave can be rejected or deleted")
-        lt = self.db.query(HRLeaveType).filter(func.lower(HRLeaveType.code) == (leave.leave_type or "").lower()).first()
-        if lt is not None and not lt.is_paid:
-            d, months = leave.from_date, set()
-            while d <= leave.to_date:
-                months.add((d.year, d.month))
-                d = date(d.year + (d.month == 12), d.month % 12 + 1, 1)
-            for y, mth in months:
-                if self.db.query(PayrollBatch.id).filter(PayrollBatch.payroll_year == y, PayrollBatch.payroll_month == mth,
-                                                         PayrollBatch.status != "cancelled").first():
-                    raise HTTPException(status_code=400, detail=f"Payroll for {y}-{mth:02d} already deducted this no-pay leave")
+        if _unpaid(self.db, leave.leave_type):
+            for batch in _run_batches(self.db, leave.from_date, leave.to_date):
+                if leave.approved_date and batch.created_at and leave.approved_date > batch.created_at:
+                    continue   # approved after that run, so it was never deducted: cancelling it is fine
+                raise HTTPException(status_code=400, detail=f"Payroll {batch.batch_no} for {batch.payroll_year}-{batch.payroll_month:02d} "
+                                                            "already deducted this no-pay leave")
         leave.status = "cancelled"
         leave.rejection_reason = f"Cancelled: {data.rejection_reason}"
         from app.common.audit import log_audit
@@ -541,6 +610,15 @@ class LeaveService:
         self._scope_leave(leave, actor)
         if leave.status == "approved":
             raise HTTPException(status_code=400, detail="Cannot delete an approved leave")
+        if leave.approval_id and leave.status == "pending":
+            # close its approval request too, so it does not stay in the approvers' queue
+            from app.modules.common.approval_service import ApprovalStatus
+            from app.modules.common.models import Approvals
+            approval = self.db.query(Approvals).filter(Approvals.id == leave.approval_id).with_for_update().first()
+            if approval and approval.status == ApprovalStatus.PENDING:
+                approval.status = ApprovalStatus.CANCELLED
+                approval.status_changed_by = actor.id if actor else None
+                approval.remark = "Leave request deleted"
         leave_repo.delete(self.db, leave)
 
     def balance(self, employee_id: str, year: Optional[int] = None) -> schemas.LeaveBalance:

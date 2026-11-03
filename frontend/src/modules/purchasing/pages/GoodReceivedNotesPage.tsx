@@ -156,8 +156,8 @@ const INITIAL_FORM_DATA: GoodReceivedNoteCreate = {
   vehicle_no: "",
   received_by: "",
   remark: "",
-  branch_code: "HQ",
-  good_received_locations_id: 1,
+  branch_code: "",
+  good_received_locations_id: 0, // chosen from the PO branch's locations
   purchasingorders_id: 0,
 };
 
@@ -972,14 +972,19 @@ export default function GoodReceivedNotesPage() {
     const selectedPO = purchaseOrders?.find((o: PurchasingOrder) => o.id === poId);
     if (selectedPO) {
       // Fetch locations for the PO's branch to auto-select the first one
-      let selectedLocationId = formData.good_received_locations_id;
+      // (never keep a location of another branch: the server refuses it).
+      let selectedLocationId = 0;
       try {
         const branchLocations = await locationsApi.getAll(selectedPO.branch_code);
         if (branchLocations && branchLocations.length > 0) {
           selectedLocationId = branchLocations[0].id;
         }
       } catch {
-        // silently fail branch locations fetch
+        // fall back to the cached reference data for the PO's branch
+        const cached = ((refData?.locations as Location[]) || []).find(
+          (loc) => loc.branch_code === selectedPO.branch_code
+        );
+        if (cached) selectedLocationId = cached.id;
       }
 
       setFormData({
@@ -1824,7 +1829,7 @@ export default function GoodReceivedNotesPage() {
                     size="small"
                     value={formData.good_received_locations_id}
                     onChange={(e) => {
-                      setFormData({ ...formData, good_received_locations_id: parseInt(e.target.value) || 1 });
+                      setFormData({ ...formData, good_received_locations_id: parseInt(e.target.value) || 0 });
                       handleBlur('good_received_locations_id');
                     }}
                     disabled={!isEditing && !isCreating}
@@ -1838,7 +1843,7 @@ export default function GoodReceivedNotesPage() {
                       </MenuItem>
                     ))}
                     {(!locations || locations.length === 0) && (
-                      <MenuItem value={1}>Default Location</MenuItem>
+                      <MenuItem value={0} disabled>No locations set up for this branch</MenuItem>
                     )}
                   </TextField>
                   <TextField

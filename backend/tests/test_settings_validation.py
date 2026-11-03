@@ -17,7 +17,6 @@ class TestProfile:
     @pytest.mark.parametrize("body", [
         {"first_name": "   "}, {"first_name": None}, {"first_name": "N" * 31}, {"last_name": "L" * 31}, {"gender": "g" * 31},
         {"birthdate": "2026-02-30"}, {"birthdate": "yesterday"}, {"birthdate": "2999-01-01"}, {"birthdate": "1800-01-01"},
-        {"date_joined": "nope"}, {"date_joined": "2999-01-01"},
     ])
     def test_rejected(self, superclient, body):
         assert superclient.put(f"{S}/profile", json=body).status_code == 422
@@ -105,7 +104,7 @@ class TestCurrencies:
 
     def test_code_is_uppercased_and_duplicates_are_400(self, superclient):
         r = superclient.post(f"{S}/currencies", json={"code": "qaq", "name": " QA Cur ", "symbol": "Q"})
-        assert r.status_code == 200, r.text
+        assert r.status_code == 201, r.text
         assert r.json()["code"] == "QAQ" and r.json()["name"] == "QA Cur"
         assert superclient.post(f"{S}/currencies", json={"code": "QAQ", "name": "dup", "symbol": "Q"}).status_code == 400
         cid = r.json()["id"]

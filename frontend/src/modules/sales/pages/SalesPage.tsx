@@ -477,7 +477,7 @@ export default function SalesPage() {
 
   // Fetch customers separately (has complex operations like credit check)
   const { data: customers } = useQuery({
-    queryKey: ["customers"],
+    queryKey: ["customers", "list", 0, 500, true],  // FE-10: the key carries the paging arguments
     queryFn: () => customersApi.getAll(0, 500, true), // activeOnly=true - only fetch active customers
     enabled: canViewCustomers,
     staleTime: 0, // Always consider data stale to refetch on mount
@@ -1084,7 +1084,7 @@ export default function SalesPage() {
 
   // Workflow mutations - Approve, Complete, Cancel
   const approveMutation = useCrudMutation({
-    mutationFn: salesApi.approve,
+    mutationFn: (id: number) => salesApi.approve(id),
     invalidateQueryKeys: [["sales"], ["sales-approved"]],
     successMessage: "Sales order approved successfully",
     errorMessage: "Failed to approve sales order",
@@ -1649,9 +1649,10 @@ export default function SalesPage() {
 
     if (state.isEditing && state.selectedItem) {
       // Update existing invoice
+      // FE-7: the remarks edited in the form are saved too (they were dropped)
       updateMutation.mutate({
         id: state.selectedItem.id,
-        data: { items: lineItems },
+        data: { items: lineItems, remarks: state.formData.remarks ?? "" },
       });
     } else {
       // Create new invoice
@@ -5327,7 +5328,8 @@ export default function SalesPage() {
       <ActionToolbar
         canCreate={canCreate}
         canDelete={
-          canDelete && state.selectedItem?.approval_status !== "completed"
+          // FE-8: the backend refuses to delete completed and approved (posted) orders
+          canDelete && !["completed", "approved"].includes(state.selectedItem?.approval_status ?? "")
         }
         canUpdate={
           canUpdate && state.selectedItem?.approval_status !== "completed"

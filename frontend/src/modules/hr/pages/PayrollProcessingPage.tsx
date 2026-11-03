@@ -57,6 +57,7 @@ import {
   type TFilterStatusOption,
 } from "@/components/tijaero";
 import { payrollBatchApi, statutoryReturnsApi } from "@/modules/hr/api";
+import { usePermission } from "@/auth/permissions";
 import type {
   EmployeePayroll,
   PayrollBatch,
@@ -158,6 +159,13 @@ function Figure({ label, children, color }: { label: string; children: React.Rea
 export default function PayrollProcessingPage() {
   const queryClient = useQueryClient();
   const { dialogProps, confirm } = useTConfirmDialog();
+  // The workflow buttons follow the permissions the server checks for each step
+  const canProcess = usePermission("payroll_processing", "create");
+  const canApprove = usePermission("payroll_approvals", "approve");
+  // a run / cancel / payment also changes payroll records, loan recoveries and the approvals list
+  const invalidatePayrollSide = () => {
+    for (const key of [["payroll"], ["payroll-approvals"], ["hr-loans"], ["hr-loan"]]) queryClient.invalidateQueries({ queryKey: key });
+  };
 
   // State
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
@@ -210,7 +218,7 @@ export default function PayrollProcessingPage() {
   const runMutation = useMutation({
     mutationFn: payrollBatchApi.run,
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] }); invalidatePayrollSide();
       setSelectedBatchId(data.id);
       showSuccessToast(`Payroll batch ${data.batch_no} created with ${data.total_employees} employees`);
       setRunDialogOpen(false);
@@ -223,7 +231,7 @@ export default function PayrollProcessingPage() {
   const submitMutation = useMutation({
     mutationFn: (id: number) => payrollBatchApi.submit(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] }); invalidatePayrollSide();
       queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
       showSuccessToast("Payroll submitted for approval");
     },
@@ -235,7 +243,7 @@ export default function PayrollProcessingPage() {
   const approveMutation = useMutation({
     mutationFn: (id: number) => payrollBatchApi.approve(id, {}),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] }); invalidatePayrollSide();
       queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
       showSuccessToast("Payroll batch approved");
     },
@@ -250,7 +258,7 @@ export default function PayrollProcessingPage() {
     onSuccess: () => {
       setRejectDialogOpen(false);
       setRejectReason("");
-      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] }); invalidatePayrollSide();
       queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
       showSuccessToast("Payroll batch rejected and returned to draft");
     },
@@ -263,7 +271,7 @@ export default function PayrollProcessingPage() {
     mutationFn: ({ id, data }: { id: number; data: PayrollBatchProcessPayment }) =>
       payrollBatchApi.processPayment(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] }); invalidatePayrollSide();
       queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
       showSuccessToast("Salary payments processed successfully");
       setPaymentDialogOpen(false);
@@ -277,7 +285,7 @@ export default function PayrollProcessingPage() {
     mutationFn: ({ id, data }: { id: number; data: PayrollBatchProcessStatutory }) =>
       payrollBatchApi.processStatutory(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] }); invalidatePayrollSide();
       queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
       showSuccessToast("Statutory payments processed (EPF/ETF)");
       setStatutoryDialogOpen(false);
@@ -290,7 +298,7 @@ export default function PayrollProcessingPage() {
   const completeMutation = useMutation({
     mutationFn: (id: number) => payrollBatchApi.complete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] }); invalidatePayrollSide();
       queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
       showSuccessToast("Payroll cycle completed!");
     },
@@ -302,7 +310,7 @@ export default function PayrollProcessingPage() {
   const cancelMutation = useMutation({
     mutationFn: (id: number) => payrollBatchApi.cancel(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-batches"] }); invalidatePayrollSide();
       setSelectedBatchId(null);
       showSuccessToast("Payroll batch cancelled");
     },
@@ -492,6 +500,7 @@ export default function PayrollProcessingPage() {
 
   // Workflow buttons based on batch status (same rules as before).
   const renderActions = (batch: PayrollBatch) => {
+    if (batch.status === "pending_approval" ? !canApprove : !canProcess) return null;
     switch (batch.status) {
       case "draft":
         return (
@@ -887,7 +896,7 @@ export default function PayrollProcessingPage() {
           )
         }
         headerActions={
-          isDetailMode ? undefined : (
+          isDetailMode || !canProcess ? undefined : (
             <Button
               variant="contained"
               size="small"
@@ -900,7 +909,7 @@ export default function PayrollProcessingPage() {
           )
         }
         onRefresh={() => {
-          queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
+          queryClient.invalidateQueries({ queryKey: ["payroll-batches"] }); invalidatePayrollSide();
           if (selectedBatchId) queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
         }}
         isLoading={isLoading}

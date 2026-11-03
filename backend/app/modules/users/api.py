@@ -175,6 +175,12 @@ def update_user(
     """Update user information, branches, and groups."""
     target = service.auth_service.get_user(db, user_id)
     user_access.assert_can_manage_user(current_user, target)
+    if user.password is not None and target.id == current_user.id:
+        # Own password changes must prove the current password.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Change your own password in Settings > Profile (POST /settings/change-password); it requires your current password.",
+        )
     if user.group_ids is not None:
         user_access.assert_can_assign_groups(db, current_user, user.group_ids, target=target)
     if user.branch_ids is not None:

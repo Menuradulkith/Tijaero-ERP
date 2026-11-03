@@ -73,9 +73,31 @@ class LocationService:
         self.db.refresh(location)
         return location
     
+    def is_in_use(self, location_id: int) -> bool:
+        """True when any row (GRN, stock, transfer, return, production...) still points at the
+        location. Read from the FK catalogue so a new referencing table is covered automatically."""
+        from sqlalchemy import text
+
+        refs = self.db.execute(text(
+            "SELECT c.conrelid::regclass::text, a.attname FROM pg_constraint c "
+            "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey) "
+            "WHERE c.contype = 'f' AND c.confrelid = 'good_received_locations'::regclass"
+        )).all()
+        for table, column in refs:
+            if self.db.execute(
+                text(f'SELECT 1 FROM {table} WHERE "{column}" = :id LIMIT 1'), {"id": location_id}
+            ).first():
+                return True
+        return False
+
     def update(self, location_id: int, data: schemas.LocationCreate) -> Locations:
         location = self.get_by_id(location_id)
         if data.branch_code != location.branch_code:
+            if self.is_in_use(location_id):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This location is in use (stock or documents refer to it), so its branch cannot be changed.",
+                )
             self._ensure_branch_has_no_location(data.branch_code, exclude_id=location_id)
         location.name = data.name
         location.branch_code = data.branch_code
@@ -85,6 +107,12 @@ class LocationService:
     
     def delete(self, location_id: int) -> bool:
         location = self.get_by_id(location_id)
+        if self.is_in_use(location_id):
+            # Without this the ORM would null the children's location (or fail on NOT NULL).
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This location is in use (stock or documents refer to it) and cannot be deleted.",
+            )
         self.db.delete(location)
         self.db.commit()
         return True

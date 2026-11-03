@@ -155,6 +155,8 @@ export default function MasterTab<T extends { id: number; version?: string | nul
     fields.forEach((f) => {
       const v = form[f.name];
       if ("required" in f && f.required && isEmpty(v)) e[f.name] = `${f.label} is required`;
+      // a cleared number that cannot be blank is an error, not a silent 0
+      else if (f.type === "number" && !f.nullable && (v === "" || v == null)) e[f.name] = `Enter a value for ${f.label.toLowerCase()}`;
       if (f.type === "number" && v !== "" && v != null) {
         const n = Number(v);
         if (Number.isNaN(n)) e[f.name] = "Enter a number";

@@ -121,7 +121,8 @@ class TestQuotationPeek:
     def test_other_branch_is_refused(self, db, api, purchaser, make_branch, make_customer, make_product):
         _, token, _ = purchaser
         q = self._quote(db, make_branch, make_customer, make_product)  # a different branch
-        assert api(token).get(f"{PEEK}/quotation/{q.id}").status_code == 403
+        # 404, not 403: a refusal would confirm the record exists (PEEK-01)
+        assert api(token).get(f"{PEEK}/quotation/{q.id}").status_code == 404
 
 
 class TestSupplierLookupEndpoints:
@@ -258,4 +259,4 @@ class TestPurchaseOrderPeek:
     def test_other_branch_is_refused(self, db, api, storekeeper, make_branch, make_supplier, make_product):
         token, _ = storekeeper
         order = self._po(db, make_branch(), make_supplier, make_product)  # a different branch
-        assert api(token).get(f"{PEEK}/purchase-order/{order.id}").status_code == 403
+        assert api(token).get(f"{PEEK}/purchase-order/{order.id}").status_code == 404

@@ -253,6 +253,10 @@ class SalesQuoteUpdate(BaseModel):
     discount_type: Optional[DiscountTypeEnum] = None
     discount_value: Optional[Money] = None
 
+    # SAL-15: tax can be changed on edit too (it was silently dropped)
+    tax_mode: Optional[Literal["none", "inclusive", "exclusive"]] = None
+    tax_rate: Optional[float] = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+
     special: Optional[bool] = None
 
     items: Optional[List[SalesQuoteItemCreate]] = Field(default=None, min_length=1, max_length=200)
@@ -267,7 +271,7 @@ class SalesQuoteUpdate(BaseModel):
     @classmethod
     def _no_null_required(cls, values):
         if isinstance(values, dict):
-            for n in ("branch_code", "customer_id", "valid_until", "discount_type", "discount_value"):
+            for n in ("branch_code", "customer_id", "valid_until", "discount_type", "discount_value", "tax_mode", "tax_rate"):
                 if n in values and values[n] is None:
                     raise ValueError(f"{n} cannot be null")
         return values
@@ -400,7 +404,14 @@ class ConvertToInvoiceRequest(BaseModel):
     card_amex_amount: Money = 0
     cheque_amount: Money = 0
     cheque_date: Optional[date] = None
+    cheque_number: OptStr(50) = None
+    cheque_bank: OptStr(100) = None
+    card_ref_number: OptStr(100) = None
+    card_holder_name: OptStr(100) = None
     bank_transfer_amount: Money = 0
+    bank_transfer_ref: OptStr(100) = None
+    bank_name: OptStr(100) = None
+    # Ignored: the credit portion is always the order total minus the tenders (same rule as a new order).
     credit_amount: Money = 0
     payment_adjustments: float = Field(default=0, ge=-MAX_MONEY, le=MAX_MONEY, allow_inf_nan=False)
     remarks: OptStr(2000) = None

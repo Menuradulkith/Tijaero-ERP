@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.deps import get_db, get_current_active_user
 from app.auth.models import User
 from app.common.document_guard import ensure_document_printable
-from app.auth.rbac import Permissions, require_permission, user_has_permission
+from app.auth.rbac import Permissions, require_any_permission, require_permission, user_has_permission
 from app.modules.communication.schemas import EmailDraftResponse, EmailSendRequest
 from app.modules.communication.models import EmailTemplate, EmailLog
 from app.core.email import send_document_email_task
@@ -206,21 +206,21 @@ def get_email_draft(
     # Dynamic Replacements
     person_name = customer_name if customer_name else supplier_name
     
-    subject = subject.replace("{document_id}", str(doc_display_id))
-    body = body.replace("{document_id}", str(doc_display_id))
-    
-    body = body.replace("{company_name}", actual_company_name)
-    body = body.replace("{comapny_name}", actual_company_name) # user typo support
-    body = body.replace("{company}", actual_company_name)
-
-    body = body.replace("{title}", person_title.title() if person_title else "")
-    body = body.replace("{name}", person_name)
-    body = body.replace("{customer_name}", customer_name)
-    body = body.replace("{supplier_name}", supplier_name)
-    if customer_name:
-        body = body.replace("{customer_name}", customer_name)
-    if supplier_name:
-        body = body.replace("{supplier_name}", supplier_name)
+    # Same tags in the subject and the body.
+    replacements = {
+        "{document_id}": str(doc_display_id),
+        "{company_name}": actual_company_name,
+        "{comapny_name}": actual_company_name,  # user typo support
+        "{company}": actual_company_name,
+        "{title}": person_title.title() if person_title else "",
+        "{name}": person_name,
+        "{customer_name}": customer_name,
+        "{supplier_name}": supplier_name,
+    }
+    for tag, value in replacements.items():
+        subject = subject.replace(tag, value or "")
+        body = body.replace(tag, value or "")
+    subject = " ".join(subject.split())  # a header must stay on one line
 
     # Disclaimer
     disclaimer = "\n\n---\nThis email is computer generated. Please do not reply directly to this email."
@@ -235,19 +235,19 @@ def get_email_draft(
         display_id=str(doc_display_id)
     )
 
-@router.post("/email/send")
+@router.post(
+    "/email/send",
+    # Permission first: a user who may not email any document gets 403, not body validation errors.
+    dependencies=[Depends(require_any_permission(*set(DOC_PERMISSION.values())))],
+)
 def send_email(
     request: EmailSendRequest,
     background_tasks: BackgroundTasks,
-    authorization: str = Header(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     _require_document_access(current_user, request.document_type)
     ensure_document_printable(db, request.document_type, request.document_id, current_user)
-    # Extract token
-    token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
-    
     # 1. Create Log
     email_log = EmailLog(
         document_type=request.document_type,
@@ -265,6 +265,6 @@ def send_email(
     db.refresh(email_log)
 
     # 2. Queue Background Task
-    background_tasks.add_task(send_document_email_task, email_log.id, token)
+    background_tasks.add_task(send_document_email_task, email_log.id)
 
     return {"status": "success", "message": "Email queued for sending."}

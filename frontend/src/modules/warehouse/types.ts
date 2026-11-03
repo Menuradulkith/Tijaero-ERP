@@ -27,6 +27,8 @@ export interface ItemTransferNoteCreate {
   approval_id?: number;
   status?: string;
   sales_quote_id?: number;
+  // Lines saved with the header in one transaction (create only)
+  items?: Omit<ItemTransferNoteItemCreate, "itemtransfernote_id">[];
 }
 
 export interface ItemTransferNoteWithItems extends ItemTransferNote {
@@ -61,7 +63,6 @@ export interface ItemTransferNoteItemCreate {
   quantity?: number;  // batch/none lots: units to transfer (no barcode)
   branch_code: string;
   remark?: string;
-  item_recieved?: boolean;
   itemtransfernote_id: number;
 }
 

@@ -204,7 +204,7 @@ class ItemTransferNoteService:
         validate_branch_is_active(self.db, transfer_note.branch_code)
         self._validate_header(transfer_note)
 
-        transfer_data = transfer_note.model_dump(exclude={'status', 'approval_id'})
+        transfer_data = transfer_note.model_dump(exclude={'status', 'approval_id', 'items'})
         # Server-side sequential ITN number generation
         branch_code = transfer_note.branch_code or "HQ"
         transfer_data['item_transfer_note'] = self._get_next_itn_number(branch_code)
@@ -227,6 +227,13 @@ class ItemTransferNoteService:
             approval_group="warehouse_approvers",
         )
         db_transfer_note.approval_id = approval_record.id
+
+        # Lines sent with the header are saved in the same transaction: a bad line leaves no half-made note.
+        line_service = ItemTransferNoteItemService(self.db)
+        for line in transfer_note.items:
+            line_service.add_line(db_transfer_note, schemas.ItemTransferNoteItemCreate(
+                **line.model_dump(), itemtransfernote_id=db_transfer_note.id
+            ))
 
         self.db.commit()
         self.db.refresh(db_transfer_note)
@@ -315,7 +322,7 @@ class ItemTransferNoteService:
             )
         self._validate_header(transfer_note)
 
-        for key, value in transfer_note.model_dump(exclude={'item_transfer_note', 'status', 'approval_id'}).items():
+        for key, value in transfer_note.model_dump(exclude={'item_transfer_note', 'status', 'approval_id', 'items'}).items():
             setattr(db_transfer_note, key, value)
         self.db.commit()
         self.db.refresh(db_transfer_note)
@@ -330,9 +337,60 @@ class ItemTransferNoteService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete transfer note with status '{db_transfer_note.status}'. Only pending transfer notes can be deleted."
             )
-        
+
+        # A pending note holds no stock, so its lines and approval rows can simply go with it.
+        from .models import ItemTransferNoteItemProduct
+        for model, column in (
+            (ItemTransferNoteItems, ItemTransferNoteItems.itemtransfernote_id),
+            (ItemTransferNoteItemProduct, ItemTransferNoteItemProduct.itemtransfernote_id),
+            (ItemTransferNoteApproved, ItemTransferNoteApproved.item_transfer_note_id),
+        ):
+            self.db.query(model).filter(column == transfer_note_id).delete(synchronize_session=False)
+        self._withdraw_approval_request(db_transfer_note, "Transfer note deleted")
         self.db.delete(db_transfer_note)
         self.db.commit()
+
+    def _withdraw_approval_request(self, transfer_note: ItemTransferNote, remark: str) -> None:
+        """A still-pending central approval request for the note is cancelled (it has nothing left to approve)."""
+        if not transfer_note.approval_id:
+            return
+        record = self.db.query(Approvals).filter(Approvals.id == transfer_note.approval_id).with_for_update().first()
+        if record and record.status == ApprovalStatus.PENDING.value:
+            record.status = ApprovalStatus.CANCELLED.value
+            record.remark = remark
+
+    def cancel_transfer_note(self, transfer_note_id: int, user_id: int = 0) -> ItemTransferNote:
+        """Cancel a pending or approved note that has not been dispatched. Units it reserved at approval
+        (transfer_pending) are available again at the source; lot pieces split off at approval stay split."""
+        transfer_note = self.db.query(ItemTransferNote).filter(
+            ItemTransferNote.id == transfer_note_id
+        ).with_for_update().first()
+        if not transfer_note:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer note not found")
+        if transfer_note.status not in (TransferNoteStatus.PENDING, TransferNoteStatus.APPROVED):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Only a pending or approved transfer note can be cancelled (this one is '{transfer_note.status}').",
+            )
+        if transfer_note.status == TransferNoteStatus.APPROVED:
+            items = self.db.query(ItemTransferNoteItems).filter(
+                ItemTransferNoteItems.itemtransfernote_id == transfer_note.id
+            ).all()
+            for item in items:
+                if item.item_recieved:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Some items of this transfer note were already received; it can no longer be cancelled.",
+                    )
+            for item in items:
+                if item.barcode or item.sales_stock_id:
+                    stock_item = _item_stock(self.db, item)
+                    if stock_item and stock_item.status == StockStatus.TRANSFER_PENDING:
+                        stock_item.status = StockStatus.AVAILABLE
+        self._withdraw_approval_request(transfer_note, f"Transfer note cancelled by user {user_id}")
+        transfer_note.status = TransferNoteStatus.CANCELLED
+        self.db.commit()
+        return self.get_transfer_note(transfer_note_id)
     
     def validate_barcode_for_transfer(
         self, request: schemas.BarcodeValidationRequest
@@ -437,7 +495,10 @@ class ItemTransferNoteService:
 
     def dispatch_transfer_note(self, transfer_note_id: int) -> ItemTransferNote:
         """Dispatch transfer note and mark items as in_transit"""
-        db_transfer_note = self.get_transfer_note(transfer_note_id)
+        self.get_transfer_note(transfer_note_id)  # 404 when missing
+        db_transfer_note = self.db.query(ItemTransferNote).filter(
+            ItemTransferNote.id == transfer_note_id
+        ).with_for_update().first()
 
         if db_transfer_note.status != TransferNoteStatus.APPROVED:
             raise HTTPException(
@@ -709,8 +770,12 @@ class ItemTransferNoteItemService:
                 detail=f"The line's branch ({item.branch_code}) must be the transfer note's branch ({note.branch_code}).",
             )
         if not item.barcode:
-            if tracking != "serial":
-                self._check_lot_quantity(note, item, exclude_item_id)
+            if tracking == "serial":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Serial-tracked products are transferred by barcode; scan the unit.",
+                )
+            self._check_lot_quantity(note, item, exclude_item_id)
             return
         unit = self.db.query(SalesStock).filter(SalesStock.barcode == item.barcode).first()
         if unit is None:
@@ -752,31 +817,31 @@ class ItemTransferNoteItemService:
                 detail=f"Barcode {item.barcode} is already on transfer note {found[1]}.",
             )
 
-    def create_item(self, item: schemas.ItemTransferNoteItemCreate) -> ItemTransferNoteItems:
-        note = self._editable_note(item.itemtransfernote_id)
+    def add_line(self, note: ItemTransferNote, item: schemas.ItemTransferNoteItemCreate) -> ItemTransferNoteItems:
+        """Validate and add one line to a pending note (flushed, not committed). A new line is never received;
+        stock status is only changed when the note is approved (see approve_transfer_note)."""
+        if note.status != TransferNoteStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Items can only be changed on a pending transfer note (this one is '{note.status}').",
+            )
         self._validate_line(note, item)
-        tracking = _product_tracking(self.db, item.product_id)
-        if tracking == "serial" and item.quantity != 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Serial-tracked products are transferred one unit per barcode.",
-            )
-        if tracking != "serial" and item.barcode:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Barcodes are not used for '{tracking}'-tracked products; enter a quantity.",
-            )
         db_item = ItemTransferNoteItems(
             **item.model_dump(),
+            item_recieved=False,
             created_date=tz.now()
         )
         self.db.add(db_item)
-        # Note: Stock status is NOT changed here. It only changes to "transfer_pending" 
-        # when the ITN is approved (see approve_transfer_note method)
+        self.db.flush()  # later lines of the same request see this one (lot totals, duplicate barcodes)
+        return db_item
+
+    def create_item(self, item: schemas.ItemTransferNoteItemCreate) -> ItemTransferNoteItems:
+        note = self._editable_note(item.itemtransfernote_id)
+        db_item = self.add_line(note, item)
         self.db.commit()
         self.db.refresh(db_item)
         return db_item
-    
+
     def get_item(self, item_id: int) -> ItemTransferNoteItems:
         item = self.db.query(ItemTransferNoteItems).filter(
             ItemTransferNoteItems.id == item_id
@@ -829,42 +894,6 @@ class ItemTransferNoteItemService:
         self.db.delete(db_item)
         self.db.commit()
     
-    def mark_as_received(self, item_id: int) -> ItemTransferNoteItems:
-        db_item = self.get_item(item_id)
-        db_item.item_recieved = True
-        self.db.commit()
-        self.db.refresh(db_item)
-
-        # Check if all items in the ITN are now received
-        itn_id = db_item.itemtransfernote_id
-        all_items = self.db.query(ItemTransferNoteItems).filter(
-            ItemTransferNoteItems.itemtransfernote_id == itn_id
-        ).all()
-        if all_items and all(i.item_recieved for i in all_items):
-            # Mark ITN status as received
-            itn = self.db.query(ItemTransferNote).filter(ItemTransferNote.id == itn_id).first()
-            if itn:
-                itn.status = "received"
-                # Update linked quote items to itn_created
-                if itn.sales_quote_id:
-                    try:
-                        from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
-                        # Get product_ids in this ITN
-                        product_ids = {i.product_id for i in all_items if i.product_id}
-                        for qi in self.db.query(SalesQuoteItem).filter(
-                            SalesQuoteItem.quote_id == itn.sales_quote_id,
-                            SalesQuoteItem.product_id.in_(product_ids),
-                            SalesQuoteItem.item_status == "procurement"
-                        ).all():
-                            qi.item_status = "itn_created"
-                            qi.stock_status = "in_stock"
-                    except Exception as e:
-                        import logging
-                        logging.getLogger(__name__).warning(f"Failed to update quote items on ITN completion: {e}")
-                self.db.commit()
-
-        return db_item
-
 # Item Transfer Note Approval Service
 class ItemTransferNoteApprovalService:
     def __init__(self, db: Session):
@@ -898,93 +927,10 @@ class ItemTransferNoteApprovalService:
             ItemTransferNoteApproved.item_transfer_note_id == transfer_note_id
         ).first()
     
-    def update_approval(
-        self, approval_id: int, approval: schemas.ItemTransferNoteApprovedCreate
-    ) -> ItemTransferNoteApproved:
-        # Lock the approval row to prevent concurrent approve/reject race
-        db_approval = self.db.query(ItemTransferNoteApproved).filter(
-            ItemTransferNoteApproved.id == approval_id
-        ).with_for_update().first()
-        if not db_approval:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Approval record not found"
-            )
-        old_status = db_approval.approved_status
-
-        # Guard against re-processing an already-decided approval
-        if old_status in (1, 2) and approval.approved_status == old_status:
-            return db_approval  # Idempotent — already in this state
-        
-        for key, value in approval.model_dump().items():
-            setattr(db_approval, key, value)
-        db_approval.approved_date = tz.now()
-        
-        # If approval status changed to approved (1), update transfer note and stock
-        if approval.approved_status == 1 and old_status != 1:
-            # Get transfer note
-            transfer_note = self.db.query(ItemTransferNote).filter(
-                ItemTransferNote.id == approval.item_transfer_note_id
-            ).first()
-            
-            if transfer_note:
-                transfer_note.status = TransferNoteStatus.APPROVED
-                
-                # Get all items and mark stock as transfer_pending
-                items = self.db.query(ItemTransferNoteItems).filter(
-                    ItemTransferNoteItems.itemtransfernote_id == transfer_note.id
-                ).all()
-                
-                for item in items:
-                    if item.barcode or item.sales_stock_id:
-                        # Lock the stock row to prevent concurrent status changes
-                        stock_item = _item_stock(self.db, item)
-                        if stock_item:
-                            stock_item.status = "transfer_pending"
-
-                for piece in _reserve_lots(self.db, transfer_note, items):
-                    piece.status = "transfer_pending"
-        
-        # If rejected (2), update transfer note status and restore stock
-        elif approval.approved_status == 2:
-            transfer_note = self.db.query(ItemTransferNote).filter(
-                ItemTransferNote.id == approval.item_transfer_note_id
-            ).first()
-            if transfer_note:
-                transfer_note.status = TransferNoteStatus.REJECTED
-                
-                # Restore stock items to available (same as reject_transfer_note)
-                items = self.db.query(ItemTransferNoteItems).filter(
-                    ItemTransferNoteItems.itemtransfernote_id == transfer_note.id
-                ).all()
-                for item in items:
-                    if item.barcode or item.sales_stock_id:
-                        # Lock the stock row to prevent concurrent status changes
-                        stock_item = _item_stock(self.db, item)
-                        if stock_item and stock_item.status in ("transfer_pending", "in_transit"):
-                            stock_item.status = StockStatus.AVAILABLE
-                            stock_item.is_active = True
-        
-        self.db.commit()
-        self.db.refresh(db_approval)
-        return db_approval
-
 # Item Receive Note Service
 class ItemReceiveNoteService:
     def __init__(self, db: Session):
         self.db = db
-    
-    def create_receive_note(
-        self, receive_note: schemas.ItemReceiveNoteCreate
-    ) -> ItemReceiveNote:
-        db_receive_note = ItemReceiveNote(
-            **receive_note.model_dump(),
-            recieved_date=tz.now()
-        )
-        self.db.add(db_receive_note)
-        self.db.commit()
-        self.db.refresh(db_receive_note)
-        return db_receive_note
     
     def get_receive_note(self, receive_note_id: int) -> ItemReceiveNote:
         receive_note = self.db.query(ItemReceiveNote).filter(
@@ -1036,17 +982,6 @@ class ItemReceiveNoteService:
                 n.from_location_name = itn.from_location.name if itn.from_location else None
                 n.to_location_name = itn.to_location.name if itn.to_location else None
         return notes
-    
-    def update_receive_note(
-        self, receive_note_id: int, receive_note: schemas.ItemReceiveNoteCreate
-    ) -> ItemReceiveNote:
-        db_receive_note = self.get_receive_note(receive_note_id)
-        for key, value in receive_note.model_dump().items():
-            setattr(db_receive_note, key, value)
-        db_receive_note.recieved_date = tz.now()
-        self.db.commit()
-        self.db.refresh(db_receive_note)
-        return db_receive_note
     
     def receive_items(
         self, transfer_note_id: int, request: schemas.ReceiveItemsRequest

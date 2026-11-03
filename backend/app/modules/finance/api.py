@@ -45,6 +45,16 @@ def _scoped_branch_codes(
     return user_branches  # None for superusers, list for regular users
 
 
+def _invoice_branch_guard(db: Session, user: User, fk: str, payment_id: int, label: str) -> None:
+    """Card / credit payments carry no branch: they belong to their sales
+    invoice's branch. Another branch's payment reads as not found."""
+    from app.modules.sales.models import Invoice
+
+    branch = db.query(Invoice.branch_code).filter(getattr(Invoice, fk) == payment_id).limit(1).scalar()
+    if branch and not validate_branch_access(user, branch):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{label} with id {payment_id} not found")
+
+
 router = APIRouter(prefix="/finance", tags=["finance"])
 
 # =============================================================================
@@ -57,7 +67,7 @@ def create_bank_deposit(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    if not validate_branch_access(current_user, deposit.branch_code):
+    if deposit.branch_code and not validate_branch_access(current_user, deposit.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {deposit.branch_code}")
     deposit_service = service.BankDepositService(db)
     return deposit_service.create_deposit(deposit, created_by=current_user.id)
@@ -70,7 +80,7 @@ def get_bank_deposit(
 ):
     deposit_service = service.BankDepositService(db)
     deposit = deposit_service.get_deposit(deposit_id)
-    if not validate_branch_access(current_user, deposit.branch_code):
+    if deposit.branch_code and not validate_branch_access(current_user, deposit.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {deposit.branch_code}")
     return deposit
 
@@ -78,8 +88,8 @@ def get_bank_deposit(
 def list_bank_deposits(
     branch_code: Optional[str] = None,
     verified: Optional[bool] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -91,8 +101,8 @@ def list_bank_deposits(
         branch_code=scoped_branch,
         branch_codes=_scoped_branch_codes(user_branches),
         verified=verified,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit
     )
@@ -106,9 +116,12 @@ def verify_bank_deposit(
 ):
     deposit_service = service.BankDepositService(db)
     existing = deposit_service.get_deposit(deposit_id)
-    if not validate_branch_access(current_user, existing.branch_code):
+    if existing.branch_code and not validate_branch_access(current_user, existing.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {existing.branch_code}")
-    return deposit_service.verify_deposit(deposit_id, user_id=current_user.id)
+    # Maker-checker for everyone but a system administrator (superuser).
+    return deposit_service.verify_deposit(
+        deposit_id, user_id=current_user.id, maker_checker=not current_user.is_superuser,
+    )
 
 # =============================================================================
 # CARD PAYMENTS
@@ -133,13 +146,15 @@ def get_card_payment(
     current_user: User = Depends(get_current_active_user),
 ):
     payment_service = service.CardPaymentService(db)
-    return payment_service.get_payment(payment_id)
+    payment = payment_service.get_payment(payment_id)
+    _invoice_branch_guard(db, current_user, "card_payment_id", payment_id, "Card payment")
+    return payment
 
 @router.get("/card-payments", response_model=List[schemas.CardPayment], dependencies=[Depends(require_permission(*Permissions.CARD_PAYMENT_VIEW))])
 def list_card_payments(
     branch_code: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -150,8 +165,8 @@ def list_card_payments(
     filters = schemas.PaymentListFilter(
         branch_code=scoped_branch,
         branch_codes=_scoped_branch_codes(user_branches),
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit
     )
@@ -167,7 +182,7 @@ def create_cheque_payment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    if not validate_branch_access(current_user, payment.branch_code):
+    if payment.branch_code and not validate_branch_access(current_user, payment.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {payment.branch_code}")
     payment_service = service.ChequePaymentService(db)
     return payment_service.create_payment(payment, created_by=current_user.id)
@@ -180,15 +195,15 @@ def get_cheque_payment(
 ):
     payment_service = service.ChequePaymentService(db)
     payment = payment_service.get_payment(payment_id)
-    if not validate_branch_access(current_user, payment.branch_code):
+    if payment.branch_code and not validate_branch_access(current_user, payment.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {payment.branch_code}")
     return payment
 
 @router.get("/cheque-payments", response_model=List[schemas.ChequePayment], dependencies=[Depends(require_permission(*Permissions.CHEQUE_PAYMENT_VIEW))])
 def list_cheque_payments(
     branch_code: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -199,8 +214,8 @@ def list_cheque_payments(
     filters = schemas.PaymentListFilter(
         branch_code=scoped_branch,
         branch_codes=_scoped_branch_codes(user_branches),
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit
     )
@@ -217,13 +232,15 @@ def get_credit_payment(
     current_user: User = Depends(get_current_active_user),
 ):
     payment_service = service.CreditPaymentService(db)
-    return payment_service.get_payment(payment_id)
+    payment = payment_service.get_payment(payment_id)
+    _invoice_branch_guard(db, current_user, "credit_payment_id", payment_id, "Credit payment")
+    return payment
 
 @router.get("/credit-payments", response_model=List[schemas.CreditPaymentResponse], dependencies=[Depends(require_permission(*Permissions.CREDIT_PAYMENT_VIEW))])
 def list_credit_payments(
     branch_code: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -234,8 +251,8 @@ def list_credit_payments(
     filters = schemas.PaymentListFilter(
         branch_code=scoped_branch,
         branch_codes=_scoped_branch_codes(user_branches),
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit
     )
@@ -254,15 +271,15 @@ def get_cash_payment(
 ):
     payment_service = service.CashPaymentService(db)
     payment = payment_service.get_payment(payment_id)
-    if not validate_branch_access(current_user, payment.branch_code):
+    if payment.branch_code and not validate_branch_access(current_user, payment.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {payment.branch_code}")
     return payment
 
 @router.get("/cash-payments", response_model=List[schemas.CashPaymentResponse], dependencies=[Depends(require_permission(*Permissions.CASH_PAYMENT_VIEW))])
 def list_cash_payments(
     branch_code: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -273,8 +290,8 @@ def list_cash_payments(
     filters = schemas.PaymentListFilter(
         branch_code=scoped_branch,
         branch_codes=_scoped_branch_codes(user_branches),
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit
     )
@@ -304,7 +321,7 @@ def update_expense(
 ):
     expense_service = service.ExpenseService(db)
     expense = expense_service.get_expense(expense_id)
-    if not validate_branch_access(current_user, expense.branch_code):
+    if expense.branch_code and not validate_branch_access(current_user, expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {expense.branch_code}")
     return expense_service.update_expense(expense_id, data)
 
@@ -315,7 +332,7 @@ def get_expense(
     current_user: User = Depends(get_current_active_user),
 ):
     expense = service.ExpenseService(db).get_expense(expense_id)
-    if not validate_branch_access(current_user, expense.branch_code):
+    if expense.branch_code and not validate_branch_access(current_user, expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {expense.branch_code}")
     return expense
 
@@ -326,8 +343,8 @@ def list_expenses(
     expense_category: Optional[str] = None,
     payment_status: Optional[str] = None,
     search: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -338,8 +355,8 @@ def list_expenses(
         branch_code=scoped_branch, branch_codes=_scoped_branch_codes(user_branches),
         status=status_filter, expense_category=expense_category,
         payment_status=payment_status, search=search,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip, limit=limit,
     ))
 
@@ -351,7 +368,7 @@ def delete_expense(
 ):
     svc = service.ExpenseService(db)
     _expense = svc.get_expense(expense_id)
-    if not validate_branch_access(current_user, _expense.branch_code):
+    if _expense.branch_code and not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
     svc.delete_expense(expense_id)
     return {"message": "Expense deleted successfully"}
@@ -364,7 +381,7 @@ def submit_expense(
 ):
     svc = service.ExpenseService(db)
     _expense = svc.get_expense(expense_id)
-    if not validate_branch_access(current_user, _expense.branch_code):
+    if _expense.branch_code and not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
     return svc.submit_expense(expense_id, submitted_by=current_user.id)
 
@@ -377,9 +394,13 @@ def approve_expense(
 ):
     svc = service.ExpenseService(db)
     _expense = svc.get_expense(expense_id)
-    if not validate_branch_access(current_user, _expense.branch_code):
+    if _expense.branch_code and not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
-    return svc.approve_expense(expense_id, approved_by=current_user.id, remarks=data.remarks if data else None)
+    # Maker-checker for everyone but a system administrator (superuser).
+    return svc.approve_expense(
+        expense_id, approved_by=current_user.id, remarks=data.remarks if data else None,
+        maker_checker=not current_user.is_superuser,
+    )
 
 @router.post("/expenses/{expense_id}/reject", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_APPROVAL_APPROVE))])
 def reject_expense(
@@ -390,7 +411,7 @@ def reject_expense(
 ):
     svc = service.ExpenseService(db)
     _expense = svc.get_expense(expense_id)
-    if not validate_branch_access(current_user, _expense.branch_code):
+    if _expense.branch_code and not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
     return svc.reject_expense(expense_id, rejected_by=current_user.id, rejection_reason=data.rejection_reason)
 
@@ -403,7 +424,7 @@ def process_expense_payment(
 ):
     svc = service.ExpenseService(db)
     _expense = svc.get_expense(expense_id)
-    if not validate_branch_access(current_user, _expense.branch_code):
+    if _expense.branch_code and not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
     return svc.process_payment(expense_id, data, processed_by=current_user.id)
 
@@ -416,7 +437,7 @@ def record_expense(
 ):
     svc = service.ExpenseService(db)
     _expense = svc.get_expense(expense_id)
-    if not validate_branch_access(current_user, _expense.branch_code):
+    if _expense.branch_code and not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
     return svc.record_expense(expense_id, data, user_id=current_user.id)
 
@@ -443,7 +464,7 @@ def get_advance_payment(
 ):
     advance_service = service.CustomerAdvancePaymentService(db)
     advance = advance_service.get_advance_payment(advance_id)
-    if not validate_branch_access(current_user, advance.branch_code):
+    if advance.branch_code and not validate_branch_access(current_user, advance.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {advance.branch_code}")
     return advance
 
@@ -482,6 +503,11 @@ def create_credit_note(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
+    if credit_note.invoice_no:
+        from app.modules.sales.models import Invoice
+        branch = db.query(Invoice.branch_code).filter(Invoice.invoice_no == credit_note.invoice_no).scalar()
+        if branch and not validate_branch_access(current_user, branch):
+            raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch}")
     credit_note_service = service.CustomerCreditNoteService(db)
     return credit_note_service.create_credit_note(credit_note, user_id=current_user.id)
 
@@ -533,8 +559,8 @@ def get_customer_credit_balance(
 @router.get("/cashbook", response_model=schemas.CashbookReport, dependencies=[Depends(require_permission(*Permissions.CASHBOOK_VIEW))])
 def get_cashbook(
     branch_code: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     entry_type: Optional[str] = None,
     payment_method: Optional[str] = None,
     db: Session = Depends(get_db),
@@ -559,8 +585,8 @@ def get_cashbook(
     filters = schemas.CashbookFilter(
         branch_code=scoped_branch,
         branch_codes=_scoped_branch_codes(user_branches),
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         entry_type=entry_type,
         payment_method=payment_method
     )
@@ -571,8 +597,8 @@ def get_cashbook(
 @router.get("/cashbook/summary", response_model=schemas.CashbookSummary, dependencies=[Depends(require_permission(*Permissions.CASHBOOK_VIEW))])
 def get_cashbook_summary(
     branch_code: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     db: Session = Depends(get_db),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
@@ -583,8 +609,8 @@ def get_cashbook_summary(
     filters = schemas.CashbookFilter(
         branch_code=scoped_branch,
         branch_codes=_scoped_branch_codes(user_branches),
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None
+        date_from=date_from,
+        date_to=date_to
     )
     
     report = cashbook_service.get_cashbook_report(filters)
@@ -599,7 +625,7 @@ def _ensure_petty_cash_branch(db: Session, user: User, fund_id: int) -> None:
     """403 when the fund belongs to a branch the user is not assigned to. A missing fund
     falls through so the service raises its usual 404."""
     row = db.query(models.PettyCash.branch_code).filter(models.PettyCash.id == fund_id).first()
-    if row and not validate_branch_access(user, row.branch_code):
+    if row and row.branch_code and not validate_branch_access(user, row.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {row.branch_code}")
 
 
@@ -620,8 +646,8 @@ def open_petty_cash_fund(
 def list_petty_cash_funds(
     branch_code: Optional[str] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -633,8 +659,8 @@ def list_petty_cash_funds(
         branch_code=scoped_branch,
         branch_codes=_scoped_branch_codes(user_branches),
         status=status_filter,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit,
     )
@@ -649,7 +675,7 @@ def get_petty_cash_fund(
 ):
     """Get a petty cash fund by ID"""
     fund = service.PettyCashService(db).get_fund(fund_id)
-    if not validate_branch_access(current_user, fund.branch_code):
+    if fund.branch_code and not validate_branch_access(current_user, fund.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {fund.branch_code}")
     return fund
 

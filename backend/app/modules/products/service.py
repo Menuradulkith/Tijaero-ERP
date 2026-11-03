@@ -77,6 +77,40 @@ def _validate_minimum_price(
         )
 
 
+def _refuse_if_in_use(db: Session, condition, label: str) -> None:
+    """An in-use category/brand stays active: active products must be moved or deactivated first."""
+    count = db.query(models.Product.id).filter(condition, models.Product.active == True).count()
+    if count:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{count} active product(s) use this {label}. Move or deactivate them before deactivating the {label}.",
+        )
+
+
+def _sync_default_tier(db: Session, product_id: int, cost, selling, website, minimum, user_id) -> None:
+    """The "Default" price tier created with the product follows later product price edits
+    (other tiers are managed on their own). Minimum stays within cost..selling."""
+    from app.core import timezone as tz
+    from app.modules.products.price_tier_models import ProductPriceTier
+
+    tier = (
+        db.query(ProductPriceTier)
+        .filter(ProductPriceTier.product_id == product_id, ProductPriceTier.remark == "Default")
+        .order_by(ProductPriceTier.id)
+        .first()
+    )
+    if tier is None or cost is None:
+        return
+    sell = selling if selling is not None else cost
+    low = minimum if minimum is not None else sell
+    tier.cost_price = cost
+    tier.selling_price = sell
+    tier.minimum_selling_price = min(max(float(low), float(cost)), float(sell))
+    tier.website_price = website
+    tier.updated_at = tz.now()
+    tier.updated_by = user_id
+
+
 def _require_active_refs(db: Session, category_id: Optional[int], brand_id: Optional[int]) -> None:
     """A new product (or a changed category/brand) must point at an active category and brand."""
     if category_id is not None:
@@ -261,6 +295,19 @@ class ProductService:
                     detail="Tracking type cannot be changed because this product already has stock records.",
                 )
 
+        # A product with stock on hand stays active: deactivating it would strand that stock.
+        if product.active is False and curr_product.active:
+            from app.modules.inventory.models import SalesStock
+            on_hand = db.query(SalesStock.id).filter(
+                SalesStock.product_id == product_id,
+                SalesStock.status.in_(("available", "reserved", "frozen", "damaged", "in_transit", "transfer_pending")),
+            ).first()
+            if on_hand:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This product still has stock on hand. Sell, return or adjust the stock before deactivating it.",
+                )
+
         new_cost_price = product.cost_price if product.cost_price is not None else curr_product.cost_price
         new_selling_price = product.selling_price if product.selling_price is not None else curr_product.selling_price
         new_website_price = product.website_price if product.website_price is not None else curr_product.website_price
@@ -332,6 +379,10 @@ class ProductService:
                 # updated_at (what the stale check compares) wouldn't move.
                 # Then another editor's older form could silently revert it.
                 _touch(updated_product)
+            website_changed = product.website_price is not None and product.website_price != curr_product.website_price
+            if cost_changed or selling_changed or min_price_changed or website_changed:
+                _sync_default_tier(db, product_id, new_cost_price, new_selling_price, new_website_price,
+                                   product.minimum_selling_price if min_price_changed else current_min_value, user_id)
             changes = diff_changes(before_values, submitted_fields)
             if changes:
                 log_audit(
@@ -477,6 +528,9 @@ class CategoryService:
                     detail=f"Category with name '{category.name}' already exists"
                 )
 
+        if category.active is False and curr_category.active:
+            _refuse_if_in_use(db, models.Product.category_id == category_id, "category")
+
         submitted_fields = category.model_dump(exclude_unset=True, exclude=schemas.NON_COLUMN_UPDATE_FIELDS)
         before_values = {field: getattr(curr_category, field) for field in submitted_fields}
 
@@ -567,6 +621,9 @@ class BrandService:
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Brand with name '{brand.brand_name}' already exists"
                 )
+
+        if brand.active is False and curr_brand.active:
+            _refuse_if_in_use(db, models.Product.items_brand_id == brand_id, "brand")
 
         submitted_fields = brand.model_dump(exclude_unset=True, exclude=schemas.NON_COLUMN_UPDATE_FIELDS)
         before_values = {field: getattr(curr_brand, field) for field in submitted_fields}

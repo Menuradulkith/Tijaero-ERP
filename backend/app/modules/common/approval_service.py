@@ -375,6 +375,10 @@ class ApprovalService:
                 )
             return
         if approval_type != ApprovalType.PURCHASE_ORDER.value:
+            # Other branch-bound kinds: the approver must have access to the document's branch.
+            code = self._branch_codes_for(db, approval_type, {reference_id}).get(reference_id)
+            if code is not None and not validate_branch_access(user, code):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {code}")
             return
         from app.modules.purchasing.models import PurchasingOrder
 
@@ -392,63 +396,61 @@ class ApprovalService:
                 detail="You cannot approve a purchase order you created. Ask another approver.",
             )
 
-    def user_can_see_approval(self, db: Session, approval: Approvals, user) -> bool:
-        """List/detail visibility: purchase-order approvals only for users who can access the PO's branch."""
-        approval_type, reference_id, _ = self._parse_approval_for(approval.approval_for)
-        if reference_id is None:
-            return True
-        from app.auth.dependencies import validate_branch_access
-
-        if approval_type == ApprovalType.SALES_QUOTE.value:
+    @staticmethod
+    def _branch_model(kind: Optional[str]):
+        """The document model behind a branch-bound approval kind (None = not branch-bound, e.g. leave)."""
+        if kind == ApprovalType.SALES_QUOTE.value:
             from app.modules.sales.quotation_models import SalesQuote
-
-            quote = db.query(SalesQuote.branch_code).filter(SalesQuote.id == reference_id).first()
-            return True if not quote else validate_branch_access(user, quote.branch_code)
-        if approval_type == ApprovalType.SALES_ORDER.value:
+            return SalesQuote
+        if kind == ApprovalType.SALES_ORDER.value:
             from app.modules.sales.models import Invoice
+            return Invoice
+        if kind == ApprovalType.SALE_RETURN.value:
+            from app.modules.sales.models import SaleReturn
+            return SaleReturn
+        if kind == ApprovalType.PURCHASE_ORDER.value:
+            from app.modules.purchasing.models import PurchasingOrder
+            return PurchasingOrder
+        if kind == ApprovalType.PURCHASE_RETURN.value:
+            from app.modules.purchasing.models import PurchasingReturn
+            return PurchasingReturn
+        if kind == ApprovalType.ITEM_TRANSFER.value:
+            from app.modules.warehouse.models import ItemTransferNote
+            return ItemTransferNote
+        if kind == ApprovalType.REIMBURSEMENT.value:
+            from app.modules.hr.models import Reimbursements
+            return Reimbursements
+        return None
 
-            inv = db.query(Invoice.branch_code).filter(Invoice.id == reference_id).first()
-            return True if not inv else validate_branch_access(user, inv.branch_code)
-        if approval_type != ApprovalType.PURCHASE_ORDER.value:
-            return True
-        from app.modules.purchasing.models import PurchasingOrder
+    def _branch_codes_for(self, db: Session, kind: Optional[str], ids: set) -> Dict[int, str]:
+        model = self._branch_model(kind)
+        if model is None or not ids:
+            return {}
+        return dict(db.query(model.id, model.branch_code).filter(model.id.in_(ids)).all())
 
-        po = db.query(PurchasingOrder.branch_code).filter(PurchasingOrder.id == reference_id).first()
-        return True if not po else validate_branch_access(user, po.branch_code)
+    def user_can_see_approval(self, db: Session, approval: Approvals, user) -> bool:
+        """List/detail visibility: a branch-bound approval only for users who can access the document's branch."""
+        return bool(self.filter_visible_approvals(db, [approval], user))
 
     def filter_visible_approvals(self, db: Session, approvals: list, user) -> list:
-        """Batch version of ``user_can_see_approval``: two queries for the whole list
-        instead of one per row."""
+        """Batch version of ``user_can_see_approval``: one query per approval kind
+        for the whole list instead of one per row."""
         from app.auth.dependencies import validate_branch_access
-        from app.modules.purchasing.models import PurchasingOrder
-        from app.modules.sales.quotation_models import SalesQuote
 
+        if getattr(user, "is_superuser", False):
+            return list(approvals)
         parsed = []
-        po_ids, quote_ids = set(), set()
+        ids_by_kind: Dict[str, set] = {}
         for a in approvals:
             kind, ref, _ = self._parse_approval_for(a.approval_for)
             parsed.append((a, kind, ref))
-            if ref is None:
-                continue
-            if kind == ApprovalType.SALES_QUOTE.value:
-                quote_ids.add(ref)
-            elif kind == ApprovalType.PURCHASE_ORDER.value:
-                po_ids.add(ref)
-        po_branch = dict(db.query(PurchasingOrder.id, PurchasingOrder.branch_code).filter(PurchasingOrder.id.in_(po_ids)).all()) if po_ids else {}
-        quote_branch = dict(db.query(SalesQuote.id, SalesQuote.branch_code).filter(SalesQuote.id.in_(quote_ids)).all()) if quote_ids else {}
+            if ref is not None and self._branch_model(kind) is not None:
+                ids_by_kind.setdefault(kind, set()).add(ref)
+        branch_by_kind = {k: self._branch_codes_for(db, k, ids) for k, ids in ids_by_kind.items()}
 
         visible = []
         for a, kind, ref in parsed:
-            if ref is None:
-                visible.append(a)
-                continue
-            if kind == ApprovalType.SALES_QUOTE.value:
-                code = quote_branch.get(ref)
-            elif kind == ApprovalType.PURCHASE_ORDER.value:
-                code = po_branch.get(ref)
-            else:
-                visible.append(a)
-                continue
+            code = branch_by_kind.get(kind, {}).get(ref) if ref is not None else None
             if code is None or validate_branch_access(user, code):
                 visible.append(a)
         return visible

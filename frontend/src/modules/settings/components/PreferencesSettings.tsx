@@ -1,4 +1,4 @@
-import { TChip, showErrorToast, showSuccessToast } from "@/components/tijaero";
+import { TChip, handleApiError, showErrorToast, showSuccessToast } from "@/components/tijaero";
 import {
   SettingsSuggest as SettingsSuggestIcon,
   Notifications as NotificationsIcon,
@@ -63,8 +63,8 @@ export default function PreferencesSettings() {
           currency_format: data.currency_format,
         });
         setLastUpdatedText(new Date(data.updated_date).toLocaleString());
-      } catch {
-        showErrorToast("Failed to load preferences");
+      } catch (error) {
+        showErrorToast(handleApiError(error, "Failed to load preferences"));
       } finally {
         setLoading(false);
       }
@@ -86,8 +86,8 @@ export default function PreferencesSettings() {
       const updated = await settingsApi.updatePreferences(prefs);
       setLastUpdatedText(new Date(updated.updated_date).toLocaleString());
       showSuccessToast("Preferences saved successfully");
-    } catch {
-      showErrorToast("Failed to save preferences");
+    } catch (error) {
+      showErrorToast(handleApiError(error, "Failed to save preferences"));
     } finally {
       setSaving(false);
     }

@@ -327,6 +327,13 @@ class SalesQuoteService:
                     detail=f"Customer agent '{agent.customer_name}' is inactive. Please reactivate the agent before updating the quotation."
                 )
 
+        # SAL-15: the merged header must respect the same discount cap as a new quotation
+        _new_type = update_dict.get('discount_type')
+        _new_type = getattr(_new_type, 'value', _new_type) or (quote.discount_type or 'none')
+        _new_value = update_dict['discount_value'] if update_dict.get('discount_value') is not None else (quote.discount_percentage or 0)
+        if _new_type == 'percentage' and Decimal(str(_new_value)) > 100:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A percentage discount cannot exceed 100")
+
         # Update fields
         update_data = quote_data.model_dump(exclude_unset=True, exclude={'items', 'expected_version'})
         before_values = {key: getattr(quote, key, None) for key in update_data}
@@ -366,12 +373,23 @@ class SalesQuoteService:
                 item = self._create_quote_item(item_data, now)
                 quote.items.append(item)
 
+        if (quote.tax_mode or "none") == "none":
+            quote.tax_rate = 0
+
         # Recalculate totals
         self._calculate_quote_totals(quote)
         self._check_discount(quote)
         quote.updated_by = user_id
 
         updated = self.repository.update(db, quote)
+
+        # SAL-15: an edit while the quotation waits for approval is flagged on the approval, so the approver
+        # knows the document changed after it was submitted (the approver always sees the current version).
+        if changed_fields and updated.status == QuoteStatus.PENDING_APPROVAL.value and updated.approval_id:
+            from app.modules.common.models import Approvals
+            _pending = db.query(Approvals).filter(Approvals.id == updated.approval_id).first()
+            if _pending is not None and _pending.status == ApprovalStatus.PENDING:
+                _pending.remark = f"Edited after submission on {tz.now().strftime('%Y-%m-%d %H:%M')}: review the current version."
 
         if changed_fields:
             from app.common.audit import log_audit, diff_changes
@@ -1383,34 +1401,10 @@ class SalesQuoteService:
                     detail=f"Customer agent '{agent.customer_name}' is inactive. Please reactivate the agent before converting the quotation to an invoice."
                 )
 
-        # Generate invoice number
-        now = tz.now()
-        year = now.year
-        
-        # Acquire advisory lock to prevent duplicate invoice numbers
-        prefix = f"INV-{year}"
-        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
-        
-        # Get next invoice number
-        last_invoice = db.query(Invoice).filter(
-            Invoice.invoice_no.like(f"INV-{year}-%")
-        ).order_by(Invoice.id.desc()).first()
-        
-        if last_invoice:
-            try:
-                last_seq = int(last_invoice.invoice_no.split('-')[-1])
-                next_seq = last_seq + 1
-            except (ValueError, IndexError):
-                next_seq = 1
-        else:
-            next_seq = 1
-        
-        invoice_no = f"INV-{year}-{next_seq:05d}"
-        
-        # Allocate real stock units for every item that is still open, the same
-        # way the partial-SO path does (reserved-for-quote units first, then the
-        # branch's available pool).
-        plan = []
+        # SAL-04: the order is created through SalesService.create_invoice, so a converted quotation gets exactly
+        # the same payment (tender must cover the total), credit (limit, hours, eligibility, approval queue),
+        # stock, numbering and GL rules as an order entered on the sales page.
+        open_items = []
         for quote_item in quote.items:
             if quote_item.item_status in ("cancelled", "so_created"):
                 continue
@@ -1421,37 +1415,25 @@ class SalesQuoteService:
                     detail=f"Item '{quote_item.product_id}' has no selling price. Set a price before converting the quotation to an order.",
                 )
             remaining = quote_item.quantity - (quote_item.converted_qty or 0)
-            if remaining <= 0:
-                continue
-            plan.append((quote_item, self._allocate_quote_item_units(db, quote, quote_item, remaining, quote_item.id)))
-        if not plan:
+            if remaining > 0:
+                open_items.append((quote_item, remaining))
+        if not open_items:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="This quotation has no open items left to convert."
             )
 
-        # quotes.sale_rep_id is an employees.id; invoices.sale_rep_id is an accounts_user.id
-        rep_user_id = self._rep_user_id(db, quote)
+        from app.modules.sales import schemas as sales_schemas
+        from app.modules.sales.service import SalesService
 
         tax_mode = getattr(quote, "tax_mode", "none") or "none"
         tax_rate = Decimal(str(quote.tax_rate or 0)) if tax_mode in ("inclusive", "exclusive") else Decimal("0")
         disc_type = getattr(quote, "discount_type", "none") or "none"
-        disc_value = Decimal(str(quote.discount_percentage or 0))
-        immediate_paid = sum(
-            (Decimal(str(v or 0)) for v in (
-                conversion_data.cash_amount, conversion_data.card_visa_amount,
-                conversion_data.card_mastercard_amount, conversion_data.card_amex_amount,
-                conversion_data.cheque_amount, conversion_data.bank_transfer_amount,
-            )),
-            Decimal("0"),
-        )
-
-        # Create invoice (a sales order); the totals are filled in below
-        invoice = Invoice(
-            invoice_no=invoice_no,
+        disc_value = float(quote.discount_percentage or 0)
+        invoice_request = sales_schemas.InvoiceCreate(
             branch_code=quote.branch_code,
             customer_id=quote.customer_id,
-            sale_rep_id=rep_user_id,
+            sale_rep_id=converted_by or 1,  # create_invoice books the acting user as the rep
             customer_agent_id=quote.customer_agent_id,
             payment_method=conversion_data.payment_method,
             cash_amount=conversion_data.cash_amount,
@@ -1459,87 +1441,65 @@ class SalesQuoteService:
             card_mastercard_amount=conversion_data.card_mastercard_amount,
             card_amex_amount=conversion_data.card_amex_amount,
             cheque_amount=conversion_data.cheque_amount,
-            cheque_date=conversion_data.cheque_date or now.date(),
+            cheque_date=conversion_data.cheque_date,
+            cheque_number=conversion_data.cheque_number,
+            cheque_bank=conversion_data.cheque_bank,
+            card_ref_number=conversion_data.card_ref_number,
+            card_holder_name=conversion_data.card_holder_name,
             bank_transfer_amount=conversion_data.bank_transfer_amount,
-            credit_amount=conversion_data.credit_amount,
-            payment_adjustments=conversion_data.payment_adjustments,
+            bank_transfer_ref=conversion_data.bank_transfer_ref,
+            bank_name=conversion_data.bank_name,
+            payment_adjustments=max(float(conversion_data.payment_adjustments or 0), 0),
             remarks=conversion_data.remarks or quote.remarks,
-            created_date=now.date(),
-            created_date_time=now,
-            special=quote.special,
-            status=True,
-            approval=True,
-            approval_status="approved",
-            cupon_amount=0,
-            is_tax_invoice=(tax_mode == "inclusive" and tax_rate > 0),
-            tax_rate=tax_rate,
-            discount_percent=disc_value if disc_type == "percentage" else 0,
-            discount_amount=disc_value if disc_type == "fixed" else 0,
-            paid_amount=immediate_paid,
+            special=bool(quote.special),
             source_quote_id=quote.id,
             source_quote_type=quote.quote_type,
-            created_by=converted_by,
+            is_tax_invoice=(tax_mode == "inclusive" and tax_rate > 0),
+            tax_rate=float(tax_rate),
+            discount_percent=disc_value if disc_type == "percentage" else 0,
+            discount_amount=disc_value if disc_type == "fixed" else 0,
+            items=[
+                sales_schemas.InvoiceItemCreate(
+                    product_id=qi.product_id,
+                    quantity=qty,
+                    selling_price=float(qi.selling_price),
+                    minimum_selling_price=float(qi.minimum_selling_price or 0),
+                    warrenty_month=str(qi.warrenty_month or "0"),
+                    discount_percent=float(qi.discount_percentage or 0),
+                    price_tier_id=getattr(qi, "price_tier_id", None),
+                )
+                for qi, qty in open_items
+            ],
         )
 
-        db.add(invoice)
-        db.flush()  # Get invoice ID
-
-        # One invoice row per physical unit consumed (same convention as the SO path)
-        from app.common.enums import StockStatus
-        for quote_item, units in plan:
-            item_disc = Decimal(str(quote_item.discount_percentage or 0))
-            price = Decimal(str(quote_item.selling_price))
-            for unit in units:
-                unit.status = StockStatus.SOLD
-                unit.is_active = False
-                # M1: same rounded line amounts as a directly created order (the order foots)
-                gross, disc_amt, _net = line_amounts(unit.quantity, price, item_disc)
-                db.add(InvoiceItems(
-                    invoice_id=invoice.id,
-                    product_id=quote_item.product_id,
-                    quantity=unit.quantity,
-                    selling_price=quote_item.selling_price,
-                    minimum_selling_price=quote_item.minimum_selling_price,
-                    warrenty_month=quote_item.warrenty_month,
-                    created_date=now,
-                    sales_stock_id=unit.id,
-                    barcode=unit.barcode,
-                    price_tier_id=getattr(quote_item, "price_tier_id", None),
-                    discount_percent=item_disc,
-                    discount_amount=disc_amt,
-                    line_total=_net,
-                ))
-            quote_item.converted_qty = (quote_item.converted_qty or 0) + sum(u.quantity for u in units)
-            quote_item.item_status = "so_created"
-        db.flush()
-
-        # Header subtotal / discount / tax / grand total / balance, via the
-        # normal sales-order pricing pipeline.
-        from app.modules.sales.service import SalesService
-        SalesService()._recompute_invoice_totals(db, invoice)
-        grand_total = Decimal(str(invoice.grand_total or 0))
-        if immediate_paid > grand_total + Decimal("0.01"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Payment amounts ({immediate_paid}) exceed the order total ({grand_total})."
-            )
-        balance = (grand_total - immediate_paid).quantize(Decimal("0.01"))
-        invoice.balance_due = float(max(balance, Decimal("0")))
-        if balance <= Decimal("0.01"):
-            invoice.payment_status = "paid"
-            invoice.approval_status = "completed"
-        elif immediate_paid > 0:
-            invoice.payment_status = "partial"
-        else:
-            invoice.payment_status = "unpaid"
-        
-        # Update quote status â€” full conversion = COMPLETED
+        # Mark the items converted in the same transaction create_invoice commits, so a second conversion
+        # started after that commit finds nothing left to convert.
+        snapshot = [(qi, qi.converted_qty, qi.item_status) for qi, _ in open_items]
+        quote_before = (quote.status, quote.converted_at, quote.converted_by, quote.conversion_date)
+        for qi, qty in open_items:
+            qi.converted_qty = (qi.converted_qty or 0) + qty
+            qi.item_status = "so_created"
         self.recompute_quote_status(db, quote)
-        quote.converted_to_invoice_id = invoice.id
+        now = tz.now()
         quote.converted_at = now
         quote.converted_by = converted_by
         quote.conversion_date = now
 
+        try:
+            invoice = SalesService().create_invoice(db, invoice_request, converted_by)
+        except Exception:
+            # the order was refused: the quotation stays exactly as it was
+            for qi, converted_qty, item_status in snapshot:
+                qi.converted_qty, qi.item_status = converted_qty, item_status
+            quote.status, quote.converted_at, quote.converted_by, quote.conversion_date = quote_before
+            raise
+
+        quote = db.query(SalesQuote).filter(SalesQuote.id == quote_id).first()
+        quote.converted_to_invoice_id = invoice.id
+        # quotes.sale_rep_id is an employees.id; the order keeps the quotation's rep (mapped to the user)
+        db.query(Invoice).filter(Invoice.id == invoice.id).update(
+            {Invoice.sale_rep_id: self._rep_user_id(db, quote)}, synchronize_session="fetch"
+        )
         from app.common.audit import log_audit
         log_audit(
             db,
@@ -1549,10 +1509,8 @@ class SalesQuoteService:
             entity_id=quote.id,
             changes={"invoice_id": invoice.id, "invoice_no": getattr(invoice, "invoice_no", None)},
         )
-
         db.commit()
         db.refresh(invoice)
-
         return invoice
     
     # ==================== Revision Management ====================
