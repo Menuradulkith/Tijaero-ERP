@@ -63,7 +63,7 @@ class TestFixedAssets:
         asset = db.query(FixedAsset).filter(FixedAsset.id == a["id"]).one()
         db.refresh(asset)
         assert D(str(asset.accumulated_depreciation)) == D("1000.00")
-        rows = db.query(GeneralLedger).filter(GeneralLedger.reference_type == "FixedAsset", GeneralLedger.reference_id == run["id"]).all()
+        rows = db.query(GeneralLedger).filter(GeneralLedger.reference_type == "DepreciationRun", GeneralLedger.reference_id == run["id"]).all()
         assert sum(D(str(x.debit_amount)) for x in rows if x.account.account_code == "5170") >= D("1000.00")
         again = superclient.post(f"{A}/depreciation-runs", json={"period_year": TODAY.year, "period_month": TODAY.month})
         assert again.status_code == 422
@@ -100,7 +100,7 @@ class TestFixedAssets:
         equip = db.query(AssetClass).filter(AssetClass.code == "EQUIP").one()
         base = {"name": "x", "asset_class_id": equip.id, "acquisition_date": str(TODAY), "funding": "existing"}
         assert superclient.post(f"{A}/fixed-assets", json={**base, "cost": "100", "salvage_value": "100"}).status_code == 422
-        assert superclient.post(f"{A}/fixed-assets", json={**base, "cost": "100", "acquisition_date": str(TODAY + timedelta(days=3))}).status_code == 422
+        assert superclient.post(f"{A}/fixed-assets", json={**base, "cost": "100", "acquisition_date": str(TODAY + timedelta(days=3))}).status_code == 400
 
 
 # ═══════════════════════════════════ recurring / auto-reverse ═══════════════════════════════════

@@ -3,7 +3,7 @@
  */
 import { useCallback, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, IconButton, InputAdornment, MenuItem, TextField, Tooltip, Typography } from "@mui/material";
 import MoneyOffIcon from "@mui/icons-material/MoneyOff";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -17,7 +17,6 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SelectableListItem,
   TConfirmDialog,
   TDataGrid,
   type TDataGridColumn,
@@ -76,7 +75,7 @@ export default function DeductionsPage() {
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    let list = (deductions || []).filter(
+    const list = (deductions || []).filter(
       (d) => !q || String(d.employee_id).includes(q) || d.reason.toLowerCase().includes(q)
     );
     // Fixed default order (newest first) — the browse table's own
@@ -292,19 +291,20 @@ export default function DeductionsPage() {
         title="Salary Deductions"
         titleSlot={
           isDetailMode ? (
-          <Button
-            size="small"
-            startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={handleBackToDeductions}
-            sx={{ textTransform: "none" }}
-          >
-            Back to Deductions
-          </Button>
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={handleBackToDeductions}
+              sx={{ textTransform: "none" }}
+              disabled={isSaving}
+            >
+              Back to Deductions
+            </Button>
           ) : (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
-                placeholder="Search deductions..."
+                placeholder="Search employee, reason..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 InputProps={{
@@ -314,28 +314,28 @@ export default function DeductionsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 260 }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
+              {searchQuery && (
+                <Button size="small" onClick={() => setSearchQuery("")} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
+              )}
             </Box>
           )
         }
         headerActions={
-          isDetailMode ? undefined : (
-            <>
-              {canCreate && (
-                <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
-                  Add Deduction
-                </Button>
-              )}
-            </>
-          )
+          !isDetailMode && canCreate ? (
+            <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
+              Add Deduction
+            </Button>
+          ) : undefined
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        {...(isDetailMode
-          ? { children: detailContent }
-          : { children: tablePanel })}
-      />
+      >
+        {isDetailMode ? detailContent : tablePanel}
+      </MasterDetailLayout>
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

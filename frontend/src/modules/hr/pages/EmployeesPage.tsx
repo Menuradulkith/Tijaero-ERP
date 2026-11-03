@@ -6,11 +6,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
-  Alert, Avatar, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, InputAdornment,
-  LinearProgress, MenuItem, Paper, Switch, Tab, Tabs, TextField, Tooltip, Typography,
+  Alert, Avatar, Box, Button, Chip, FormControlLabel, IconButton, InputAdornment,
+  LinearProgress, MenuItem, Paper, Switch, TextField, Tooltip, Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import BadgeIcon from "@mui/icons-material/Badge";
 import SearchIcon from "@mui/icons-material/Search";
 import DownloadIcon from "@mui/icons-material/Download";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
@@ -19,20 +20,21 @@ import type { GridPaginationModel } from "@mui/x-data-grid";
 import {
   MasterDetailLayout, TDataGrid, type TDataGridColumn, handleApiError, showErrorToast, showSuccessToast, TConfirmDialog, useTConfirmDialog,
 } from "@/components/tijaero";
-import { FormSection, TBranchFilter, TStatusChip, TStatusFilter } from "@/components/tijaero";
+import {
+  ActionToolbar, DetailPanelHeader, FormSection, getStatusProps, TBranchFilter, TDetailSkeleton, TSidePanel, TStatusChip, TStatusFilter, TTabs,
+} from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { useDebounce } from "@/hooks";
 import { fetchAllPages } from "@/utils/fetchAllPages";
 import { branchApi } from "@/modules/branches/api";
 import { usersApi } from "@/modules/users/api";
 import MasterTab, { type FieldDef } from "@/modules/hr/components/MasterTab";
+import FinalSettlementDialog from "@/modules/hr/components/FinalSettlementDialog";
 import {
   employeeCoreApi, hrOrgApi, leaveAllocationApi, type Dependent, type Education, type EmergencyContact, type EmployeeDetail, type EmployeeDocument,
   type EmployeeListItem, type EmployeeProfile, type EmployeeStatus, type Experience, type OnboardingTask, type SeparationInput,
 } from "@/modules/hr/core-api";
 
-import CancelIcon from "@mui/icons-material/Cancel";
-import SaveIcon from "@mui/icons-material/Save";
 const STATUS_META: Record<EmployeeStatus, { label: string; color: "success" | "info" | "warning" | "error" | "default" }> = {
   active: { label: "Active", color: "success" },
   probation: { label: "Probation", color: "info" },
@@ -58,7 +60,7 @@ const PROFILE_KEYS: (keyof EmployeeProfile)[] = [
   "name_with_initials", "nic", "passport_no", "marital_status", "nationality", "religion", "blood_group", "date_of_birth", "gender",
   "personal_email", "mobile_phone", "home_phone", "address_line1", "address_line2", "city", "district", "postal_code", "permanent_address",
   "department_id", "designation_id", "employment_type_id", "branch_code", "reports_to_id", "grade", "work_location", "shift_id", "holiday_list_id",
-  "date_of_joining", "probation_end_date", "confirmation_date", "contract_end_date", "notice_period_days", "retirement_date",
+  "overtime_eligible", "date_of_joining", "probation_end_date", "confirmation_date", "contract_end_date", "notice_period_days", "retirement_date",
   "bank_name", "bank_branch", "bank_account_no", "bank_account_name", "epf_no", "etf_no", "tin_no",
 ];
 const NUMERIC_KEYS = new Set(["department_id", "designation_id", "employment_type_id", "reports_to_id", "shift_id", "holiday_list_id", "notice_period_days"]);
@@ -66,9 +68,12 @@ const NUMERIC_KEYS = new Set(["department_id", "designation_id", "employment_typ
 const toForm = (d?: Partial<EmployeeProfile> | null): FormState => {
   const out: FormState = {};
   PROFILE_KEYS.forEach((k) => { out[k] = (d?.[k] as string | number | null | undefined) ?? ""; });
+  // yes / no select: a new employee is paid overtime unless HR says otherwise
+  out.overtime_eligible = d?.overtime_eligible === false ? "false" : "true";
   return out;
 };
 const normalise = (k: string, v: string | number | null) => {
+  if (k === "overtime_eligible") return v !== "false";
   if (v === "" || v === null || v === undefined) return null;
   return NUMERIC_KEYS.has(k) ? Number(v) : typeof v === "string" ? v.trim() : v;
 };
@@ -102,6 +107,10 @@ export default function EmployeesPage() {
   const [newUserId, setNewUserId] = useState<number | "">("");
   const [newEmployeeId, setNewEmployeeId] = useState("");
   const [separateOpen, setSeparateOpen] = useState(false);
+  const [settlementOpen, setSettlementOpen] = useState(false);
+  const canSeePayrollRecords = usePermission("payroll", "view");
+  const canProcessPayroll = usePermission("payroll_processing", "view");
+  const canSeePayroll = canSeePayrollRecords || canProcessPayroll;
 
   // ── reference data ──
   const { data: departments = [] } = useQuery({ queryKey: ["hr", "departments"], queryFn: () => hrOrgApi.departments.list() });
@@ -245,38 +254,18 @@ export default function EmployeesPage() {
     </Box>
   );
 
-  // ── record header / actions ──
-  const header = (
-    <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5, display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
-      <Avatar sx={{ width: 52, height: 52 }}>{(detail?.full_name ?? (creating ? "+" : "?")).slice(0, 1)}</Avatar>
-      <Box sx={{ minWidth: 220 }}>
-        <Typography variant="h6" sx={{ lineHeight: 1.2 }}>{creating ? "New employee" : detail?.full_name ?? "…"}</Typography>
-        <Typography variant="body2" color="text.secondary">
-          {creating ? "Link a system user to an HR record" : `${detail?.employee_id ?? ""} · ${detail?.designation_name ?? "No designation"} · ${detail?.department_name ?? "No department"}`}
-        </Typography>
-      </Box>
-      {detail && !creating && <StatusChip status={detail.status} />}
-      {detail && !creating && detail.service_years != null && <Chip size="small" variant="outlined" label={`${detail.service_years} yr service`} />}
-      <Box sx={{ flex: 1 }} />
-      {!creating && detail && canUpdate && !editing && (
-        <>
-          {detail.status === "probation" && <Button size="small" variant="outlined" sx={{ textTransform: "none" }} disabled={confirmMutation.isPending} onClick={() => confirmMutation.mutate()}>Confirm employment</Button>}
-          {left || detail.status === "inactive" || detail.status === "notice_period"
-            ? <Button size="small" variant="outlined" sx={{ textTransform: "none" }} disabled={reinstateMutation.isPending} onClick={async () => { if (await confirm({ title: "Reinstate employee", message: "Reinstate this employee?", confirmText: "Reinstate" })) reinstateMutation.mutate(); }}>Reinstate</Button>
-            : <Button size="small" color="warning" variant="outlined" sx={{ textTransform: "none" }} onClick={() => setSeparateOpen(true)}>Resign / Terminate</Button>}
-          {!left && <Button size="small" variant="contained" sx={{ textTransform: "none" }} onClick={() => setEditing(true)}>Edit</Button>}
-        </>
+  // ── lifecycle actions (toolbar end) ──
+  const lifecycleActions = !creating && detail && canUpdate && !editing ? (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+      {detail.status === "probation" && <Button size="small" variant="outlined" sx={{ textTransform: "none" }} disabled={confirmMutation.isPending} onClick={() => confirmMutation.mutate()}>Confirm employment</Button>}
+      {canSeePayroll && (left || detail.status === "inactive" || detail.status === "notice_period") && (
+        <Button size="small" variant="outlined" sx={{ textTransform: "none" }} onClick={() => setSettlementOpen(true)}>Final settlement</Button>
       )}
-      {(editing || creating) && (
-        <>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} size="small" sx={{ textTransform: "none" }} onClick={cancelEdit} disabled={saveMutation.isPending}>Cancel</Button>
-          <Button variant="contained" color="success" startIcon={<SaveIcon />} size="small" sx={{ textTransform: "none" }} disabled={saveMutation.isPending || (creating && (!newUserId || !newEmployeeId.trim()))} onClick={() => saveMutation.mutate()}>
-            {saveMutation.isPending ? "Saving..." : "Save"}
-          </Button>
-        </>
-      )}
-    </Paper>
-  );
+      {left || detail.status === "inactive" || detail.status === "notice_period"
+        ? <Button size="small" variant="outlined" sx={{ textTransform: "none" }} disabled={reinstateMutation.isPending} onClick={async () => { if (await confirm({ title: "Reinstate employee", message: "Reinstate this employee?", confirmText: "Reinstate" })) reinstateMutation.mutate(); }}>Reinstate</Button>
+        : <Button size="small" color="warning" variant="outlined" sx={{ textTransform: "none" }} onClick={() => setSeparateOpen(true)}>Resign / Terminate</Button>}
+    </Box>
+  ) : undefined;
 
   const identity = creating && (
     <FormSection title="Link a user" columns={2}>
@@ -337,6 +326,7 @@ export default function EmployeesPage() {
         {text("work_location", "Work location", { max: 150 })}
         {text("shift_id", "Shift", { select: shifts.filter((s) => s.active).map((s) => ({ value: s.id, label: `${s.name}${s.is_default ? " (default)" : ""}` })) })}
         {text("holiday_list_id", "Holiday calendar", { select: holidayLists.filter((h) => h.active).map((h) => ({ value: h.id, label: `${h.name} (${h.year})` })) })}
+        {text("overtime_eligible", "Overtime", { select: [{ value: "true", label: "Paid overtime" }, { value: "false", label: "No overtime (executive / staff)" }], helper: "Overtime minutes from attendance are paid in payroll" })}
       </FormSection>
       <FormSection title="Employment dates" columns={3}>
         {text("date_of_joining", "Date of joining", { type: "date" })}
@@ -520,7 +510,7 @@ export default function EmployeesPage() {
             <Typography variant="subtitle1" fontWeight={600}>{cat === "onboarding" ? "Onboarding" : "Offboarding"}</Typography>
             {rows.length > 0 && <Typography variant="caption" color="text.secondary">{done} of {rows.length} done</Typography>}
             <Box sx={{ flex: 1 }} />
-            {rows.length === 0 && canUpdate && <Button size="small" sx={{ textTransform: "none" }} onClick={() => applyChecklist.mutate(cat)}>Add standard {cat} checklist</Button>}
+            {rows.length === 0 && canUpdate && <Button size="small" sx={{ textTransform: "none" }} disabled={applyChecklist.isPending} onClick={() => applyChecklist.mutate(cat)}>Add standard {cat} checklist</Button>}
           </Box>
           {rows.length > 0 && <LinearProgress variant="determinate" value={(done / rows.length) * 100} sx={{ mb: 1, height: 6, borderRadius: 3 }} />}
           {rows.map((t) => (
@@ -529,7 +519,7 @@ export default function EmployeesPage() {
                 <Typography variant="body2" sx={{ textDecoration: t.status === "done" ? "line-through" : "none" }}>{t.title}</Typography>
                 <Typography variant="caption" color="text.secondary">{t.responsible ?? "—"}{t.due_date ? ` · due ${fmtDate(t.due_date)}` : ""}{t.completed_date ? ` · done ${fmtDate(t.completed_date)}` : ""}</Typography>
               </Box>
-              <TextField select size="small" value={t.status} disabled={!canUpdate} sx={{ width: 140 }} onChange={(e) => taskStatus.mutate({ id: t.id, status: e.target.value as OnboardingTask["status"] })}>
+              <TextField select size="small" value={t.status} disabled={!canUpdate || taskStatus.isPending} sx={{ width: 140 }} onChange={(e) => taskStatus.mutate({ id: t.id, status: e.target.value as OnboardingTask["status"] })}>
                 <MenuItem value="pending">Pending</MenuItem><MenuItem value="in_progress">In progress</MenuItem><MenuItem value="done">Done</MenuItem><MenuItem value="skipped">Skipped</MenuItem>
               </TextField>
             </Box>
@@ -573,14 +563,63 @@ export default function EmployeesPage() {
     return leaveTab;
   })();
 
+  const statusChip = detail && !creating ? getStatusProps(detail.status, "employeeLifecycle") : null;
+  const sectionTabs = SECTIONS.map((sec) => ({
+    id: sec,
+    label: sec === "checklist" && detail?.counts?.tasks_open ? `${SECTION_LABEL[sec]} (${detail.counts.tasks_open})` : SECTION_LABEL[sec],
+  }));
+
   const recordPanel = (
-    <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
-      {header}
-      <Tabs value={section} onChange={(_, v) => setSection(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 1.5, borderBottom: 1, borderColor: "divider" }}>
-        {SECTIONS.map((s) => <Tab key={s} value={s} label={<Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>{SECTION_LABEL[s]}
-          {detail && s === "checklist" && detail.counts?.tasks_open ? <Chip size="small" color="warning" label={detail.counts.tasks_open} sx={{ height: 18 }} /> : null}</Box>} sx={{ textTransform: "none" }} />)}
-      </Tabs>
-      {loadingDetail && !detail && !creating ? <LinearProgress /> : body}
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[
+          { label: "HR" },
+          { label: "Employees", href: "/hr/employees" },
+          { label: creating ? "New Employee" : detail?.employee_id ?? "…" },
+        ]}
+        title={detail && !creating ? detail.full_name ?? detail.employee_id : ""}
+        subtitle={detail && !creating ? `${detail.designation_name ?? "No designation"} · ${detail.department_name ?? "No department"}` : undefined}
+        titleIcon={<BadgeIcon color="primary" />}
+        isCreating={creating}
+        createTitle="New Employee"
+        noSelectionTitle="Loading employee…"
+        chips={[
+          ...(statusChip ? [{ label: statusChip.label, color: statusChip.color }] : []),
+          ...(detail && !creating && detail.service_years != null ? [{ label: `${detail.service_years} yr service`, variant: "outlined" as const }] : []),
+        ]}
+        tabsSlot={
+          <TTabs
+            tabs={sectionTabs}
+            activeTab={section}
+            onChange={(id) => setSection(id as Section)}
+            appearance="segmented"
+            variant="scrollable"
+            showDivider={false}
+            sx={{ mx: 2, my: 1 }}
+          />
+        }
+      />
+
+      <ActionToolbar
+        hasSelectedItem={!!detail && !creating}
+        isCreating={creating}
+        isEditing={editing && !creating}
+        isSaving={saveMutation.isPending}
+        isFormValid={!creating || (!!newUserId && !!newEmployeeId.trim())}
+        canDelete={false}
+        canDuplicate={false}
+        onNew={canCreate ? startCreate : undefined}
+        onEdit={detail && canUpdate && !left ? () => setEditing(true) : undefined}
+        onSave={() => { if (!saveMutation.isPending) saveMutation.mutate(); }}
+        onCancel={cancelEdit}
+        endActions={lifecycleActions}
+      />
+
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {loadingDetail && !detail && !creating
+          ? <TDetailSkeleton sections={3} fieldsPerSection={6} showHeader={false} showToolbar={false} />
+          : body}
+      </Box>
     </Box>
   );
 
@@ -594,7 +633,7 @@ export default function EmployeesPage() {
         ) : (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField size="small" placeholder="Search name, ID, email..." value={search} onChange={(e) => setSearch(e.target.value)}
-              sx={{ width: 230, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" color="action" /></InputAdornment> }} />
             <Box sx={{ width: 200, flexShrink: 0 }}>
               <TStatusFilter
@@ -627,6 +666,7 @@ export default function EmployeesPage() {
 
       <TConfirmDialog {...dialogProps} />
       <SeparationDialog open={separateOpen} onClose={() => setSeparateOpen(false)} detail={detail} onDone={() => { setSeparateOpen(false); refreshAll(); }} />
+      <FinalSettlementDialog open={settlementOpen} employeePk={detail?.id} onClose={() => setSettlementOpen(false)} />
     </>
   );
 }
@@ -641,27 +681,29 @@ function SeparationDialog({ open, onClose, detail, onDone }: { open: boolean; on
     onError: (e) => showErrorToast(handleApiError(e, "Failed to record the separation")),
   });
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Separation — {detail?.full_name}</DialogTitle>
-      <DialogContent>
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1.5, pt: 1 }}>
-          <TextField select size="small" label="Reason type" value={form.exit_type} onChange={(e) => setForm({ ...form, exit_type: e.target.value as SeparationInput["exit_type"] })}>
-            {[["resignation", "Resignation"], ["termination", "Termination"], ["retirement", "Retirement"], ["end_of_contract", "End of contract"], ["death", "Death in service"], ["other", "Other"]]
-              .map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
-          </TextField>
-          <TextField size="small" type="date" required label="Last working day" InputLabelProps={{ shrink: true }} value={form.last_working_date} onChange={(e) => setForm({ ...form, last_working_date: e.target.value })} />
-          {form.exit_type === "resignation" && (
-            <TextField size="small" type="date" label="Resignation date" InputLabelProps={{ shrink: true }} value={form.resignation_date ?? ""} onChange={(e) => setForm({ ...form, resignation_date: e.target.value })} />
-          )}
-          <TextField size="small" multiline minRows={2} label="Remarks" value={form.exit_reason ?? ""} inputProps={{ maxLength: 2000 }} sx={{ gridColumn: { sm: "1 / -1" } }} onChange={(e) => setForm({ ...form, exit_reason: e.target.value })} />
-          <FormControlLabel sx={{ gridColumn: { sm: "1 / -1" } }} control={<Switch checked={Boolean(form.deactivate_user)} onChange={(e) => setForm({ ...form, deactivate_user: e.target.checked })} />}
-            label="Also deactivate the system login (takes effect once the last working day has passed)" />
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={onClose}>Cancel</Button>
-        <Button variant="contained" color="warning" disabled={mutation.isPending || !form.last_working_date} onClick={() => mutation.mutate()}>Record separation</Button>
-      </DialogActions>
-    </Dialog>
+    <TSidePanel
+      open={open}
+      onClose={onClose}
+      title={`Separation — ${detail?.full_name ?? ""}`}
+      onSubmit={() => { if (!mutation.isPending) mutation.mutate(); }}
+      isSubmitting={mutation.isPending}
+      submitDisabled={mutation.isPending || !form.last_working_date}
+      submitText="Record separation"
+      width={520}
+    >
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1.5, pt: 1 }}>
+        <TextField select size="small" label="Reason type" value={form.exit_type} onChange={(e) => setForm({ ...form, exit_type: e.target.value as SeparationInput["exit_type"] })}>
+          {[["resignation", "Resignation"], ["termination", "Termination"], ["retirement", "Retirement"], ["end_of_contract", "End of contract"], ["death", "Death in service"], ["other", "Other"]]
+            .map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
+        </TextField>
+        <TextField size="small" type="date" required label="Last working day" InputLabelProps={{ shrink: true }} value={form.last_working_date} onChange={(e) => setForm({ ...form, last_working_date: e.target.value })} />
+        {form.exit_type === "resignation" && (
+          <TextField size="small" type="date" label="Resignation date" InputLabelProps={{ shrink: true }} value={form.resignation_date ?? ""} onChange={(e) => setForm({ ...form, resignation_date: e.target.value })} />
+        )}
+        <TextField size="small" multiline minRows={2} label="Remarks" value={form.exit_reason ?? ""} inputProps={{ maxLength: 2000 }} sx={{ gridColumn: { sm: "1 / -1" } }} onChange={(e) => setForm({ ...form, exit_reason: e.target.value })} />
+        <FormControlLabel sx={{ gridColumn: { sm: "1 / -1" } }} control={<Switch checked={Boolean(form.deactivate_user)} onChange={(e) => setForm({ ...form, deactivate_user: e.target.checked })} />}
+          label="Also deactivate the system login (takes effect once the last working day has passed)" />
+      </Box>
+    </TSidePanel>
   );
 }

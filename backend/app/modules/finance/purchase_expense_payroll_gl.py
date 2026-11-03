@@ -1149,7 +1149,7 @@ class PurchaseExpensePayrollGL:
         Post payroll batch to GL when salary payments are processed.
         
         Creates a single consolidated journal entry for the entire batch:
-        Dr  5110  Salaries Expense .......... gross - salary advances paid - late deductions
+        Dr  5110  Salaries Expense .......... gross - salary advances paid - late deductions - no-pay
         Dr  1130  Employee Advances ......... salary advances paid with this payroll
         Dr  5210  EPF Employer Expense ...... total_employer_epf
         Dr  5220  ETF Employer Expense ...... total_employer_etf
@@ -1195,6 +1195,7 @@ class PurchaseExpensePayrollGL:
         total_advance_paid = Decimal("0")
         total_other = Decimal("0")
         total_apit = Decimal("0")
+        total_nopay = Decimal("0")
 
         for p in payrolls:
             total_gross += Decimal(str(p.gross_salary or 0))
@@ -1210,6 +1211,7 @@ class PurchaseExpensePayrollGL:
             total_advance_paid += Decimal(str(p.add_salary_advance or 0))
             total_other += Decimal(str(p.less_other_deductions or 0))
             total_apit += Decimal(str(p.less_apit or 0))
+            total_nopay += Decimal(str(p.less_nopay or 0))
 
         # Combined EPF/ETF totals
         total_epf = total_epf_employee + total_epf_employer
@@ -1219,7 +1221,8 @@ class PurchaseExpensePayrollGL:
         # deduction is simply pay that is not earned -> it reduces salary cost.
         total_other_deductions = total_stamp + total_other
         total_employee_repay = total_advance_repay + total_loan_repay
-        salary_expense = total_gross - total_advance_paid - total_late
+        # No-pay leave is pay not earned too.
+        salary_expense = total_gross - total_advance_paid - total_late - total_nopay
 
         period_str = f"{batch.payroll_year}-{batch.payroll_month:02d}"
 

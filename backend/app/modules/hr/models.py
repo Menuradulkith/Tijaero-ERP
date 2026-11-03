@@ -112,3 +112,64 @@ class ReimbursementItem(Base, AuditMixin):
 
     # Relationships
     reimbursement = relationship("Reimbursements", back_populates="items")
+
+
+class HRPayrollSettings(Base, AuditMixin):
+    """Company-wide payroll rules (one row). Statutory defaults are Sri Lankan; APIT brackets stay in code."""
+    __tablename__ = "hr_payroll_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    epf_employee_rate = Column(Numeric(5, 2), nullable=False, default=8)
+    epf_employer_rate = Column(Numeric(5, 2), nullable=False, default=12)
+    etf_rate = Column(Numeric(5, 2), nullable=False, default=3)
+    # Overtime: hourly rate = (basic + EPF-liable allowances) / ot_divisor, paid at ot_multiplier
+    pay_overtime = Column(Boolean, nullable=False, default=True)
+    ot_multiplier = Column(Numeric(4, 2), nullable=False, default=1.5)
+    ot_divisor = Column(Integer, nullable=False, default=240)
+    # Late minutes from attendance cut at the plain hourly rate
+    deduct_late = Column(Boolean, nullable=False, default=False)
+    # Stamp duty on the salary receipt when gross pay is above the threshold
+    stamp_duty_amount = Column(Numeric(10, 2), nullable=False, default=25)
+    stamp_duty_threshold = Column(Numeric(15, 2), nullable=False, default=25000)
+    # Payment of Gratuity Act: half a month's salary per completed year after 5 years
+    gratuity_enabled = Column(Boolean, nullable=False, default=True)
+    employer_epf_no = Column(String(30), nullable=True)
+    employer_tin = Column(String(30), nullable=True)
+
+
+class HREmployeeLoan(Base, AuditMixin):
+    """Company loan or salary advance, recovered in monthly instalments through payroll."""
+    __tablename__ = "hr_employee_loans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    loan_no = Column(String(30), unique=True, nullable=False, index=True)
+    employee_pk = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    # loan | advance
+    loan_type = Column(String(10), nullable=False, default="loan")
+    issue_date = Column(Date, nullable=False)
+    amount = Column(Numeric(15, 2), nullable=False)
+    installment_amount = Column(Numeric(15, 2), nullable=False)
+    installments = Column(Integer, nullable=False, default=1)
+    # First payroll period (YYYY-MM) that recovers an instalment
+    start_period = Column(String(7), nullable=False)
+    payment_method = Column(String(20), nullable=False, default="bank_transfer")
+    # active | settled | cancelled
+    status = Column(String(15), nullable=False, default="active", index=True)
+    remarks = Column(Text, nullable=True)
+
+    recoveries = relationship("HRLoanRecovery", back_populates="loan", cascade="all, delete-orphan", lazy="select")
+
+
+class HRLoanRecovery(Base, AuditMixin):
+    __tablename__ = "hr_loan_recoveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    loan_id = Column(Integer, ForeignKey("hr_employee_loans.id", ondelete="CASCADE"), nullable=False, index=True)
+    period = Column(String(7), nullable=False)
+    amount = Column(Numeric(15, 2), nullable=False)
+    # Set when withheld from a payroll record; NULL for a cash / bank repayment
+    payroll_id = Column(Integer, ForeignKey("employee_payroll.id", ondelete="CASCADE"), nullable=True, index=True)
+    payment_date = Column(Date, nullable=True)
+    remarks = Column(Text, nullable=True)
+
+    loan = relationship("HREmployeeLoan", back_populates="recoveries")

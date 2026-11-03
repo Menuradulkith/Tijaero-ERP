@@ -253,6 +253,21 @@ def reject_leave(
     return service.LeaveService(db).reject(leave_id, data, current_user.id, current_user)
 
 
+@router.post(
+    "/leaves/{leave_id}/cancel",
+    response_model=schemas.Leave,
+    dependencies=[Depends(require_permission(*Permissions.LEAVE_APPROVAL_APPROVE))],
+)
+def cancel_leave(
+    leave_id: RowId,
+    data: schemas.LeaveReject,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel approved leave; the days go back to the employee's balance."""
+    return service.LeaveService(db).cancel(leave_id, data, current_user)
+
+
 @router.delete(
     "/leaves/{leave_id}",
     status_code=status.HTTP_204_NO_CONTENT,

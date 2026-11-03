@@ -33,7 +33,7 @@ import {
   AccessTime as AttendanceIcon,
 } from "@mui/icons-material";
 
-import { TPageHeader, TStatCard, TStatusChip, TChip } from "@/components/tijaero";
+import { TStatusChip, TChip } from "@/components/tijaero";
 import { KpiSparkCard } from "@/components/dashboard";
 import {
   payrollBatchApi,

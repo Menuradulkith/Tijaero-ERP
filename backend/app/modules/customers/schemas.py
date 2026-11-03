@@ -381,6 +381,9 @@ class CustomerCreditsSettleTransactionBase(BaseModel):
 
 class CustomerCreditsSettleTransactionCreate(CustomerCreditsSettleTransactionBase):
     payment_amount: PositiveMoneyIn
+    # The remark is copied into the cashbook and approval notes, which are shorter.
+    payment_method_number: Optional[str] = Field(None, max_length=100)
+    remarks: Optional[str] = Field(None, max_length=500)
 
 class CustomerCreditsSettleTransaction(CustomerCreditsSettleTransactionBase, TijaeroBaseSchema):
     id: int
@@ -648,6 +651,23 @@ class GiftVoucherCreate(GiftVoucherBase):
     payment_method: str = Field(default="cash", description="Payment method used to purchase voucher (cash, card, bank_transfer, cheque)")
     branch_code: Optional[str] = Field(None, description="Branch where voucher was sold")
     customer_name: Optional[str] = Field(None, description="Customer who purchased the voucher (optional for walk-in)")
+
+    @field_validator("payment_method")
+    @classmethod
+    def _method(cls, v):
+        # The sale is booked to Cash on Hand for "cash" and to the bank otherwise.
+        v = (v or "cash").strip().lower().replace(" ", "_")
+        if v not in ("cash", "card", "bank_transfer", "cheque"):
+            raise ValueError("Payment method must be cash, card, bank transfer or cheque")
+        return v
+
+    @field_validator("barcode_no")
+    @classmethod
+    def _barcode(cls, v):
+        v = v.strip()
+        if not v:
+            raise ValueError("Voucher code can't be blank")
+        return v
 
 class GiftVoucherUpdate(BaseModel):
     amount: Optional[PositiveMoneyIn] = None

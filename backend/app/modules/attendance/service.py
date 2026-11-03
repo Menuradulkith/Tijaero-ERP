@@ -6,6 +6,7 @@ from datetime import date, datetime, time
 from typing import List, Optional
 
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
@@ -485,6 +486,37 @@ class LeaveService:
         leave.approved_by = approver_id
         leave.approved_date = tz.now()
         leave.rejection_reason = data.rejection_reason
+        self.db.commit()
+        self.db.refresh(leave)
+        return _to_leave_response(self.db, leave)
+
+    def cancel(self, leave_id: int, data: schemas.LeaveReject, actor: User) -> schemas.Leave:
+        """Cancel approved leave (plans changed, or entered wrongly): the days go back to the balance.
+        No-pay leave in a month whose payroll has been run cannot be cancelled any more."""
+        from app.modules.attendance.models import Leaves
+        from app.modules.hr.models import PayrollBatch
+        from app.modules.hr_core.models import HRLeaveType
+        leave = self.db.query(Leaves).filter(Leaves.id == leave_id).with_for_update().first()
+        if not leave:
+            raise HTTPException(status_code=404, detail="Leave not found")
+        self._scope_leave(leave, actor)
+        if leave.status != "approved":
+            raise HTTPException(status_code=400, detail="Only approved leave can be cancelled; pending leave can be rejected or deleted")
+        lt = self.db.query(HRLeaveType).filter(func.lower(HRLeaveType.code) == (leave.leave_type or "").lower()).first()
+        if lt is not None and not lt.is_paid:
+            d, months = leave.from_date, set()
+            while d <= leave.to_date:
+                months.add((d.year, d.month))
+                d = date(d.year + (d.month == 12), d.month % 12 + 1, 1)
+            for y, mth in months:
+                if self.db.query(PayrollBatch.id).filter(PayrollBatch.payroll_year == y, PayrollBatch.payroll_month == mth,
+                                                         PayrollBatch.status != "cancelled").first():
+                    raise HTTPException(status_code=400, detail=f"Payroll for {y}-{mth:02d} already deducted this no-pay leave")
+        leave.status = "cancelled"
+        leave.rejection_reason = f"Cancelled: {data.rejection_reason}"
+        from app.common.audit import log_audit
+        log_audit(self.db, user_id=actor.id, action="cancel", entity_type="leave", entity_id=leave.id,
+                  changes={"reason": data.rejection_reason})
         self.db.commit()
         self.db.refresh(leave)
         return _to_leave_response(self.db, leave)

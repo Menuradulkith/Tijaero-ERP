@@ -88,10 +88,14 @@ export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          // On phones a title slot (filters) takes the full row and the header
+          // actions drop to their own line instead of overlapping it.
+          flexWrap: "wrap",
+          rowGap: 0.5,
           flexShrink: 0,
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: titleSlot ? { xs: "100%", sm: 0 } : 0 }}>
           {titleSlot ? (
             titleSlot
           ) : (

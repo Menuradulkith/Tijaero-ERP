@@ -1132,7 +1132,7 @@ class TestSupplierAdvanceReturnCashbook:
         advance = SupplierAdvancePayment(
             advance_no=f"ADV-{_uid()}",
             supplier_id=supplier.id,
-            payment_date=OPEN_DATE,
+            payment_date=date.today(),
             branch_code=branch.branch_code,
             payment_method="cash",
             original_amount=Decimal("1000.00"),
@@ -1148,7 +1148,7 @@ class TestSupplierAdvanceReturnCashbook:
             advance.id,
             pur_schemas.SupplierAdvanceReturnCreate(
                 return_amount=Decimal("400.00"),
-                return_date=OPEN_DATE,
+                return_date=date.today(),  # a return can no longer be future-dated (2026-11-02)
                 return_method="cash",
             ),
             user_id=1,
@@ -1181,7 +1181,7 @@ class TestSupplierAdvanceReturnCashbook:
         advance = SupplierAdvancePayment(
             advance_no=f"ADV-{_uid()}",
             supplier_id=supplier.id,
-            payment_date=OPEN_DATE,
+            payment_date=date.today(),
             branch_code=branch.branch_code,
             payment_method="cash",
             original_amount=Decimal("1000.00"),
@@ -1197,7 +1197,7 @@ class TestSupplierAdvanceReturnCashbook:
             advance.id,
             pur_schemas.SupplierAdvanceReturnCreate(
                 return_amount=Decimal("1000.00"),
-                return_date=OPEN_DATE,
+                return_date=date.today(),  # a return can no longer be future-dated (2026-11-02)
                 return_method="cash",
             ),
             user_id=1,

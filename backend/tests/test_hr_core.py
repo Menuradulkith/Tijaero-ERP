@@ -135,7 +135,8 @@ class TestLeavePolicy:
         assert superclient.post(f"{HR}/leave-types", json={"code": code.upper(), "name": f"M {_uid()}"}).status_code == 400
 
     def test_application_checks(self, superclient, make_user):
-        user, emp = _new_employee(superclient, make_user)
+        # joined two years ago: Shop & Office annual leave is due (none in the joining year)
+        user, emp = _new_employee(superclient, make_user, date_of_joining=f"{date.today().year - 2}-01-15")
         eid = emp["employee_id"]
         start = _weekday(30)
         base = {"employee_id": eid, "leave_type": "annual", "from_date": start.isoformat(), "to_date": start.isoformat(), "leave_reason": "r", "leave_duration": 1}
@@ -166,7 +167,7 @@ class TestLeavePolicy:
         assert superclient.post(LV, json=unpaid).status_code in (200, 201)
 
     def test_balance_endpoint_and_allocation_override(self, superclient, make_user):
-        user, emp = _new_employee(superclient, make_user)
+        user, emp = _new_employee(superclient, make_user, date_of_joining=f"{date.today().year - 2}-01-15")
         year = date.today().year
         rows = superclient.get(f"{HR}/employees/{emp['id']}/leave-balances", params={"year": year}).json()
         annual = next(r for r in rows if r["code"] == "annual")
@@ -446,3 +447,50 @@ class TestReports:
     def test_reports_need_permission(self, api, make_user):
         _, tok = make_user(permissions=[("employees", "view")])
         assert api(tok).get(f"{HR}/reports/headcount").status_code == 403
+
+
+class TestSriLankaLeaveRules:
+    def _annual(self, superclient, emp, year):
+        rows = superclient.get(f"{HR}/employees/{emp['id']}/leave-balances", params={"year": year}).json()
+        return next(r for r in rows if r["code"] == "annual")
+
+    @pytest.mark.parametrize("month,days", [(2, 14), (5, 10), (8, 7), (11, 4)])
+    def test_shop_and_office_annual_leave_by_joining_quarter(self, superclient, make_user, month, days):
+        year = date.today().year
+        user, emp = _new_employee(superclient, make_user, date_of_joining=f"{year - 1}-{month:02d}-10")
+        assert self._annual(superclient, emp, year - 1)["entitlement"] == 0      # nothing in the joining year
+        assert self._annual(superclient, emp, year)["entitlement"] == days       # by the joining quarter
+        assert self._annual(superclient, emp, year + 1)["entitlement"] == 14     # full after that
+
+    def test_cancel_approved_leave_gives_days_back(self, superclient, make_user):
+        user, emp = _new_employee(superclient, make_user, date_of_joining=f"{date.today().year - 2}-01-15")
+        d = _weekday(40)
+        r = superclient.post(LV, json={"employee_id": emp["employee_id"], "leave_type": "casual", "from_date": d.isoformat(),
+                                       "to_date": d.isoformat(), "leave_reason": "r", "leave_duration": 1})
+        assert r.status_code in (200, 201), r.text
+        lid = r.json()["id"]
+        assert superclient.post(f"{LV}/{lid}/cancel", json={"rejection_reason": "x"}).status_code == 400   # still pending
+        assert superclient.post(f"{LV}/{lid}/approve", json={}).status_code == 200
+        rows = superclient.get(f"{HR}/employees/{emp['id']}/leave-balances", params={"year": d.year}).json()
+        used = next(x for x in rows if x["code"] == "casual")["used"]
+        c = superclient.post(f"{LV}/{lid}/cancel", json={"rejection_reason": "plans changed"})
+        assert c.status_code == 200 and c.json()["status"] == "cancelled", c.text
+        rows = superclient.get(f"{HR}/employees/{emp['id']}/leave-balances", params={"year": d.year}).json()
+        assert next(x for x in rows if x["code"] == "casual")["used"] == used - 1
+
+    def test_lieu_leave_needs_attendance_on_a_non_working_day(self, superclient, make_user, db):
+        from app.modules.attendance.models import Attendance
+        user, emp = _new_employee(superclient, make_user, date_of_joining=f"{date.today().year - 2}-01-15")
+        today = date.today()
+        sunday = today - timedelta(days=(today.weekday() + 1) % 7 or 7)
+        monday = sunday - timedelta(days=6)
+        body = {"employee_pk": emp["id"], "worked_date": sunday.isoformat()}
+        assert superclient.post(f"{HR}/leave-allocations/lieu", json=body).status_code == 400            # no attendance
+        for d in (sunday, monday):
+            db.add(Attendance(employee_id=emp["employee_id"], branch_code=emp.get("branch_code") or "MAIN", date=d, work_mins=300))
+        db.flush()
+        assert superclient.post(f"{HR}/leave-allocations/lieu", json={**body, "worked_date": monday.isoformat()}).status_code == 400  # working day
+        r = superclient.post(f"{HR}/leave-allocations/lieu", json=body)
+        assert r.status_code == 200, r.text
+        assert r.json()["balance"] == 1
+        assert superclient.post(f"{HR}/leave-allocations/lieu", json=body).status_code == 400            # once per day

@@ -103,13 +103,28 @@ def line_amounts(quantity: Number, price: Number, discount_percent: Number = 0) 
 # ---------------------------------------------------------------------------
 from typing import Annotated  # noqa: E402
 
-from pydantic import Field  # noqa: E402
+from pydantic import AfterValidator, Field  # noqa: E402
 
-MoneyIn = Annotated[Decimal, Field(ge=0, le=MAX_MONEY, allow_inf_nan=False)]
-"""A non-negative money input (0 .. MAX_MONEY)."""
-PositiveMoneyIn = Annotated[Decimal, Field(gt=0, le=MAX_MONEY, allow_inf_nan=False)]
-"""A strictly positive money input (0 < x <= MAX_MONEY)."""
-SignedMoneyIn = Annotated[Decimal, Field(ge=-MAX_MONEY, le=MAX_MONEY, allow_inf_nan=False)]
-"""A money input that may be negative (adjustments), |x| <= MAX_MONEY."""
+
+def _to_cents(value: Decimal) -> Decimal:
+    """Money is stored in cents: round inputs half-up as they arrive, so a
+    browser float like 0.30000000000000004 becomes 0.30 and what is validated,
+    summed and saved is the same number."""
+    return money(value)
+
+
+def _positive_cents(value: Decimal) -> Decimal:
+    value = money(value)
+    if value <= 0:
+        raise ValueError("Amount must be at least 0.01")
+    return value
+
+
+MoneyIn = Annotated[Decimal, Field(ge=0, le=MAX_MONEY, allow_inf_nan=False), AfterValidator(_to_cents)]
+"""A non-negative money input (0 .. MAX_MONEY), rounded to cents."""
+PositiveMoneyIn = Annotated[Decimal, Field(gt=0, le=MAX_MONEY, allow_inf_nan=False), AfterValidator(_positive_cents)]
+"""A strictly positive money input (0.01 .. MAX_MONEY), rounded to cents."""
+SignedMoneyIn = Annotated[Decimal, Field(ge=-MAX_MONEY, le=MAX_MONEY, allow_inf_nan=False), AfterValidator(_to_cents)]
+"""A money input that may be negative (adjustments), |x| <= MAX_MONEY, rounded to cents."""
 PercentIn = Annotated[Decimal, Field(ge=0, le=100, allow_inf_nan=False)]
 """A percentage input 0..100."""

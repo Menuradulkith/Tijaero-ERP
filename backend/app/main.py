@@ -322,6 +322,20 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
             headers={"Retry-After": "1"},
             content={"detail": "Another change to the same records was in progress. Nothing was saved - please try again."},
         )
+    # Input the database itself refused (text longer than the column, a number or
+    # id too big for it, an impossible date): bad input, not a server fault.
+    data_errors = {
+        "22001": "One of the texts is too long. Please shorten it.",
+        "22003": "One of the numbers is too large.",
+        "22008": "One of the dates is not valid.",
+        "22007": "One of the dates is not valid.",
+        "22P02": "One of the values is not in the right format.",
+    }
+    orig = getattr(exc, "orig", None)
+    pgcode = getattr(orig, "pgcode", None) or getattr(orig, "sqlstate", None)  # psycopg2 / psycopg 3
+    if pgcode in data_errors:
+        logging.warning("Database rejected input (%s): %s", pgcode, exc.__class__.__name__)
+        return JSONResponse(status_code=422, content={"detail": data_errors[pgcode]})
     logging.error(f"Database Error: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,

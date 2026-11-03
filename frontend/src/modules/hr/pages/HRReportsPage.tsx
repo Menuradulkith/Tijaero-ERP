@@ -1,8 +1,8 @@
 /** HR Reports — headcount, birthdays and anniversaries, expiries, leave summary, attrition. */
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Box, Chip, LinearProgress, MenuItem, Paper, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography } from "@mui/material";
-import { MasterDetailLayout } from "@/components/tijaero";
+import { Box, Chip, InputAdornment, LinearProgress, Paper, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
+import { MasterDetailLayout, TStatusFilter, TTabs } from "@/components/tijaero";
 import { hrReportsApi, type CountRow, type ExpiryRow, type UpcomingRow } from "@/modules/hr/core-api";
 
 const fmt = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -55,6 +55,8 @@ const expiry = (title: string, rows: ExpiryRow[], withDoc = false) => (
 );
 
 const TABS = ["Headcount", "Birthdays & Anniversaries", "Expiries", "Leave", "Attrition"] as const;
+const TAB_CONFIG = TABS.map((t) => ({ id: t, label: t }));
+const LOOK_AHEAD_OPTIONS = [7, 14, 30, 60, 90, 180, 365].map((d) => ({ value: String(d), label: `Next ${d} days` }));
 
 export default function HRReportsPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Headcount");
@@ -73,17 +75,41 @@ export default function HRReportsPage() {
   return (
     <MasterDetailLayout title="HR Reports" isLoading={loading}
       titleSlot={(
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flex: 1 }}>
-          <Typography variant="h6" sx={{ mr: 1 }}>HR Reports</Typography>
-          {usesDays && <TextField select size="small" label="Look ahead" value={days} onChange={(e) => setDays(Number(e.target.value))} sx={{ width: 140 }}>
-            {[7, 14, 30, 60, 90, 180, 365].map((d) => <MenuItem key={d} value={d}>{d} days</MenuItem>)}</TextField>}
-          {usesYear && <TextField size="small" type="number" label="Year" value={year} onChange={(e) => setYear(Number(e.target.value) || thisYear)} sx={{ width: 100 }} inputProps={{ min: 2000, max: 2100 }} />}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+          <TTabs
+            tabs={TAB_CONFIG}
+            activeTab={tab}
+            onChange={(id) => setTab(id as (typeof TABS)[number])}
+            appearance="segmented"
+            variant="scrollable"
+            showDivider={false}
+          />
+          {usesDays && (
+            <Box sx={{ width: 170, flexShrink: 0 }}>
+              <TStatusFilter
+                options={LOOK_AHEAD_OPTIONS}
+                value={String(days)}
+                onChange={(v) => setDays(v ? Number(v) : 30)}
+                label=""
+                placeholder="Look ahead"
+                size="small"
+              />
+            </Box>
+          )}
+          {usesYear && (
+            <TextField
+              size="small"
+              type="number"
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value) || thisYear)}
+              inputProps={{ min: 2000, max: 2100 }}
+              InputProps={{ startAdornment: <InputAdornment position="start">Year</InputAdornment> }}
+              sx={{ width: 140, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+            />
+          )}
         </Box>
       )}>
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 1.5, borderBottom: 1, borderColor: "divider" }}>
-          {TABS.map((t) => <Tab key={t} value={t} label={t} sx={{ textTransform: "none" }} />)}
-        </Tabs>
 
         {tab === "Headcount" && head.data && (
           <>

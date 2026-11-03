@@ -108,6 +108,7 @@ export const ROUTES = {
     SALES_COMMISSIONS: '/hr/sales-commissions',
     SALARY_PROFILES: '/hr/salary-profiles',
     DEDUCTIONS: '/hr/deductions',
+    LOANS: '/hr/loans',
     REIMBURSEMENTS: '/hr/reimbursements',
     PROMOTIONS: '/hr/promotions',
     ASSETS: '/hr/assets',

@@ -1,3 +1,5 @@
+from typing import Annotated
+from pydantic import StringConstraints
 from pydantic import BaseModel, Field
 from datetime import date, datetime
 from typing import Optional, List
@@ -160,7 +162,7 @@ class ExpenseApproval(BaseModel):
     remarks: Optional[str] = None
 
 class ExpenseReject(BaseModel):
-    rejection_reason: str
+    rejection_reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 class ExpensePayment(BaseModel):
     payment_method: str
@@ -361,7 +363,7 @@ class PettyCashExpenseCreate(BaseModel):
     """Record a petty cash expense"""
     petty_cash_id: int
     amount: PositiveMoneyIn
-    expense_type: str
+    expense_type: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
     recipient_name: Optional[str] = None
     purpose: Optional[str] = None
     receipt_number: Optional[str] = None

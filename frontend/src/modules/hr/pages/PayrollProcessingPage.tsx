@@ -1,63 +1,87 @@
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
-  Paper,
   Typography,
-  Divider,
   Button,
-  LinearProgress,
   TextField,
   MenuItem,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
+  InputAdornment,
+  IconButton,
+  Tooltip,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Card,
-  CardContent,
-  Grid,
   Stepper,
   Step,
   StepLabel,
   Alert,
 } from "@mui/material";
+import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
   PlayArrow as RunIcon,
   CheckCircle as ApproveIcon,
   Cancel as RejectIcon,
+  Cancel as CancelIcon,
   Payment as PaymentIcon,
   AccountBalance as StatutoryIcon,
   DoneAll as CompleteIcon,
   Send as SubmitIcon,
-  Visibility as ViewIcon,
-  Add as AddIcon,
+  Search as SearchIcon,
+  ArrowBack as ArrowBackIcon,
+  OpenInNew as OpenInNewIcon,
+  Payments as PayrollIcon,
 } from "@mui/icons-material";
 import {
+  ActionToolbar,
+  DetailPanelHeader,
+  FormSection,
+  MasterDetailLayout,
+  TConfirmDialog,
+  TCurrency,
+  TDataGrid,
+  TDetailSkeleton,
+  TPrintButton,
+  TSidePanel,
+  TStatusChip,
+  TStatusFilter,
+  getStatusProps,
   handleApiError,
   showErrorToast,
   showSuccessToast,
-  TButton,
-  TConfirmDialog,
-  TCurrency,
-  TPageHeader,
-  TStatusChip,
   useTConfirmDialog,
+  type TDataGridColumn,
+  type TFilterStatusOption,
 } from "@/components/tijaero";
-import { payrollBatchApi } from "@/modules/hr/api";
+import { payrollBatchApi, statutoryReturnsApi } from "@/modules/hr/api";
 import type {
+  EmployeePayroll,
   PayrollBatch,
   PayrollRunRequest,
   PayrollBatchProcessPayment,
   PayrollBatchProcessStatutory,
+  StatutoryReturnKind,
 } from "@/modules/hr/types";
 
-import CancelIcon from "@mui/icons-material/Cancel";
+const n = (v: unknown) => Number(v || 0);
+/** Earnings above basic: allowance lines (or the old two slots), overtime, commission, bonus. */
+const allowancesOf = (r: EmployeePayroll) =>
+  n(r.allowances_total) + n(r.add_overtime) + n(r.add_sales_commision) + n(r.add_bonus);
+/** Deductions other than EPF and APIT. */
+const otherDeductionsOf = (r: EmployeePayroll) =>
+  n(r.less_stamp_duty) + n(r.less_late_deductions) + n(r.less_salary_advance_repayment) + n(r.less_loan_repayment)
+  + n(r.less_other_deductions) + n(r.less_nopay);
+
+const RETURNS: { kind: StatutoryReturnKind; label: string; hint: string }[] = [
+  { kind: "epf", label: "EPF Form C", hint: "Monthly EPF contributions (8% + 12%) per member" },
+  { kind: "etf", label: "ETF R4", hint: "Monthly ETF contributions (3%) per member" },
+  { kind: "apit", label: "APIT schedule", hint: "Tax deducted per employee for the IRD" },
+  { kind: "bank", label: "Bank transfer file", hint: "Net pay per bank account, for the salary upload" },
+];
+
 const WORKFLOW_STEPS = [
   "Setup Profiles",
   "Run Payroll",
@@ -102,12 +126,44 @@ const MONTHS = [
   { value: 12, label: "December" },
 ];
 
+const periodOf = (b: Pick<PayrollBatch, "payroll_month" | "payroll_year">) =>
+  `${MONTHS.find((m) => m.value === b.payroll_month)?.label ?? ""} ${b.payroll_year}`.trim();
+
+const STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
+  "draft",
+  "pending_approval",
+  "approved",
+  "salary_paid",
+  "statutory_paid",
+  "completed",
+  "cancelled",
+].map((s) => ({ value: s, label: getStatusProps(s, "payrollStatus").label }));
+
+type BatchRow = PayrollBatch & { period: string };
+
+/** Label + value cell used inside FormSection grids. */
+function Figure({ label, children, color }: { label: string; children: React.ReactNode; color?: string }) {
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography variant="h6" color={color}>
+        {children}
+      </Typography>
+    </Box>
+  );
+}
+
 export default function PayrollProcessingPage() {
   const queryClient = useQueryClient();
   const { dialogProps, confirm } = useTConfirmDialog();
 
   // State
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [filterYear, setFilterYear] = useState<string>("");
   const [runDialogOpen, setRunDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -127,13 +183,24 @@ export default function PayrollProcessingPage() {
     etf_reference: "",
   });
 
+  // Synchronous in-flight guard: `isPending` only flips on the next render, so a
+  // fast double click could otherwise fire the same mutation twice.
+  const inFlight = useRef(false);
+  const guarded = (fire: (onSettled: () => void) => void) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    fire(() => {
+      inFlight.current = false;
+    });
+  };
+
   // Queries
   const { data: batches, isLoading } = useQuery({
     queryKey: ["payroll-batches"],
     queryFn: () => payrollBatchApi.getAll(),
   });
 
-  const { data: selectedBatch } = useQuery({
+  const { data: selectedBatch, isLoading: isBatchLoading } = useQuery({
     queryKey: ["payroll-batch", selectedBatchId],
     queryFn: () => payrollBatchApi.getById(selectedBatchId!),
     enabled: !!selectedBatchId,
@@ -148,7 +215,7 @@ export default function PayrollProcessingPage() {
       showSuccessToast(`Payroll batch ${data.batch_no} created with ${data.total_employees} employees`);
       setRunDialogOpen(false);
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       showErrorToast(handleApiError(err, "Failed to run payroll"));
     },
   });
@@ -160,7 +227,7 @@ export default function PayrollProcessingPage() {
       queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
       showSuccessToast("Payroll submitted for approval");
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       showErrorToast(handleApiError(err, "Failed to submit"));
     },
   });
@@ -172,7 +239,7 @@ export default function PayrollProcessingPage() {
       queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
       showSuccessToast("Payroll batch approved");
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       showErrorToast(handleApiError(err, "Failed to approve"));
     },
   });
@@ -187,7 +254,7 @@ export default function PayrollProcessingPage() {
       queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
       showSuccessToast("Payroll batch rejected and returned to draft");
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       showErrorToast(handleApiError(err, "Failed to reject"));
     },
   });
@@ -201,7 +268,7 @@ export default function PayrollProcessingPage() {
       showSuccessToast("Salary payments processed successfully");
       setPaymentDialogOpen(false);
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       showErrorToast(handleApiError(err, "Failed to process payment"));
     },
   });
@@ -215,7 +282,7 @@ export default function PayrollProcessingPage() {
       showSuccessToast("Statutory payments processed (EPF/ETF)");
       setStatutoryDialogOpen(false);
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       showErrorToast(handleApiError(err, "Failed to process statutory"));
     },
   });
@@ -227,7 +294,7 @@ export default function PayrollProcessingPage() {
       queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
       showSuccessToast("Payroll cycle completed!");
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       showErrorToast(handleApiError(err, "Failed to complete"));
     },
   });
@@ -239,12 +306,23 @@ export default function PayrollProcessingPage() {
       setSelectedBatchId(null);
       showSuccessToast("Payroll batch cancelled");
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       showErrorToast(handleApiError(err, "Failed to cancel"));
     },
   });
 
+  const anyWorkflowPending =
+    submitMutation.isPending ||
+    approveMutation.isPending ||
+    rejectMutation.isPending ||
+    paymentMutation.isPending ||
+    statutoryMutation.isPending ||
+    completeMutation.isPending ||
+    cancelMutation.isPending;
+
   // Handlers
+  const handleRun = () => guarded((onSettled) => runMutation.mutate(runForm, { onSettled }));
+
   const handleSubmitBatch = async () => {
     if (!selectedBatchId) return;
     const confirmed = await confirm({
@@ -252,7 +330,7 @@ export default function PayrollProcessingPage() {
       message: "Submit this payroll batch for approval? This will lock all records for review.",
       confirmText: "Submit",
     });
-    if (confirmed) submitMutation.mutate(selectedBatchId);
+    if (confirmed) guarded((onSettled) => submitMutation.mutate(selectedBatchId, { onSettled }));
   };
 
   const handleApproveBatch = async () => {
@@ -262,13 +340,30 @@ export default function PayrollProcessingPage() {
       message: "Approve this payroll batch? This allows salary payments to be processed.",
       confirmText: "Approve",
     });
-    if (confirmed) approveMutation.mutate(selectedBatchId);
+    if (confirmed) guarded((onSettled) => approveMutation.mutate(selectedBatchId, { onSettled }));
   };
 
   const handleRejectBatch = () => {
     if (!selectedBatchId) return;
     setRejectReason("");
     setRejectDialogOpen(true);
+  };
+
+  const handleConfirmReject = () => {
+    if (!selectedBatchId || !rejectReason.trim()) return;
+    guarded((onSettled) =>
+      rejectMutation.mutate({ id: selectedBatchId, reason: rejectReason.trim() }, { onSettled }),
+    );
+  };
+
+  const handleProcessPayment = () => {
+    if (!selectedBatchId) return;
+    guarded((onSettled) => paymentMutation.mutate({ id: selectedBatchId, data: paymentForm }, { onSettled }));
+  };
+
+  const handleProcessStatutory = () => {
+    if (!selectedBatchId) return;
+    guarded((onSettled) => statutoryMutation.mutate({ id: selectedBatchId, data: statutoryForm }, { onSettled }));
   };
 
   const handleCompleteBatch = async () => {
@@ -278,7 +373,7 @@ export default function PayrollProcessingPage() {
       message: "Mark this payroll cycle as complete? This action is final.",
       confirmText: "Complete",
     });
-    if (confirmed) completeMutation.mutate(selectedBatchId);
+    if (confirmed) guarded((onSettled) => completeMutation.mutate(selectedBatchId, { onSettled }));
   };
 
   const handleCancelBatch = async () => {
@@ -289,693 +384,695 @@ export default function PayrollProcessingPage() {
       confirmText: "Cancel Batch",
       danger: true,
     });
-    if (confirmed) cancelMutation.mutate(selectedBatchId);
+    if (confirmed) guarded((onSettled) => cancelMutation.mutate(selectedBatchId, { onSettled }));
   };
 
-  // Render action buttons based on batch status
-  const renderActions = (batch: PayrollBatch) => {
-    const actions: JSX.Element[] = [];
+  const handleClearFilters = () => {
+    setSearchQuery("");
+    setFilterStatus(null);
+    setFilterYear("");
+  };
 
+  // Browse data
+  const yearOptions = useMemo(
+    () => Array.from(new Set((batches ?? []).map((b) => b.payroll_year))).sort((a, b) => b - a),
+    [batches],
+  );
+
+  const batchRows = useMemo<BatchRow[]>(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return (batches ?? [])
+      .map((b) => ({ ...b, period: periodOf(b) }))
+      .filter((b) => !filterStatus || b.status === filterStatus)
+      .filter((b) => !filterYear || String(b.payroll_year) === filterYear)
+      .filter(
+        (b) =>
+          !q ||
+          b.batch_no.toLowerCase().includes(q) ||
+          b.period.toLowerCase().includes(q) ||
+          (b.description ?? "").toLowerCase().includes(q),
+      );
+  }, [batches, searchQuery, filterStatus, filterYear]);
+
+  const batchColumns = useMemo<TDataGridColumn<BatchRow>[]>(
+    () => [
+      {
+        field: "batch_no",
+        header: "Batch No",
+        flex: 1,
+        minWidth: 140,
+        renderCell: (params: GridRenderCellParams<BatchRow>) => (
+          <Typography variant="body2" fontWeight="bold">
+            {params.row.batch_no}
+          </Typography>
+        ),
+      },
+      { field: "period", header: "Period", width: 160 },
+      { field: "total_employees", header: "Employees", width: 110, align: "right" },
+      {
+        field: "total_gross_salary",
+        header: "Gross Salary",
+        width: 150,
+        align: "right",
+        renderCell: (params: GridRenderCellParams<BatchRow>) => (
+          <TCurrency value={params.row.total_gross_salary || 0} />
+        ),
+      },
+      {
+        field: "total_net_salary",
+        header: "Net Salary",
+        width: 150,
+        align: "right",
+        renderCell: (params: GridRenderCellParams<BatchRow>) => <TCurrency value={params.row.total_net_salary || 0} />,
+      },
+      {
+        field: "total_employer_cost",
+        header: "Employer Cost",
+        width: 150,
+        align: "right",
+        renderCell: (params: GridRenderCellParams<BatchRow>) => (
+          <TCurrency value={params.row.total_employer_cost || 0} />
+        ),
+      },
+      {
+        field: "status",
+        header: "Status",
+        width: 150,
+        renderCell: (params: GridRenderCellParams<BatchRow>) => (
+          <TStatusChip status={params.row.status} statusMap="payrollStatus" />
+        ),
+      },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (params: GridRenderCellParams<BatchRow>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedBatchId(params.row.id);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [],
+  );
+
+  const isDetailMode = selectedBatchId !== null;
+  const hasFilters = !!(searchQuery || filterStatus || filterYear);
+
+  // Workflow buttons based on batch status (same rules as before).
+  const renderActions = (batch: PayrollBatch) => {
     switch (batch.status) {
       case "draft":
-        actions.push(
-          <Button
-            key="submit"
-            variant="contained"
-            color="primary"
-            startIcon={<SubmitIcon />}
-            onClick={handleSubmitBatch}
-            size="small"
-          >
-            Submit for Approval
-          </Button>,
-          <Button variant="contained" color="error" startIcon={<CancelIcon />}
-            key="cancel"
-            onClick={handleCancelBatch}
-            size="small"
-          >
-            Cancel
-          </Button>
+        return (
+          <>
+            <Button variant="contained" color="primary" startIcon={<SubmitIcon />} onClick={handleSubmitBatch}
+              size="small" disabled={anyWorkflowPending}>
+              Submit for Approval
+            </Button>
+            <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelBatch}
+              size="small" disabled={anyWorkflowPending}>
+              Cancel
+            </Button>
+          </>
         );
-        break;
       case "pending_approval":
-        actions.push(
-          <Button
-            key="approve"
-            variant="contained"
-            color="success"
-            startIcon={<ApproveIcon />}
-            onClick={handleApproveBatch}
-            size="small"
-          >
-            Approve
-          </Button>,
-          <Button
-            key="reject"
-            variant="outlined"
-            color="error"
-            startIcon={<RejectIcon />}
-            onClick={handleRejectBatch}
-            size="small"
-          >
-            Reject
-          </Button>
+        return (
+          <>
+            <Button variant="contained" color="success" startIcon={<ApproveIcon />} onClick={handleApproveBatch}
+              size="small" disabled={anyWorkflowPending}>
+              Approve
+            </Button>
+            <Button variant="outlined" color="error" startIcon={<RejectIcon />} onClick={handleRejectBatch}
+              size="small" disabled={anyWorkflowPending}>
+              Reject
+            </Button>
+          </>
         );
-        break;
       case "approved":
-        actions.push(
-          <Button
-            key="pay"
-            variant="contained"
-            color="primary"
-            startIcon={<PaymentIcon />}
-            onClick={() => setPaymentDialogOpen(true)}
-            size="small"
-          >
+        return (
+          <Button variant="contained" color="primary" startIcon={<PaymentIcon />}
+            onClick={() => setPaymentDialogOpen(true)} size="small" disabled={anyWorkflowPending}>
             Process Salary Payment
           </Button>
         );
-        break;
       case "salary_paid":
-        actions.push(
-          <Button
-            key="statutory"
-            variant="contained"
-            color="secondary"
-            startIcon={<StatutoryIcon />}
-            onClick={() => setStatutoryDialogOpen(true)}
-            size="small"
-          >
+        return (
+          <Button variant="contained" color="secondary" startIcon={<StatutoryIcon />}
+            onClick={() => setStatutoryDialogOpen(true)} size="small" disabled={anyWorkflowPending}>
             Process Statutory (EPF/ETF)
           </Button>
         );
-        break;
       case "statutory_paid":
-        actions.push(
-          <Button
-            key="complete"
-            variant="contained"
-            color="success"
-            startIcon={<CompleteIcon />}
-            onClick={handleCompleteBatch}
-            size="small"
-          >
+        return (
+          <Button variant="contained" color="success" startIcon={<CompleteIcon />} onClick={handleCompleteBatch}
+            size="small" disabled={anyWorkflowPending}>
             Complete Payroll Cycle
           </Button>
         );
-        break;
+      default:
+        return null;
     }
-    return actions;
   };
 
-  return (
-    <Box>
-      <TPageHeader
-        title="Payroll Processing"
-        actions={
-          <TButton startIcon={<AddIcon />} onClick={() => setRunDialogOpen(true)}>
-            Run Payroll
-          </TButton>
+  const batchTablePanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <TDataGrid<BatchRow>
+          rows={batchRows}
+          columns={batchColumns}
+          loading={isLoading}
+          onRowClick={(row) => setSelectedBatchId(row.id)}
+          pageSizeOptions={[10, 25, 50, 100]}
+          pageSize={25}
+          emptyMessage={
+            hasFilters
+              ? "No payroll batches match the filters"
+              : 'No payroll batches found. Click "Run Payroll" to generate payroll records for all employees.'
+          }
+          autoHeight={false}
+          height="100%"
+        />
+      </Box>
+    </Box>
+  );
+
+  const records = selectedBatch?.payroll_records ?? [];
+
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[
+          { label: "HR" },
+          { label: "Payroll Processing" },
+          ...(selectedBatch ? [{ label: selectedBatch.batch_no }] : []),
+        ]}
+        title={selectedBatch?.batch_no ?? ""}
+        titleIcon={<PayrollIcon color="primary" />}
+        subtitle={
+          selectedBatch
+            ? `${periodOf(selectedBatch)}${selectedBatch.description ? ` — ${selectedBatch.description}` : ""}`
+            : undefined
+        }
+        noSelectionTitle="Payroll Batch"
+        chips={
+          selectedBatch
+            ? (() => {
+              const s = getStatusProps(selectedBatch.status, "payrollStatus");
+              return [{ label: s.label, color: s.color }];
+            })()
+            : []
         }
       />
 
-      {/* Batches List */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
-          Payroll Batches
-        </Typography>
-        {isLoading ? (
-          <LinearProgress sx={{ my: 2 }} />
-        ) : !batches?.length ? (
-          <Alert severity="info">
-            No payroll batches found. Click "Run Payroll" to generate payroll records for all employees.
-          </Alert>
+      <ActionToolbar
+        hasSelectedItem={!!selectedBatch}
+        isCreating={false}
+        isEditing={false}
+        endActions={
+          selectedBatch ? <Box sx={{ display: "flex", gap: 1 }}>{renderActions(selectedBatch)}</Box> : undefined
+        }
+      />
+
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        {isBatchLoading || !selectedBatch ? (
+          <TDetailSkeleton />
         ) : (
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Batch No</TableCell>
-                  <TableCell>Period</TableCell>
-                  <TableCell>Employees</TableCell>
-                  <TableCell align="right">Gross Salary</TableCell>
-                  <TableCell align="right">Net Salary</TableCell>
-                  <TableCell align="right">Employer Cost</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {batches.map((batch) => (
-                  <TableRow
-                    key={batch.id}
-                    hover
-                    selected={selectedBatchId === batch.id}
-                    sx={{ cursor: "pointer" }}
-                    onClick={() => setSelectedBatchId(batch.id)}
-                  >
-                    <TableCell>
-                      <Typography variant="body2" fontWeight="bold">
-                        {batch.batch_no}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      {MONTHS.find((m) => m.value === batch.payroll_month)?.label}{" "}
-                      {batch.payroll_year}
-                    </TableCell>
-                    <TableCell>{batch.total_employees}</TableCell>
-                    <TableCell align="right">
-                      <TCurrency value={batch.total_gross_salary || 0} />
-                    </TableCell>
-                    <TableCell align="right">
-                      <TCurrency value={batch.total_net_salary || 0} />
-                    </TableCell>
-                    <TableCell align="right">
-                      <TCurrency value={batch.total_employer_cost || 0} />
-                    </TableCell>
-                    <TableCell>
-                      <TStatusChip status={batch.status} statusMap="payrollStatus" />
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        size="small"
-                        startIcon={<ViewIcon />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedBatchId(batch.id);
-                        }}
-                      >
-                        View
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+          <>
+            <FormSection title="Workflow" columns={1}>
+              <Stepper activeStep={getActiveStep(selectedBatch.status)} alternativeLabel>
+                {WORKFLOW_STEPS.map((label) => (
+                  <Step key={label}>
+                    <StepLabel>{label}</StepLabel>
+                  </Step>
                 ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+              </Stepper>
+            </FormSection>
+
+            <FormSection title="Summary" columns={4}>
+              <Figure label="Employees">{selectedBatch.total_employees}</Figure>
+              <Figure label="Gross Salary">
+                <TCurrency value={selectedBatch.total_gross_salary || 0} />
+              </Figure>
+              <Figure label="Total Deductions" color="error.main">
+                <TCurrency value={selectedBatch.total_deductions || 0} />
+              </Figure>
+              <Figure label="Net Salary" color="success.main">
+                <TCurrency value={selectedBatch.total_net_salary || 0} />
+              </Figure>
+              <Figure label="Employer EPF">
+                <TCurrency value={selectedBatch.total_employer_epf || 0} />
+              </Figure>
+              <Figure label="Employer ETF">
+                <TCurrency value={selectedBatch.total_employer_etf || 0} />
+              </Figure>
+              <Figure label="APIT Tax" color="warning.main">
+                <TCurrency value={selectedBatch.total_apit || 0} />
+              </Figure>
+            </FormSection>
+
+            {(selectedBatch.salary_payment_date || selectedBatch.statutory_payment_date) && (
+              <FormSection title="Payment Information" columns={2}>
+                {selectedBatch.salary_payment_date && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Salary Paid</Typography>
+                    <Typography variant="body2">
+                      {selectedBatch.salary_payment_date}
+                      {selectedBatch.salary_payment_reference && ` (Ref: ${selectedBatch.salary_payment_reference})`}
+                    </Typography>
+                  </Box>
+                )}
+                {selectedBatch.statutory_payment_date && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Statutory Paid</Typography>
+                    <Typography variant="body2">
+                      {selectedBatch.statutory_payment_date}
+                      {selectedBatch.statutory_payment_reference &&
+                        ` (Ref: ${selectedBatch.statutory_payment_reference})`}
+                    </Typography>
+                  </Box>
+                )}
+              </FormSection>
+            )}
+
+            <FormSection title="Employee Payroll Records" columns={1}
+              isLast={selectedBatch.status === "cancelled" || !records.length}>
+              {records.length ? (
+                <TableContainer>
+                  <Table size="small" sx={{ "& td, & th": { whiteSpace: "nowrap" } }}>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Employee</TableCell>
+                        <TableCell align="right">Basic</TableCell>
+                        <TableCell align="right">Allowances</TableCell>
+                        <TableCell align="right">Gross</TableCell>
+                        <TableCell align="right">EPF (8%)</TableCell>
+                        <TableCell align="right">ETF (3%)</TableCell>
+                        <TableCell align="right">APIT</TableCell>
+                        <TableCell align="right">Other Ded.</TableCell>
+                        <TableCell align="right">Net Salary</TableCell>
+                        <TableCell align="right">EPF Emp (12%)</TableCell>
+                        <TableCell align="right">ETF Emp (3%)</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell padding="checkbox" />
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {records.map((record) => (
+                        <TableRow key={record.id}>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight="bold">
+                              {record.employee_name || record.employee_id}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {record.employee_id}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <TCurrency value={record.basic_salary || 0} />
+                          </TableCell>
+                          <TableCell align="right">
+                            <TCurrency value={allowancesOf(record)} />
+                            {n(record.add_overtime) > 0 && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                incl. OT {n(record.ot_hours)} h
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell align="right">
+                            <TCurrency value={record.gross_salary || 0} />
+                          </TableCell>
+                          <TableCell align="right">
+                            <TCurrency value={record.less_epf_employee || 0} />
+                          </TableCell>
+                          <TableCell align="right">
+                            <TCurrency value={record.less_etf_employee || 0} />
+                          </TableCell>
+                          <TableCell align="right">
+                            <TCurrency value={record.less_apit || 0} />
+                          </TableCell>
+                          <TableCell align="right">
+                            <TCurrency value={otherDeductionsOf(record)} />
+                            {n(record.less_nopay) > 0 && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                incl. no-pay {n(record.nopay_days)} d
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography fontWeight="bold" color="success.main" variant="body2">
+                              <TCurrency value={record.net_salary || 0} />
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <TCurrency value={record.epf_employer || 0} />
+                          </TableCell>
+                          <TableCell align="right">
+                            <TCurrency value={record.etf_employer || 0} />
+                          </TableCell>
+                          <TableCell>
+                            <TStatusChip status={record.status || "draft"} statusMap="payrollStatus" />
+                          </TableCell>
+                          <TableCell padding="checkbox">
+                            <TPrintButton documentType="payslip" documentId={record.id} size="small"
+                              tooltip="Print payslip" disabled={record.status === "cancelled"}
+                              disabledReason="Cancelled" />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {/* Totals Row */}
+                      <TableRow sx={{ "& td": { fontWeight: "bold", borderTop: 2 } }}>
+                        <TableCell>TOTALS</TableCell>
+                        <TableCell align="right">
+                          <TCurrency value={records.reduce((sum, r) => sum + (r.basic_salary || 0), 0)} />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TCurrency value={records.reduce((sum, r) => sum + allowancesOf(r), 0)} />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TCurrency value={selectedBatch.total_gross_salary || 0} />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TCurrency value={records.reduce((sum, r) => sum + (r.less_epf_employee || 0), 0)} />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TCurrency value={records.reduce((sum, r) => sum + (r.less_etf_employee || 0), 0)} />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TCurrency value={selectedBatch.total_apit || 0} />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TCurrency value={records.reduce((sum, r) => sum + otherDeductionsOf(r), 0)} />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TCurrency value={selectedBatch.total_net_salary || 0} />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TCurrency value={selectedBatch.total_employer_epf || 0} />
+                        </TableCell>
+                        <TableCell align="right">
+                          <TCurrency value={selectedBatch.total_employer_etf || 0} />
+                        </TableCell>
+                        <TableCell />
+                        <TableCell />
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No payroll records in this batch.
+                </Typography>
+              )}
+            </FormSection>
+
+            {selectedBatch.status !== "cancelled" && !!records.length && (
+              <FormSection title="Statutory returns & bank file" columns={1} isLast>
+                <Box>
+                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                    {RETURNS.map((r) => (
+                      <Button key={r.kind} variant="outlined" size="small" title={r.hint}
+                        onClick={() => statutoryReturnsApi.downloadCsv(selectedBatch.id, r.kind)
+                          .catch((e) => showErrorToast(handleApiError(e, `Failed to download ${r.label}`)))}>
+                        {r.label} (CSV)
+                      </Button>
+                    ))}
+                  </Box>
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                    Set the employer EPF number and TIN in HR Setup → Payroll. Members without an EPF number or bank
+                    account are listed as warnings in the file.
+                  </Typography>
+                </Box>
+              </FormSection>
+            )}
+          </>
         )}
-      </Paper>
+      </Box>
+    </Box>
+  );
 
-      {/* Batch Detail */}
-      {selectedBatch && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-            <Box>
-              <Typography variant="h6">
-                {selectedBatch.batch_no}
-                <TStatusChip
-                  status={selectedBatch.status}
-                  statusMap="payrollStatus"
-                  size="small"
-                  sx={{ ml: 1 }}
-                />
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {MONTHS.find((m) => m.value === selectedBatch.payroll_month)?.label}{" "}
-                {selectedBatch.payroll_year}
-                {selectedBatch.description && ` — ${selectedBatch.description}`}
-              </Typography>
-            </Box>
-            <Box sx={{ display: "flex", gap: 1 }}>
-              {renderActions(selectedBatch)}
-            </Box>
-          </Box>
-
-          {/* Workflow Stepper */}
-          <Stepper
-            activeStep={getActiveStep(selectedBatch.status)}
-            alternativeLabel
-            sx={{ mb: 3 }}
-          >
-            {WORKFLOW_STEPS.map((label) => (
-              <Step key={label}>
-                <StepLabel>{label}</StepLabel>
-              </Step>
-            ))}
-          </Stepper>
-
-          {/* Summary Cards */}
-          <Grid container spacing={2} sx={{ mb: 2 }}>
-            <Grid item xs={12} sm={6} md={2}>
-              <Card variant="outlined">
-                <CardContent sx={{ py: 1, "&:last-child": { pb: 1 } }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Employees
-                  </Typography>
-                  <Typography variant="h6">{selectedBatch.total_employees}</Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={2}>
-              <Card variant="outlined">
-                <CardContent sx={{ py: 1, "&:last-child": { pb: 1 } }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Gross Salary
-                  </Typography>
-                  <Typography variant="h6">
-                    <TCurrency value={selectedBatch.total_gross_salary || 0} />
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={2}>
-              <Card variant="outlined">
-                <CardContent sx={{ py: 1, "&:last-child": { pb: 1 } }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Total Deductions
-                  </Typography>
-                  <Typography variant="h6" color="error.main">
-                    <TCurrency value={selectedBatch.total_deductions || 0} />
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={2}>
-              <Card variant="outlined">
-                <CardContent sx={{ py: 1, "&:last-child": { pb: 1 } }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Net Salary
-                  </Typography>
-                  <Typography variant="h6" color="success.main">
-                    <TCurrency value={selectedBatch.total_net_salary || 0} />
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={2}>
-              <Card variant="outlined">
-                <CardContent sx={{ py: 1, "&:last-child": { pb: 1 } }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Employer EPF
-                  </Typography>
-                  <Typography variant="h6">
-                    <TCurrency value={selectedBatch.total_employer_epf || 0} />
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={2}>
-              <Card variant="outlined">
-                <CardContent sx={{ py: 1, "&:last-child": { pb: 1 } }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Employer ETF
-                  </Typography>
-                  <Typography variant="h6">
-                    <TCurrency value={selectedBatch.total_employer_etf || 0} />
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={2}>
-              <Card variant="outlined">
-                <CardContent sx={{ py: 1, "&:last-child": { pb: 1 } }}>
-                  <Typography variant="caption" color="text.secondary">
-                    APIT Tax
-                  </Typography>
-                  <Typography variant="h6" color="warning.main">
-                    <TCurrency value={selectedBatch.total_apit || 0} />
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-
-          {/* Payment Info */}
-          {(selectedBatch.salary_payment_date || selectedBatch.statutory_payment_date) && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              {selectedBatch.salary_payment_date && (
-                <Typography variant="body2">
-                  💰 Salary Paid: {selectedBatch.salary_payment_date}
-                  {selectedBatch.salary_payment_reference && ` (Ref: ${selectedBatch.salary_payment_reference})`}
-                </Typography>
-              )}
-              {selectedBatch.statutory_payment_date && (
-                <Typography variant="body2">
-                  🏛 Statutory Paid: {selectedBatch.statutory_payment_date}
-                  {selectedBatch.statutory_payment_reference && ` (Ref: ${selectedBatch.statutory_payment_reference})`}
-                </Typography>
-              )}
-            </Alert>
-          )}
-
-          <Divider sx={{ mb: 2 }} />
-
-          {/* Employee Payroll Records */}
-          <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
-            Employee Payroll Records
-          </Typography>
-          {selectedBatch.payroll_records?.length ? (
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Employee</TableCell>
-                    <TableCell align="right">Basic</TableCell>
-                    <TableCell align="right">Allowances</TableCell>
-                    <TableCell align="right">Gross</TableCell>
-                    <TableCell align="right">EPF (8%)</TableCell>
-                    <TableCell align="right">ETF (3%)</TableCell>
-                    <TableCell align="right">APIT</TableCell>
-                    <TableCell align="right">Other Ded.</TableCell>
-                    <TableCell align="right">Net Salary</TableCell>
-                    <TableCell align="right">EPF Emp (12%)</TableCell>
-                    <TableCell align="right">ETF Emp (3%)</TableCell>
-                    <TableCell>Status</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {selectedBatch.payroll_records.map((record) => (
-                    <TableRow key={record.id}>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight="bold">
-                          {record.employee_name || record.employee_id}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {record.employee_id}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <TCurrency value={record.basic_salary || 0} />
-                      </TableCell>
-                      <TableCell align="right">
-                        <TCurrency
-                          value={
-                            (record.add_1_value || 0) +
-                            (record.add_2_value || 0) +
-                            (record.add_sales_commision || 0) +
-                            (record.add_bonus || 0)
-                          }
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        <TCurrency value={record.gross_salary || 0} />
-                      </TableCell>
-                      <TableCell align="right">
-                        <TCurrency value={record.less_epf_employee || 0} />
-                      </TableCell>
-                      <TableCell align="right">
-                        <TCurrency value={record.less_etf_employee || 0} />
-                      </TableCell>
-                      <TableCell align="right">
-                        <TCurrency value={record.less_apit || 0} />
-                      </TableCell>
-                      <TableCell align="right">
-                        <TCurrency
-                          value={
-                            (record.less_stamp_duty || 0) +
-                            (record.less_late_deductions || 0) +
-                            (record.less_salary_advance_repayment || 0) +
-                            (record.less_loan_repayment || 0) +
-                            (record.less_other_deductions || 0)
-                          }
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography fontWeight="bold" color="success.main" variant="body2">
-                          <TCurrency value={record.net_salary || 0} />
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <TCurrency value={record.epf_employer || 0} />
-                      </TableCell>
-                      <TableCell align="right">
-                        <TCurrency value={record.etf_employer || 0} />
-                      </TableCell>
-                      <TableCell>
-                        <TStatusChip status={record.status || "draft"} statusMap="payrollStatus" />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {/* Totals Row */}
-                  <TableRow sx={{ "& td": { fontWeight: "bold", borderTop: 2 } }}>
-                    <TableCell>TOTALS</TableCell>
-                    <TableCell align="right">
-                      <TCurrency
-                        value={selectedBatch.payroll_records.reduce(
-                          (sum, r) => sum + (r.basic_salary || 0),
-                          0
-                        )}
-                      />
-                    </TableCell>
-                    <TableCell align="right">—</TableCell>
-                    <TableCell align="right">
-                      <TCurrency value={selectedBatch.total_gross_salary || 0} />
-                    </TableCell>
-                    <TableCell align="right">—</TableCell>
-                    <TableCell align="right">—</TableCell>
-                    <TableCell align="right">
-                      <TCurrency value={selectedBatch.total_apit || 0} />
-                    </TableCell>
-                    <TableCell align="right">—</TableCell>
-                    <TableCell align="right">
-                      <TCurrency value={selectedBatch.total_net_salary || 0} />
-                    </TableCell>
-                    <TableCell align="right">
-                      <TCurrency value={selectedBatch.total_employer_epf || 0} />
-                    </TableCell>
-                    <TableCell align="right">
-                      <TCurrency value={selectedBatch.total_employer_etf || 0} />
-                    </TableCell>
-                    <TableCell />
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </TableContainer>
+  return (
+    <>
+      <MasterDetailLayout
+        title="Payroll Processing"
+        titleSlot={
+          isDetailMode ? (
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={() => setSelectedBatchId(null)}
+              sx={{ textTransform: "none" }}
+            >
+              Back to Payroll Batches
+            </Button>
           ) : (
-            <Typography variant="body2" color="text.secondary">
-              No payroll records in this batch.
-            </Typography>
-          )}
-        </Paper>
-      )}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search batch / period"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              />
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TStatusFilter
+                  options={STATUS_FILTER_OPTIONS}
+                  value={filterStatus}
+                  onChange={setFilterStatus}
+                  label=""
+                  placeholder="All Statuses"
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 130, flexShrink: 0 }}>
+                <TextField
+                  select
+                  size="small"
+                  fullWidth
+                  value={filterYear}
+                  onChange={(e) => setFilterYear(e.target.value)}
+                  SelectProps={{ displayEmpty: true }}
+                >
+                  <MenuItem value="">All Years</MenuItem>
+                  {yearOptions.map((y) => (
+                    <MenuItem key={y} value={String(y)}>
+                      {y}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Box>
+              {hasFilters && (
+                <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
+              )}
+            </Box>
+          )
+        }
+        headerActions={
+          isDetailMode ? undefined : (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<RunIcon />}
+              onClick={() => setRunDialogOpen(true)}
+              sx={{ mr: 1 }}
+            >
+              Run Payroll
+            </Button>
+          )
+        }
+        onRefresh={() => {
+          queryClient.invalidateQueries({ queryKey: ["payroll-batches"] });
+          if (selectedBatchId) queryClient.invalidateQueries({ queryKey: ["payroll-batch", selectedBatchId] });
+        }}
+        isLoading={isLoading}
+      >
+        {isDetailMode ? detailPanel : batchTablePanel}
+      </MasterDetailLayout>
 
-      {/* Reject Payroll Dialog */}
-      <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Reject Payroll</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            The batch returns to draft for corrections. Say what needs to change.
-          </Typography>
-          <TextField
-            label="Reason"
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            inputProps={{ maxLength: 1000 }}
-            multiline
-            minRows={2}
-            fullWidth
-            autoFocus
-            required
-          />
-        </DialogContent>
-        <DialogActions>
-          <TButton variant="danger" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</TButton>
-          <Button variant="contained"
-            color="error"
-            disabled={!rejectReason.trim() || rejectMutation.isPending}
-            onClick={() => selectedBatchId && rejectMutation.mutate({ id: selectedBatchId, reason: rejectReason.trim() })}
-          >
-            Reject
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Reject Payroll */}
+      <TSidePanel
+        open={rejectDialogOpen}
+        onClose={() => setRejectDialogOpen(false)}
+        title="Reject Payroll"
+        onSubmit={handleConfirmReject}
+        isSubmitting={rejectMutation.isPending}
+        submitDisabled={!rejectReason.trim() || rejectMutation.isPending}
+        submitText="Reject"
+      >
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          The batch returns to draft for corrections. Say what needs to change.
+        </Typography>
+        <TextField
+          label="Reason"
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          inputProps={{ maxLength: 1000 }}
+          multiline
+          minRows={2}
+          fullWidth
+          autoFocus
+          required
+        />
+      </TSidePanel>
 
-      {/* Run Payroll Dialog */}
-      <Dialog
+      {/* Run Payroll */}
+      <TSidePanel
         open={runDialogOpen}
         onClose={() => setRunDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
+        title="Run Payroll"
+        onSubmit={handleRun}
+        isSubmitting={runMutation.isPending}
+        submitDisabled={runMutation.isPending}
+        submitText={runMutation.isPending ? "Processing..." : "Run Payroll"}
       >
-        <DialogTitle>Run Payroll</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            This will generate payroll records for all employees with salary profiles.
-            EPF (Employee 8%, Employer 12%), ETF (Employer 3%), Stamp Duty (LKR 100),
-            and APIT (Advance Personal Income Tax 2025/2026) will be calculated automatically.
-          </Typography>
-          <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
-            <TextField
-              select
-              label="Month"
-              value={runForm.payroll_month}
-              onChange={(e) =>
-                setRunForm({ ...runForm, payroll_month: Number(e.target.value) })
-              }
-              fullWidth
-            >
-              {MONTHS.map((m) => (
-                <MenuItem key={m.value} value={m.value}>
-                  {m.label}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              label="Year"
-              type="number"
-              value={runForm.payroll_year}
-              onChange={(e) =>
-                setRunForm({ ...runForm, payroll_year: Number(e.target.value) })
-              }
-              fullWidth
-            />
-          </Box>
-          <TextField
-            label="Description (optional)"
-            value={runForm.description}
-            onChange={(e) => setRunForm({ ...runForm, description: e.target.value })}
-            fullWidth
-            sx={{ mt: 2 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRunDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            startIcon={<RunIcon />}
-            onClick={() => runMutation.mutate(runForm)}
-            disabled={runMutation.isPending}
-          >
-            {runMutation.isPending ? "Processing..." : "Run Payroll"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Process Salary Payment Dialog */}
-      <Dialog
-        open={paymentDialogOpen}
-        onClose={() => setPaymentDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Process Salary Payment</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Process salary payments for all employees in this batch.
-            Total net salary:{" "}
-            <strong>
-              <TCurrency value={selectedBatch?.total_net_salary || 0} />
-            </strong>
-          </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          This will generate payroll records for all employees with salary profiles, using the salary in force at
+          month end. EPF (8% / 12%) and ETF (3%) are on basic + EPF-liable allowances; overtime and late minutes come
+          from attendance; no-pay leave, loan instalments, stamp duty and APIT (2025/2026) are worked out automatically.
+          Rates are in HR Setup → Payroll.
+        </Typography>
+        <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
           <TextField
             select
-            label="Payment Method"
-            value={paymentForm.payment_method}
-            onChange={(e) =>
-              setPaymentForm({ ...paymentForm, payment_method: e.target.value })
-            }
+            label="Month"
+            value={runForm.payroll_month}
+            onChange={(e) => setRunForm({ ...runForm, payroll_month: Number(e.target.value) })}
             fullWidth
-            sx={{ mt: 2 }}
           >
-            <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-            <MenuItem value="cheque">Cheque</MenuItem>
-            <MenuItem value="cash">Cash</MenuItem>
+            {MONTHS.map((m) => (
+              <MenuItem key={m.value} value={m.value}>
+                {m.label}
+              </MenuItem>
+            ))}
           </TextField>
           <TextField
-            label="Payment Reference"
-            value={paymentForm.payment_reference}
-            onChange={(e) =>
-              setPaymentForm({ ...paymentForm, payment_reference: e.target.value })
-            }
+            label="Year"
+            type="number"
+            value={runForm.payroll_year}
+            onChange={(e) => setRunForm({ ...runForm, payroll_year: Number(e.target.value) })}
             fullWidth
-            sx={{ mt: 2 }}
           />
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            startIcon={<PaymentIcon />}
-            onClick={() =>
-              selectedBatchId &&
-              paymentMutation.mutate({ id: selectedBatchId, data: paymentForm })
-            }
-            disabled={paymentMutation.isPending}
-          >
-            {paymentMutation.isPending ? "Processing..." : "Process Payment"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </Box>
+        <TextField
+          label="Description (optional)"
+          value={runForm.description}
+          onChange={(e) => setRunForm({ ...runForm, description: e.target.value })}
+          fullWidth
+          sx={{ mt: 2 }}
+        />
+      </TSidePanel>
 
-      {/* Process Statutory Payment Dialog */}
-      <Dialog
+      {/* Process Salary Payment */}
+      <TSidePanel
+        open={paymentDialogOpen}
+        onClose={() => setPaymentDialogOpen(false)}
+        title="Process Salary Payment"
+        onSubmit={handleProcessPayment}
+        isSubmitting={paymentMutation.isPending}
+        submitDisabled={paymentMutation.isPending}
+        submitText={paymentMutation.isPending ? "Processing..." : "Process Payment"}
+      >
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Process salary payments for all employees in this batch.
+          Total net salary:{" "}
+          <strong>
+            <TCurrency value={selectedBatch?.total_net_salary || 0} />
+          </strong>
+        </Typography>
+        <TextField
+          select
+          label="Payment Method"
+          value={paymentForm.payment_method}
+          onChange={(e) => setPaymentForm({ ...paymentForm, payment_method: e.target.value })}
+          fullWidth
+          sx={{ mt: 2 }}
+        >
+          <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
+          <MenuItem value="cheque">Cheque</MenuItem>
+          <MenuItem value="cash">Cash</MenuItem>
+        </TextField>
+        <TextField
+          label="Payment Reference"
+          value={paymentForm.payment_reference}
+          onChange={(e) => setPaymentForm({ ...paymentForm, payment_reference: e.target.value })}
+          fullWidth
+          sx={{ mt: 2 }}
+        />
+      </TSidePanel>
+
+      {/* Process Statutory Payment */}
+      <TSidePanel
         open={statutoryDialogOpen}
         onClose={() => setStatutoryDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
+        title="Process Statutory Payments (EPF / ETF)"
+        onSubmit={handleProcessStatutory}
+        isSubmitting={statutoryMutation.isPending}
+        submitDisabled={statutoryMutation.isPending}
+        submitText={statutoryMutation.isPending ? "Processing..." : "Process Statutory"}
       >
-        <DialogTitle>Process Statutory Payments (EPF / ETF)</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Record EPF and ETF payments to the Department of Labour.
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Record EPF and ETF payments to the Department of Labour.
+        </Typography>
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <Typography variant="body2">
+            Total EPF (Employee + Employer):{" "}
+            <strong>
+              <TCurrency
+                value={
+                  (selectedBatch?.total_employer_epf || 0) +
+                  (selectedBatch?.payroll_records?.reduce((sum, r) => sum + (r.less_epf_employee || 0), 0) || 0)
+                }
+              />
+            </strong>
           </Typography>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            <Typography variant="body2">
-              Total EPF (Employee + Employer):{" "}
-              <strong>
-                <TCurrency
-                  value={
-                    (selectedBatch?.total_employer_epf || 0) +
-                    (selectedBatch?.payroll_records?.reduce(
-                      (sum, r) => sum + (r.less_epf_employee || 0),
-                      0
-                    ) || 0)
-                  }
-                />
-              </strong>
-            </Typography>
-            <Typography variant="body2">
-              Total ETF (Employee + Employer):{" "}
-              <strong>
-                <TCurrency
-                  value={
-                    (selectedBatch?.total_employer_etf || 0) +
-                    (selectedBatch?.payroll_records?.reduce(
-                      (sum, r) => sum + (r.less_etf_employee || 0),
-                      0
-                    ) || 0)
-                  }
-                />
-              </strong>
-            </Typography>
-          </Alert>
-          <TextField
-            label="EPF Payment Reference"
-            value={statutoryForm.epf_reference}
-            onChange={(e) =>
-              setStatutoryForm({ ...statutoryForm, epf_reference: e.target.value })
-            }
-            fullWidth
-            sx={{ mt: 2 }}
-          />
-          <TextField
-            label="ETF Payment Reference"
-            value={statutoryForm.etf_reference}
-            onChange={(e) =>
-              setStatutoryForm({ ...statutoryForm, etf_reference: e.target.value })
-            }
-            fullWidth
-            sx={{ mt: 2 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setStatutoryDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="secondary"
-            startIcon={<StatutoryIcon />}
-            onClick={() =>
-              selectedBatchId &&
-              statutoryMutation.mutate({ id: selectedBatchId, data: statutoryForm })
-            }
-            disabled={statutoryMutation.isPending}
-          >
-            {statutoryMutation.isPending ? "Processing..." : "Process Statutory"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+          <Typography variant="body2">
+            Total ETF (Employee + Employer):{" "}
+            <strong>
+              <TCurrency
+                value={
+                  (selectedBatch?.total_employer_etf || 0) +
+                  (selectedBatch?.payroll_records?.reduce((sum, r) => sum + (r.less_etf_employee || 0), 0) || 0)
+                }
+              />
+            </strong>
+          </Typography>
+        </Alert>
+        <TextField
+          label="EPF Payment Reference"
+          value={statutoryForm.epf_reference}
+          onChange={(e) => setStatutoryForm({ ...statutoryForm, epf_reference: e.target.value })}
+          fullWidth
+          sx={{ mt: 2 }}
+        />
+        <TextField
+          label="ETF Payment Reference"
+          value={statutoryForm.etf_reference}
+          onChange={(e) => setStatutoryForm({ ...statutoryForm, etf_reference: e.target.value })}
+          fullWidth
+          sx={{ mt: 2 }}
+        />
+      </TSidePanel>
 
       <TConfirmDialog {...dialogProps} />
-    </Box>
+    </>
   );
 }

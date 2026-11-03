@@ -13,12 +13,7 @@ import {
   Alert,
   Box,
   Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   InputAdornment,
-  MenuItem,
   Table,
   TableBody,
   TableCell,
@@ -35,6 +30,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatDateTimeReadable } from "@/utils/formatters";
 
 import {
+  ActionToolbar,
+  DetailPanelHeader,
   EmptyState,
   fmtLKR,
   FormSection,
@@ -52,6 +49,7 @@ import {
   showSuccessToast,
   TConfirmDialog,
   TDetailSkeleton,
+  TSidePanel,
   useConfirmDialog,
 } from "@/components/tijaero";
 
@@ -186,9 +184,11 @@ export default function PayrollApprovalsPage() {
     approveDialog.open(
       "Approve Payroll Batch",
       `Approve payroll batch ${selectedBatch.batch_no} with ${selectedBatch.total_employees || 0} employees and total net salary of ${currencySymbol} ${fmtLKR(selectedBatch.total_net_salary || 0)}?`,
-      () => approveMutation.mutate(selectedBatch.id)
+      () => {
+        if (!approveMutation.isPending) approveMutation.mutate(selectedBatch.id);
+      }
     );
-  }, [selectedBatch, approveDialog, approveMutation]);
+  }, [selectedBatch, approveDialog, approveMutation, currencySymbol]);
 
   const formatPeriod = (month?: number, year?: number) => {
     if (!month || !year) return "-";
@@ -231,45 +231,68 @@ export default function PayrollApprovalsPage() {
 
   const detail = batchDetail || selectedBatch;
 
-  const detailPanel = isDetailLoading && selectedBatch ? (
-    <TDetailSkeleton sections={3} fieldsPerSection={4} showTable />
-  ) : detail ? (
-    <Box sx={{ p: 2 }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
-        <Box>
-          <Typography variant="h5" fontWeight="bold">{detail.batch_no}</Typography>
-          <Typography variant="body2" color="text.secondary">
-            {formatPeriod(detail.payroll_month, detail.payroll_year)} • {detail.total_employees || 0} employees
-          </Typography>
-        </Box>
-        <TStatusChip status={detail.status} statusMap="payrollStatus" />
-      </Box>
+  const detailStatus = detail ? getStatusProps(detail.status, "payrollStatus") : null;
+  const actionPending = approveMutation.isPending || rejectMutation.isPending;
 
-      {detail.status === "pending_approval" && (
-        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 3 }}>
-          <Button
-            variant="contained"
-            color="success"
-            startIcon={<CheckCircleIcon />}
-            onClick={handleApprove}
-            disabled={approveMutation.isPending}
-          >
-            Approve
-          </Button>
-          <Button
-            variant="outlined"
-            color="error"
-            startIcon={<CancelIcon />}
-            onClick={() => setRejectDialogOpen(true)}
-            disabled={rejectMutation.isPending}
-          >
-            Reject
-          </Button>
-        </Box>
+  const detailPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[
+          { label: "HR" },
+          { label: "Approvals", href: "/hr/approvals" },
+          { label: "Payroll Approvals", href: "/hr/approvals/payroll-approvals" },
+          ...(detail ? [{ label: detail.batch_no }] : []),
+        ]}
+        title={detail?.batch_no || ""}
+        subtitle={detail ? `${formatPeriod(detail.payroll_month, detail.payroll_year)} • ${detail.total_employees || 0} employees` : undefined}
+        titleIcon={<AccountBalanceWalletIcon color="primary" />}
+        noSelectionTitle="Select a Payroll Batch"
+        chips={detailStatus ? [{ label: detailStatus.label, color: detailStatus.color }] : []}
+      />
+
+      {/* Approve / Reject on the right, as on PO Approvals */}
+      {detail && detail.status === "pending_approval" && (
+        <ActionToolbar
+          hasSelectedItem
+          isCreating={false}
+          isEditing={false}
+          canCreate={false}
+          canDuplicate={false}
+          canDelete={false}
+          endActions={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                startIcon={<CheckCircleIcon />}
+                onClick={handleApprove}
+                disabled={actionPending}
+              >
+                Approve
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<CancelIcon />}
+                onClick={() => setRejectDialogOpen(true)}
+                disabled={actionPending}
+              >
+                Reject
+              </Button>
+            </Box>
+          }
+        />
       )}
 
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+      {isDetailLoading && selectedBatch ? (
+        <TDetailSkeleton sections={3} fieldsPerSection={4} showTable showHeader={false} showToolbar={false} />
+      ) : detail ? (
+      <>
       {/* Summary Stats */}
-      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2, mb: 3 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", md: "repeat(4, 1fr)" }, gap: 2, mb: 2 }}>
         <TStatCard
           title="Gross Salary"
           value={`${currencySymbol} ${fmtLKR(detail.total_gross_salary || 0)}`}
@@ -378,15 +401,18 @@ export default function PayrollApprovalsPage() {
       )}
 
       {/* Activity History */}
-      <FormSection title="Activity History" columns={2}>
+      <FormSection title="Activity History" columns={2} isLast>
         <Box>
           <Typography variant="caption" color="text.secondary">Created</Typography>
           <Typography variant="body2">{formatDateTimeReadable(detail.created_at) || "-"}</Typography>
         </Box>
       </FormSection>
+      </>
+      ) : (
+        <EmptyState message="Select a payroll batch from the list to view details" />
+      )}
+      </Box>
     </Box>
-  ) : (
-    <EmptyState message="Select a payroll batch from the list to view details" />
   );
 
   return (
@@ -413,7 +439,7 @@ export default function PayrollApprovalsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 230, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 170, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
               <TBranchFilter
@@ -450,32 +476,32 @@ export default function PayrollApprovalsPage() {
       </MasterDetailLayout>
 
       {/* Reject Dialog */}
-      <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Reject Payroll Batch</DialogTitle>
-        <DialogContent>
+      <TSidePanel
+        open={rejectDialogOpen}
+        onClose={() => setRejectDialogOpen(false)}
+        title={`Reject Payroll Batch${selectedBatch ? ` — ${selectedBatch.batch_no}` : ""}`}
+        onSubmit={() => {
+          if (selectedBatch && rejectReason.trim() && !rejectMutation.isPending) {
+            rejectMutation.mutate({ id: selectedBatch.id, reason: rejectReason });
+          }
+        }}
+        isSubmitting={rejectMutation.isPending}
+        submitDisabled={!rejectReason.trim() || rejectMutation.isPending}
+        submitText="Reject"
+      >
+        <FormSection title="Reason" columns={1} isLast>
           <TextField
             fullWidth
+            size="small"
             label="Rejection Reason"
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
             multiline
             rows={3}
-            sx={{ mt: 2 }}
             required
           />
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={() => selectedBatch && rejectMutation.mutate({ id: selectedBatch.id, reason: rejectReason })}
-            disabled={!rejectReason.trim() || rejectMutation.isPending}
-          >
-            Reject
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </FormSection>
+      </TSidePanel>
 
       <TConfirmDialog {...approveDialog.dialogProps} />
     </>

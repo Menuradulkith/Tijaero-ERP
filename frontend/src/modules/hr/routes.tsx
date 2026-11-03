@@ -13,6 +13,7 @@ import SalaryProfilesPage from "./pages/SalaryProfilesPage";
 import ReimbursementsPage from "./pages/ReimbursementsPage";
 import ReimbursementApprovalsPage from "./pages/ReimbursementApprovalsPage";
 import DeductionsPage from "./pages/DeductionsPage";
+import LoansPage from "./pages/LoansPage";
 import EmployeeAssetsPage from "./pages/EmployeeAssetsPage";
 import SalesCommissionsPage from "./pages/SalesCommissionsPage";
 import HRSetupPage from "./pages/HRSetupPage";
@@ -44,6 +45,7 @@ export default function HRRoutes() {
       <Route path="approvals/reimbursement-approvals" element={<ProtectedRoute resource="reimbursement_approvals" action="view"><ReimbursementApprovalsPage /></ProtectedRoute>} />
       <Route path="reimbursement-approvals" element={<Navigate to="/hr/approvals/reimbursement-approvals" replace />} />
       <Route path="deductions" element={<ProtectedRoute resource="deductions" action="view"><DeductionsPage /></ProtectedRoute>} />
+      <Route path="loans" element={<ProtectedRoute resource="deductions" action="view"><LoansPage /></ProtectedRoute>} />
       <Route path="assets" element={<ProtectedRoute resource="hr_assets" action="view"><EmployeeAssetsPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="." replace />} />
     </Routes>

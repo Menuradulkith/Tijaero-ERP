@@ -650,9 +650,10 @@ function AddBankAccountPanel({
           value={form.name}
           onChange={set("name")}
           placeholder="e.g. BOC Current Account"
+          inputProps={{ maxLength: 100 }}
         />
-        <TextField label="Account number" size="small" value={form.account_number} onChange={set("account_number")} />
-        <TextField label="Bank" size="small" value={form.bank_name} onChange={set("bank_name")} />
+        <TextField label="Account number" size="small" value={form.account_number} onChange={set("account_number")} inputProps={{ maxLength: 50 }} />
+        <TextField label="Bank" size="small" value={form.bank_name} onChange={set("bank_name")} inputProps={{ maxLength: 100 }} />
         <TextField label="Bank branch" size="small" value={form.branch_code} onChange={set("branch_code")} />
         <TextField
           label="Check from"

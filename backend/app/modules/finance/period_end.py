@@ -51,11 +51,17 @@ class RecurringJournalService:
     def __init__(self, db: Session):
         self.db = db
 
+    @staticmethod
+    def _check_end_date(next_date: Optional[date], end_date: Optional[date]) -> None:
+        if end_date and next_date and end_date < next_date:
+            raise _bad(f"The end date ({end_date}) can't be before the next journal date ({next_date}).")
+
     def _validate(self, data) -> None:
         if data.frequency not in FREQUENCIES:
             raise _bad("Frequency must be monthly, quarterly or yearly.")
         if len(data.lines) < 2:
             raise _bad("A journal needs at least two lines.")
+        self._check_end_date(data.next_date, data.end_date)
         dr = sum((Decimal(str(l.debit_amount or 0)) for l in data.lines), Decimal("0"))
         cr = sum((Decimal(str(l.credit_amount or 0)) for l in data.lines), Decimal("0"))
         if dr.quantize(CENT) != cr.quantize(CENT) or dr <= 0:
@@ -100,7 +106,9 @@ class RecurringJournalService:
         t = self.db.query(RecurringJournal).filter(RecurringJournal.id == template_id).first()
         if t is None:
             raise _bad("Recurring journal not found", status.HTTP_404_NOT_FOUND)
-        for k, v in data.model_dump(exclude_unset=True).items():
+        fields = data.model_dump(exclude_unset=True)
+        self._check_end_date(fields.get("next_date", t.next_date), fields.get("end_date", t.end_date))
+        for k, v in fields.items():
             setattr(t, k, v)
         t.updated_by = user_id
         self.db.commit()

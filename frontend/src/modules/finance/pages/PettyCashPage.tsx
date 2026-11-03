@@ -25,6 +25,7 @@ import {
   TRemarkField,
   TSearchableSelect,
 } from "@/components/tijaero";
+import { handleApiError } from "@/utils/errorHandling";
 import { useReferenceData } from "@/hooks";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import AddIcon from "@mui/icons-material/Add";
@@ -112,6 +113,30 @@ export default function PettyCashPage() {
   });
 
   const [closingBalance, setClosingBalance] = useState(0);
+  // Field messages in the expense / replenish dialogs show after the first submit attempt.
+  const [dialogTried, setDialogTried] = useState(false);
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const MAX_AMOUNT = 999999999.99;
+  const dateProblem = (d?: string) =>
+    !d ? "Enter the transaction date" : d > todayStr ? "The date cannot be in the future" : null;
+  const amountProblem = (a?: number) =>
+    !a || Number.isNaN(a) || a <= 0
+      ? "Enter an amount greater than 0"
+      : a > MAX_AMOUNT
+        ? "The amount can be at most 999,999,999.99"
+        : Math.round(a * 100) !== Math.round(a * 1000) / 10
+          ? "Use at most 2 decimals"
+          : null;
+  const expenseErrors = {
+    amount: amountProblem(expenseData.amount),
+    recipient: expenseData.recipient_name?.trim() ? null : "Enter who received the money",
+    purpose: expenseData.purpose?.trim() ? null : "Enter what the money was for",
+    date: dateProblem(expenseData.transaction_date),
+  };
+  const replenishErrors = {
+    amount: amountProblem(replenishData.amount),
+    date: dateProblem(replenishData.transaction_date),
+  };
 
   // List funds query
   const {
@@ -174,7 +199,7 @@ export default function PettyCashPage() {
       setFormData(emptyFund());
       setCreating(false);
     } catch (error: any) {
-      showErrorToast(error.response?.data?.detail || "Failed to create fund");
+      showErrorToast(handleApiError(error, "Failed to create fund"));
     } finally {
       setIsSubmitting(false);
       submitInFlightRef.current = false;
@@ -182,12 +207,10 @@ export default function PettyCashPage() {
   };
 
   const handleRecordExpense = async () => {
-    if (!expenseData.amount || expenseData.amount <= 0) {
-      showErrorToast("Expense amount must be greater than 0");
-      return;
-    }
-    if (!expenseData.recipient_name || !expenseData.purpose) {
-      showErrorToast("Recipient name and purpose are required");
+    const firstError = Object.values(expenseErrors).find(Boolean);
+    if (firstError) {
+      setDialogTried(true);
+      showErrorToast(firstError);
       return;
     }
 
@@ -207,7 +230,7 @@ export default function PettyCashPage() {
       });
       setShowExpenseDialog(false);
     } catch (error: any) {
-      showErrorToast(error.response?.data?.detail || "Failed to record expense");
+      showErrorToast(handleApiError(error, "Failed to record expense"));
     } finally {
       setIsSubmitting(false);
       submitInFlightRef.current = false;
@@ -215,8 +238,10 @@ export default function PettyCashPage() {
   };
 
   const handleReplenish = async () => {
-    if (!replenishData.amount || replenishData.amount <= 0) {
-      showErrorToast("Replenishment amount must be greater than 0");
+    const firstError = Object.values(replenishErrors).find(Boolean);
+    if (firstError) {
+      setDialogTried(true);
+      showErrorToast(firstError);
       return;
     }
 
@@ -235,7 +260,7 @@ export default function PettyCashPage() {
       });
       setShowReplenishDialog(false);
     } catch (error: any) {
-      showErrorToast(error.response?.data?.detail || "Failed to replenish fund");
+      showErrorToast(handleApiError(error, "Failed to replenish fund"));
     } finally {
       setIsSubmitting(false);
       submitInFlightRef.current = false;
@@ -263,7 +288,7 @@ export default function PettyCashPage() {
       setClosingBalance(0);
       setShowReconcileDialog(false);
     } catch (error: any) {
-      showErrorToast(error.response?.data?.detail || "Failed to reconcile fund");
+      showErrorToast(handleApiError(error, "Failed to reconcile fund"));
     } finally {
       setIsSubmitting(false);
       submitInFlightRef.current = false;
@@ -358,9 +383,9 @@ export default function PettyCashPage() {
           type="number"
           size="small"
           required
-          value={formData.opening_balance || 0}
-          onChange={(e) => setFormData({ ...formData, opening_balance: parseFloat(e.target.value) })}
-          inputProps={{ step: "0.01", min: "0" }}
+          value={formData.opening_balance || ""}
+          onChange={(e) => setFormData({ ...formData, opening_balance: e.target.value === "" ? 0 : parseFloat(e.target.value) })}
+          inputProps={{ step: "0.01", min: "0", max: MAX_AMOUNT }}
         />
         <TextField
           label="Opened Date"
@@ -452,6 +477,7 @@ export default function PettyCashPage() {
                 variant="outlined"
                 onClick={() => {
                   setExpenseData({ ...expenseData, petty_cash_id: selectedFundId || 0 });
+                  setDialogTried(false);
                   setShowExpenseDialog(true);
                 }}
               >
@@ -463,6 +489,7 @@ export default function PettyCashPage() {
                 color="success"
                 onClick={() => {
                   setReplenishData({ ...replenishData, petty_cash_id: selectedFundId || 0 });
+                  setDialogTried(false);
                   setShowReplenishDialog(true);
                 }}
               >
@@ -594,15 +621,18 @@ export default function PettyCashPage() {
             fullWidth
             label="Amount"
             type="number"
-            value={expenseData.amount || 0}
+            required
+            value={expenseData.amount || ""}
             onChange={(e) =>
               setExpenseData({
                 ...expenseData,
-                amount: parseFloat(e.target.value),
+                amount: e.target.value === "" ? 0 : parseFloat(e.target.value),
               })
             }
             margin="normal"
-            inputProps={{ step: "0.01", min: "0" }}
+            inputProps={{ step: "0.01", min: "0.01", max: MAX_AMOUNT }}
+            error={dialogTried && !!expenseErrors.amount}
+            helperText={dialogTried ? expenseErrors.amount : undefined}
           />
 
           <TextField
@@ -623,6 +653,10 @@ export default function PettyCashPage() {
           <TextField
             fullWidth
             label="Recipient Name"
+            required
+            inputProps={{ maxLength: 200 }}
+            error={dialogTried && !!expenseErrors.recipient}
+            helperText={dialogTried ? expenseErrors.recipient : undefined}
             value={expenseData.recipient_name || ""}
             onChange={(e) =>
               setExpenseData({
@@ -636,6 +670,10 @@ export default function PettyCashPage() {
           <TextField
             fullWidth
             label="Purpose"
+            required
+            inputProps={{ maxLength: 500 }}
+            error={dialogTried && !!expenseErrors.purpose}
+            helperText={dialogTried ? expenseErrors.purpose : undefined}
             value={expenseData.purpose || ""}
             onChange={(e) =>
               setExpenseData({
@@ -663,6 +701,7 @@ export default function PettyCashPage() {
             fullWidth
             label="Transaction Date"
             type="date"
+            required
             value={expenseData.transaction_date || ""}
             onChange={(e) =>
               setExpenseData({
@@ -672,6 +711,9 @@ export default function PettyCashPage() {
             }
             margin="normal"
             InputLabelProps={{ shrink: true }}
+            inputProps={{ max: todayStr }}
+            error={dialogTried && !!expenseErrors.date}
+            helperText={dialogTried ? expenseErrors.date : undefined}
           />
 
           <TextField
@@ -714,21 +756,25 @@ export default function PettyCashPage() {
             fullWidth
             label="Replenishment Amount"
             type="number"
-            value={replenishData.amount || 0}
+            required
+            value={replenishData.amount || ""}
             onChange={(e) =>
               setReplenishData({
                 ...replenishData,
-                amount: parseFloat(e.target.value),
+                amount: e.target.value === "" ? 0 : parseFloat(e.target.value),
               })
             }
             margin="normal"
-            inputProps={{ step: "0.01", min: "0" }}
+            inputProps={{ step: "0.01", min: "0.01", max: MAX_AMOUNT }}
+            error={dialogTried && !!replenishErrors.amount}
+            helperText={dialogTried ? replenishErrors.amount : undefined}
           />
 
           <TextField
             fullWidth
             label="Transaction Date"
             type="date"
+            required
             value={replenishData.transaction_date || ""}
             onChange={(e) =>
               setReplenishData({
@@ -738,6 +784,9 @@ export default function PettyCashPage() {
             }
             margin="normal"
             InputLabelProps={{ shrink: true }}
+            inputProps={{ max: todayStr }}
+            error={dialogTried && !!replenishErrors.date}
+            helperText={dialogTried ? replenishErrors.date : undefined}
           />
 
           <TextField
@@ -785,8 +834,8 @@ export default function PettyCashPage() {
             fullWidth
             label="Closing Balance"
             type="number"
-            value={closingBalance}
-            onChange={(e) => setClosingBalance(parseFloat(e.target.value))}
+            value={Number.isNaN(closingBalance) ? "" : closingBalance}
+            onChange={(e) => setClosingBalance(e.target.value === "" ? NaN : parseFloat(e.target.value))}
             margin="normal"
             inputProps={{ step: "0.01", min: "0" }}
           />

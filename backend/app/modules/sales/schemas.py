@@ -29,11 +29,12 @@ def _json_number(v):
 
 # Create/update inputs are strict; the response models below stay lenient so old rows still serialise.
 Id = Annotated[int, BeforeValidator(_json_number), Field(ge=1, le=INT4_MAX)]
-OptId = Annotated[Optional[int], BeforeValidator(_json_number), Field(default=None, ge=1, le=INT4_MAX)]
+# The limits sit inside Optional: on the whole Optional a null reached ">= 0" and crashed (500).
+OptId = Optional[Annotated[int, BeforeValidator(_json_number), Field(ge=1, le=INT4_MAX)]]
 Money = Annotated[float, BeforeValidator(_json_number), Field(ge=0, le=MAX_MONEY, allow_inf_nan=False)]
-OptMoney = Annotated[Optional[float], BeforeValidator(_json_number), Field(default=None, ge=0, le=MAX_MONEY, allow_inf_nan=False)]
+OptMoney = Optional[Annotated[float, BeforeValidator(_json_number), Field(ge=0, le=MAX_MONEY, allow_inf_nan=False)]]
 Percent100 = Annotated[float, BeforeValidator(_json_number), Field(ge=0, le=100, allow_inf_nan=False)]
-OptPercent100 = Annotated[Optional[float], BeforeValidator(_json_number), Field(default=None, ge=0, le=100, allow_inf_nan=False)]
+OptPercent100 = Optional[Annotated[float, BeforeValidator(_json_number), Field(ge=0, le=100, allow_inf_nan=False)]]
 # Sales tax: the UI only offers 0-18 presets; nothing above 50% is a real sales tax, so 100% is a typo, not a rate.
 MAX_TAX_RATE = 50
 TaxRate = Annotated[float, BeforeValidator(_json_number), Field(ge=0, le=MAX_TAX_RATE, allow_inf_nan=False)]

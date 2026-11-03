@@ -135,6 +135,17 @@ class TestCheques:
         r = superclient.post(f"{A}/cheques/{chq.id}/clear", json={})
         assert r.status_code == 200 and r.json()["status"] == "cleared"
 
+    def test_clear_date_must_be_between_cheque_date_and_today(self, db, superclient, superuser, shop):  # noqa: F811
+        inv, chq = _cheque_sale(superclient, db, superuser[0].id, shop)
+        assert superclient.patch(f"/api/v1/finance/bank-deposits/{chq.bank_deposit_id}/verify").status_code == 200
+        url = f"{A}/cheques/{chq.id}/clear"
+        r = superclient.post(url, json={"status_date": str(TODAY - timedelta(days=1))})
+        assert r.status_code == 422 and "before the cheque date" in r.json()["detail"]
+        r = superclient.post(url, json={"status_date": str(TODAY + timedelta(days=1))})
+        assert r.status_code == 422 and "future" in r.json()["detail"]
+        r = superclient.post(url, json={"status_date": str(TODAY)})
+        assert r.status_code == 200 and r.json()["status"] == "cleared"
+
     def test_bounced_sale_cheque_before_deposit(self, db, superclient, superuser, shop):  # noqa: F811
         cust = shop[1]
         cust.max_credit_limit = 100000

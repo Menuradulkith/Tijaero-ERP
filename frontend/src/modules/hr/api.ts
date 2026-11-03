@@ -65,6 +65,13 @@ import {
   EmployeeCreate,
   EmployeeUpdate,
   HRStatistics,
+  SalaryRevision,
+  PayrollSettings,
+  StatutoryReturn,
+  StatutoryReturnKind,
+  EmployeeLoan,
+  LoanCreate,
+  FinalSettlement,
 } from "./types";
 
 // Salary Deductions API
@@ -661,6 +668,12 @@ export const leavesApi = {
     return response.data;
   },
 
+  /** Cancel approved leave; the days go back to the balance. */
+  cancel: async (id: number, data: LeaveReject) => {
+    const response = await apiClient.post<Leave>(`/hr/leaves/${id}/cancel`, data);
+    return response.data;
+  },
+
   delete: async (id: number) => {
     await apiClient.delete(`/hr/leaves/${id}`);
   },
@@ -704,4 +717,56 @@ export const hrStatisticsApi = {
     const response = await apiClient.get<HRStatistics>("/hr/statistics");
     return response.data;
   },
+};
+
+// ─── Sri Lankan payroll ─────────────────────────────────────────────────────────
+export const salaryRevisionsApi = {
+  list: async (employeeId: string) =>
+    (await apiClient.get<SalaryRevision[]>(`/hr/employees/${encodeURIComponent(employeeId)}/salary-revisions`)).data,
+  delete: async (id: number) => {
+    await apiClient.delete(`/hr/salary-revisions/${id}`);
+  },
+};
+
+export const payrollSettingsApi = {
+  get: async () => (await apiClient.get<PayrollSettings>("/hr/payroll-settings")).data,
+  update: async (data: PayrollSettings) => (await apiClient.put<PayrollSettings>("/hr/payroll-settings", data)).data,
+};
+
+export const statutoryReturnsApi = {
+  get: async (batchId: number, kind: StatutoryReturnKind) =>
+    (await apiClient.get<StatutoryReturn>(`/hr/payroll/batches/${batchId}/returns/${kind}`)).data,
+  /** Download the return as CSV (uses the authenticated client, then saves the blob). */
+  downloadCsv: async (batchId: number, kind: StatutoryReturnKind) => {
+    const res = await apiClient.get<Blob>(`/hr/payroll/batches/${batchId}/returns/${kind}/csv`, { responseType: "blob" });
+    const disposition = String(res.headers["content-disposition"] || "");
+    const name = /filename="([^"]+)"/.exec(disposition)?.[1] || `${kind}-return.csv`;
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+};
+
+export const loansApi = {
+  getAll: async (params?: { status?: string; employee_pk?: number; loan_type?: string }) =>
+    (await apiClient.get<EmployeeLoan[]>("/hr/loans", { params })).data,
+  getById: async (id: number) => (await apiClient.get<EmployeeLoan>(`/hr/loans/${id}`)).data,
+  create: async (data: LoanCreate) => (await apiClient.post<EmployeeLoan>("/hr/loans", data)).data,
+  update: async (id: number, data: { installment_amount: number; start_period: string; remarks?: string }) =>
+    (await apiClient.put<EmployeeLoan>(`/hr/loans/${id}`, data)).data,
+  repay: async (id: number, data: { amount: number; payment_date?: string; payment_method: string; remarks?: string }) =>
+    (await apiClient.post<EmployeeLoan>(`/hr/loans/${id}/repay`, data)).data,
+  cancel: async (id: number) => (await apiClient.post<EmployeeLoan>(`/hr/loans/${id}/cancel`)).data,
+};
+
+export const finalSettlementApi = {
+  get: async (employeePk: number) => (await apiClient.get<FinalSettlement>(`/hr/employees/${employeePk}/final-settlement`)).data,
+};
+
+export const lieuLeaveApi = {
+  grant: async (data: { employee_pk: number; worked_date: string; days: number; remarks?: string }) =>
+    (await apiClient.post<{ employee_pk: number; year: number; granted: number; balance: number | null }>("/hr/leave-allocations/lieu", data)).data,
 };

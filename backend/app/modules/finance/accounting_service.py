@@ -174,6 +174,7 @@ class ChartOfAccountsService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Parent account with id {data.parent_account_id} not found"
                 )
+            self._check_parent_type(parent, data.account_type)
 
         account = ChartOfAccounts(
             **data.model_dump(),
@@ -191,6 +192,16 @@ class ChartOfAccountsService:
         _attach_user_names(self.db, [account])
         return account
 
+    @staticmethod
+    def _check_parent_type(parent: ChartOfAccounts, account_type: str) -> None:
+        """A sub-account sits under a header of the same kind: a Revenue account
+        under an Asset header would put its balance in the wrong statement."""
+        if (parent.account_type or "").lower() != (account_type or "").lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A {account_type} account can't sit under {parent.account_code} {parent.account_name} ({parent.account_type}).",
+            )
+
     def update_account(self, account_id: int, data: schemas.ChartOfAccountUpdate, updated_by: int = None) -> ChartOfAccounts:
         account = self.get_account(account_id)
         if account.is_system_account:
@@ -200,6 +211,22 @@ class ChartOfAccountsService:
             )
 
         update_data = data.model_dump(exclude_none=True)
+        new_parent_id = update_data.get("parent_account_id")
+        if new_parent_id:
+            # Not itself, not one of its own sub-accounts, and the same kind.
+            node, seen = new_parent_id, set()
+            while node and node not in seen:
+                if node == account_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="An account can't sit under itself or under one of its own sub-accounts.",
+                    )
+                seen.add(node)
+                node = self.db.query(ChartOfAccounts.parent_account_id).filter(ChartOfAccounts.id == node).scalar()
+            parent = self.db.query(ChartOfAccounts).filter(ChartOfAccounts.id == new_parent_id).first()
+            if not parent:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Parent account with id {new_parent_id} not found")
+            self._check_parent_type(parent, account.account_type)
 
         # Guard: an account's classification drives the sign of every posted
         # amount in the trial balance and financial statements. Once it has GL
@@ -481,13 +508,13 @@ class JournalEntryService:
             if entry_type == "Closing":
                 continue
             if not acc.is_active:
-                problems.append(f"account {label} is inactive")
+                problems.append(f"Account {label} is inactive.")
             if acc.id in header_ids:
-                problems.append(f"account {label} is a header account; post to one of its sub-accounts")
+                problems.append(f"Account {label} is a heading, not an account you can post to: choose one of its sub-accounts.")
             if entry_type == "Manual" and acc.account_category in CONTROL_ACCOUNT_CATEGORIES:
                 problems.append(
-                    f"account {label} is a control account ({acc.account_category}); "
-                    f"change it through its source documents"
+                    f"Account {label} is a control account ({acc.account_category}): "
+                    f"change it through its source documents."
                 )
         # Cost centers: only on income / expense lines, and only active ones.
         from .accounting_models import CostCenter
@@ -501,13 +528,13 @@ class JournalEntryService:
                 continue
             label = f"{acc.account_code} - {acc.account_name}"
             if cc_id and cc_id not in active_cc:
-                problems.append(f"line {line.line_number}: the cost center does not exist or is inactive")
+                problems.append(f"Line {line.line_number}: the cost center does not exist or is inactive.")
             elif cc_id and acc.account_type not in ("Revenue", "Expense"):
-                problems.append(f"line {line.line_number}: {label} is not an income or expense account, so it takes no cost center")
+                problems.append(f"Line {line.line_number}: {label} is not an income or expense account, so it takes no cost center.")
         if problems:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot use " + "; ".join(sorted(problems)),
+                detail=" ".join(sorted(problems)),
             )
 
     def create_journal_entry(
@@ -2415,6 +2442,13 @@ class AccountingPeriodService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Closing date {closing_date} is not in fiscal year {fiscal_year}",
+            )
+        if (last_period.end_date if last_period else date(fiscal_year, 12, 31)) > tz.today():
+            # A year can only be closed once it is over; closing a future year
+            # posted closing entries into a year nobody has worked in yet.
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Fiscal year {fiscal_year} has not ended yet, so it can't be closed.",
             )
 
         # Get key accounts

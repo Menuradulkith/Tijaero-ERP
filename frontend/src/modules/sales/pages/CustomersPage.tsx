@@ -386,6 +386,12 @@ export default function CustomersPage() {
     }
   }, [selectedCustomer, formData, setFormData, handleNewCustomer]);
 
+  // Start on "General" whenever a different customer is selected or a new one
+  // is started, not on whichever tab the previous record was left on.
+  useEffect(() => {
+    setActiveSection("general");
+  }, [selectedCustomer?.id, isCreating]);
+
   const isBusiness = formData.customer_type === "business";
   const detailTabs = useMemo(
     () => CUSTOMER_DETAIL_TABS.filter((t) => t.id !== "contactPerson" || isBusiness),
@@ -488,6 +494,10 @@ export default function CustomersPage() {
 
   // Whether we're showing a single customer's detail view (selected or
   // being created) instead of the browse table.
+  // "Next" while creating appears once General's mandatory fields are filled; the other tabs are optional.
+  const nextCustomerTab = detailTabs[detailTabs.findIndex((t) => t.id === currentSection) + 1];
+  const canGoNext = !!nextCustomerTab && (currentSection !== "general" || isGeneralValid);
+
   const isCustomerDetailMode = !!selectedCustomer || isCreating;
 
   // Returns to the browse table from the detail view.
@@ -716,6 +726,7 @@ export default function CustomersPage() {
         onNew={handleNewCustomer}
         onDuplicate={handleDuplicate}
         onSave={handleSave}
+        onNext={canGoNext ? () => setActiveSection(nextCustomerTab.id) : undefined}
         onCancel={handleCancelCustomer}
         onEdit={handleStartEdit}
       />
@@ -738,6 +749,15 @@ export default function CustomersPage() {
               title={isBusiness ? "Company Information" : "Personal Information"}
               columns={3}
             >
+              {selectedCustomer && !isCreating && (
+                <TextField
+                  label="Customer No"
+                  size="small"
+                  value={selectedCustomer.customer_no ?? ""}
+                  disabled
+                  helperText="Generated automatically"
+                />
+              )}
               <TextField
                 label="Customer Category"
                 size="small"

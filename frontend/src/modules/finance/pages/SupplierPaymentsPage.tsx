@@ -53,6 +53,7 @@ import {
   FormControlLabel,
   Switch,
   Autocomplete,
+  Tooltip,
 } from "@mui/material";
 import PaymentIcon from "@mui/icons-material/Payment";
 import BusinessIcon from "@mui/icons-material/Business";
@@ -101,6 +102,7 @@ import {
   PurchaseInvoiceListItem,
 } from "@/modules/purchasing/purchaseInvoiceApi";
 import { useReferenceData } from "@/hooks";
+import { usePermission } from "@/auth/permissions";
 import { useCurrencyStore } from "@/state/currencyStore";
 import {
   Supplier,
@@ -593,6 +595,8 @@ export default function SupplierPaymentsPage() {
     setPaymentMethod(ACCOUNT_TYPE_TO_PAYMENT_METHOD_LABEL[account.method_type]);
     if (account.bank_name) setBankName(account.bank_name);
   };
+
+  const canCreatePayment = usePermission("supplier_payments", "create");
 
   const handleStartPayment = useCallback(() => {
     setViewMode("documents");
@@ -1967,9 +1971,25 @@ export default function SupplierPaymentsPage() {
           isEditing={false}
           isSaving={saving}
           isFormValid={false}
-          onNew={handleStartPayment}
           endActions={
             <Box sx={{ display: "flex", gap: 1 }}>
+              {/* ActionToolbar hides its Add button while an item (the supplier) is
+                  selected, so the payment wizard gets its own explicit entry point. */}
+              {canCreatePayment && (
+                <Tooltip title={outstandingDocuments.length === 0 ? "This supplier has no outstanding documents" : ""}>
+                  <span>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<PaymentIcon />}
+                      onClick={handleStartPayment}
+                      disabled={saving || outstandingDocuments.length === 0}
+                    >
+                      Make Payment
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
               <Button
                 size="small"
                 variant="outlined"

@@ -29,6 +29,7 @@ from app.modules.employees.models import (
     EmployeePromotions,
     EmployeeSalaryProfile,
     EmployeesAssets,
+    SalaryRevision,
 )
 from app.modules.finance.models import (
     BankDeposits,
@@ -70,7 +71,7 @@ from app.modules.finance.accounting_models import (
     RecurringJournal,
     RecurringJournalLine,
 )
-from app.modules.hr.models import Reimbursements, ReimbursementItem, SalaryDeductions, PayrollBatch
+from app.modules.hr.models import Reimbursements, ReimbursementItem, SalaryDeductions, PayrollBatch, HRPayrollSettings, HREmployeeLoan, HRLoanRecovery
 from app.modules.hr.sales_commission_models import MonthlyBranchSalesSummary, SalesOfficerMonthlyCommission
 from app.modules.inventory.models import CompanyAssets, SalesStock
 from app.modules.manufacturing.models import (  # noqa: F401

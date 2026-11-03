@@ -3386,6 +3386,14 @@ class SupplierCreditsSettleService:
 
         from app.modules.purchasing.credit_service import SupplierCreditService
 
+        if self.db.query(models.SupplierCreditsSettle.id).filter(
+            models.SupplierCreditsSettle.supplier_credits_settle_no == settle.supplier_credits_settle_no
+        ).first():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Settlement number {settle.supplier_credits_settle_no} is already used. Use a new number.",
+            )
+
         credit_service = SupplierCreditService()
         # Validated creation: locks the supplier and GRN rows and refuses a payment that exceeds what is
         # still owed on the GRN (counting other pending settlements, advances and returns).
@@ -3692,6 +3700,9 @@ class SupplierPaymentService:
         self.db = db
 
     def create_payment(self, payment: schemas.SupplierPaymentCreate, created_by: int = None) -> models.SupplierPayment:
+        from app.modules.finance.posting_dates import check_posting_date
+
+        check_posting_date(self.db, payment.payment_date, "Payment date")
         # Lock order must match GRN creation / PO approval, which lock the PO
         # first and the supplier second. Locking the supplier first here and
         # then touching the PO (the payment's FK to it) would deadlock with a
@@ -3998,6 +4009,9 @@ class SupplierAdvancePaymentService:
         self.order_repo = repository.PurchasingOrderRepository(db)
     
     def create_advance(self, data: schemas.SupplierAdvancePaymentCreate, created_by: Optional[int] = None) -> models.SupplierAdvancePayment:
+        from app.modules.finance.posting_dates import check_posting_date
+
+        check_posting_date(self.db, data.payment_date, "Advance date")
         # Validate supplier exists and is active. PO first, then supplier —
         # same lock order as GRN creation / PO approval (see create_payment).
         if data.purchasing_order_id:
@@ -4150,6 +4164,9 @@ class SupplierAdvancePaymentService:
         user_id: Optional[int] = None,
     ) -> models.SupplierAdvancePayment:
         """Return (refund) unused advance amount from supplier."""
+        from app.modules.finance.posting_dates import check_posting_date
+
+        check_posting_date(self.db, data.return_date, "Return date")
         advance = self.repo.get_by_id(advance_id)
         if not advance:
             raise HTTPException(
@@ -4314,7 +4331,8 @@ class SupplierAdvancePaymentService:
         # an orphaned application record with no matching deduction if a
         # concurrent request wins the race.
         try:
-            self.repo.apply_to_grn(data.advance_id, float(data.applied_amount))
+            # Saved together with the application row below (create() commits).
+            self.repo.apply_to_grn(data.advance_id, data.applied_amount, commit=False)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 

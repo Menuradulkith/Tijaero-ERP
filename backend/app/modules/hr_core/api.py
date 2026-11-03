@@ -174,6 +174,14 @@ def generate_leave_allocations(data: s.GenerateAllocationsIn, db: Session = Depe
     return LeavePolicyService(db).generate(data, user.id, branches)
 
 
+@router.post("/leave-allocations/lieu")
+def grant_lieu_leave(data: s.LieuGrantIn, db: Session = Depends(get_db),
+                     user: User = Depends(require_permission(*Permissions.LEAVE_ALLOCATION_CREATE))):
+    """Lieu leave for working on a holiday or weekly off (needs attendance on that day)."""
+    from app.modules.hr_core.service import LieuLeaveService
+    return LieuLeaveService(db).grant(data, user)
+
+
 @router.get("/leave-days")
 def leave_days(
     employee_id: str = Query(..., min_length=1, max_length=100), leave_type: str = Query(..., min_length=1, max_length=30),

@@ -3,7 +3,7 @@
  */
 import { useCallback, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, IconButton, InputAdornment, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, IconButton, InputAdornment, MenuItem, TextField, Tooltip, Typography } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -30,20 +30,28 @@ import {
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { salaryProfilesApi } from "@/modules/hr/api";
-import { formatDateTimeReadable } from "@/utils/formatters";
-import type { EmployeeSalaryProfile, EmployeeSalaryProfileCreate } from "@/modules/hr/types";
+import { formatDate, formatDateTimeReadable } from "@/utils/formatters";
+import type { EmployeeSalaryProfile, EmployeeSalaryProfileCreate, SalaryRevisionReason } from "@/modules/hr/types";
+import AllowancesEditor from "@/modules/hr/components/AllowancesEditor";
+import SalaryHistory from "@/modules/hr/components/SalaryHistory";
+
+const REASONS: { value: SalaryRevisionReason; label: string }[] = [
+  { value: "increment", label: "Increment" },
+  { value: "promotion", label: "Promotion" },
+  { value: "adjustment", label: "Adjustment / correction" },
+  { value: "joining", label: "Joining" },
+];
 
 const INITIAL_FORM: EmployeeSalaryProfileCreate = {
   employee_id: "",
   basic_salary: 0,
-  add_1_name: "",
-  add_1_value: 0,
-  add_2_name: "",
-  add_2_value: 0,
+  allowances: [],
   designation: "",
   department: "",
   effective_from_date: "",
   benefits: "",
+  revision_reason: "joining",
+  revision_remarks: "",
 };
 
 export default function SalaryProfilesPage() {
@@ -62,15 +70,14 @@ export default function SalaryProfilesPage() {
     initialFormData: INITIAL_FORM,
     resetFormFromItem: (p) => ({
       employee_id: p.employee_id,
-      basic_salary: p.basic_salary,
-      add_1_name: p.add_1_name || "",
-      add_1_value: p.add_1_value || 0,
-      add_2_name: p.add_2_name || "",
-      add_2_value: p.add_2_value || 0,
+      basic_salary: Number(p.basic_salary),
+      allowances: (p.allowances || []).map((a) => ({ ...a, amount: Number(a.amount) })),
       designation: p.designation || "",
       department: p.department || "",
       effective_from_date: p.effective_from_date || "",
       benefits: p.benefits || "",
+      revision_reason: "increment",
+      revision_remarks: "",
     }),
     defaultSortField: "created_desc",
   });
@@ -82,7 +89,7 @@ export default function SalaryProfilesPage() {
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    let list = (profiles || []).filter(
+    const list = (profiles || []).filter(
       (p) => !q || p.employee_id.toLowerCase().includes(q) || (p.designation || "").toLowerCase().includes(q) || (p.department || "").toLowerCase().includes(q)
     );
     // Fixed default order (newest first) — the browse table's own
@@ -106,6 +113,7 @@ export default function SalaryProfilesPage() {
     mutationFn: ({ id, data }: { id: number; data: EmployeeSalaryProfileCreate }) => salaryProfilesApi.update(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["salary-profiles"] });
+      qc.invalidateQueries({ queryKey: ["salary-revisions"] });
       showSuccessToast("Salary profile updated");
       setIsEditing(false);
     },
@@ -140,11 +148,15 @@ export default function SalaryProfilesPage() {
     if (ok) deleteMut.mutate(selectedItem.id);
   }, [selectedItem, deleteMut, confirmDialog]);
 
-  const isFormValid = !!formData.employee_id && formData.basic_salary > 0;
+  const allowancesValid = (formData.allowances || []).every((a) => a.name.trim() && Number(a.amount) > 0);
+  const isFormValid = !!formData.employee_id && formData.basic_salary > 0 && allowancesValid;
   const isSaving = createMut.isPending || updateMut.isPending;
   const isDisabled = !isEditing && !isCreating;
 
-  const totalSalary = formData.basic_salary + (formData.add_1_value || 0) + (formData.add_2_value || 0);
+  const allowanceTotal = (formData.allowances || []).reduce((s, a) => s + (Number(a.amount) || 0), 0);
+  const epfEarnings = formData.basic_salary
+    + (formData.allowances || []).filter((a) => a.epf_liable).reduce((s, a) => s + (Number(a.amount) || 0), 0);
+  const totalSalary = formData.basic_salary + allowanceTotal;
 
   // Cancelling a brand-new record returns to the browse table (the hook's
   // default handleCancel would instead auto-select the first item, which made
@@ -191,20 +203,27 @@ export default function SalaryProfilesPage() {
         renderCell: (params: GridRenderCellParams<EmployeeSalaryProfile>) => fmtLKR(params.row.basic_salary),
       },
       {
-        field: "add_1_value",
+        field: "allowances_total",
         header: "Allowances",
         width: 140,
         align: "right",
         headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<EmployeeSalaryProfile>) =>
-          fmtLKR((params.row.add_1_value || 0) + (params.row.add_2_value || 0)),
+        renderCell: (params: GridRenderCellParams<EmployeeSalaryProfile>) => fmtLKR(params.row.allowances_total || 0),
+      },
+      {
+        field: "epf_earnings",
+        header: "EPF Earnings",
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<EmployeeSalaryProfile>) => fmtLKR(params.row.epf_earnings || params.row.basic_salary),
       },
       {
         field: "effective_from_date",
         header: "Effective Date",
         width: 140,
         renderCell: (params: GridRenderCellParams<EmployeeSalaryProfile>) =>
-          params.row.effective_from_date ? formatDateTimeReadable(params.row.effective_from_date) : "-",
+          formatDate(params.row.effective_from_date) || "-",
       },
       {
         field: "designation",
@@ -290,21 +309,41 @@ export default function SalaryProfilesPage() {
               </Box>
             </FormSection>
 
-            <FormSection title="Salary Breakdown" columns={2}>
-              <TextField label="Basic Salary" size="small" type="number" value={Number(formData.basic_salary) || ""} onChange={(e) => setFormData({ ...formData, basic_salary: parseFloat(e.target.value) || 0 })} disabled={isDisabled} required inputProps={{ step: "0.01" }} />
-              <Box />
-              <TextField label="Addition 1 Name" size="small" value={formData.add_1_name || ""} onChange={(e) => setFormData({ ...formData, add_1_name: e.target.value })} disabled={isDisabled} />
-              <TextField label="Addition 1 Value" size="small" type="number" value={formData.add_1_value || ""} onChange={(e) => setFormData({ ...formData, add_1_value: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
-              <TextField label="Addition 2 Name" size="small" value={formData.add_2_name || ""} onChange={(e) => setFormData({ ...formData, add_2_name: e.target.value })} disabled={isDisabled} />
-              <TextField label="Addition 2 Value" size="small" type="number" value={formData.add_2_value || ""} onChange={(e) => setFormData({ ...formData, add_2_value: parseFloat(e.target.value) || 0 })} disabled={isDisabled} inputProps={{ step: "0.01" }} />
+            <FormSection title="Salary Breakdown" columns={1}>
+              <TextField label="Basic Salary" size="small" type="number" value={Number(formData.basic_salary) || ""} onChange={(e) => setFormData({ ...formData, basic_salary: parseFloat(e.target.value) || 0 })} disabled={isDisabled} required inputProps={{ step: "0.01" }} sx={{ maxWidth: 240 }} />
+              <AllowancesEditor value={formData.allowances || []} onChange={(rows) => setFormData({ ...formData, allowances: rows })} disabled={isDisabled} />
+            </FormSection>
+
+            <FormSection title="Totals" columns={3}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Total Monthly Salary</Typography>
+                <Typography variant="h6" fontWeight={700} color="success.main">{fmtLKR(totalSalary)}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">EPF / ETF Earnings</Typography>
+                <Typography variant="h6" fontWeight={600}>{fmtLKR(epfEarnings)}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Employee EPF 8% (approx.)</Typography>
+                <Typography variant="h6" fontWeight={600}>{fmtLKR(Math.round(epfEarnings * 8) / 100)}</Typography>
+              </Box>
             </FormSection>
 
             {(isCreating || isEditing) && (
-              <FormSection title="Total" columns={1}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Total Monthly Salary</Typography>
-                  <Typography variant="h6" fontWeight={700} color="success.main">{fmtLKR(totalSalary)}</Typography>
-                </Box>
+              <FormSection title="Why is the salary changing?" columns={2}>
+                <TextField select label="Reason" size="small" value={formData.revision_reason || "adjustment"}
+                  onChange={(e) => setFormData({ ...formData, revision_reason: e.target.value as SalaryRevisionReason })}
+                  helperText="A pay change with a new Effective From date is kept in the salary history">
+                  {REASONS.map((r) => <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>)}
+                </TextField>
+                <TextField label="Remarks" size="small" value={formData.revision_remarks || ""}
+                  onChange={(e) => setFormData({ ...formData, revision_remarks: e.target.value })} />
+              </FormSection>
+            )}
+
+            {selectedItem && !isCreating && (
+              <FormSection title="Salary History" columns={1}>
+                <SalaryHistory employeeId={selectedItem.employee_id} canDelete={canUpdate && !isEditing} />
               </FormSection>
             )}
 
@@ -326,19 +365,20 @@ export default function SalaryProfilesPage() {
         title="Salary Profiles"
         titleSlot={
           isDetailMode ? (
-          <Button
-            size="small"
-            startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={handleBackToProfiles}
-            sx={{ textTransform: "none" }}
-          >
-            Back to Salary Profiles
-          </Button>
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={handleBackToProfiles}
+              sx={{ textTransform: "none" }}
+              disabled={isSaving}
+            >
+              Back to Salary Profiles
+            </Button>
           ) : (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
-                placeholder="Search profiles..."
+                placeholder="Search employee, designation..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 InputProps={{
@@ -348,28 +388,28 @@ export default function SalaryProfilesPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 260 }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
+              {searchQuery && (
+                <Button size="small" onClick={() => setSearchQuery("")} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
+              )}
             </Box>
           )
         }
         headerActions={
-          isDetailMode ? undefined : (
-            <>
-              {canCreate && (
-                <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
-                  Add Salary Profile
-                </Button>
-              )}
-            </>
-          )
+          !isDetailMode && canCreate ? (
+            <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
+              Add Salary Profile
+            </Button>
+          ) : undefined
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        {...(isDetailMode
-          ? { children: detailContent }
-          : { children: tablePanel })}
-      />
+      >
+        {isDetailMode ? detailContent : tablePanel}
+      </MasterDetailLayout>
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

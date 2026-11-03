@@ -4,9 +4,9 @@
  * Detail mode: the record's detail form (unchanged), full-width, with a
  * "Back to Attendance" link returning to the table.
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, IconButton, InputAdornment, MenuItem, TextField, Tooltip, Typography } from "@mui/material";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
@@ -22,8 +22,8 @@ import {
   DetailPanelHeader,
   EmptyState,
   FormSection,
+  getStatusProps,
   MasterDetailLayout,
-  SelectableListItem,
   TButton,
   TConfirmDialog,
   TDetailSkeleton,
@@ -43,7 +43,7 @@ import { usePermission } from "@/auth/permissions";
 import { attendanceApi, employeesApi } from "@/modules/hr/api";
 import { branchApi } from "@/modules/branches/api";
 import type { Attendance, AttendanceCreate } from "@/modules/hr/types";
-import { useState } from "react";
+import { formatDate } from "@/utils/formatters";
 
 const STATUS_OPTIONS: TFilterStatusOption[] = [
   { value: "present", label: "Present" },
@@ -53,7 +53,7 @@ const STATUS_OPTIONS: TFilterStatusOption[] = [
   { value: "half_day", label: "Half Day" },
 ];
 
-const todayISO = () => new Date().toISOString().split("T")[0];
+const todayISO = () => formatDate(new Date());
 // The API sends times of day as "HH:MM:SS" - they are not dates, so they are cut, not parsed.
 const fmtTime = (t?: string | null) => (t ? String(t).slice(0, 5) : "—");
 
@@ -63,16 +63,6 @@ const INITIAL_FORM: AttendanceCreate = {
   date: todayISO(),
   check_in: "",
   check_out: "",
-};
-
-const statusColor = (s?: string): "success" | "warning" | "error" | "info" | "default" => {
-  switch (s) {
-    case "present": return "success";
-    case "late": return "warning";
-    case "absent": return "error";
-    case "leave": return "info";
-    default: return "default";
-  }
 };
 
 const minutesToHours = (m: number) => (m / 60).toFixed(2);
@@ -89,7 +79,7 @@ export default function AttendancePage() {
   const [dateFrom] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
-    return d.toISOString().split("T")[0];
+    return formatDate(d);
   });
   const [dateTo] = useState<string>(todayISO());
 
@@ -154,7 +144,7 @@ export default function AttendancePage() {
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    let list = (attendances || []).filter((a) => {
+    const list = (attendances || []).filter((a) => {
       if (filterStatus && a.status !== filterStatus) return false;
       if (filterBranch && a.branch_code !== filterBranch) return false;
       if (!q) return true;
@@ -230,6 +220,19 @@ export default function AttendancePage() {
   });
 
   const confirmDialog = useTConfirmDialog();
+
+  // blocks a second Check In / Check Out click before the first has settled
+  const clockRef = useRef(false);
+  const handleCheckIn = useCallback(() => {
+    if (clockRef.current || checkInMutation.isPending) return;
+    clockRef.current = true;
+    checkInMutation.mutate(undefined, { onSettled: () => { clockRef.current = false; } });
+  }, [checkInMutation]);
+  const handleCheckOut = useCallback(() => {
+    if (clockRef.current || checkOutMutation.isPending) return;
+    clockRef.current = true;
+    checkOutMutation.mutate(undefined, { onSettled: () => { clockRef.current = false; } });
+  }, [checkOutMutation]);
 
   const savingRef = useRef(false);   // blocks a second click before the first save has settled
   const handleSave = useCallback(() => {
@@ -399,7 +402,7 @@ export default function AttendancePage() {
         noSelectionTitle="Select an Attendance Record"
         chips={
           selectedAttendance && !isCreating
-            ? [{ label: selectedAttendance.status || "—", color: statusColor(selectedAttendance.status) }]
+            ? [getStatusProps(selectedAttendance.status || "—", "attendanceStatus")]
             : []
         }
       />
@@ -424,7 +427,7 @@ export default function AttendancePage() {
               size="small"
               variant="outlined"
               startIcon={<LoginIcon />}
-              onClick={() => checkInMutation.mutate()}
+              onClick={handleCheckIn}
               disabled={!formData.employee_id || !formData.branch_code || checkInMutation.isPending}
             >
               Check In
@@ -434,7 +437,7 @@ export default function AttendancePage() {
               size="small"
               variant="outlined"
               startIcon={<LogoutIcon />}
-              onClick={() => checkOutMutation.mutate()}
+              onClick={handleCheckOut}
               disabled={checkOutMutation.isPending}
             >
               Check Out
@@ -558,14 +561,15 @@ export default function AttendancePage() {
         title="Attendance"
         titleSlot={
           isAttendanceDetailMode ? (
-          <Button
-            size="small"
-            startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={handleBackToAttendance}
-            sx={{ textTransform: "none" }}
-          >
-            Back to Attendance
-          </Button>
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={handleBackToAttendance}
+              sx={{ textTransform: "none" }}
+              disabled={isSaving}
+            >
+              Back to Attendance
+            </Button>
           ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
@@ -580,18 +584,8 @@ export default function AttendancePage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 190, flexShrink: 0 }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
-              <Box sx={{ width: 150, flexShrink: 0 }}>
-                <TStatusFilter
-                  options={STATUS_OPTIONS}
-                  value={filterStatus}
-                  onChange={setFilterStatus}
-                  label=""
-                  placeholder="All Status"
-                  size="small"
-                />
-              </Box>
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TBranchFilter
                   branches={branchOptions}
@@ -599,6 +593,16 @@ export default function AttendancePage() {
                   onChange={setFilterBranch}
                   label=""
                   placeholder="All Branches"
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TStatusFilter
+                  options={STATUS_OPTIONS}
+                  value={filterStatus}
+                  onChange={setFilterStatus}
+                  label=""
+                  placeholder="All Statuses"
                   size="small"
                 />
               </Box>
@@ -611,28 +615,23 @@ export default function AttendancePage() {
           )
         }
         headerActions={
-          isAttendanceDetailMode ? undefined : (
-            <>
-              {canCreate && (
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={handleNew}
-                  sx={{ mr: 1 }}
-                >
-                  Add Attendance
-                </Button>
-              )}
-            </>
-          )
+          !isAttendanceDetailMode && canCreate ? (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleNew}
+              sx={{ mr: 1 }}
+            >
+              Add Attendance
+            </Button>
+          ) : undefined
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        {...(isAttendanceDetailMode
-          ? { children: detailPanel }
-          : { children: attendanceTablePanel })}
-      />
+      >
+        {isAttendanceDetailMode ? detailPanel : attendanceTablePanel}
+      </MasterDetailLayout>
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

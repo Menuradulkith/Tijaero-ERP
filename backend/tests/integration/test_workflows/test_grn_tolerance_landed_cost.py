@@ -143,7 +143,8 @@ class TestLandedCost:
     def test_quantity_basis_and_rounding_remainder_sum_exactly(self, db, superclient, world):
         w = world
         grn_id = self._receive(superclient, w)
-        r = superclient.post(f"{P}/grn/{grn_id}/landed-costs", json={"charge_type": "duty", "amount": "100.00", "allocation_basis": "quantity"})
+        r = superclient.post(f"{P}/grn/{grn_id}/landed-costs", json={"charge_type": "duty", "amount": "100.00", "allocation_basis": "quantity",
+                                                                            "supplier_id": w["po"].first_suppliers_id})
         assert r.status_code == 201, r.text
         summary = superclient.get(f"{P}/grn/{grn_id}/landed-costs").json()
         assert sum(Decimal(str(l["landed_total"])) for l in summary["lines"]) == Decimal("100.00")
@@ -151,7 +152,8 @@ class TestLandedCost:
     def test_posts_to_the_gl_and_cancel_reverses_it(self, db, superclient, world):
         w = world
         grn_id = self._receive(superclient, w)
-        v = superclient.post(f"{P}/grn/{grn_id}/landed-costs", json={"charge_type": "insurance", "amount": "250.00", "payment_method": "credit"}).json()
+        v = superclient.post(f"{P}/grn/{grn_id}/landed-costs", json={"charge_type": "insurance", "amount": "250.00", "payment_method": "credit",
+                                                                                "supplier_id": w["po"].first_suppliers_id}).json()
         assert self._gl_lines(db, v["id"]) == 2  # Dr 1210 / Cr 2010
 
         r = superclient.post(f"{P}/landed-costs/{v['id']}/cancel", json={"reason": "Charged twice"})
@@ -163,11 +165,25 @@ class TestLandedCost:
     def test_grn_cancel_is_blocked_while_a_landed_cost_is_posted(self, db, superclient, world):
         w = world
         grn_id = self._receive(superclient, w)
-        v = superclient.post(f"{P}/grn/{grn_id}/landed-costs", json={"charge_type": "freight", "amount": "50.00"}).json()
+        v = superclient.post(f"{P}/grn/{grn_id}/landed-costs", json={"charge_type": "freight", "amount": "50.00", "payment_method": "cash"}).json()
         r = superclient.post(f"{P}/grn/{grn_id}/cancel", json={"reason": "Wrong delivery"})
         assert r.status_code == 400 and "landed cost" in r.json()["detail"]
         superclient.post(f"{P}/landed-costs/{v['id']}/cancel", json={"reason": "Charged twice"})
         assert superclient.post(f"{P}/grn/{grn_id}/cancel", json={"reason": "Wrong delivery"}).status_code == 200
+
+    def test_credit_charge_needs_a_supplier_and_is_owed_to_them(self, db, superclient, world, make_supplier):
+        """A charge on credit is Cr Trade Creditors: it must name who is owed, and
+        that supplier's amount owed must include it (same as the ledger)."""
+        from app.modules.purchasing.credit_service import SupplierCreditService
+        w = world
+        grn_id = self._receive(superclient, w)
+        r = superclient.post(f"{P}/grn/{grn_id}/landed-costs", json={"charge_type": "freight", "amount": "75.00", "payment_method": "credit"})
+        assert r.status_code == 400, r.text
+        forwarder = make_supplier()
+        r = superclient.post(f"{P}/grn/{grn_id}/landed-costs", json={"charge_type": "freight", "amount": "75.00", "payment_method": "credit",
+                                                                     "supplier_id": forwarder.id})
+        assert r.status_code in (200, 201), r.text
+        assert SupplierCreditService().calculate_amount_owed(db, forwarder.id) == Decimal("75.00")
 
     def test_validation_and_permissions(self, db, api, make_user, superclient, world):
         w = world

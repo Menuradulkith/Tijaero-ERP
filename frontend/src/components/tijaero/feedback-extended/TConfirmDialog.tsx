@@ -122,7 +122,7 @@ export const TConfirmDialog: React.FC<TConfirmDialogProps> = ({
     >
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
         {typeIcons[type]}
-        <Typography variant="h6" fontWeight={600}>
+        <Typography component="span" variant="h6" fontWeight={600}>
           {title}
         </Typography>
       </DialogTitle>

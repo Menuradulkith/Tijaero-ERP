@@ -380,6 +380,10 @@ export default function SuppliersPage() {
   // always in days; see daysToUnit/unitToDays above).
   // Starts empty on a new supplier (no unit pre-selected); an existing supplier's value is shown in days.
   const [leadTimeUnit, setLeadTimeUnit] = useState<LeadTimeUnit | "">("");
+  // The number may be typed before a unit is picked; it is held here until the
+  // unit arrives (then converted to days) and Save is blocked while it is orphaned.
+  const [pendingLeadTime, setPendingLeadTime] = useState("");
+  const leadTimeMissingUnit = pendingLeadTime.trim() !== "" && !leadTimeUnit;
 
   // Sticky "user explicitly chose Custom" flag for the Payment Terms
   // dropdown — without this, clearing the custom day-count input back to ""
@@ -531,6 +535,7 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     setLeadTimeUnit(isCreating || !selectedSupplier ? "" : "days");
+    setPendingLeadTime("");
   }, [isCreating, selectedSupplier?.id]);
 
   // Draft rows rendered in the same grid as saved ones use negative ids so
@@ -1388,7 +1393,8 @@ export default function SuppliersPage() {
     !phonesMatch &&
     formData.country_id &&
     formData.email &&
-    emailRegex.test(formData.email)
+    emailRegex.test(formData.email) &&
+    !leadTimeMissingUnit
   );
   const isAddressValid = !!(
     formData.billing_address_line1?.trim() &&
@@ -1417,6 +1423,10 @@ export default function SuppliersPage() {
 
   // Whether we're showing a single supplier's detail view (selected or being
   // created) instead of the browse table.
+  // "Next" while creating appears once General's mandatory fields are filled; the other tabs are optional.
+  const nextSupplierTab = SUPPLIER_DETAIL_TABS[SUPPLIER_DETAIL_TABS.findIndex((t) => t.id === activeSection) + 1];
+  const canGoNext = !!nextSupplierTab && (activeSection !== "general" || isGeneralValid);
+
   const isSupplierDetailMode = !!selectedSupplier || isCreating;
 
   // Browse mode: a full-width table of every supplier (shown when nothing is
@@ -1495,6 +1505,7 @@ export default function SuppliersPage() {
         onNew={canCreateSupplier ? handleNewSupplier : undefined}
         onDuplicate={handleDuplicate}
         onSave={handleSave}
+        onNext={canGoNext ? () => setActiveSection(nextSupplierTab.id as typeof activeSection) : undefined}
         onCancel={handleCancelSupplier}
         onEdit={canUpdateSupplier ? handleStartEdit : undefined}
       />
@@ -1508,6 +1519,15 @@ export default function SuppliersPage() {
           <>
           <TTabPanel value={activeSection} index="general" padding={0}>
             <FormSection title="Company Information" columns={3}>
+              {selectedSupplier && !isCreating && (
+                <TextField
+                  label="Supplier No"
+                  size="small"
+                  value={selectedSupplier.supplier_no ?? ""}
+                  disabled
+                  helperText="Generated automatically"
+                />
+              )}
               <TextField
                 label="Company Name"
                 inputProps={{ maxLength: 255 }}
@@ -1610,12 +1630,18 @@ export default function SuppliersPage() {
                   size="small"
                   type="number"
                   value={
-                    formData.lead_time_days != null
-                      ? daysToUnit(formData.lead_time_days, leadTimeUnit || "days")
-                      : ""
+                    !leadTimeUnit
+                      ? pendingLeadTime
+                      : formData.lead_time_days != null
+                        ? daysToUnit(formData.lead_time_days, leadTimeUnit)
+                        : ""
                   }
                   onChange={(e) => {
                     const raw = e.target.value;
+                    if (!leadTimeUnit) {
+                      setPendingLeadTime(raw);
+                      return;
+                    }
                     if (raw.trim() === "") {
                       setFormData({ ...formData, lead_time_days: undefined });
                       return;
@@ -1626,9 +1652,8 @@ export default function SuppliersPage() {
                       lead_time_days: Number.isFinite(parsed) && leadTimeUnit ? unitToDays(Math.max(0, parsed), leadTimeUnit) : undefined,
                     });
                   }}
-                  disabled={(!isEditing && !isCreating) || !leadTimeUnit}
+                  disabled={!isEditing && !isCreating}
                   inputProps={{ min: 0 }}
-                  helperText={(isEditing || isCreating) && !leadTimeUnit ? "Select a unit first" : undefined}
                   sx={{ flex: 1 }}
                 />
                 <TextField
@@ -1636,8 +1661,19 @@ export default function SuppliersPage() {
                   size="small"
                   label="Unit"
                   value={leadTimeUnit}
-                  onChange={(e) => setLeadTimeUnit(e.target.value as LeadTimeUnit)}
+                  onChange={(e) => {
+                    const unit = e.target.value as LeadTimeUnit;
+                    setLeadTimeUnit(unit);
+                    const parsed = Number(pendingLeadTime);
+                    if (pendingLeadTime.trim() !== "" && Number.isFinite(parsed)) {
+                      setFormData({ ...formData, lead_time_days: unitToDays(Math.max(0, parsed), unit) });
+                    }
+                    setPendingLeadTime("");
+                  }}
                   disabled={!isEditing && !isCreating}
+                  required={leadTimeMissingUnit}
+                  error={leadTimeMissingUnit}
+                  helperText={leadTimeMissingUnit ? "Select a unit for the lead time" : undefined}
                   InputLabelProps={{ shrink: true }}
                   SelectProps={{ displayEmpty: true }}
                   sx={{ width: 120, flexShrink: 0 }}

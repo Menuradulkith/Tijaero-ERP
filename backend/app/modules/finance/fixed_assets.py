@@ -27,10 +27,15 @@ from app.core import timezone as tz
 
 from . import accounting_schemas as schemas
 from .accounting_models import AssetClass, ChartOfAccounts, DepreciationLine, DepreciationRun, FixedAsset
-from .posting_rules import posting_ref
+from .posting_rules import POSTING_TYPES, posting_ref
+
+POSTING_TYPES_ACCUM_DEFAULT = POSTING_TYPES["ACCUM_DEPRECIATION"].default_account
 
 CENT = Decimal("0.01")
 METHODS = ("straight_line", "declining")
+# ChartOfAccounts.account_category values that hold long-term assets (same list the balance sheet uses).
+FIXED_ASSET_CATEGORIES = ("Fixed Asset", "Non-Current Asset", "Intangible Asset", "Other Asset")
+RECEIVED_INTO = {"bank": "BANK", "cash": "CASH"}
 # How a newly registered asset was paid for -> the account credited.
 FUNDING = {
     "bank": "BANK",
@@ -84,6 +89,14 @@ class FixedAssetService:
         if self.db.query(ChartOfAccounts.id).filter(ChartOfAccounts.parent_account_id == acc.id,
                                                     ChartOfAccounts.is_active.is_(True)).first():
             raise _bad(f"{acc.account_code} is a heading account; choose one under it.")
+        from .posting_rules import PostingRuleResolver
+
+        accum = {POSTING_TYPES_ACCUM_DEFAULT, PostingRuleResolver(self.db).resolve("ACCUM_DEPRECIATION")}
+        if acc.account_category not in FIXED_ASSET_CATEGORIES or acc.account_code in accum:
+            raise _bad(
+                f"{acc.account_code} {acc.account_name} is not a fixed-asset account. Choose the account that "
+                "holds what the assets cost (like 1310 Equipment) - not cash, bank, stock or accumulated depreciation."
+            )
         if method not in METHODS:
             raise _bad("Method must be straight_line or declining.")
         if method == "declining" and not (rate and Decimal(str(rate)) > 0):
@@ -131,11 +144,11 @@ class FixedAssetService:
         return f"{prefix}{seq:05d}"
 
     def _post(self, *, reference_id: int, reference_no: str, lines, on: date, description: str,
-              branch_code: Optional[str], user_id: int, marker: str):
+              branch_code: Optional[str], user_id: int, marker: str, reference_type: str = "FixedAsset"):
         from .gl_posting_service import GLPostingService
 
         result = GLPostingService(self.db).post(
-            reference_type="FixedAsset", reference_id=reference_id, reference_no=reference_no, lines=lines,
+            reference_type=reference_type, reference_id=reference_id, reference_no=reference_no, lines=lines,
             entry_date=on, description=description, branch_code=branch_code, user_id=user_id,
             transaction_type="FixedAsset", je_prefix="JE-FA", source_module="finance", marker=marker,
             record_failure=False,
@@ -155,10 +168,20 @@ class FixedAssetService:
         if salvage < 0 or salvage >= cost:
             raise _bad("The value at the end of its life must be less than the cost.")
         if data.acquisition_date > tz.today():
-            raise _bad("The purchase date can't be in the future.")
+            raise _bad("The purchase date can't be in the future.", status.HTTP_400_BAD_REQUEST)
         if data.funding not in ("existing", *FUNDING):
             raise _bad("Say how the asset was paid for.")
+        if data.funding != "existing":
+            # the purchase is booked on this date, so it must be in an open period
+            # (an asset already in the books posts nothing and may be years old)
+            from .posting_dates import check_posting_date
+
+            check_posting_date(self.db, data.acquisition_date, "The purchase date")
+        if data.depreciation_start and data.depreciation_start < data.acquisition_date:
+            raise _bad("Depreciation can't start before the asset was bought.")
         method = data.depreciation_method or cls.depreciation_method
+        if method not in METHODS:
+            raise _bad("Method must be straight_line or declining.")
         rate = data.declining_rate if data.declining_rate is not None else cls.declining_rate
         if method == "declining" and not (rate and Decimal(str(rate)) > 0):
             raise _bad("A declining-balance asset needs a yearly rate above 0%.")
@@ -275,7 +298,8 @@ class FixedAssetService:
                               "cost_center": a.cost_center_id})
                 lines.append({"account_code": posting_ref("ACCUM_DEPRECIATION"), "debit": Decimal("0"), "credit": amount,
                               "description": f"Depreciation {year}-{month:02d} - {a.asset_no}"})
-            je = self._post(reference_id=run.id, reference_no=f"DEP-{year}-{month:02d}", lines=lines, on=end,
+            # A run's id is not an asset id: its own reference type keeps the two apart.
+            je = self._post(reference_type="DepreciationRun", reference_id=run.id, reference_no=f"DEP-{year}-{month:02d}", lines=lines, on=end,
                             description=f"Depreciation {year}-{month:02d}" + (f" | {branch}" if branch else ""),
                             branch_code=branch, user_id=user_id, marker=f"FA Depreciation run {run.id} {branch or '-'}")
             for a, amount in items:
@@ -331,13 +355,20 @@ class FixedAssetService:
         if a.status not in ("active", "fully_depreciated"):
             raise _bad(f"This asset is already {a.status}.")
         on = data.disposal_date or tz.today()
-        if on > tz.today() or on < a.acquisition_date:
+        from .posting_dates import check_posting_date
+
+        check_posting_date(self.db, on, "The disposal date")
+        if on < a.acquisition_date:
             raise _bad("The disposal date must be between the purchase date and today.")
+        if data.kind not in ("sold", "scrapped"):
+            raise _bad("Choose sold or scrapped.")
+        if data.kind == "scrapped" and _d(data.proceeds) != 0:
+            raise _bad("A scrapped asset brings in no money. If it was sold, choose sold and enter the price.")
         proceeds = _d(data.proceeds) if data.kind == "sold" else Decimal("0")
         if data.kind == "sold" and proceeds <= 0:
             raise _bad("Enter what the asset was sold for.")
-        if data.kind not in ("sold", "scrapped"):
-            raise _bad("Choose sold or scrapped.")
+        if data.kind == "sold" and data.received_into not in RECEIVED_INTO:
+            raise _bad("Say where the sale money went: bank or cash.")
         cost, acc = _d(a.cost), _d(a.accumulated_depreciation)
         result = proceeds - (cost - acc)
         label = f"{a.asset_no} {a.name}"
@@ -349,7 +380,7 @@ class FixedAssetService:
             lines.append({"account_code": posting_ref("ACCUM_DEPRECIATION"), "debit": acc, "credit": Decimal("0"),
                           "description": f"Depreciation cleared - {label}"})
         if proceeds > 0:
-            lines.append({"account_code": posting_ref("BANK" if data.received_into != "cash" else "CASH"),
+            lines.append({"account_code": posting_ref(RECEIVED_INTO[data.received_into]),
                           "debit": proceeds, "credit": Decimal("0"), "description": f"Sale proceeds - {label}"})
         if result > 0:
             lines.append({"account_code": posting_ref("ASSET_DISPOSAL_GAIN"), "debit": Decimal("0"), "credit": result,

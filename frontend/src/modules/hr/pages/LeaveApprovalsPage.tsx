@@ -1,17 +1,19 @@
 /**
- * LeaveApprovalsPage — Master/Detail layout for pending leave approvals.
- * Left: list of pending leaves.
- * Right: leave details + approve/reject actions.
+ * LeaveApprovalsPage — Browse table + single-record detail toggle for pending leave approvals.
+ * Browse mode: a full-width table of pending leaves.
+ * Detail mode: leave details + approve/reject actions, with a
+ * "Back to Leave Approvals" link returning to the table.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Button, InputAdornment, TextField, Typography } from "@mui/material";
+import { Box, Button, IconButton, InputAdornment, TextField, Tooltip, Typography } from "@mui/material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SearchIcon from "@mui/icons-material/Search";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { format } from "date-fns";
 
 import {
@@ -19,13 +21,13 @@ import {
   DetailPanelHeader,
   EmptyState,
   FormSection,
+  getStatusProps,
   MasterDetailLayout,
   TDataGrid,
   type TDataGridColumn,
-  TButton,
   TConfirmDialog,
   TDetailSkeleton,
-  TFormDialog,
+  TSidePanel,
   TStatusChip,
   handleApiError,
   showErrorToast,
@@ -95,17 +97,25 @@ export default function LeaveApprovalsPage() {
 
   const confirmDialog = useTConfirmDialog();
 
+  // blocks a second Approve / Reject submit before the first has settled
+  const decidingRef = useRef(false);
+  const anyPending = approveMutation.isPending || rejectMutation.isPending;
+
   const handleApprove = useCallback(() => {
-    if (selectedLeave) approveMutation.mutate(selectedLeave.id);
-  }, [selectedLeave, approveMutation]);
+    if (!selectedLeave || decidingRef.current || anyPending) return;
+    decidingRef.current = true;
+    approveMutation.mutate(selectedLeave.id, { onSettled: () => { decidingRef.current = false; } });
+  }, [selectedLeave, approveMutation, anyPending]);
 
   const handleReject = useCallback(() => {
     if (!rejectionReason.trim()) {
       showErrorToast("Please provide a rejection reason");
       return;
     }
-    if (selectedLeave) rejectMutation.mutate(selectedLeave.id);
-  }, [selectedLeave, rejectionReason, rejectMutation]);
+    if (!selectedLeave || decidingRef.current || anyPending) return;
+    decidingRef.current = true;
+    rejectMutation.mutate(selectedLeave.id, { onSettled: () => { decidingRef.current = false; } });
+  }, [selectedLeave, rejectionReason, rejectMutation, anyPending]);
 
   const columns: TDataGridColumn<Leave>[] = useMemo(
     () => [
@@ -116,6 +126,27 @@ export default function LeaveApprovalsPage() {
       { field: "leave_duration", header: "Days", width: 90, align: "right", headerAlign: "right" },
       { field: "created_at", header: "Applied", width: 150, renderCell: (p: GridRenderCellParams<Leave>) => (p.row.created_at ? format(new Date(p.row.created_at), "MMM dd, yyyy") : "—") },
       { field: "status", header: "Status", width: 120, align: "center", headerAlign: "center", renderCell: () => <TStatusChip status="pending" statusMap="leaveStatus" size="small" /> },
+      {
+        field: "view",
+        header: "",
+        width: 56,
+        sortable: false,
+        align: "center",
+        headerAlign: "center",
+        renderCell: (p: GridRenderCellParams<Leave>) => (
+          <Tooltip title="Open">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedLeave(p.row);
+              }}
+            >
+              <OpenInNewIcon fontSize="small" color="action" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
     ],
     []
   );
@@ -153,38 +184,40 @@ export default function LeaveApprovalsPage() {
         }
         titleIcon={<EventAvailableIcon color="primary" />}
         noSelectionTitle="Select a Pending Leave"
-        chips={selectedLeave ? [{ label: "Pending", color: "warning" as const }] : []}
+        chips={selectedLeave ? [getStatusProps("pending", "leaveStatus")] : []}
       />
 
       <ActionToolbar
         canCreate={false}
         canUpdate={false}
         canDelete={false}
+        canDuplicate={false}
         hasSelectedItem={!!selectedLeave}
         isCreating={false}
         isEditing={false}
-        startActions={
+        endActions={
           selectedLeave && canApprove ? (
-            <Box sx={{ display: "flex", gap: 1 }}>
-              <TButton
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              <Button
                 size="small"
-                variant="success"
+                color="success"
+                variant="contained"
                 startIcon={<CheckCircleIcon />}
                 onClick={() => setApproveDialog(true)}
-                disabled={approveMutation.isPending}
+                disabled={anyPending}
               >
                 Approve
-              </TButton>
-              <TButton
+              </Button>
+              <Button
                 size="small"
+                color="error"
                 variant="outlined"
                 startIcon={<CancelIcon />}
                 onClick={() => setRejectDialog(true)}
-                disabled={rejectMutation.isPending}
-                sx={{ color: "error.main", borderColor: "error.main" }}
+                disabled={anyPending}
               >
                 Reject
-              </TButton>
+              </Button>
             </Box>
           ) : undefined
         }
@@ -241,7 +274,7 @@ export default function LeaveApprovalsPage() {
             </FormSection>
 
             {selectedLeave.created_at && (
-              <FormSection title="Application Info" columns={2}>
+              <FormSection title="Application Info" columns={2} isLast>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Applied On</Typography>
                   <Typography variant="body2">
@@ -259,65 +292,6 @@ export default function LeaveApprovalsPage() {
           </>
         )}
       </Box>
-
-      <TFormDialog
-        open={approveDialog}
-        onClose={() => setApproveDialog(false)}
-        title="Approve Leave"
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleApprove();
-        }}
-        submitText="Approve"
-        isSubmitting={approveMutation.isPending}
-        maxWidth="sm"
-      >
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <Typography variant="body2">
-            Approve {selectedLeave?.leave_duration} day(s) of {selectedLeave?.leave_type} leave for{" "}
-            <strong>{selectedLeave?.employee_name || selectedLeave?.employee_id}</strong>?
-          </Typography>
-          <TextField
-            label="Approval Remarks (Optional)"
-            value={remarks}
-            onChange={(e) => setRemarks(e.target.value)}
-            multiline
-            rows={3}
-            fullWidth
-            size="small"
-          />
-        </Box>
-      </TFormDialog>
-
-      <TFormDialog
-        open={rejectDialog}
-        onClose={() => setRejectDialog(false)}
-        title="Reject Leave"
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleReject();
-        }}
-        submitText="Reject"
-        isSubmitting={rejectMutation.isPending}
-        maxWidth="sm"
-      >
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <Typography variant="body2">
-            Reject leave request for{" "}
-            <strong>{selectedLeave?.employee_name || selectedLeave?.employee_id}</strong>?
-          </Typography>
-          <TextField
-            label="Rejection Reason"
-            value={rejectionReason}
-            onChange={(e) => setRejectionReason(e.target.value)}
-            multiline
-            rows={3}
-            fullWidth
-            size="small"
-            required
-          />
-        </Box>
-      </TFormDialog>
     </Box>
   );
 
@@ -328,18 +302,24 @@ export default function LeaveApprovalsPage() {
         icon={<EventAvailableIcon color="primary" />}
         titleSlot={
           selectedLeave ? (
-            <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={() => setSelectedLeave(null)} sx={{ textTransform: "none" }}>
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={() => setSelectedLeave(null)}
+              sx={{ textTransform: "none" }}
+              disabled={anyPending}
+            >
               Back to Leave Approvals
             </Button>
           ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
-                placeholder="Search pending leaves..."
+                placeholder="Search employee, type..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" color="action" /></InputAdornment> }}
-                sx={{ width: 240, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               {searchQuery && (
                 <Button size="small" onClick={() => setSearchQuery("")} sx={{ textTransform: "none" }}>
@@ -354,6 +334,63 @@ export default function LeaveApprovalsPage() {
       >
         {selectedLeave ? detailPanel : tablePanel}
       </MasterDetailLayout>
+
+      {/* ---- APPROVE PANEL ---- */}
+      <TSidePanel
+        open={approveDialog}
+        onClose={() => { if (!approveMutation.isPending) setApproveDialog(false); }}
+        title="Approve Leave"
+        submitText="Approve"
+        isSubmitting={approveMutation.isPending}
+        submitDisabled={anyPending}
+        onSubmit={handleApprove}
+      >
+        <FormSection title="Approval" columns={1} isLast>
+          <Typography variant="body2">
+            Approve {selectedLeave?.leave_duration} day(s) of {selectedLeave?.leave_type} leave for{" "}
+            <strong>{selectedLeave?.employee_name || selectedLeave?.employee_id}</strong>?
+          </Typography>
+          <TextField
+            label="Approval Remarks (Optional)"
+            value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+            multiline
+            rows={3}
+            fullWidth
+            size="small"
+          />
+        </FormSection>
+      </TSidePanel>
+
+      {/* ---- REJECT PANEL ---- */}
+      <TSidePanel
+        open={rejectDialog}
+        onClose={() => { if (!rejectMutation.isPending) setRejectDialog(false); }}
+        title="Reject Leave"
+        submitText="Reject"
+        isSubmitting={rejectMutation.isPending}
+        submitDisabled={anyPending || !rejectionReason.trim()}
+        onSubmit={handleReject}
+      >
+        <FormSection title="Rejection" columns={1} isLast>
+          <Typography variant="body2">
+            Reject leave request for{" "}
+            <strong>{selectedLeave?.employee_name || selectedLeave?.employee_id}</strong>?
+          </Typography>
+          <TextField
+            label="Rejection Reason"
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+            multiline
+            rows={3}
+            fullWidth
+            size="small"
+            required
+            helperText="Reason is required for rejection"
+          />
+        </FormSection>
+      </TSidePanel>
+
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

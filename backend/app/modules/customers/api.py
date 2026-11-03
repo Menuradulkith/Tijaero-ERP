@@ -798,20 +798,9 @@ def validate_voucher(
     return service.voucher_service.validate_voucher(db, request)
 
 
-@router.post(
-    "/vouchers/redeem",
-    response_model=schemas.VoucherRedeemResponse,
-    summary="Redeem Gift Voucher",
-    description="Redeem a gift voucher on an invoice",
-    dependencies=[Depends(require_permission(*Permissions.GIFT_VOUCHER_UPDATE))],
-)
-def redeem_voucher(
-    redemption: schemas.VoucherRedeemRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.GIFT_VOUCHER_UPDATE)),
-):
-    """Redeem a gift voucher on an invoice"""
-    return service.voucher_service.redeem_voucher_api(db, redemption)
+# No stand-alone "redeem" endpoint: a voucher is redeemed only by the sale
+# that uses it (sales create_invoice), which also updates the invoice and posts
+# Dr 2510. A separate call cut the voucher balance with no invoice or ledger effect.
 
 
 @router.get(

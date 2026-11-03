@@ -111,6 +111,11 @@ DOCUMENT_TYPES: dict[str, DocumentType] = {
             "generate_payroll_report", ("total_net_pay",),
             guarded=False, has_id=False,
         ),
+        DocumentType(
+            "payslip", "Payslip", "standard/document.html", Permissions.PAYROLL_VIEW,
+            "generate_payslip_report", ("payslip.employee_id", "payslip.period", "payslip.net_salary"),
+            guarded=False,
+        ),
     )
 }
 

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from app.modules.common.models import Country
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func, text, Integer
@@ -1253,8 +1254,11 @@ class SupplierAdvancePaymentRepository:
             self.db.refresh(db_advance)
         return db_advance
     
-    def apply_to_grn(self, advance_id: int, application_amount: float) -> Optional[models.SupplierAdvancePayment]:
-        """Apply advance to GRN - reduce remaining balance (row-locked to prevent race conditions)"""
+    def apply_to_grn(self, advance_id: int, application_amount, commit: bool = True) -> Optional[models.SupplierAdvancePayment]:
+        """Apply advance to GRN - reduce remaining balance (row-locked to prevent race conditions).
+
+        ``commit=False`` leaves the change in the caller's transaction, so the
+        balance and the application row are saved together or not at all."""
         # SELECT FOR UPDATE to prevent concurrent applications from overwriting each other
         # populate_existing: the row may already be in this session's identity map (the caller loaded it to
         # pre-check the balance); without it the lock is taken but the stale balance is what gets re-validated.
@@ -1263,13 +1267,14 @@ class SupplierAdvancePaymentRepository:
         ).with_for_update().populate_existing().first()
         
         if db_advance:
-            new_applied = float(db_advance.applied_amount) + application_amount
-            new_remaining = float(db_advance.original_amount) - new_applied
+            amount = Decimal(str(application_amount))
+            new_applied = Decimal(str(db_advance.applied_amount or 0)) + amount
+            new_remaining = Decimal(str(db_advance.original_amount or 0)) - new_applied
             
             # Re-validate balance under lock to prevent over-application
             if new_remaining < 0:
                 raise ValueError(
-                    f"Insufficient advance balance. Available: {float(db_advance.remaining_amount)}, Requested: {application_amount}"
+                    f"Insufficient advance balance. Available: {db_advance.remaining_amount}, Requested: {amount}"
                 )
             
             db_advance.applied_amount = new_applied
@@ -1278,10 +1283,13 @@ class SupplierAdvancePaymentRepository:
             # Update status if fully applied
             if db_advance.remaining_amount <= 0:
                 db_advance.is_fully_applied = True
-                db_advance.remaining_amount = 0
+                db_advance.remaining_amount = Decimal("0")
             
-            self.db.commit()
-            self.db.refresh(db_advance)
+            if commit:
+                self.db.commit()
+                self.db.refresh(db_advance)
+            else:
+                self.db.flush()
         return db_advance
     
     def delete(self, advance_id: int) -> bool:

@@ -1398,6 +1398,10 @@ export default function ProductsPage({
 
   // Whether we're showing a single product's / category's / brand's detail
   // view (selected or being created) instead of that tab's browse table.
+  // "Next" while creating appears once General's mandatory fields are filled; the other tabs are optional.
+  const nextProductTab = PRODUCT_DETAIL_TABS[PRODUCT_DETAIL_TABS.findIndex((t) => t.id === activeProductSection) + 1];
+  const canGoNext = !!nextProductTab && (activeProductSection !== "general" || !isProductGeneralIncomplete);
+
   const isProductDetailMode = !!productState.selectedItem || productState.isCreating;
   const isCategoryDetailMode = !!categoryState.selectedItem || categoryState.isCreating;
   const isBrandDetailMode = !!brandState.selectedItem || brandState.isCreating;
@@ -1510,6 +1514,7 @@ export default function ProductsPage({
           onAdd={handleNewProduct}
           onDuplicate={handleDuplicateProduct}
           onSave={handleSaveProduct}
+          onNext={canGoNext ? () => setActiveProductSection(nextProductTab.id as typeof activeProductSection) : undefined}
           onCancel={handleCancelProduct}
           onEdit={() => {
             setMinPriceInput(currentMinPrice?.minimum_price ?? "");

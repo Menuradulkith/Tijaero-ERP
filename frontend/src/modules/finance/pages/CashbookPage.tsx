@@ -326,8 +326,14 @@ export default function CashbookPage() {
     <MasterDetailLayout
       title="Cashbook"
       titleSlot={
+        // On a phone the preset buttons scroll sideways instead of being clipped
+        // (the layout moves Export/Print to their own row there).
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
-          <ButtonGroup size="small" variant="outlined" sx={{ flexShrink: 0 }}>
+          <ButtonGroup
+            size="small"
+            variant="outlined"
+            sx={{ flexShrink: 0, maxWidth: "100%", overflowX: "auto", "& .MuiButton-root": { flexShrink: 0 } }}
+          >
             {PRESETS.map((p) => (
               <Button
                 key={p.value}
