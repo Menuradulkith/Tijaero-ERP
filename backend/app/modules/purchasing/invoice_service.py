@@ -395,8 +395,13 @@ class PurchaseInvoiceService:
         return self._enrich_invoice(invoice)
 
     # ─── LIST INVOICES ─────────────────────────────────────────────────
-    def list_invoices(self, filters: PurchaseInvoiceListFilter) -> List[PurchaseInvoiceListResponse]:
+    def list_invoices(
+        self, filters: PurchaseInvoiceListFilter, branch_codes: Optional[List[str]] = None
+    ) -> List[PurchaseInvoiceListResponse]:
+        """`branch_codes` limits the list to those branches (None = all branches)."""
         query = self.db.query(PurchaseInvoice)
+        if branch_codes is not None:
+            query = query.filter(PurchaseInvoice.branch_code.in_(branch_codes))
 
         if filters.supplier_id:
             query = query.filter(PurchaseInvoice.supplier_id == filters.supplier_id)
@@ -644,6 +649,9 @@ class PurchaseInvoiceService:
         if not supplier:
             raise HTTPException(status_code=404, detail="Supplier not found")
 
+        if not data.allocations:
+            raise HTTPException(status_code=400, detail="Choose at least one invoice to pay")
+
         # Validate total allocations
         total_allocated = sum(a.allocated_amount for a in data.allocations)
         if total_allocated > data.payment_amount:
@@ -652,22 +660,30 @@ class PurchaseInvoiceService:
                 detail=f"Total allocations ({total_allocated}) exceed payment amount ({data.payment_amount})"
             )
 
-        # Validate each allocation against invoice balance
-        for alloc in data.allocations:
+        # One line per invoice (a payment stores one allocation per invoice), so two lines
+        # cannot each pass the balance check and overpay the invoice between them.
+        per_invoice: Dict[int, Decimal] = {a.purchase_invoice_id: a.allocated_amount for a in data.allocations}
+        if len(per_invoice) != len(data.allocations):
+            raise HTTPException(
+                status_code=400,
+                detail="The same invoice is listed more than once. Enter one amount per invoice.",
+            )
+        # Lock the invoices in id order so concurrent payments cannot both pass the check.
+        for invoice_id in sorted(per_invoice):
             invoice = self.db.query(PurchaseInvoice).filter(
-                PurchaseInvoice.id == alloc.purchase_invoice_id
+                PurchaseInvoice.id == invoice_id
             ).with_for_update().first()
-            
+
             if not invoice:
-                raise HTTPException(status_code=400, detail=f"Invoice ID {alloc.purchase_invoice_id} not found")
+                raise HTTPException(status_code=400, detail=f"Invoice ID {invoice_id} not found")
             if invoice.supplier_id != data.supplier_id:
                 raise HTTPException(status_code=400, detail=f"Invoice {invoice.invoice_no} belongs to a different supplier")
             if invoice.status == "cancelled":
                 raise HTTPException(status_code=400, detail=f"Invoice {invoice.invoice_no} is cancelled")
-            if alloc.allocated_amount > invoice.balance_due:
+            if per_invoice[invoice_id] > (invoice.balance_due or Decimal("0")):
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Allocation ({alloc.allocated_amount}) exceeds balance due ({invoice.balance_due}) for invoice {invoice.invoice_no}"
+                    detail=f"Allocation ({per_invoice[invoice_id]}) exceeds balance due ({invoice.balance_due}) for invoice {invoice.invoice_no}"
                 )
 
         # Generate payment number — advisory lock prevents duplicate numbers under concurrency.
@@ -952,7 +968,9 @@ class PurchaseInvoiceService:
             self.db.commit()
 
     # ─── GET INVOICEABLE GRNs ──────────────────────────────────────────
-    def get_invoiceable_grns(self, supplier_id: int, branch_code: Optional[str] = None) -> List[GRNInvoiceableItem]:
+    def get_invoiceable_grns(
+        self, supplier_id: int, branch_code: Optional[str] = None, branch_codes: Optional[List[str]] = None
+    ) -> List[GRNInvoiceableItem]:
         """
         Get GRNs that can be invoiced for a supplier.
         Shows received qty/amount vs already invoiced qty/amount.
@@ -970,6 +988,8 @@ class PurchaseInvoiceService:
         )
         if branch_code:
             grn_query = grn_query.filter(GoodReceivedNote.branch_code == branch_code)
+        if branch_codes is not None:
+            grn_query = grn_query.filter(GoodReceivedNote.branch_code.in_(branch_codes))
         grns = grn_query.order_by(GoodReceivedNote.good_received_date.desc()).all()
 
         result = []
@@ -1063,13 +1083,18 @@ class PurchaseInvoiceService:
         # Filter to only outstanding
         # Actually let's use a direct query for efficiency
     
-    def get_payable_invoices(self, supplier_id: int) -> List[PurchaseInvoiceListResponse]:
+    def get_payable_invoices(
+        self, supplier_id: int, branch_codes: Optional[List[str]] = None
+    ) -> List[PurchaseInvoiceListResponse]:
         """Get unpaid/partially paid invoices ready for payment."""
-        invoices = self.db.query(PurchaseInvoice).filter(
+        query = self.db.query(PurchaseInvoice).filter(
             PurchaseInvoice.supplier_id == supplier_id,
             PurchaseInvoice.status.in_(["unpaid", "partially_paid"]),
             PurchaseInvoice.payment_status.in_(["unpaid", "partial"]),
-        ).order_by(PurchaseInvoice.due_date.asc()).all()
+        )
+        if branch_codes is not None:
+            query = query.filter(PurchaseInvoice.branch_code.in_(branch_codes))
+        invoices = query.order_by(PurchaseInvoice.due_date.asc()).all()
 
         today = tz.today()
 
@@ -1227,6 +1252,7 @@ class PurchaseInvoiceService:
         self,
         supplier_id: Optional[int] = None,
         branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> List[OutstandingGRNItem]:
         """
         Get all GRNs that have NOT yet been invoiced (no non-cancelled
@@ -1241,6 +1267,8 @@ class PurchaseInvoiceService:
             grn_query = grn_query.filter(PurchasingOrder.first_suppliers_id == supplier_id)
         if branch_code:
             grn_query = grn_query.filter(GoodReceivedNote.branch_code == branch_code)
+        if branch_codes is not None:
+            grn_query = grn_query.filter(GoodReceivedNote.branch_code.in_(branch_codes))
 
         grns = grn_query.order_by(GoodReceivedNote.good_received_date.desc()).all()
 

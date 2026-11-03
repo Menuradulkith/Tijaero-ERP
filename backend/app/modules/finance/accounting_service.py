@@ -2115,6 +2115,16 @@ class GeneralLedgerService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Journal entry has already been reversed"
             )
+        if original_je.entry_type not in ("Manual", "Adjustment"):
+            # A sale, GRN, payment... is corrected through its own document (return,
+            # cancel, credit note), so its sub-ledger moves with the ledger.
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only manual journals can be corrected here. Correct the source document instead.",
+            )
+        # The corrected lines are approved by their author, so they get the same
+        # account rules as a manual journal: no control, header or inactive accounts.
+        je_service._validate_line_accounts(data.corrected_lines, "Manual")
 
         correction_date = data.correction_date or tz.today()
 
@@ -2426,6 +2436,9 @@ class AccountingPeriodService:
         3. Transfer 3200 → 3100 Retained Earnings
         """
         fiscal_year = data.fiscal_year
+        # One close per year at a time: without this, parallel requests each saw
+        # "not closed yet" and posted their own set of closing journals.
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"year-end-close-{fiscal_year}"})
         warnings = []
         je_service = JournalEntryService(self.db)
 

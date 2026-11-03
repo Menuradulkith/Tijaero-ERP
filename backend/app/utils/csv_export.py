@@ -42,9 +42,11 @@ def _format_cell(value: Any) -> str:
         return value.strftime("%Y-%m-%d %H:%M:%S")
     if isinstance(value, date):
         return value.strftime("%Y-%m-%d")
-    if isinstance(value, Decimal):
+    if isinstance(value, (Decimal, int, float)):
         return str(value)
-    return str(value)
+    # Free text (remarks, descriptions, names) can start with "=", "+", "@"...:
+    # neutralise it so a spreadsheet doesn't run it as a formula.
+    return csv_safe(str(value))
 
 
 def build_csv_response(

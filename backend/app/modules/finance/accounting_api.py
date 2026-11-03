@@ -135,6 +135,20 @@ def seed_chart_of_accounts(force: bool = Query(False), db: Session = Depends(get
 # JOURNAL ENTRIES
 # =============================================================================
 
+def _je_in_branch_scope(
+    je_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> None:
+    """A branch-limited user may open or act on a journal of their own branches,
+    or a company-wide one (no branch) — the same rule as the journal list."""
+    from .accounting_models import JournalEntry
+
+    branch = db.query(JournalEntry.branch_code).filter(JournalEntry.id == je_id).scalar()
+    if branch and not validate_branch_access(current_user, branch):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal entry not found")
+
+
 @router.post("/journal-entries", response_model=schemas.JournalEntryResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_CREATE))])
 def create_journal_entry(
     data: schemas.JournalEntryCreateInput,
@@ -152,7 +166,7 @@ def create_journal_entry(
     return _serialize_je(je)
 
 
-@router.put("/journal-entries/{je_id}", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
+@router.put("/journal-entries/{je_id}", response_model=schemas.JournalEntryResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
 def update_journal_entry(
     je_id: int,
     data: schemas.JournalEntryUpdateInput,
@@ -160,6 +174,8 @@ def update_journal_entry(
     current_user: User = Depends(get_current_active_user),
 ):
     """Update a draft journal entry."""
+    if data.branch_code and not validate_branch_access(current_user, data.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {data.branch_code}")
     je = JournalEntryService(db).update_journal_entry(je_id, data, updated_by=current_user.id)
     return _serialize_je(je)
 
@@ -231,14 +247,14 @@ def export_journal_entries_csv(
     )
 
 
-@router.get("/journal-entries/{je_id}", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
+@router.get("/journal-entries/{je_id}", response_model=schemas.JournalEntryResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
 def get_journal_entry(je_id: int, db: Session = Depends(get_db)):
     """Get a specific journal entry with lines."""
     je = JournalEntryService(db).get_journal_entry(je_id)
     return _serialize_je(je)
 
 
-@router.post("/journal-entries/{je_id}/post", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
+@router.post("/journal-entries/{je_id}/post", response_model=schemas.JournalEntryResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
 def post_journal_entry(
     je_id: int,
     data: schemas.PostJournalEntryRequest = None,
@@ -251,7 +267,7 @@ def post_journal_entry(
     return _serialize_je(je)
 
 
-@router.post("/journal-entries/{je_id}/reverse", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
+@router.post("/journal-entries/{je_id}/reverse", response_model=schemas.JournalEntryResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
 def reverse_journal_entry(
     je_id: int,
     data: schemas.ReverseJournalEntryRequest,
@@ -265,7 +281,7 @@ def reverse_journal_entry(
     return _serialize_je(je)
 
 
-@router.delete("/journal-entries/{je_id}", dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_DELETE))])
+@router.delete("/journal-entries/{je_id}", dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.JOURNAL_ENTRY_DELETE))])
 def delete_journal_entry(
     je_id: int,
     db: Session = Depends(get_db),
@@ -280,7 +296,7 @@ def delete_journal_entry(
 # Scenario 33: Manual JE Validation & Approval Workflow
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.post("/journal-entries/{je_id}/validate", response_model=schemas.ValidateJournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
+@router.post("/journal-entries/{je_id}/validate", response_model=schemas.ValidateJournalEntryResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
 def validate_journal_entry(je_id: int, db: Session = Depends(get_db)):
     """
     Validate a journal entry (Step 3).
@@ -290,7 +306,7 @@ def validate_journal_entry(je_id: int, db: Session = Depends(get_db)):
     return JournalEntryService(db).validate_journal_entry(je_id)
 
 
-@router.post("/journal-entries/{je_id}/submit", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
+@router.post("/journal-entries/{je_id}/submit", response_model=schemas.JournalEntryResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.JOURNAL_ENTRY_UPDATE))])
 def submit_journal_entry(
     je_id: int,
     data: schemas.SubmitJournalEntryRequest = None,
@@ -306,7 +322,7 @@ def submit_journal_entry(
     return _serialize_je(je)
 
 
-@router.post("/journal-entries/{je_id}/approve", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
+@router.post("/journal-entries/{je_id}/approve", response_model=schemas.JournalEntryResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
 def approve_journal_entry(
     je_id: int,
     data: schemas.ApproveJournalEntryRequest = None,
@@ -323,7 +339,7 @@ def approve_journal_entry(
     return _serialize_je(je)
 
 
-@router.post("/journal-entries/{je_id}/reject", response_model=schemas.JournalEntryResponse, dependencies=[Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
+@router.post("/journal-entries/{je_id}/reject", response_model=schemas.JournalEntryResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
 def reject_journal_entry(
     je_id: int,
     data: schemas.RejectJournalEntryRequest,
@@ -649,7 +665,7 @@ def get_audit_trail(
     ))
 
 
-@router.post("/journal-entries/{je_id}/correct", response_model=schemas.CorrectionResponse, dependencies=[Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
+@router.post("/journal-entries/{je_id}/correct", response_model=schemas.CorrectionResponse, dependencies=[Depends(_je_in_branch_scope), Depends(require_permission(*Permissions.PAYMENT_APPROVAL_APPROVE))])
 def correct_journal_entry(
     je_id: int,
     data: schemas.CorrectionRequest,
@@ -728,7 +744,7 @@ def lock_period(
 # CASH FLOW CATEGORIES
 # =============================================================================
 
-@router.post("/cash-flow/categories/seed", response_model=schemas.CashFlowSeedResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
+@router.post("/cash-flow/categories/seed", response_model=schemas.CashFlowSeedResponse, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_CREATE))])
 def seed_cash_flow_categories(db: Session = Depends(get_db)):
     """Seed the 13 standard cash flow categories (Operating, Investing, Financing)."""
     result = CashFlowService(db).seed_standard_categories()
@@ -740,13 +756,13 @@ def seed_cash_flow_categories(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/cash-flow/categories", response_model=schemas.CashFlowCategoryResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
+@router.post("/cash-flow/categories", response_model=schemas.CashFlowCategoryResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_CREATE))])
 def create_cash_flow_category(data: schemas.CashFlowCategoryCreate, db: Session = Depends(get_db)):
     """Create a new cash flow category."""
     return CashFlowService(db).create_category(data)
 
 
-@router.put("/cash-flow/categories/{category_id}", response_model=schemas.CashFlowCategoryResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
+@router.put("/cash-flow/categories/{category_id}", response_model=schemas.CashFlowCategoryResponse, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
 def update_cash_flow_category(category_id: int, data: schemas.CashFlowCategoryUpdate, db: Session = Depends(get_db)):
     """Update a cash flow category."""
     return CashFlowService(db).update_category(category_id, data)
@@ -758,7 +774,7 @@ def list_cash_flow_categories(section: Optional[str] = None, db: Session = Depen
     return CashFlowService(db).list_categories(section=section)
 
 
-@router.delete("/cash-flow/categories/{category_id}", dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
+@router.delete("/cash-flow/categories/{category_id}", dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_DELETE))])
 def delete_cash_flow_category(category_id: int, db: Session = Depends(get_db)):
     """Delete a cash flow category."""
     CashFlowService(db).delete_category(category_id)
@@ -1217,7 +1233,7 @@ def get_cash_flow_statement(statement_id: int, db: Session = Depends(get_db)):
     return _serialize_cfs(statement)
 
 
-@router.post("/cash-flow/statements/{statement_id}/finalize", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
+@router.post("/cash-flow/statements/{statement_id}/finalize", response_model=schemas.CashFlowStatementResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
 def finalize_cash_flow_statement(
     statement_id: int,
     db: Session = Depends(get_db),
@@ -1237,7 +1253,7 @@ def approve_cash_flow_statement(
     return CashFlowService(db).approve_statement(statement_id, approved_by=current_user.id)
 
 
-@router.delete("/cash-flow/statements/{statement_id}", dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
+@router.delete("/cash-flow/statements/{statement_id}", dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
 def delete_cash_flow_statement(
     statement_id: int,
     db: Session = Depends(get_db),
@@ -1327,7 +1343,7 @@ def update_cash_flow_manual_line(
     }
 
 
-@router.delete("/cash-flow/statements/{statement_id}/lines/{line_id}", dependencies=[Depends(require_permission(*Permissions.CASH_FLOW_VIEW))])
+@router.delete("/cash-flow/statements/{statement_id}/lines/{line_id}", dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
 def delete_cash_flow_manual_line(
     statement_id: int, line_id: int, db: Session = Depends(get_db)
 ):

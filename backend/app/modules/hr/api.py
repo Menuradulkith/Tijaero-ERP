@@ -1,7 +1,8 @@
 """HR endpoints: deductions, reimbursements, payroll, salary profiles, promotions, asset assignments.
 
 Every route needs the permission of the data it touches (the router-level hr_dashboard:view only opens
-the dashboard); ids and list sizes are bounded; reimbursements are branch-scoped.
+the dashboard); ids and list sizes are bounded. Reimbursements are scoped by the claim's branch; the other
+per-employee records by the employee's home branch (app/modules/hr/scope.py). Payroll batches are company-wide.
 """
 from datetime import date
 from typing import Annotated, List, Literal, Optional
@@ -13,7 +14,10 @@ from app.auth.dependencies import get_current_user, get_user_branch_filter
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_any_permission, require_permission
 from app.db.session import get_db
+from app.modules.employees.models import EmployeePayroll, EmployeePromotions, EmployeesAssets, EmployeeSalaryProfile, SalaryRevision
 from app.modules.hr import schemas, service
+from app.modules.hr.models import HREmployeeLoan, SalaryDeductions
+from app.modules.hr.scope import branches_of, need_employee, need_row
 
 RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
 EmpCode = Annotated[Optional[str], Query(max_length=50)]
@@ -40,37 +44,43 @@ def _need(perm):
 
 
 @router.get("/statistics", response_model=schemas.HRStatistics)
-def get_hr_statistics(db: Session = Depends(get_db)):
-    """Server-side aggregated KPI counts for the HR dashboard."""
-    return service.HRStatisticsService(db).get_statistics()
+def get_hr_statistics(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Server-side aggregated KPI counts for the HR dashboard (limited to the user's branches)."""
+    return service.HRStatisticsService(db).get_statistics(branches_of(current_user))
 
 
 # ───────────────────────────── deductions ─────────────────────────────
 @router.post("/deductions", response_model=schemas.SalaryDeduction, status_code=status.HTTP_201_CREATED, dependencies=[_need(P.DEDUCTION_CREATE)])
 def create_salary_deduction(deduction: schemas.SalaryDeductionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_employee(db, current_user, pk=deduction.employee_id)
     return service.SalaryDeductionService(db).create_deduction(deduction, current_user.id)
 
 
 @router.get("/deductions/{deduction_id}", response_model=schemas.SalaryDeduction, dependencies=[SEE_DEDUCTIONS])
-def get_salary_deduction(deduction_id: RowId, db: Session = Depends(get_db)):
+def get_salary_deduction(deduction_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, SalaryDeductions, deduction_id, SalaryDeductions.employee_id, by="pk")
     return service.SalaryDeductionService(db).get_deduction(deduction_id)
 
 
 @router.get("/deductions", response_model=List[schemas.SalaryDeduction], dependencies=[SEE_DEDUCTIONS])
 def list_salary_deductions(
     employee_id: Optional[int] = Query(None, ge=1, le=2_147_483_647), skip: Skip = 0, limit: Limit = 100, db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     filters = schemas.HRListFilter(employee_id=str(employee_id) if employee_id else None, skip=skip, limit=limit)
-    return service.SalaryDeductionService(db).list_deductions(filters)
+    return service.SalaryDeductionService(db).list_deductions(filters, branches_of(current_user))
 
 
 @router.put("/deductions/{deduction_id}", response_model=schemas.SalaryDeduction, dependencies=[_need(P.DEDUCTION_UPDATE)])
 def update_salary_deduction(deduction_id: RowId, deduction: schemas.SalaryDeductionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, SalaryDeductions, deduction_id, SalaryDeductions.employee_id, by="pk")
+    need_employee(db, current_user, pk=deduction.employee_id)
     return service.SalaryDeductionService(db).update_deduction(deduction_id, deduction, current_user.id)
 
 
 @router.delete("/deductions/{deduction_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_need(P.DEDUCTION_DELETE)])
 def delete_salary_deduction(deduction_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, SalaryDeductions, deduction_id, SalaryDeductions.employee_id, by="pk")
     service.SalaryDeductionService(db).delete_deduction(deduction_id, current_user.id)
 
 
@@ -136,6 +146,7 @@ def delete_reimbursement(reimbursement_id: RowId, db: Session = Depends(get_db),
 @router.post("/payroll", response_model=schemas.EmployeePayrollResponse, status_code=status.HTTP_201_CREATED, dependencies=[_need(P.PAYROLL_CREATE)])
 def create_payroll(payroll: schemas.EmployeePayrollCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """A manual payroll record (outside a payroll run). Gross / deductions / net are computed by the server."""
+    need_employee(db, current_user, code=payroll.employee_id)
     return service.PayrollService(db).create_payroll(payroll, current_user.id)
 
 
@@ -159,23 +170,27 @@ def get_payroll_batch(batch_id: RowId, db: Session = Depends(get_db)):
 
 
 @router.get("/payroll/{payroll_id}", response_model=schemas.EmployeePayrollResponse, dependencies=[SEE_PAYROLL])
-def get_payroll(payroll_id: RowId, db: Session = Depends(get_db)):
+def get_payroll(payroll_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeePayroll, payroll_id, EmployeePayroll.employee_id)
     return service.PayrollService(db).get_payroll(payroll_id)
 
 
 @router.get("/payroll", response_model=List[schemas.EmployeePayrollResponse], dependencies=[SEE_PAYROLL])
-def list_payrolls(employee_id: EmpCode = None, skip: Skip = 0, limit: Limit = 100, db: Session = Depends(get_db)):
+def list_payrolls(employee_id: EmpCode = None, skip: Skip = 0, limit: Limit = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     filters = schemas.HRListFilter(employee_id=employee_id, skip=skip, limit=limit)
-    return service.PayrollService(db).list_payrolls(filters)
+    return service.PayrollService(db).list_payrolls(filters, branches_of(current_user))
 
 
 @router.put("/payroll/{payroll_id}", response_model=schemas.EmployeePayrollResponse, dependencies=[_need(P.PAYROLL_UPDATE)])
 def update_payroll(payroll_id: RowId, payroll: schemas.EmployeePayrollCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeePayroll, payroll_id, EmployeePayroll.employee_id)
+    need_employee(db, current_user, code=payroll.employee_id)
     return service.PayrollService(db).update_payroll(payroll_id, payroll, current_user.id)
 
 
 @router.delete("/payroll/{payroll_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_need(P.PAYROLL_DELETE)])
 def delete_payroll(payroll_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeePayroll, payroll_id, EmployeePayroll.employee_id)
     service.PayrollService(db).delete_payroll(payroll_id, current_user.id)
 
 
@@ -233,97 +248,115 @@ def cancel_payroll_batch(batch_id: RowId, db: Session = Depends(get_db), current
 # ───────────────────────────── salary profiles ─────────────────────────────
 @router.post("/salary-profiles", response_model=schemas.EmployeeSalaryProfile, status_code=status.HTTP_201_CREATED, dependencies=[_need(P.SALARY_PROFILE_CREATE)])
 def create_salary_profile(profile: schemas.EmployeeSalaryProfileCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_employee(db, current_user, code=profile.employee_id)
     return service.SalaryProfileService(db).create_profile(profile, current_user.id)
 
 
 @router.get("/salary-profiles", response_model=List[schemas.EmployeeSalaryProfile], dependencies=[SEE_SALARY])
-def list_salary_profiles(db: Session = Depends(get_db)):
-    return service.SalaryProfileService(db).list_profiles()
+def list_salary_profiles(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return service.SalaryProfileService(db).list_profiles(branches_of(current_user))
 
 
 @router.get("/salary-profiles/{profile_id}", response_model=schemas.EmployeeSalaryProfile, dependencies=[SEE_SALARY])
-def get_salary_profile(profile_id: RowId, db: Session = Depends(get_db)):
+def get_salary_profile(profile_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeeSalaryProfile, profile_id, EmployeeSalaryProfile.employee_id)
     return service.SalaryProfileService(db).get_profile(profile_id)
 
 
 @router.get("/employees/{employee_id}/salary-profile", response_model=schemas.EmployeeSalaryProfile, dependencies=[SEE_SALARY])
-def get_employee_salary_profile(employee_id: Annotated[str, Path(min_length=1, max_length=50)], db: Session = Depends(get_db)):
+def get_employee_salary_profile(employee_id: Annotated[str, Path(min_length=1, max_length=50)], db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_employee(db, current_user, code=employee_id)
     return service.SalaryProfileService(db).get_by_employee(employee_id)
 
 
 @router.put("/salary-profiles/{profile_id}", response_model=schemas.EmployeeSalaryProfile, dependencies=[_need(P.SALARY_PROFILE_UPDATE)])
 def update_salary_profile(profile_id: RowId, profile: schemas.EmployeeSalaryProfileCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeeSalaryProfile, profile_id, EmployeeSalaryProfile.employee_id)
+    need_employee(db, current_user, code=profile.employee_id)
     return service.SalaryProfileService(db).update_profile(profile_id, profile, current_user.id)
 
 
 @router.delete("/salary-profiles/{profile_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_need(P.SALARY_PROFILE_DELETE)])
 def delete_salary_profile(profile_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeeSalaryProfile, profile_id, EmployeeSalaryProfile.employee_id)
     service.SalaryProfileService(db).delete_profile(profile_id, current_user.id)
 
 
 # ───────────────────────────── promotions ─────────────────────────────
 @router.post("/promotions", response_model=schemas.EmployeePromotion, status_code=status.HTTP_201_CREATED, dependencies=[_need(P.PROMOTION_CREATE)])
 def create_promotion(promotion: schemas.EmployeePromotionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_employee(db, current_user, code=promotion.employee_id)
     return service.PromotionService(db).create_promotion(promotion, current_user.id)
 
 
 @router.get("/promotions/{promotion_id}", response_model=schemas.EmployeePromotion, dependencies=[SEE_PROMOTIONS])
-def get_promotion(promotion_id: RowId, db: Session = Depends(get_db)):
+def get_promotion(promotion_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeePromotions, promotion_id, EmployeePromotions.employee_id)
     return service.PromotionService(db).get_promotion(promotion_id)
 
 
 @router.get("/promotions", response_model=List[schemas.EmployeePromotion], dependencies=[SEE_PROMOTIONS])
-def list_promotions(employee_id: EmpCode = None, date_from: Optional[date] = None, date_to: Optional[date] = None, skip: Skip = 0, limit: Limit = 100, db: Session = Depends(get_db)):
+def list_promotions(employee_id: EmpCode = None, date_from: Optional[date] = None, date_to: Optional[date] = None, skip: Skip = 0, limit: Limit = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     filters = schemas.HRListFilter(employee_id=employee_id, date_from=date_from, date_to=date_to, skip=skip, limit=limit)
-    return service.PromotionService(db).list_promotions(filters)
+    return service.PromotionService(db).list_promotions(filters, branches_of(current_user))
 
 
 @router.put("/promotions/{promotion_id}", response_model=schemas.EmployeePromotion, dependencies=[_need(P.PROMOTION_UPDATE)])
 def update_promotion(promotion_id: RowId, promotion: schemas.EmployeePromotionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeePromotions, promotion_id, EmployeePromotions.employee_id)
+    need_employee(db, current_user, code=promotion.employee_id)
     return service.PromotionService(db).update_promotion(promotion_id, promotion, current_user.id)
 
 
 @router.delete("/promotions/{promotion_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_need(P.PROMOTION_DELETE)])
 def delete_promotion(promotion_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeePromotions, promotion_id, EmployeePromotions.employee_id)
     service.PromotionService(db).delete_promotion(promotion_id, current_user.id)
 
 
 # ───────────────────────────── employee assets ─────────────────────────────
 @router.post("/employee-assets", response_model=schemas.EmployeeAsset, status_code=status.HTTP_201_CREATED, dependencies=[_need(P.HR_ASSET_CREATE)])
 def create_asset_assignment(asset: schemas.EmployeeAssetCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_employee(db, current_user, code=asset.employee_id)
     return service.EmployeeAssetService(db).create_asset_assignment(asset, current_user.id)
 
 
 @router.get("/employee-assets/{assignment_id}", response_model=schemas.EmployeeAsset, dependencies=[SEE_ASSETS])
-def get_asset_assignment(assignment_id: RowId, db: Session = Depends(get_db)):
+def get_asset_assignment(assignment_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeesAssets, assignment_id, EmployeesAssets.employee_id)
     return service.EmployeeAssetService(db).get_asset_assignment(assignment_id)
 
 
 @router.get("/employee-assets", response_model=List[schemas.EmployeeAsset], dependencies=[SEE_ASSETS])
-def list_asset_assignments(employee_id: EmpCode = None, skip: Skip = 0, limit: Limit = 100, db: Session = Depends(get_db)):
+def list_asset_assignments(employee_id: EmpCode = None, skip: Skip = 0, limit: Limit = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     filters = schemas.HRListFilter(employee_id=employee_id, skip=skip, limit=limit)
-    return service.EmployeeAssetService(db).list_asset_assignments(filters)
+    return service.EmployeeAssetService(db).list_asset_assignments(filters, branches_of(current_user))
 
 
 @router.put("/employee-assets/{assignment_id}", response_model=schemas.EmployeeAsset, dependencies=[_need(P.HR_ASSET_UPDATE)])
 def update_asset_assignment(assignment_id: RowId, asset: schemas.EmployeeAssetCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeesAssets, assignment_id, EmployeesAssets.employee_id)
+    need_employee(db, current_user, code=asset.employee_id)
     return service.EmployeeAssetService(db).update_asset_assignment(assignment_id, asset, current_user.id)
 
 
 @router.delete("/employee-assets/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_need(P.HR_ASSET_DELETE)])
 def delete_asset_assignment(assignment_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, EmployeesAssets, assignment_id, EmployeesAssets.employee_id)
     service.EmployeeAssetService(db).delete_asset_assignment(assignment_id, current_user.id)
 
 
 # ───────────────────────────── salary history ─────────────────────────────
 @router.get("/employees/{employee_id}/salary-revisions", dependencies=[SEE_SALARY])
-def list_salary_revisions(employee_id: Annotated[str, Path(min_length=1, max_length=50)], db: Session = Depends(get_db)):
+def list_salary_revisions(employee_id: Annotated[str, Path(min_length=1, max_length=50)], db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Effective-dated salary history, newest first."""
+    need_employee(db, current_user, code=employee_id)
     return service.SalaryProfileService(db).revisions(employee_id)
 
 
 @router.delete("/salary-revisions/{revision_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_need(P.SALARY_PROFILE_UPDATE)])
 def delete_salary_revision(revision_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, SalaryRevision, revision_id, SalaryRevision.employee_id)
     service.SalaryProfileService(db).delete_revision(revision_id, current_user.id)
 
 
@@ -378,36 +411,41 @@ def get_final_settlement(employee_pk: RowId, db: Session = Depends(get_db), curr
 @router.get("/loans", dependencies=[SEE_DEDUCTIONS])
 def list_loans(status_filter: Optional[Literal["active", "settled", "cancelled"]] = Query(None, alias="status"),
                employee_pk: Optional[int] = Query(None, ge=1, le=2_147_483_647),
-               loan_type: Optional[Literal["loan", "advance"]] = None, db: Session = Depends(get_db)):
+               loan_type: Optional[Literal["loan", "advance"]] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     from app.modules.hr.loans import LoanService
-    return LoanService(db).list(status_filter, employee_pk, loan_type)
+    return LoanService(db).list(status_filter, employee_pk, loan_type, branches_of(current_user))
 
 
 @router.get("/loans/{loan_id}", dependencies=[SEE_DEDUCTIONS])
-def get_loan(loan_id: RowId, db: Session = Depends(get_db)):
+def get_loan(loan_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, HREmployeeLoan, loan_id, HREmployeeLoan.employee_pk, by="pk")
     from app.modules.hr.loans import LoanService
     return LoanService(db).get(loan_id)
 
 
 @router.post("/loans", status_code=status.HTTP_201_CREATED, dependencies=[_need(P.DEDUCTION_CREATE)])
 def create_loan(data: schemas.LoanIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_employee(db, current_user, pk=data.employee_pk)
     from app.modules.hr.loans import LoanService
     return LoanService(db).create(data, current_user)
 
 
 @router.put("/loans/{loan_id}", dependencies=[_need(P.DEDUCTION_UPDATE)])
 def update_loan(loan_id: RowId, data: schemas.LoanUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, HREmployeeLoan, loan_id, HREmployeeLoan.employee_pk, by="pk")
     from app.modules.hr.loans import LoanService
     return LoanService(db).update(loan_id, data, current_user)
 
 
 @router.post("/loans/{loan_id}/repay", dependencies=[_need(P.DEDUCTION_UPDATE)])
 def repay_loan(loan_id: RowId, data: schemas.LoanRepaymentIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, HREmployeeLoan, loan_id, HREmployeeLoan.employee_pk, by="pk")
     from app.modules.hr.loans import LoanService
     return LoanService(db).repay(loan_id, data, current_user)
 
 
 @router.post("/loans/{loan_id}/cancel", dependencies=[_need(P.DEDUCTION_DELETE)])
 def cancel_loan(loan_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    need_row(db, current_user, HREmployeeLoan, loan_id, HREmployeeLoan.employee_pk, by="pk")
     from app.modules.hr.loans import LoanService
     return LoanService(db).cancel(loan_id, current_user)

@@ -73,6 +73,10 @@ def _normal_balance(value: Optional[str]) -> Optional[str]:
 
 class ChartOfAccountCreate(ChartOfAccountBase):
     # Same fields as the response, but checked: the response model stays lenient.
+    @field_validator("is_system_account")
+    @classmethod
+    def _not_system(cls, v):
+        return False  # system accounts come only from the seed / migrations
     @field_validator("account_code")
     @classmethod
     def _code(cls, v):
@@ -231,6 +235,9 @@ class JournalEntryLineInput(JournalEntryLineCreate):
             )
         if not self.debit_amount and not self.credit_amount:
             raise ValueError(f"Line {self.line_number}: debit or credit amount is required")
+        # A manual line can't claim to belong to a sale, GRN or payment: those
+        # references are set only by the documents' own postings.
+        self.reference_type = self.reference_id = self.reference_no = None
         return self
 
 

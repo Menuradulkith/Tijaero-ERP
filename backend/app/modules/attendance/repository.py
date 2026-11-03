@@ -24,18 +24,21 @@ class AttendanceRepository:
         )
 
     @staticmethod
-    def list(
-        db: Session,
+    def list(db: Session, *, skip: int = 0, limit: int = 200, **filters) -> List[Attendance]:
+        q = AttendanceRepository.filtered(db.query(Attendance), **filters)
+        return q.order_by(Attendance.date.desc()).offset(skip).limit(limit).all()
+
+    @staticmethod
+    def filtered(
+        q,
         *,
         employee_id: Optional[str] = None,
         branch_code: Optional[str] = None,
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
-        skip: int = 0,
-        limit: int = 200,
         allowed_branches: Optional[List[str]] = None,
-    ) -> List[Attendance]:
-        q = db.query(Attendance)
+    ):
+        """Apply the attendance list filters to any query over Attendance (rows or aggregates)."""
         if allowed_branches is not None:
             q = q.filter(Attendance.branch_code.in_(allowed_branches))
         if employee_id:
@@ -46,7 +49,7 @@ class AttendanceRepository:
             q = q.filter(Attendance.date >= date_from)
         if date_to:
             q = q.filter(Attendance.date <= date_to)
-        return q.order_by(Attendance.date.desc()).offset(skip).limit(limit).all()
+        return q
 
     @staticmethod
     def create(db: Session, **data) -> Attendance:

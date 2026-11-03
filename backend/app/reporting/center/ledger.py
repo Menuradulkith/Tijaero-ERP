@@ -2,8 +2,10 @@
 
 VAT: output tax comes from counted sales invoices less the tax refunded on processed
 returns (exactly what the sales GL posting credits/debits to 2210 VAT/Tax Payable), and
-is checked against the 2210 account itself. Input tax comes from verified purchase
-invoices; it is not posted to the GL today, so it is reported from the documents only.
+is checked against the 2210 account itself. Input tax comes from the tax ledger rows
+(direction "input") that the VAT return reads - written with the Dr 1140 Input VAT line
+when a supplier invoice posts, reversed when it is cancelled - so it agrees with the
+return and the GL whatever the invoice's payment status.
 
 GL detail: every posting for the chosen accounts in a period, with each account's
 opening balance and running balance (debits positive, credits negative). Balance-sheet
@@ -23,7 +25,6 @@ from app.auth.rbac import Permissions
 from .core import Column, Param, ReportDef, ReportResult, RunContext, metric, register, table
 
 VAT_ACCOUNT = "2210"
-INPUT_VAT_STATUSES = ("verified", "partially_paid", "paid")
 PL_TYPES = ("revenue", "income", "expense", "cost of sales", "cogs")
 
 DATE_FROM = Param("date_from", "From", "date", required=True, default="month_start")
@@ -44,7 +45,7 @@ def _branch(column, branch_code, branch_codes, include_unassigned=False):
 # VAT summary
 # --------------------------------------------------------------------------- #
 def _vat_summary(ctx: RunContext, p: dict) -> ReportResult:
-    from app.modules.finance.accounting_models import ChartOfAccounts, GeneralLedger
+    from app.modules.finance.accounting_models import ChartOfAccounts, GeneralLedger, TaxTransaction
     from app.modules.purchasing.invoice_models import PurchaseInvoice
     from app.modules.purchasing.models import Supplier
     from app.modules.sales.models import Invoice, SaleReturn
@@ -88,21 +89,26 @@ def _vat_summary(ctx: RunContext, p: dict) -> ReportResult:
                    for no, on, b, t in returns if t]
     refunded = sum((r["tax_refunded"] for r in return_rows), Decimal("0"))
 
+    # The VAT return's own source: input rows of the tax ledger, by transaction date.
     purchases = (
-        db.query(Supplier.company_name, Supplier.tax_registration_number, func.count(PurchaseInvoice.id),
-                 func.coalesce(func.sum(PurchaseInvoice.subtotal), 0),
-                 func.coalesce(func.sum(PurchaseInvoice.tax_amount), 0))
-        .join(Supplier, Supplier.id == PurchaseInvoice.supplier_id)
-        .filter(PurchaseInvoice.status.in_(INPUT_VAT_STATUSES),
-                PurchaseInvoice.supplier_invoice_date >= start, PurchaseInvoice.supplier_invoice_date <= end,
-                PurchaseInvoice.tax_amount != 0,
-                _branch(PurchaseInvoice.branch_code, branch_code, branch_codes))
+        db.query(Supplier.company_name, Supplier.tax_registration_number,
+                 func.count(func.distinct(TaxTransaction.reference_id)),
+                 func.coalesce(func.sum(TaxTransaction.base_amount), 0),
+                 func.coalesce(func.sum(TaxTransaction.tax_amount), 0))
+        .select_from(TaxTransaction)
+        .outerjoin(PurchaseInvoice, (TaxTransaction.reference_type == "PurchaseInvoice")
+                   & (PurchaseInvoice.id == TaxTransaction.reference_id))
+        .outerjoin(Supplier, Supplier.id == PurchaseInvoice.supplier_id)
+        .filter(TaxTransaction.direction == "input",
+                TaxTransaction.transaction_date >= start, TaxTransaction.transaction_date <= end,
+                _branch(TaxTransaction.branch_code, branch_code, branch_codes))
         .group_by(Supplier.company_name, Supplier.tax_registration_number)
-        .order_by(func.sum(PurchaseInvoice.tax_amount).desc())
+        .order_by(func.sum(TaxTransaction.tax_amount).desc())
         .all()
     )
-    input_rows = [{"supplier": s, "tax_registration_number": trn, "invoices": n,
-                   "purchases": Decimal(str(net)), "tax": Decimal(str(tax))} for s, trn, n, net, tax in purchases]
+    input_rows = [{"supplier": s or "Other (journals)", "tax_registration_number": trn, "invoices": n,
+                   "purchases": Decimal(str(net)), "tax": Decimal(str(tax))}
+                  for s, trn, n, net, tax in purchases if tax or net]
     input_tax = sum((r["tax"] for r in input_rows), Decimal("0"))
 
     gl = (
@@ -123,8 +129,8 @@ def _vat_summary(ctx: RunContext, p: dict) -> ReportResult:
     net_output = output_tax - refunded
     notes = [
         "Output tax: approved and completed sales invoices by invoice date, less tax refunded on processed returns.",
-        "Input tax: verified, part-paid and paid purchase invoices by supplier invoice date. It is not posted to "
-        "the GL, so it does not appear in account 2210.",
+        "Input tax: the tax ledger's input VAT (posted supplier invoices, less cancellations) by posting date - "
+        "the same figure as the VAT return. It is posted to the input VAT account, not to 2210.",
     ]
     if net_output != gl_net:
         notes.append(f"Output tax on documents differs from GL account {VAT_ACCOUNT} by {net_output - gl_net:,.2f}: "

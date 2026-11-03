@@ -738,7 +738,9 @@ class DocumentReportService:
             doc=documents.build_invoice(self.db, invoice, self.db.get(Customer, invoice.customer_id) if invoice.customer_id else None, company, show_discount=show_discount),
             company=company,
             invoice={
-                "pageType":       'TAX INVOICE' if invoice.is_tax_invoice else '',
+                # A VAT invoice is a tax invoice whether prices include VAT or not
+                # (is_tax_invoice only means "prices include tax").
+                "pageType":       'TAX INVOICE' if (invoice.tax_amount or 0) > 0 or invoice.is_tax_invoice else '',
                 "invoiceNo":      invoice.invoice_no,
                 "soNo":           invoice.credit_payment_id if invoice.credit_payment_id else '',
                 "date":           invoice.created_date.strftime("%d %b %Y") if invoice.created_date else "",

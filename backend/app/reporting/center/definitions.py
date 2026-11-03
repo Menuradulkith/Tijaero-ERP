@@ -176,15 +176,18 @@ def _finance_summary(ctx: RunContext, p: dict) -> ReportResult:
             metric("Income", r.total_income, "money"),
             metric("Expenses", r.total_expenses, "money"),
             metric("Net profit", r.net_profit, "money"),
-            metric("Bank deposits", r.bank_deposits, "money"),
-            metric("Card payments", r.card_payments, "money"),
-            metric("Cheque payments", r.cheque_payments, "money"),
+            metric("Receipts", r.total_receipts, "money"),
+            metric("Bank deposit receipts", r.bank_deposits, "money"),
+            metric("Card receipts", r.card_payments, "money"),
+            metric("Cheque receipts", r.cheque_payments, "money"),
         ],
         tables=[
-            table("expenses", "Expenses by category", r.expenses_by_category, [
-                Column("category", "Category"), Column("amount", "Amount", "money", True)]),
-            table("monthly", "Monthly income", r.monthly_summary),
+            table("expenses", "Expense vouchers by method", r.expenses_by_category, [
+                Column("category", "Method"), Column("amount", "Amount", "money", True)]),
+            table("monthly", "Monthly bank deposits", r.monthly_summary),
         ],
+        notes=["Income, expenses and net profit come from the income statement (general ledger) for the period. "
+               "Receipts are money received (bank deposits, card and cheque payments); they are not income."],
     )
 
 

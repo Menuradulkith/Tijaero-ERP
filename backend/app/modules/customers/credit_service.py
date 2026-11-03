@@ -527,7 +527,8 @@ class CustomerCreditService:
         if date_from:
             settle_query = settle_query.filter(CustomerCreditsSettle.created_date >= date_from)
         if date_to:
-            settle_query = settle_query.filter(CustomerCreditsSettle.created_date <= date_to)
+            # created_date is a timestamp: "<= date_to" would stop at midnight and drop the last day.
+            settle_query = settle_query.filter(CustomerCreditsSettle.created_date < date_to + timedelta(days=1))
         if customer_id:
             settle_query = settle_query.filter(CustomerCreditsSettle.customer_id == customer_id)
         if branch_code:

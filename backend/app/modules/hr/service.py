@@ -3,7 +3,7 @@ from sqlalchemy import func, text
 from fastapi import HTTPException, status
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from app.core import timezone as tz
 from . import schemas
 from .models import SalaryDeductions, Reimbursements, ReimbursementItem, PayrollBatch
@@ -16,6 +16,7 @@ from app.modules.finance.gl_posting_service import record_gl_commit_failure
 from app.common.audit import log_audit
 from app.auth.models import Branch, User
 from app.modules.hr_core.service import LIVE_STATUSES
+from .scope import employee_names, scope
 
 LEFT_STATUSES = ("resigned", "terminated", "retired", "inactive")
 
@@ -86,8 +87,8 @@ class SalaryDeductionService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deduction not found")
         return deduction
 
-    def list_deductions(self, filters: schemas.HRListFilter) -> List[SalaryDeductions]:
-        query = self.db.query(SalaryDeductions)
+    def list_deductions(self, filters: schemas.HRListFilter, branches: Optional[List[str]] = None) -> List[SalaryDeductions]:
+        query = scope(self.db.query(SalaryDeductions), SalaryDeductions.employee_id, branches, by="pk")
         if filters.employee_id:
             try:
                 employee_pk = int(filters.employee_id)
@@ -216,6 +217,7 @@ class ReimbursementService:
         if not branch.active:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Branch '{data.branch_code}' is inactive")
         _branch_access(actor, data.branch_code)
+        _branch_access(actor, employee.branch_code)   # the claimant's own branch too, not just the one on the claim
         if employee.date_of_joining and data.claim_date < employee.date_of_joining:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The claim date is before the employee joined")
 
@@ -405,18 +407,18 @@ class PayrollService:
     EPF_EMPLOYER_RATE = Decimal("0.12")   # 12%
     # ETF is an employer-only contribution in Sri Lanka (no employee portion).
     ETF_EMPLOYER_RATE = Decimal("0.03")   # 3%
-    STAMP_DUTY = Decimal("100.00")        # Fixed LKR 100
 
-    # Sri Lankan APIT (Advance Personal Income Tax) 2025/2026 brackets
-    # Progressive tax: each bracket rate applies only to the portion within that range
+    # Sri Lankan APIT (Advance Personal Income Tax), IRD Table 01 from 1 Apr 2025.
+    # The IRD bands are annual; monthly APIT is the annual tax on 12x the month's
+    # pay, divided by 12 (whole-rupee monthly bands drift by cents).
     APIT_BRACKETS = [
-        (Decimal("150000"), Decimal("0")),       # Up to 150,000: 0%
-        (Decimal("83333"),  Decimal("0.06")),    # 150,001 - 233,333: 6%
-        (Decimal("41667"),  Decimal("0.18")),    # 233,334 - 275,000: 18%
-        (Decimal("41666"),  Decimal("0.24")),    # 275,001 - 316,666: 24%
-        (Decimal("41667"),  Decimal("0.30")),    # 316,667 - 358,333: 30%
+        (Decimal("1800000"), Decimal("0")),      # relief: Rs 150,000 a month
+        (Decimal("1000000"), Decimal("0.06")),
+        (Decimal("500000"),  Decimal("0.18")),
+        (Decimal("500000"),  Decimal("0.24")),
+        (Decimal("500000"),  Decimal("0.30")),
     ]
-    APIT_TOP_RATE = Decimal("0.36")              # Above 358,333: 36%
+    APIT_TOP_RATE = Decimal("0.36")              # above Rs 4.3m a year (358,333.33 a month)
 
     def __init__(self, db: Session):
         self.db = db
@@ -439,7 +441,7 @@ class PayrollService:
     def _calculate_apit(self, gross_salary: Decimal) -> Decimal:
         """Calculate APIT (Advance Personal Income Tax) using Sri Lankan 2025/2026 progressive brackets."""
         tax = Decimal("0")
-        remaining = gross_salary
+        remaining = Decimal(str(gross_salary)) * 12
         for bracket_size, rate in self.APIT_BRACKETS:
             if remaining <= 0:
                 break
@@ -448,9 +450,9 @@ class PayrollService:
             remaining -= bracket_size
         if remaining > 0:
             tax += remaining * self.APIT_TOP_RATE
-        return tax.quantize(Decimal("0.01"))
+        return (tax / 12).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    def _payroll_to_response(self, p: EmployeePayroll) -> schemas.EmployeePayrollResponse:
+    def _payroll_to_response(self, p: EmployeePayroll, name: Optional[str] = None) -> schemas.EmployeePayrollResponse:
         return schemas.EmployeePayrollResponse(
             id=p.id,
             employee_id=p.employee_id,
@@ -492,7 +494,7 @@ class PayrollService:
             statutory_payment_reference=p.statutory_payment_reference,
             created_at=str(p.created_at) if p.created_at else None,
             created_by=p.created_by,
-            employee_name=self._resolve_employee_name(p.employee_id),
+            employee_name=name if name is not None else self._resolve_employee_name(p.employee_id),
             allowance_lines=p.allowance_lines,
             allowances_total=sum((Decimal(str(a.get("amount") or 0)) for a in (p.allowance_lines or [])), Decimal("0"))
             + Decimal(p.add_1_value or 0) + Decimal(p.add_2_value or 0),
@@ -506,7 +508,8 @@ class PayrollService:
             payrolls = self.db.query(EmployeePayroll).filter(
                 EmployeePayroll.payroll_batch_no == b.batch_no
             ).all()
-            records = [self._payroll_to_response(p) for p in payrolls]
+            names = employee_names(self.db, [p.employee_id for p in payrolls])   # one query, not two per record
+            records = [self._payroll_to_response(p, names.get(p.employee_id, p.employee_id)) for p in payrolls]
         return schemas.PayrollBatchResponse(
             id=b.id,
             batch_no=b.batch_no,
@@ -642,25 +645,27 @@ class PayrollService:
             "total_employer_cost": total_employer_cost,
         }
 
-    def _nopay_days(self, emp: Employee, start: date, end: date) -> Decimal:
-        """Approved unpaid leave inside [start, end], in working days."""
+    def _nopay_days(self, emps: List[Employee], start: date, end: date) -> Dict[str, Decimal]:
+        """Approved unpaid leave inside [start, end], in working days, per employee code (one query for all)."""
         from app.modules.attendance.models import Leaves
         from app.modules.hr_core.models import HRLeaveType
         from app.modules.hr_core.service import LeavePolicyService, is_half_day
 
         unpaid = {t.code.lower(): t for t in self.db.query(HRLeaveType).filter(HRLeaveType.is_paid.is_(False)).all()}
-        if not unpaid:
-            return Decimal("0")
+        if not unpaid or not emps:
+            return {}
+        by_code = {e.employee_id: e for e in emps}
         rows = self.db.query(Leaves).filter(
-            Leaves.employee_id == emp.employee_id, Leaves.status == "approved", Leaves.from_date <= end, Leaves.to_date >= start,
+            Leaves.employee_id.in_(list(by_code)), Leaves.status == "approved", Leaves.from_date <= end, Leaves.to_date >= start,
             func.lower(Leaves.leave_type).in_(list(unpaid)),
         ).all()
-        svc, total = LeavePolicyService(self.db), Decimal("0")
+        svc, totals = LeavePolicyService(self.db), {}
         for lv in rows:
             a, b = max(lv.from_date, start), min(lv.to_date, end)
             half = is_half_day(lv.leave_time) and lv.from_date == lv.to_date
-            total += Decimal(str(svc.count_days(emp, unpaid[(lv.leave_type or "").lower()], a, b, half)))
-        return total
+            days = Decimal(str(svc.count_days(by_code[lv.employee_id], unpaid[(lv.leave_type or "").lower()], a, b, half)))
+            totals[lv.employee_id] = totals.get(lv.employee_id, Decimal("0")) + days
+        return totals
 
     # --- Manual (ad-hoc) payroll records ---
     @staticmethod
@@ -708,8 +713,8 @@ class PayrollService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll not found")
         return self._payroll_to_response(payroll)
     
-    def list_payrolls(self, filters: schemas.HRListFilter) -> List[schemas.EmployeePayrollResponse]:
-        query = self.db.query(EmployeePayroll)
+    def list_payrolls(self, filters: schemas.HRListFilter, branches: Optional[List[str]] = None) -> List[schemas.EmployeePayrollResponse]:
+        query = scope(self.db.query(EmployeePayroll), EmployeePayroll.employee_id, branches)
         if filters.employee_id:
             query = query.filter(EmployeePayroll.employee_id == filters.employee_id)
         results = query.order_by(EmployeePayroll.id.desc()).offset(filters.skip).limit(filters.limit).all()
@@ -855,11 +860,24 @@ class PayrollService:
         for d in all_deductions:
             deductions_by_employee.setdefault(d.employee_id, []).append(d)
 
-        from .sl_payroll import attendance_minutes, payroll_settings, salary_for_period
+        from .sl_payroll import attendance_minutes, payroll_settings, salaries_for_period
         from . import loans as loan_rules
         from .models import HRLoanRecovery
+        from app.modules.hr_core.models import HREmploymentType
         settings = payroll_settings(self.db)
         att = attendance_minutes(self.db, [p.employee_id for p in profiles], period_start, period_end)
+        # Everything looked up per employee is loaded up front, so a run costs a fixed number of queries.
+        salaries = salaries_for_period(self.db, profiles, period_end)
+        nopay = self._nopay_days([e[1] for e in eligible], period_start, period_end)
+
+        def _leaving(emp: Employee) -> bool:
+            return bool(emp.last_working_date and emp.last_working_date <= period_end
+                        and (emp.status in LEFT_STATUSES or emp.status == "notice_period"))
+
+        dues = loan_rules.dues_for_period(self.db, {e[1].id: _leaving(e[1]) for e in eligible}, period_str)
+        pending_recoveries = []   # (payroll record, loan, amount, balance before), written after the loop
+        for et in {e[1].employment_type_id for e in eligible} - {None}:
+            self.db.get(HREmploymentType, et)   # warm the identity map: emp.employment_type then needs no query
 
         for profile in profiles:
             # Get employee's internal id
@@ -883,9 +901,9 @@ class PayrollService:
             et = emp_obj.employment_type
             ot_mins, late_mins = att.get(profile.employee_id, (0, 0))
             args = dict(
-                salary=salary_for_period(self.db, profile, period_end), deductions=period_deductions,
+                salary=salaries[profile.employee_id], deductions=period_deductions,
                 sales_commission=sales_commission, factor=factor,
-                nopay_days=self._nopay_days(emp_obj, period_start, period_end), days_in_month=days_in_month,
+                nopay_days=nopay.get(profile.employee_id, Decimal("0")), days_in_month=days_in_month,
                 epf_applicable=(et.epf_etf_applicable if et is not None else True), settings=settings,
                 ot_minutes=ot_mins, late_minutes=late_mins, ot_eligible=emp_obj.overtime_eligible is not False,
             )
@@ -893,18 +911,16 @@ class PayrollService:
 
             # Loan / advance instalments, never more than the pay left after everything else;
             # a leaver's whole balance is recovered in the last month.
-            leaving = bool(emp_obj.last_working_date and emp_obj.last_working_date <= period_end
-                           and (emp_obj.status in LEFT_STATUSES or emp_obj.status == "notice_period"))
             room = max(Decimal("0"), calc["net_salary"])
             recoveries = []
-            for loan, due in loan_rules.due_for_period(self.db, emp_obj.id, period_str, leaving):
+            for loan, due, balance in dues.get(emp_obj.id, []):
                 take = min(due, room)
                 if take <= 0:
                     break
-                recoveries.append((loan, take))
+                recoveries.append((loan, take, balance))
                 room -= take
             if recoveries:
-                calc = self._calculate_payroll(**args, loan_recovery=sum((t for _l, t in recoveries), Decimal("0")))
+                calc = self._calculate_payroll(**args, loan_recovery=sum((t for _l, t, _b in recoveries), Decimal("0")))
 
             payroll_record = EmployeePayroll(
                 employee_id=profile.employee_id,
@@ -917,14 +933,7 @@ class PayrollService:
                 created_by=user_id,
             )
             self.db.add(payroll_record)
-            if recoveries:
-                self.db.flush()
-                for loan, take in recoveries:
-                    self.db.add(HRLoanRecovery(loan_id=loan.id, period=period_str, amount=take, payroll_id=payroll_record.id,
-                                               created_by=user_id, updated_by=user_id))
-                self.db.flush()
-                for loan, _take in recoveries:
-                    loan_rules.refresh_status(self.db, loan)
+            pending_recoveries += [(payroll_record, loan, take, balance) for loan, take, balance in recoveries]
 
             total_gross += calc["gross_salary"]
             total_deductions += calc["total_deductions"]
@@ -934,6 +943,13 @@ class PayrollService:
             total_employer_cost += calc["total_employer_cost"]
             total_apit += calc["less_apit"]
             count += 1
+
+        if pending_recoveries:
+            self.db.flush()   # the payroll records get their ids, in one batch
+            for record, loan, take, balance in pending_recoveries:
+                self.db.add(HRLoanRecovery(loan_id=loan.id, period=period_str, amount=take, payroll_id=record.id,
+                                           created_by=user_id, updated_by=user_id))
+                loan.status = "settled" if balance - take <= 0 else "active"   # same rule as loans.refresh_status
 
         # Update batch totals
         batch.total_employees = count
@@ -1217,7 +1233,7 @@ class SalaryProfileService:
             return f"{employee.user.first_name} {employee.user.last_name}".strip()
         return employee_id
 
-    def _to_response(self, p: EmployeeSalaryProfile) -> schemas.EmployeeSalaryProfile:
+    def _to_response(self, p: EmployeeSalaryProfile, name: Optional[str] = None) -> schemas.EmployeeSalaryProfile:
         from .sl_payroll import allowance_list
         lines = allowance_list(p)
         return schemas.EmployeeSalaryProfile(
@@ -1235,7 +1251,7 @@ class SalaryProfileService:
             department=p.department,
             effective_from_date=p.effective_from_date,
             benefits=p.benefits,
-            employee_name=self._resolve_employee_name(p.employee_id),
+            employee_name=name if name is not None else self._resolve_employee_name(p.employee_id),
         )
 
     @staticmethod
@@ -1295,9 +1311,11 @@ class SalaryProfileService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Salary profile not found")
         return self._to_response(profile)
 
-    def list_profiles(self) -> List[schemas.EmployeeSalaryProfile]:
-        profiles = self.db.query(EmployeeSalaryProfile).order_by(EmployeeSalaryProfile.id.desc()).all()
-        return [self._to_response(p) for p in profiles]
+    def list_profiles(self, branches: Optional[List[str]] = None) -> List[schemas.EmployeeSalaryProfile]:
+        profiles = (scope(self.db.query(EmployeeSalaryProfile), EmployeeSalaryProfile.employee_id, branches)
+                    .order_by(EmployeeSalaryProfile.id.desc()).all())
+        names = employee_names(self.db, [p.employee_id for p in profiles])
+        return [self._to_response(p, names.get(p.employee_id, p.employee_id)) for p in profiles]
     
     def update_profile(self, profile_id: int, profile: schemas.EmployeeSalaryProfileCreate, user_id: int = 0) -> schemas.EmployeeSalaryProfile:
         db_profile = self.db.query(EmployeeSalaryProfile).filter(EmployeeSalaryProfile.id == profile_id).with_for_update().first()
@@ -1394,8 +1412,8 @@ class PromotionService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
         return promotion
 
-    def list_promotions(self, filters: schemas.HRListFilter) -> List[EmployeePromotions]:
-        query = self.db.query(EmployeePromotions)
+    def list_promotions(self, filters: schemas.HRListFilter, branches: Optional[List[str]] = None) -> List[EmployeePromotions]:
+        query = scope(self.db.query(EmployeePromotions), EmployeePromotions.employee_id, branches)
         if filters.employee_id:
             query = query.filter(EmployeePromotions.employee_id == filters.employee_id)
         if filters.date_from:
@@ -1490,8 +1508,8 @@ class EmployeeAssetService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset assignment not found")
         return asset
 
-    def list_asset_assignments(self, filters: schemas.HRListFilter) -> List[EmployeesAssets]:
-        query = self.db.query(EmployeesAssets)
+    def list_asset_assignments(self, filters: schemas.HRListFilter, branches: Optional[List[str]] = None) -> List[EmployeesAssets]:
+        query = scope(self.db.query(EmployeesAssets), EmployeesAssets.employee_id, branches)
         if filters.employee_id:
             query = query.filter(EmployeesAssets.employee_id == filters.employee_id)
         return query.order_by(EmployeesAssets.id.desc()).offset(filters.skip).limit(filters.limit).all()
@@ -1542,18 +1560,27 @@ class HRStatisticsService:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_statistics(self) -> schemas.HRStatistics:
+    def _claims(self, branches: Optional[List[str]]):
+        """Reimbursement count query, scoped like the reimbursement list (by the claim's branch)."""
+        q = self.db.query(func.count(Reimbursements.id))
+        return q if branches is None else q.filter(Reimbursements.branch_code.in_(branches))
+
+    def get_statistics(self, branches: Optional[List[str]] = None) -> schemas.HRStatistics:
+        """Counts limited to `branches` (None = company-wide); payroll batches are always company-wide."""
         from app.modules.attendance.models import Attendance, Leaves
         from sqlalchemy import or_
 
         today = tz.today()
 
-        total_employees = self.db.query(func.count(Employee.id)).filter(Employee.status.in_(LIVE_STATUSES)).scalar() or 0
+        emp_q = self.db.query(func.count(Employee.id)).filter(Employee.status.in_(LIVE_STATUSES))
+        if branches is not None:
+            emp_q = emp_q.filter(Employee.branch_code.in_(branches))
+        total_employees = emp_q.scalar() or 0
 
         # "Present today" mirrors the attendance status derivation
         # (present or late): checked in, not on leave, and worked or was late.
         present_today = (
-            self.db.query(func.count(Attendance.id))
+            scope(self.db.query(func.count(Attendance.id)), Attendance.employee_id, branches)
             .filter(
                 Attendance.date == today,
                 Attendance.check_in.isnot(None),
@@ -1568,14 +1595,14 @@ class HRStatisticsService:
         )
 
         pending_leaves = (
-            self.db.query(func.count(Leaves.id))
+            scope(self.db.query(func.count(Leaves.id)), Leaves.employee_id, branches)
             .filter(Leaves.status == "pending")
             .scalar()
             or 0
         )
 
         total_profiles = (
-            self.db.query(func.count(EmployeeSalaryProfile.id)).scalar() or 0
+            scope(self.db.query(func.count(EmployeeSalaryProfile.id)), EmployeeSalaryProfile.employee_id, branches).scalar() or 0
         )
 
         pending_batches = (
@@ -1587,26 +1614,26 @@ class HRStatisticsService:
         total_batches = self.db.query(func.count(PayrollBatch.id)).scalar() or 0
 
         pending_reimbursements = (
-            self.db.query(func.count(Reimbursements.id))
+            self._claims(branches)
             .filter(Reimbursements.status.in_(self.PENDING_REIMBURSEMENT_STATUSES))
             .scalar()
             or 0
         )
         total_reimbursements = (
-            self.db.query(func.count(Reimbursements.id)).scalar() or 0
+            self._claims(branches).scalar() or 0
         )
 
         total_deductions = (
-            self.db.query(func.count(SalaryDeductions.id)).scalar() or 0
+            scope(self.db.query(func.count(SalaryDeductions.id)), SalaryDeductions.employee_id, branches, by="pk").scalar() or 0
         )
 
         total_promotions = (
-            self.db.query(func.count(EmployeePromotions.id)).scalar() or 0
+            scope(self.db.query(func.count(EmployeePromotions.id)), EmployeePromotions.employee_id, branches).scalar() or 0
         )
 
         # Active = currently assigned (not revoked).
         active_assets = (
-            self.db.query(func.count(EmployeesAssets.id))
+            scope(self.db.query(func.count(EmployeesAssets.id)), EmployeesAssets.employee_id, branches)
             .filter(EmployeesAssets.revoke_assignment == False)  # noqa: E712
             .scalar()
             or 0

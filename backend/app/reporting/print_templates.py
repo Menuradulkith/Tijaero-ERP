@@ -44,6 +44,8 @@ class DocumentType:
     # Template paths a custom HTML template must print (document number, date, totals).
     required_fields: tuple[str, ...]
     # Whether the print gate (approved documents only) applies — see common/document_guard.py.
+    # Unguarded types (voucher, payroll, payslip) still get a branch check in the print
+    # route (modules/reporting/api.py: _ensure_unguarded_branch_access).
     guarded: bool = True
     has_id: bool = True
     supports_discount: bool = False

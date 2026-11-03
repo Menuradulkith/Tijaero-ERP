@@ -323,7 +323,12 @@ def seed_finance_defaults(db: Session) -> None:
 
     db.execute(text("""
         INSERT INTO bank_accounts (name, bank_name, account_id, currency, reconcile_from, is_active, created_at, updated_at)
-        SELECT 'Main bank account', NULL, a.id, 'LKR', CURRENT_DATE, true, now(), now()
+        SELECT 'Main bank account', NULL, a.id, 'LKR',
+               -- from the first posting on the account, else the start of this year,
+               -- so statements for days before the install can still be reconciled
+               COALESCE((SELECT min(g.transaction_date) FROM general_ledger g WHERE g.account_id = a.id),
+                        date_trunc('year', CURRENT_DATE)::date),
+               true, now(), now()
         FROM chart_of_accounts a
         WHERE a.account_code = '1020' AND NOT EXISTS (SELECT 1 FROM bank_accounts b WHERE b.account_id = a.id)
     """))

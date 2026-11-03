@@ -14,13 +14,22 @@ from app.modules.customers.models import (
     CustomerCreditsSettleTransaction
 )
 
+
+def _day_after(day):
+    """``date_to`` is inclusive: compare timestamps with < the next day, so the
+    last day's records (after midnight) are not dropped."""
+    from datetime import date as _date, datetime as _dt, timedelta
+    if isinstance(day, _dt):
+        return day
+    return _dt.combine(day, _dt.min.time()) + timedelta(days=1) if isinstance(day, _date) else day
+
 class BankDepositRepository:
     def __init__(self, db: Session):
         self.db = db
     
     def create(self, deposit: schemas.BankDepositCreate, created_by: Optional[int] = None) -> models.BankDeposits:
         db_deposit = models.BankDeposits(
-            **deposit.model_dump(),
+            **{**deposit.model_dump(), "user_id": created_by},  # who made it: the login, not the request
             created_date=tz.now(),
             created_by=created_by,
         )
@@ -52,7 +61,7 @@ class BankDepositRepository:
         if filters.date_from:
             query = query.filter(models.BankDeposits.created_date >= filters.date_from)
         if filters.date_to:
-            query = query.filter(models.BankDeposits.created_date <= filters.date_to)
+            query = query.filter(models.BankDeposits.created_date < _day_after(filters.date_to))
         
         return query.order_by(models.BankDeposits.created_date.desc()).offset(filters.skip).limit(filters.limit).all()
     
@@ -135,7 +144,7 @@ class CardPaymentRepository:
         if filters.date_from:
             query = query.filter(models.CardPayments.date_time >= filters.date_from)
         if filters.date_to:
-            query = query.filter(models.CardPayments.date_time <= filters.date_to)
+            query = query.filter(models.CardPayments.date_time < _day_after(filters.date_to))
         
         return query.order_by(models.CardPayments.date_time.desc()).offset(filters.skip).limit(filters.limit).all()
 
@@ -184,9 +193,8 @@ class ExpenseRepository:
 
     def create(self, expense: schemas.ExpenseCreate, submitted_by: int = None) -> models.Expenses:
         data = expense.model_dump(exclude_none=True)
-        if not data.get("expenses_no"):
-            branch_code = data.get("branch_code") or "HQ"
-            data["expenses_no"] = self._generate_expense_no(branch_code)
+        # The number is always the server's: a client-chosen one could clash or skip the sequence.
+        data["expenses_no"] = self._generate_expense_no(data.get("branch_code") or "HQ")
         if not data.get("expense_date"):
             data["expense_date"] = tz.today()
         db_expense = models.Expenses(
@@ -238,7 +246,7 @@ class ExpenseRepository:
         if filters.date_from:
             query = query.filter(models.Expenses.created_date >= filters.date_from)
         if filters.date_to:
-            query = query.filter(models.Expenses.created_date <= filters.date_to)
+            query = query.filter(models.Expenses.created_date < _day_after(filters.date_to))
         if filters.search:
             s = f"%{filters.search}%"
             query = query.filter(or_(
@@ -427,7 +435,7 @@ class CreditPaymentRepository:
         if filters.date_from:
             query = query.filter(models.CreditPayments.created_date >= filters.date_from)
         if filters.date_to:
-            query = query.filter(models.CreditPayments.created_date <= filters.date_to)
+            query = query.filter(models.CreditPayments.created_date < _day_after(filters.date_to))
 
         return query.order_by(models.CreditPayments.created_date.desc()).offset(filters.skip).limit(filters.limit).all()
 
