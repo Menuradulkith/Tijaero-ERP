@@ -19,6 +19,7 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
+import NextIcon from "@mui/icons-material/NavigateNext";
 import SaveIcon from "@mui/icons-material/Save";
 import CancelIcon from "@mui/icons-material/Cancel";
 import EditIcon from "@mui/icons-material/Edit";
@@ -42,6 +43,7 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
   onDuplicate,
   onDelete,
   onSave,
+  onNext,
   onCancel,
   onEdit,
   startActions,
@@ -137,6 +139,17 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
           toolbar. */}
       {(isEditing || isCreating) && (
         <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
+          {isCreating && onNext && (
+            <Button
+              size="small"
+              variant="outlined"
+              endIcon={<NextIcon />}
+              onClick={onNext}
+              disabled={isSaving}
+            >
+              Next
+            </Button>
+          )}
           {onSave && (
             <Button
               size="small"

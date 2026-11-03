@@ -828,6 +828,27 @@ class DocumentReportService:
             generated_at=tz.now().strftime("%Y-%m-%d %H:%M"),
         )
 
+    def generate_payslip_report(
+        self,
+        payroll_id: int,
+        show_header: Optional[bool] = None,
+        show_signatures: Optional[bool] = None,
+        custom_remarks: Optional[str] = None,
+    ) -> str:
+        """One employee's payslip (payroll record id)."""
+        company = self._get_company_info()
+        doc, p, e, name, period = documents.build_payslip(self.db, payroll_id, company)
+        return self._render(
+            "payslip",
+            doc=doc,
+            company=company,
+            payslip={"id": p.id, "employee_id": e.employee_id, "employee_name": name, "period": period,
+                     "gross_salary": float(p.gross_salary or 0), "total_deductions": float(p.total_deductions or 0),
+                     "net_salary": float(p.net_salary or 0)},
+            options={"show_header": show_header, "show_signatures": show_signatures, "custom_remarks": custom_remarks},
+            generated_at=tz.now().strftime("%Y-%m-%d %H:%M"),
+        )
+
     def generate_credit_note_report(
         self,
         sale_return_id: int,

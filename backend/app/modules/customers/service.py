@@ -662,6 +662,9 @@ class VoucherService:
     
     def create_voucher(self, db: Session, voucher_data: schemas.GiftVoucherCreate, user_id: Optional[int] = None) -> CustomerGiftVoucher:
         """Create a new gift voucher"""
+        if voucher_data.branch_code:
+            from app.common.branch_validation import validate_branch_is_active
+            validate_branch_is_active(db, voucher_data.branch_code)
         # Advisory lock to serialise concurrent voucher creation with same barcode
         from sqlalchemy import text
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"voucher_barcode_{voucher_data.barcode_no}"})

@@ -196,7 +196,7 @@ export default function CostCentersTab({ canEdit, layout }: { canEdit: boolean; 
             onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
             helperText={creating ? "Short, e.g. RETAIL" : undefined}
           />
-          <TextField label="Name" size="small" required disabled={ro} value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <TextField label="Name" size="small" required disabled={ro} value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} inputProps={{ maxLength: 100 }} />
         </FormSection>
         <FormSection title="Branch" columns={2}>
           <TextField

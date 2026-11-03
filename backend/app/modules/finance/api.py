@@ -604,6 +604,7 @@ def open_petty_cash_fund(
     """Step 1: Open a new petty cash fund at a branch"""
     if data.branch_code and not validate_branch_access(current_user, data.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {data.branch_code}")
+    data.opened_by = current_user.id  # never trust a user id sent by the client
     return service.PettyCashService(db).open_fund(data, user_id=current_user.id)
 
 
@@ -672,6 +673,7 @@ def record_petty_cash_expense(
     current_user: User = Depends(get_current_active_user),
 ):
     """Step 2: Record a petty cash expense (deducts from fund)"""
+    data.recorded_by = current_user.id  # never trust a user id sent by the client
     return service.PettyCashService(db).record_expense(data, user_id=current_user.id)
 
 
@@ -682,6 +684,8 @@ def replenish_petty_cash(
     current_user: User = Depends(get_current_active_user),
 ):
     """Step 3: Replenish a petty cash fund (adds to fund)"""
+    data.recorded_by = current_user.id  # never trust a user id sent by the client
+    data.approved_by = current_user.id
     return service.PettyCashService(db).replenish_fund(data, user_id=current_user.id)
 
 
@@ -693,6 +697,7 @@ def reconcile_petty_cash(
     current_user: User = Depends(get_current_active_user),
 ):
     """Step 4: Close and reconcile a petty cash fund"""
+    data.closed_by = current_user.id  # never trust a user id sent by the client
     return service.PettyCashService(db).reconcile_and_close(fund_id, data, user_id=current_user.id)
 
 

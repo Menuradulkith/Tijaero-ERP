@@ -225,6 +225,8 @@ export interface ActionToolbarProps {
   onDelete?: () => void;
   /** Save callback */
   onSave?: () => void;
+  /** Moves a record being created on to its next tab; the button shows only while creating */
+  onNext?: () => void;
   /** Cancel callback */
   onCancel?: () => void;
   /** Edit callback */

@@ -135,6 +135,8 @@ class ExpenseService:
         if hasattr(expense, 'branch_code') and expense.branch_code:
             from app.common.branch_validation import validate_branch_is_active
             validate_branch_is_active(self.db, expense.branch_code)
+        from app.modules.finance.posting_dates import check_posting_date
+        check_posting_date(self.db, getattr(expense, "expense_date", None), "Expense date")
 
         return self.repo.create(expense, submitted_by=submitted_by)
 
@@ -211,6 +213,8 @@ class ExpenseService:
 
     def process_payment(self, expense_id: int, payment_data: schemas.ExpensePayment, processed_by: int) -> models.Expenses:
         from datetime import date as date_type
+        from app.modules.finance.posting_dates import check_posting_date
+        check_posting_date(self.db, getattr(payment_data, "payment_date", None), "Payment date")
         # SELECT FOR UPDATE to prevent double-payment race condition
         expense = self.db.query(models.Expenses).filter(
             models.Expenses.id == expense_id
@@ -872,6 +876,15 @@ class PettyCashService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Opening balance must be greater than zero"
             )
+        from app.common.branch_validation import validate_branch_is_active
+        validate_branch_is_active(self.db, data.branch_code)
+        if self.db.query(models.PettyCash.id).filter(
+            models.PettyCash.branch_code == data.branch_code, models.PettyCash.status == "active"
+        ).first():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This branch already has an open petty cash fund. Top it up, or close it before opening a new one.",
+            )
 
         fund = models.PettyCash(
             petty_cash_no=self._generate_fund_no(),
@@ -914,6 +927,8 @@ class PettyCashService:
         GL: Dr 5xxx Expense / Cr 1030 Petty Cash
         Uses SELECT FOR UPDATE on fund row to prevent concurrent balance corruption.
         """
+        from app.modules.finance.posting_dates import check_posting_date
+        check_posting_date(self.db, data.transaction_date, "Expense date")
         fund = self._get_active_fund(data.petty_cash_id, lock=True)
         amount = Decimal(str(data.amount))
 
@@ -984,6 +999,8 @@ class PettyCashService:
         GL: Dr 1030 Petty Cash / Cr 1020 Bank Account
         Uses SELECT FOR UPDATE on fund row to prevent concurrent balance corruption.
         """
+        from app.modules.finance.posting_dates import check_posting_date
+        check_posting_date(self.db, data.transaction_date, "Top-up date")
         fund = self._get_active_fund(data.petty_cash_id, lock=True)
         amount = Decimal(str(data.amount))
 

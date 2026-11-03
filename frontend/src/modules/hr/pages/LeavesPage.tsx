@@ -6,8 +6,9 @@
  */
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, IconButton, InputAdornment, MenuItem, Paper, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, IconButton, InputAdornment, MenuItem, TextField, Tooltip, Typography } from "@mui/material";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
+import EventBusyIcon from "@mui/icons-material/EventBusy";
 import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -20,10 +21,11 @@ import {
   DetailPanelHeader,
   EmptyState,
   FormSection,
+  getStatusProps,
   MasterDetailLayout,
-  SelectableListItem,
   TConfirmDialog,
   TDetailSkeleton,
+  TSidePanel,
   TStatusChip,
   TStatusFilter,
   type TFilterStatusOption,
@@ -40,11 +42,13 @@ import { leavesApi, employeesApi } from "@/modules/hr/api";
 import apiClient from "@/api/client";
 import { hrOrgApi } from "@/modules/hr/core-api";
 import type { Leave, LeaveCreate } from "@/modules/hr/types";
+import { formatDate } from "@/utils/formatters";
 
 const STATUS_OPTIONS: TFilterStatusOption[] = [
   { value: "pending", label: "Pending" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 const LEAVE_TYPES = [
@@ -63,28 +67,11 @@ const LEAVE_TIMES = [
 const INITIAL_FORM: LeaveCreate = {
   employee_id: "",
   leave_type: "annual",
-  from_date: new Date().toISOString().split("T")[0],
-  to_date: new Date().toISOString().split("T")[0],
+  from_date: formatDate(new Date()),
+  to_date: formatDate(new Date()),
   leave_reason: "",
   leave_duration: 1,
   leave_time: "full_day",
-};
-
-const computeDays = (from: string, to: string): number => {
-  if (!from || !to) return 0;
-  const a = new Date(from).getTime();
-  const b = new Date(to).getTime();
-  if (b < a) return 0;
-  return Math.round((b - a) / (1000 * 60 * 60 * 24)) + 1;
-};
-
-const statusColor = (s: string): "success" | "warning" | "error" | "default" => {
-  switch (s) {
-    case "approved": return "success";
-    case "pending": return "warning";
-    case "rejected": return "error";
-    default: return "default";
-  }
 };
 
 export default function LeavesPage() {
@@ -92,6 +79,9 @@ export default function LeavesPage() {
   const canCreate = usePermission("leaves", "create");
   const canUpdate = usePermission("leaves", "update");
   const canDelete = usePermission("leaves", "delete");
+  // Approved leave is cancelled by whoever may approve leave; the days go back to the balance
+  const canCancelApproved = usePermission("leave_approvals", "approve");
+  const [cancelReason, setCancelReason] = useState<string | null>(null);
 
   // Filter state (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
@@ -173,7 +163,7 @@ export default function LeavesPage() {
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    let list = (leaves || []).filter((l) => {
+    const list = (leaves || []).filter((l) => {
       if (filterStatus && l.status !== filterStatus) return false;
       if (!q) return true;
       return (
@@ -222,7 +212,30 @@ export default function LeavesPage() {
     onError: (e) => showErrorToast(handleApiError(e, "Failed to cancel leave")),
   });
 
+  const cancelApprovedMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) => leavesApi.cancel(id, { rejection_reason: reason }),
+    onSuccess: (lv) => {
+      qc.invalidateQueries({ queryKey: ["hr-leaves"] });
+      showSuccessToast("Approved leave cancelled; the days are back in the balance");
+      setCancelReason(null);
+      setSelectedItem(lv);
+    },
+    onError: (e) => showErrorToast(handleApiError(e, "Failed to cancel leave")),
+  });
+
   const confirmDialog = useTConfirmDialog();
+
+  // blocks a second "Cancel leave" click before the first has settled
+  const cancellingRef = useRef(false);
+  const handleCancelApproved = useCallback(() => {
+    const reason = (cancelReason ?? "").trim();
+    if (!selectedLeave || !reason || cancellingRef.current || cancelApprovedMutation.isPending) return;
+    cancellingRef.current = true;
+    cancelApprovedMutation.mutate(
+      { id: selectedLeave.id, reason },
+      { onSettled: () => { cancellingRef.current = false; } },
+    );
+  }, [selectedLeave, cancelReason, cancelApprovedMutation]);
 
   const savingRef = useRef(false);   // blocks a second click before the first save has settled
   const handleSave = useCallback(() => {
@@ -392,7 +405,7 @@ export default function LeavesPage() {
         noSelectionTitle="Select a Leave Application"
         chips={
           selectedLeave && !isCreating
-            ? [{ label: selectedLeave.status, color: statusColor(selectedLeave.status) }]
+            ? [getStatusProps(selectedLeave.status, "leaveStatus")]
             : []
         }
       />
@@ -411,6 +424,20 @@ export default function LeavesPage() {
         onSave={handleSave}
         onCancel={handleCancelLeave}
         onEdit={handleStartEdit}
+        endActions={
+          selectedLeave?.status === "approved" && canCancelApproved && !isEditing && !isCreating ? (
+            <Button
+              size="small"
+              color="warning"
+              variant="outlined"
+              startIcon={<EventBusyIcon />}
+              onClick={() => setCancelReason("")}
+              disabled={cancelApprovedMutation.isPending}
+            >
+              Cancel approved leave
+            </Button>
+          ) : undefined
+        }
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -540,14 +567,15 @@ export default function LeavesPage() {
         title="Leaves"
         titleSlot={
           isLeaveDetailMode ? (
-          <Button
-            size="small"
-            startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={handleBackToLeaves}
-            sx={{ textTransform: "none" }}
-          >
-            Back to Leaves
-          </Button>
+            <Button
+              size="small"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              onClick={handleBackToLeaves}
+              sx={{ textTransform: "none" }}
+              disabled={isSaving}
+            >
+              Back to Leaves
+            </Button>
           ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
@@ -562,15 +590,15 @@ export default function LeavesPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 190, flexShrink: 0 }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
-              <Box sx={{ width: 150, flexShrink: 0 }}>
+              <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TStatusFilter
                   options={STATUS_OPTIONS}
                   value={filterStatus}
                   onChange={setFilterStatus}
                   label=""
-                  placeholder="All Status"
+                  placeholder="All Statuses"
                   size="small"
                 />
               </Box>
@@ -582,29 +610,56 @@ export default function LeavesPage() {
             </Box>
           )
         }
+        headerActions={
+          !isLeaveDetailMode && canCreate ? (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleNew}
+              sx={{ mr: 1 }}
+            >
+              Apply for Leave
+            </Button>
+          ) : undefined
+        }
         onRefresh={refetch}
         isLoading={isLoading}
-        {...(isLeaveDetailMode
-          ? { children: detailPanel }
-          : { children: leaveTablePanel })}
-        headerActions={
-          isLeaveDetailMode ? undefined : (
-            <>
-              {canCreate && (
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={handleNew}
-                  sx={{ mr: 1 }}
-                >
-                  Apply for Leave
-                </Button>
-              )}
-            </>
-          )
-        }
-      />
+      >
+        {isLeaveDetailMode ? detailPanel : leaveTablePanel}
+      </MasterDetailLayout>
+
+      {/* ---- CANCEL APPROVED LEAVE PANEL ---- */}
+      <TSidePanel
+        open={cancelReason !== null}
+        onClose={() => { if (!cancelApprovedMutation.isPending) setCancelReason(null); }}
+        title="Cancel Approved Leave"
+        submitText="Cancel Leave"
+        cancelText="Keep Leave"
+        isSubmitting={cancelApprovedMutation.isPending}
+        submitDisabled={cancelApprovedMutation.isPending || !(cancelReason ?? "").trim()}
+        onSubmit={handleCancelApproved}
+      >
+        <FormSection title="Cancellation" columns={1} isLast>
+          <Typography variant="body2">
+            Cancel {selectedLeave?.leave_duration} day(s) of {selectedLeave?.leave_type} leave for{" "}
+            <strong>{selectedLeave?.employee_name || selectedLeave?.employee_id}</strong>? The days go back to the balance.
+          </Typography>
+          <TextField
+            label="Why is it cancelled?"
+            value={cancelReason ?? ""}
+            onChange={(e) => setCancelReason(e.target.value)}
+            fullWidth
+            size="small"
+            multiline
+            rows={3}
+            required
+            autoFocus
+            inputProps={{ maxLength: 500 }}
+          />
+        </FormSection>
+      </TSidePanel>
+
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

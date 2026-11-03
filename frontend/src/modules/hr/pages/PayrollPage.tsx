@@ -3,7 +3,7 @@
  */
 import { useCallback, useMemo, useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, IconButton, InputAdornment, Paper, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, IconButton, InputAdornment, TextField, Tooltip, Typography } from "@mui/material";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -16,8 +16,8 @@ import {
   DetailPanelHeader,
   EmptyState,
   FormSection,
+  getStatusProps,
   MasterDetailLayout,
-  SelectableListItem,
   TConfirmDialog,
   TDataGrid,
   type TDataGridColumn,
@@ -96,7 +96,7 @@ export default function PayrollPage() {
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    let list = (payrolls || []).filter(
+    const list = (payrolls || []).filter(
       (p) => !q || p.employee_id.toLowerCase().includes(q) || (p.employee_name || "").toLowerCase().includes(q) || (p.payroll_batch_no || "").toLowerCase().includes(q)
     );
     // Fixed default order (newest first) — the browse table's own
@@ -157,15 +157,6 @@ export default function PayrollPage() {
   const isFormValid = !!formData.employee_id && formData.basic_salary > 0;
   const isSaving = createMut.isPending || updateMut.isPending;
   const isDisabled = !isEditing && !isCreating;
-
-  const statusColor = (s?: string): "success" | "warning" | "error" | "default" => {
-    switch (s) {
-      case "approved": case "paid": return "success";
-      case "pending_approval": case "draft": return "warning";
-      case "rejected": return "error";
-      default: return "default";
-    }
-  };
 
   // Cancelling a brand-new record returns to the browse table (the hook's
   // default handleCancel would instead auto-select the first item, which made
@@ -301,7 +292,7 @@ export default function PayrollPage() {
         title={selectedItem ? `${selectedItem.employee_name || selectedItem.employee_id}` : ""}
         titleIcon={<AccountBalanceIcon color="primary" />}
         isCreating={isCreating} createTitle="New Payroll Record" noSelectionTitle="Select a Payroll Record"
-        chips={selectedItem && !isCreating && selectedItem.status ? [{ label: selectedItem.status.replace("_", " "), color: statusColor(selectedItem.status) }] : []}
+        chips={selectedItem && !isCreating && selectedItem.status ? [getStatusProps(selectedItem.status, "payrollRecordStatus")] : []}
         actions={
           !isCreating && !isEditing ? (
             <TPrintButton documentType="payroll" documentId={selectedItem?.id || 0} disabled={!canPrintDocument(selectedItem?.status, ["cancelled", "rejected"])} disabledReason="Cannot print: payroll is not approved yet" tooltip="Print Payslip" onClick={() => setPrintDialogOpen(true)} />
@@ -364,8 +355,6 @@ export default function PayrollPage() {
           </>
         )}
       </Box>
-
-      <TPrintPreviewDialog open={printDialogOpen} onClose={() => setPrintDialogOpen(false)} documentType="payroll" documentId={selectedItem?.id || 0} title="Payslip" />
     </Box>
   );
 
@@ -380,14 +369,15 @@ export default function PayrollPage() {
               startIcon={<ArrowBackIcon fontSize="small" />}
               onClick={handleBackToPayroll}
               sx={{ textTransform: "none" }}
+              disabled={isSaving}
             >
               Back to Payroll
             </Button>
           ) : (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
-                placeholder="Search payroll records..."
+                placeholder="Search employee, batch..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 InputProps={{
@@ -397,28 +387,39 @@ export default function PayrollPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 260 }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
+              {searchQuery && (
+                <Button size="small" onClick={() => setSearchQuery("")} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
+              )}
             </Box>
           )
         }
         headerActions={
           isDetailMode ? undefined : (
-            <>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mr: 1 }}>
+              <TPrintButton documentType="payroll" documentId={0} tooltip="Print Payroll Report" onClick={() => setPrintDialogOpen(true)} />
               {canCreate && (
-                <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
+                <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew}>
                   Add Payroll Record
                 </Button>
               )}
-              <TPrintButton documentType="payroll" documentId={0} tooltip="Print Payroll Report" onClick={() => setPrintDialogOpen(true)} />
-            </>
+            </Box>
           )
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        {...(isDetailMode
-          ? { children: detailContent }
-          : { children: tablePanel })}
+      >
+        {isDetailMode ? detailContent : tablePanel}
+      </MasterDetailLayout>
+      <TPrintPreviewDialog
+        open={printDialogOpen}
+        onClose={() => setPrintDialogOpen(false)}
+        documentType="payroll"
+        documentId={isDetailMode ? selectedItem?.id || 0 : 0}
+        title={isDetailMode ? "Payslip" : "Payroll Report"}
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

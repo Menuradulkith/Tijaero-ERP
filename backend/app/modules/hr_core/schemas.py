@@ -261,6 +261,7 @@ class LeaveTypeIn(BaseModel):
     description: OptStr(1000) = None
     annual_entitlement: float = Field(default=0, ge=0, le=366)
     accrual: Literal["none", "monthly"] = "none"
+    entitlement_rule: Literal["prorata", "full", "sl_annual"] = "prorata"
     carry_forward_max: float = Field(default=0, ge=0, le=366)
     is_paid: bool = True
     allow_half_day: bool = True
@@ -289,6 +290,7 @@ class LeaveTypeOut(AuditOut, VersionedSchema):
     description: Optional[str] = None
     annual_entitlement: float = 0
     accrual: str = "none"
+    entitlement_rule: str = "prorata"
     carry_forward_max: float = 0
     is_paid: bool = True
     allow_half_day: bool = True
@@ -299,6 +301,20 @@ class LeaveTypeOut(AuditOut, VersionedSchema):
     document_required_after_days: Optional[float] = None
     count_holidays: bool = False
     active: bool = True
+
+
+class LieuGrantIn(BaseModel):
+    employee_pk: Id
+    worked_date: date
+    days: float = Field(default=1, ge=0.5, le=1, multiple_of=0.5)
+    remarks: OptStr(300) = None
+
+    @model_validator(mode="after")
+    def _when(self):
+        today = date.today()
+        if self.worked_date > today or (today - self.worked_date).days > 400:
+            raise ValueError("Worked date must be within the last year")
+        return self
 
 
 class LeaveAllocationIn(BaseModel):
@@ -577,6 +593,7 @@ class EmployeeProfileFields(BaseModel):
     work_location: OptStr(150) = None
     shift_id: OptId = None
     holiday_list_id: OptId = None
+    overtime_eligible: bool = True
     date_of_joining: Optional[date] = None
     probation_end_date: Optional[date] = None
     confirmation_date: Optional[date] = None
@@ -700,6 +717,7 @@ class EmployeeDetail(EmployeeListItem, VersionedSchema):
     shift_id: Optional[int] = None
     shift_name: Optional[str] = None
     holiday_list_id: Optional[int] = None
+    overtime_eligible: bool = True
     probation_end_date: Optional[date] = None
     confirmation_date: Optional[date] = None
     contract_end_date: Optional[date] = None

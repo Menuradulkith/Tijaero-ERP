@@ -19,17 +19,11 @@ import {
 } from "@mui/icons-material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import {
-    Avatar,
     Box,
     Button,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
     IconButton,
     InputAdornment,
     MenuItem,
-    Paper,
     Table,
     TableBody,
     TableCell,
@@ -44,6 +38,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Tijaero components
 import {
+    ActionToolbar,
     DetailPanelHeader,
     EmptyState,
     FormSection,
@@ -51,7 +46,6 @@ import {
     handleApiError,
     MasterDetailLayout,
     modernTableStyles,
-    SelectableListItem,
     REIMBURSEMENT_EXPENSE_TYPES,
     REIMBURSEMENT_PAYMENT_METHODS,
     REIMBURSEMENT_STATUS_FILTER_OPTIONS,
@@ -63,7 +57,9 @@ import {
     TCurrency,
     TDataGrid,
     type TDataGridColumn,
+    TSidePanel,
     TStatusChip,
+    TStatusFilter,
     useConfirmDialog,
     useMasterDetailState,
     fmtLKR,
@@ -79,7 +75,6 @@ import type {
 } from "@/modules/hr/types";
 import { useCurrencyStore } from "@/state/currencyStore";
 
-import CancelIcon from "@mui/icons-material/Cancel";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -212,13 +207,6 @@ export default function ReimbursementsPage() {
       setFormData((prev) => ({ ...prev, branch_code: defaultBranchCode }));
     }
   }, [isCreating, defaultBranchCode, formData.branch_code, setFormData]);
-
-  // Auto-default branch filter for non-superuser users
-  useEffect(() => {
-    if (defaultBranchCode && filterBranch === null) {
-      setFilterBranch(defaultBranchCode);
-    }
-  }, [defaultBranchCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Data query
   const { data: reimbursements, isLoading } = useQuery({
@@ -439,6 +427,7 @@ export default function ReimbursementsPage() {
     }
     const payload: ReimbursementCreate = {
       ...formData,
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       items: lineItems.map(({ _id, ...rest }) => ({
         ...rest,
         amount: Number(rest.amount),
@@ -604,527 +593,376 @@ export default function ReimbursementsPage() {
   );
 
   // ---------------------------------------------------------------------------
-  // RENDER: Detail Panel (view mode)
+  // RENDER: Detail body (view mode)
   // ---------------------------------------------------------------------------
-  const renderDetailView = () => {
-    if (!selectedItem) {
-      return (
-        <EmptyState message="Select a reimbursement claim to view details" />
-      );
-    }
-
-    const canApprove = selectedItem.status === "pending";
-    const canVerify = ["approved", "partial_approved"].includes(
-      selectedItem.status,
-    );
-    const canPay = selectedItem.status === "verified";
-    const canDelete = ["pending", "rejected"].includes(selectedItem.status);
-
-    return (
-      <Box>
-        <DetailPanelHeader
-          breadcrumbs={[
-            { label: "HR" },
-            { label: "Reimbursements", href: "/hr/reimbursements" },
-            { label: selectedItem.reimbursement_no },
-          ]}
-          title={selectedItem.reimbursement_no}
-          titleIcon={<ReceiptIcon color="primary" />}
-          chips={[
-            {
-              label:
-                selectedItem.status.charAt(0).toUpperCase() +
-                selectedItem.status.slice(1),
-              color: getStatusProps(selectedItem.status, "reimbursementStatus")
-                .color,
-            },
-          ]}
-        />
-
-        {/* Action Buttons */}
-        <Box
-          sx={{
-            display: "flex",
-            gap: 1,
-            p: 1,
-            borderBottom: 1,
-            borderColor: "divider",
-            bgcolor: "background.paper",
-            flexWrap: "wrap",
-          }}
-        >
-          {canApprove && (
-            <>
-              <Button
-                size="small"
-                color="success"
-                variant="contained"
-                startIcon={<ApproveIcon />}
-                onClick={openApproveDialog}
-              >
-                Approve
-              </Button>
-              <Button
-                size="small"
-                color="error"
-                variant="outlined"
-                startIcon={<RejectIcon />}
-                onClick={openRejectDialog}
-              >
-                Reject
-              </Button>
-            </>
-          )}
-          {canVerify && (
-            <Button
-              size="small"
-              color="info"
-              variant="contained"
-              startIcon={<VerifyIcon />}
-              onClick={openVerifyDialog}
-            >
-              Finance Verify
-            </Button>
-          )}
-          {canPay && (
-            <Button
-              size="small"
-              color="primary"
-              variant="contained"
-              startIcon={<PaymentIcon />}
-              onClick={openPaymentDialog}
-            >
-              Process Payment
-            </Button>
-          )}
-          {canDelete && (
-            <Button
-              size="small"
-              color="error"
-              variant="text"
-              startIcon={<DeleteIcon />}
-              onClick={handleDelete}
-            >
-              Delete
-            </Button>
-          )}
-        </Box>
-
-        {/* Claim Details */}
-        <FormSection title="Claim Details">
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 2,
-            }}
-          >
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Claim No
-              </Typography>
-              <Typography variant="body2">
-                {selectedItem.reimbursement_no}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Employee
-              </Typography>
-              <Typography variant="body2">
-                {selectedItem.employee_name || selectedItem.employee_id}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Branch
-              </Typography>
-              <Typography variant="body2">
-                {selectedItem.branch_name || selectedItem.branch_code}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Claim Date
-              </Typography>
-              <Typography variant="body2">
-                {selectedItem.claim_date
-                  ? new Date(selectedItem.claim_date).toLocaleDateString()
-                  : "-"}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Type
-              </Typography>
-              <Typography variant="body2" sx={{ textTransform: "capitalize" }}>
-                {REIMBURSEMENT_TYPES.find(
-                  (t) => t.value === selectedItem.reimbursement_type,
-                )?.label || selectedItem.reimbursement_type}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Status
-              </Typography>
-              <TStatusChip
-                status={selectedItem.status}
-                statusMap="reimbursementStatus"
-              />
-            </Box>
-          </Box>
-
-          {selectedItem.description && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="caption" color="text.secondary">
-                Description
-              </Typography>
-              <Typography variant="body2">
-                {selectedItem.description}
-              </Typography>
-            </Box>
-          )}
-        </FormSection>
-
-        {/* Amounts */}
-        <FormSection title="Amount Summary">
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 2,
-            }}
-          >
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Total Claimed
-              </Typography>
-              <Typography variant="h6" fontWeight="bold">
-                <TCurrency value={selectedItem.total_amount} />
-              </Typography>
-            </Box>
-            {selectedItem.approved_amount != null && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Approved Amount
-                </Typography>
-                <Typography variant="h6" color="success.main">
-                  <TCurrency value={selectedItem.approved_amount} />
-                </Typography>
-              </Box>
-            )}
-            {selectedItem.paid_amount != null && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Paid Amount
-                </Typography>
-                <Typography variant="h6" color="primary.main">
-                  <TCurrency value={selectedItem.paid_amount} />
-                </Typography>
-              </Box>
-            )}
-          </Box>
-        </FormSection>
-
-        {/* Line Items Table */}
-        <FormSection title="Expense Items">
-          <Table size="small" sx={modernTableStyles}>
-            <TableHead>
-              <TableRow>
-                <TableCell>#</TableCell>
-                <TableCell>Expense Type</TableCell>
-                <TableCell>Description</TableCell>
-                <TableCell align="right">Amount</TableCell>
-                <TableCell>Receipt No</TableCell>
-                <TableCell>Receipt Date</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {(selectedItem.items || []).map((item, idx) => (
-                <TableRow key={item.id || idx}>
-                  <TableCell>{idx + 1}</TableCell>
-                  <TableCell sx={{ textTransform: "capitalize" }}>
-                    {REIMBURSEMENT_EXPENSE_TYPES.find(
-                      (t) => t.value === item.expense_type,
-                    )?.label || item.expense_type}
-                  </TableCell>
-                  <TableCell>{item.item_description || "-"}</TableCell>
-                  <TableCell align="right">
-                    <TCurrency value={Number(item.amount)} />
-                  </TableCell>
-                  <TableCell>{item.receipt_number || "-"}</TableCell>
-                  <TableCell>
-                    {item.receipt_date
-                      ? new Date(item.receipt_date).toLocaleDateString()
-                      : "-"}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {(!selectedItem.items || selectedItem.items.length === 0) && (
-                <TableRow>
-                  <TableCell colSpan={6} align="center">
-                    <Typography variant="body2" color="text.secondary">
-                      No expense items
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </FormSection>
-
-        {/* Approval/Verification/Payment Info */}
-        {(selectedItem.approved_date ||
-          selectedItem.rejection_reason ||
-          selectedItem.verified_date ||
-          selectedItem.payment_date) && (
-          <FormSection title="Workflow History">
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, 1fr)",
-                gap: 2,
-              }}
-            >
-              {selectedItem.approved_date && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Approved Date
-                  </Typography>
-                  <Typography variant="body2">
-                    {new Date(selectedItem.approved_date).toLocaleString()}
-                  </Typography>
-                </Box>
-              )}
-              {selectedItem.rejection_reason && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Rejection Reason
-                  </Typography>
-                  <Typography variant="body2" color="error.main">
-                    {selectedItem.rejection_reason}
-                  </Typography>
-                </Box>
-              )}
-              {selectedItem.verified_date && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Verified Date
-                  </Typography>
-                  <Typography variant="body2">
-                    {new Date(selectedItem.verified_date).toLocaleString()}
-                  </Typography>
-                </Box>
-              )}
-              {selectedItem.payment_date && (
-                <>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Payment Date
-                    </Typography>
-                    <Typography variant="body2">
-                      {new Date(selectedItem.payment_date).toLocaleString()}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Payment Method
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{ textTransform: "capitalize" }}
-                    >
-                      {REIMBURSEMENT_PAYMENT_METHODS.find(
-                        (m) => m.value === selectedItem.payment_method,
-                      )?.label || selectedItem.payment_method}
-                    </Typography>
-                  </Box>
-                  {selectedItem.payment_reference && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Payment Reference
-                      </Typography>
-                      <Typography variant="body2">
-                        {selectedItem.payment_reference}
-                      </Typography>
-                    </Box>
-                  )}
-                </>
-              )}
-            </Box>
-          </FormSection>
-        )}
-
-        {selectedItem.remark && (
-          <FormSection title="Remarks">
-            <Typography variant="body2">{selectedItem.remark}</Typography>
-          </FormSection>
-        )}
-
-        {/* Activity History */}
-        <FormSection title="Activity History" columns={2}>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Created
-            </Typography>
-            <Typography variant="body2">
-              {formatDateTimeReadable(selectedItem.created_at) || "-"}
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Last Modified
-            </Typography>
-            <Typography variant="body2">
-              {formatDateTimeReadable(selectedItem.updated_at) || "-"}
-            </Typography>
-          </Box>
-        </FormSection>
-      </Box>
-    );
-  };
-
-  // ---------------------------------------------------------------------------
-  // RENDER: Create Form
-  // ---------------------------------------------------------------------------
-  const renderCreateForm = () => (
-    <Box>
-      <DetailPanelHeader
-        breadcrumbs={[
-          { label: "HR" },
-          { label: "Reimbursements", href: "/hr/reimbursements" },
-          { label: "New Claim" },
-        ]}
-        title="New Reimbursement Claim"
-        titleIcon={<ReceiptIcon color="primary" />}
-      />
-
-      <FormSection title="Claim Information">
+  const renderDetailBody = (item: Reimbursement) => (
+    <>
+      {/* Claim Details */}
+      <FormSection title="Claim Details" columns={1}>
         <Box
           sx={{
             display: "grid",
-            gridTemplateColumns: "repeat(2, 1fr)",
+            gridTemplateColumns: { xs: "1fr", sm: "repeat(3, 1fr)" },
             gap: 2,
           }}
         >
-          <TextField
-            select
-            label="Employee"
-            value={formData.employee_id}
-            onChange={(e) =>
-              setFormData((prev) => ({ ...prev, employee_id: e.target.value }))
-            }
-            required
-            size="small"
-            fullWidth
-          >
-            {employees.map((emp: any) => (
-              <MenuItem key={emp.employee_id} value={emp.employee_id}>
-                {emp.first_name} {emp.last_name} ({emp.employee_id})
-              </MenuItem>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Claim No
+            </Typography>
+            <Typography variant="body2">{item.reimbursement_no}</Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Employee
+            </Typography>
+            <Typography variant="body2">
+              {item.employee_name || item.employee_id}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Branch
+            </Typography>
+            <Typography variant="body2">
+              {item.branch_name || item.branch_code}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Claim Date
+            </Typography>
+            <Typography variant="body2">
+              {item.claim_date
+                ? new Date(item.claim_date).toLocaleDateString()
+                : "-"}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Type
+            </Typography>
+            <Typography variant="body2" sx={{ textTransform: "capitalize" }}>
+              {REIMBURSEMENT_TYPES.find(
+                (t) => t.value === item.reimbursement_type,
+              )?.label || item.reimbursement_type}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Status
+            </Typography>
+            <Box>
+              <TStatusChip status={item.status} statusMap="reimbursementStatus" />
+            </Box>
+          </Box>
+        </Box>
+
+        {item.description && (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="caption" color="text.secondary">
+              Description
+            </Typography>
+            <Typography variant="body2">{item.description}</Typography>
+          </Box>
+        )}
+      </FormSection>
+
+      {/* Amounts */}
+      <FormSection title="Amount Summary" columns={3}>
+        <Box>
+          <Typography variant="caption" color="text.secondary">
+            Total Claimed
+          </Typography>
+          <Typography variant="h6" fontWeight="bold">
+            <TCurrency value={item.total_amount} />
+          </Typography>
+        </Box>
+        {item.approved_amount != null && (
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Approved Amount
+            </Typography>
+            <Typography variant="h6" color="success.main">
+              <TCurrency value={item.approved_amount} />
+            </Typography>
+          </Box>
+        )}
+        {item.paid_amount != null && (
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Paid Amount
+            </Typography>
+            <Typography variant="h6" color="primary.main">
+              <TCurrency value={item.paid_amount} />
+            </Typography>
+          </Box>
+        )}
+      </FormSection>
+
+      {/* Line Items Table */}
+      <FormSection title="Expense Items" columns={1}>
+        <Table size="small" sx={modernTableStyles}>
+          <TableHead>
+            <TableRow>
+              <TableCell>#</TableCell>
+              <TableCell>Expense Type</TableCell>
+              <TableCell>Description</TableCell>
+              <TableCell align="right">Amount</TableCell>
+              <TableCell>Receipt No</TableCell>
+              <TableCell>Receipt Date</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {(item.items || []).map((line, idx) => (
+              <TableRow key={line.id || idx}>
+                <TableCell>{idx + 1}</TableCell>
+                <TableCell sx={{ textTransform: "capitalize" }}>
+                  {REIMBURSEMENT_EXPENSE_TYPES.find(
+                    (t) => t.value === line.expense_type,
+                  )?.label || line.expense_type}
+                </TableCell>
+                <TableCell>{line.item_description || "-"}</TableCell>
+                <TableCell align="right">
+                  <TCurrency value={Number(line.amount)} />
+                </TableCell>
+                <TableCell>{line.receipt_number || "-"}</TableCell>
+                <TableCell>
+                  {line.receipt_date
+                    ? new Date(line.receipt_date).toLocaleDateString()
+                    : "-"}
+                </TableCell>
+              </TableRow>
             ))}
-          </TextField>
+            {(!item.items || item.items.length === 0) && (
+              <TableRow>
+                <TableCell colSpan={6} align="center">
+                  <Typography variant="body2" color="text.secondary">
+                    No expense items
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </FormSection>
 
-          <TextField
-            select
-            label="Branch"
-            value={formData.branch_code}
-            onChange={(e) =>
-              setFormData((prev) => ({ ...prev, branch_code: e.target.value }))
-            }
-            required
-            size="small"
-            fullWidth
-          >
-            {branches.map((b: any) => (
-              <MenuItem key={b.branch_code} value={b.branch_code}>
-                {b.branch_name || b.branch_code}
-              </MenuItem>
-            ))}
-          </TextField>
+      {/* Approval/Verification/Payment Info */}
+      {(item.approved_date ||
+        item.rejection_reason ||
+        item.verified_date ||
+        item.payment_date) && (
+        <FormSection title="Workflow History">
+          {item.approved_date && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Approved Date
+              </Typography>
+              <Typography variant="body2">
+                {new Date(item.approved_date).toLocaleString()}
+              </Typography>
+            </Box>
+          )}
+          {item.rejection_reason && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Rejection Reason
+              </Typography>
+              <Typography variant="body2" color="error.main">
+                {item.rejection_reason}
+              </Typography>
+            </Box>
+          )}
+          {item.verified_date && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Verified Date
+              </Typography>
+              <Typography variant="body2">
+                {new Date(item.verified_date).toLocaleString()}
+              </Typography>
+            </Box>
+          )}
+          {item.payment_date && (
+            <>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Payment Date
+                </Typography>
+                <Typography variant="body2">
+                  {new Date(item.payment_date).toLocaleString()}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Payment Method
+                </Typography>
+                <Typography variant="body2" sx={{ textTransform: "capitalize" }}>
+                  {REIMBURSEMENT_PAYMENT_METHODS.find(
+                    (m) => m.value === item.payment_method,
+                  )?.label || item.payment_method}
+                </Typography>
+              </Box>
+              {item.payment_reference && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Payment Reference
+                  </Typography>
+                  <Typography variant="body2">{item.payment_reference}</Typography>
+                </Box>
+              )}
+            </>
+          )}
+        </FormSection>
+      )}
 
-          <TextField
-            label="Claim Date"
-            type="date"
-            value={formData.claim_date}
-            onChange={(e) =>
-              setFormData((prev) => ({ ...prev, claim_date: e.target.value }))
-            }
-            required
-            size="small"
-            fullWidth
-            InputLabelProps={{ shrink: true }}
-          />
+      {item.remark && (
+        <FormSection title="Remarks" columns={1}>
+          <Typography variant="body2">{item.remark}</Typography>
+        </FormSection>
+      )}
 
+      {/* Activity History */}
+      <FormSection title="Activity History" columns={2} isLast>
+        <Box>
+          <Typography variant="caption" color="text.secondary">
+            Created
+          </Typography>
+          <Typography variant="body2">
+            {formatDateTimeReadable(item.created_at) || "-"}
+          </Typography>
+        </Box>
+        <Box>
+          <Typography variant="caption" color="text.secondary">
+            Last Modified
+          </Typography>
+          <Typography variant="body2">
+            {formatDateTimeReadable(item.updated_at) || "-"}
+          </Typography>
+        </Box>
+      </FormSection>
+    </>
+  );
+
+  // ---------------------------------------------------------------------------
+  // RENDER: Create body (full-page "New Claim")
+  // ---------------------------------------------------------------------------
+  const renderCreateBody = () => (
+    <>
+      <FormSection title="Claim Information">
+        <TextField
+          select
+          label="Employee"
+          value={formData.employee_id}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, employee_id: e.target.value }))
+          }
+          required
+          size="small"
+          fullWidth
+        >
+          {employees.map((emp) => (
+            <MenuItem key={emp.employee_id} value={emp.employee_id}>
+              {emp.first_name} {emp.last_name} ({emp.employee_id})
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          select
+          label="Branch"
+          value={formData.branch_code}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, branch_code: e.target.value }))
+          }
+          required
+          size="small"
+          fullWidth
+        >
+          {branches.map((b) => (
+            <MenuItem key={b.branch_code} value={b.branch_code}>
+              {b.branch_name || b.branch_code}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          label="Claim Date"
+          type="date"
+          value={formData.claim_date}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, claim_date: e.target.value }))
+          }
+          required
+          size="small"
+          fullWidth
+          InputLabelProps={{ shrink: true }}
+        />
+
+        <TextField
+          select
+          label="Reimbursement Type"
+          value={formData.reimbursement_type}
+          onChange={(e) =>
+            setFormData((prev) => ({
+              ...prev,
+              reimbursement_type: e.target.value,
+            }))
+          }
+          size="small"
+          fullWidth
+        >
+          {REIMBURSEMENT_TYPES.map((t) => (
+            <MenuItem key={t.value} value={t.value}>
+              {t.label}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <Box sx={{ gridColumn: "1 / -1" }}>
           <TextField
-            select
-            label="Reimbursement Type"
-            value={formData.reimbursement_type}
+            label="Description"
+            value={formData.description}
             onChange={(e) =>
               setFormData((prev) => ({
                 ...prev,
-                reimbursement_type: e.target.value,
+                description: e.target.value,
               }))
             }
             size="small"
             fullWidth
-          >
-            {REIMBURSEMENT_TYPES.map((t) => (
-              <MenuItem key={t.value} value={t.value}>
-                {t.label}
-              </MenuItem>
-            ))}
-          </TextField>
+            multiline
+            rows={2}
+          />
+        </Box>
 
-          <Box sx={{ gridColumn: "span 2" }}>
-            <TextField
-              label="Description"
-              value={formData.description}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  description: e.target.value,
-                }))
-              }
-              size="small"
-              fullWidth
-              multiline
-              rows={2}
-            />
-          </Box>
-
-          <Box sx={{ gridColumn: "span 2" }}>
-            <TRemarkField
-              label="Remarks"
-              value={formData.remark}
-              onChange={(value) =>
-                setFormData((prev) => ({ ...prev, remark: value }))
-              }
-              size="small"
-              fullWidth
-              multiline
-              rows={2}
-            />
-          </Box>
+        <Box sx={{ gridColumn: "1 / -1" }}>
+          <TRemarkField
+            label="Remarks"
+            value={formData.remark}
+            onChange={(value) =>
+              setFormData((prev) => ({ ...prev, remark: value }))
+            }
+            size="small"
+            fullWidth
+            multiline
+            rows={2}
+          />
         </Box>
       </FormSection>
 
       {/* Line Items */}
-      <Box sx={{ mb: 2 }}>
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            mb: 1,
-          }}
-        >
-          <Typography variant="subtitle2">Expense Items</Typography>
-          <Button size="small" startIcon={<AddIcon />} onClick={addLineItem}>
+      <FormSection
+        title="Expense Items"
+        columns={1}
+        isLast
+        titleAction={
+          <Button size="small" startIcon={<AddIcon />} onClick={addLineItem} disabled={createMutation.isPending}>
             Add Item
           </Button>
-        </Box>
-        <FormSection title="">
+        }
+      >
+        <Box>
           <Table size="small" sx={modernTableStyles}>
             <TableHead>
               <TableRow>
@@ -1166,11 +1004,7 @@ export default function ReimbursementsPage() {
                       size="small"
                       value={item.item_description}
                       onChange={(e) =>
-                        updateLineItem(
-                          item._id,
-                          "item_description",
-                          e.target.value,
-                        )
+                        updateLineItem(item._id, "item_description", e.target.value)
                       }
                       fullWidth
                       variant="standard"
@@ -1183,11 +1017,7 @@ export default function ReimbursementsPage() {
                       type="number"
                       value={Number(item.amount)}
                       onChange={(e) =>
-                        updateLineItem(
-                          item._id,
-                          "amount",
-                          Number(e.target.value),
-                        )
+                        updateLineItem(item._id, "amount", Number(e.target.value))
                       }
                       fullWidth
                       variant="standard"
@@ -1199,11 +1029,7 @@ export default function ReimbursementsPage() {
                       size="small"
                       value={item.receipt_number}
                       onChange={(e) =>
-                        updateLineItem(
-                          item._id,
-                          "receipt_number",
-                          e.target.value,
-                        )
+                        updateLineItem(item._id, "receipt_number", e.target.value)
                       }
                       fullWidth
                       variant="standard"
@@ -1228,6 +1054,7 @@ export default function ReimbursementsPage() {
                       size="small"
                       color="error"
                       onClick={() => removeLineItem(item._id)}
+                      disabled={createMutation.isPending}
                     >
                       <DeleteIcon fontSize="small" />
                     </IconButton>
@@ -1237,11 +1064,7 @@ export default function ReimbursementsPage() {
               {lineItems.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={7} align="center">
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ py: 2 }}
-                    >
+                    <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
                       No items yet. Click &ldquo;Add Item&rdquo; to add expense
                       items.
                     </Typography>
@@ -1252,40 +1075,147 @@ export default function ReimbursementsPage() {
           </Table>
 
           {lineItems.length > 0 && (
-            <Box
-              sx={{
-                display: "flex",
-                justifyContent: "flex-end",
-                mt: 1,
-                pr: 1,
-              }}
-            >
+            <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1, pr: 1 }}>
               <Typography variant="subtitle1" fontWeight="bold">
                 Total: <TCurrency value={lineItemsTotal} />
               </Typography>
             </Box>
           )}
-        </FormSection>
-      </Box>
-
-      {/* Form Actions */}
-      <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end", mt: 2 }}>
-        <Button variant="contained" color="error" startIcon={<CancelIcon />}
-          onClick={handleCancel}
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="contained"
-          onClick={handleSave}
-          disabled={createMutation.isPending}
-          startIcon={<ReceiptIcon />}
-        >
-          {createMutation.isPending ? "Submitting..." : "Submit Claim"}
-        </Button>
-      </Box>
-    </Box>
+        </Box>
+      </FormSection>
+    </>
   );
+
+  // ---------------------------------------------------------------------------
+  // RENDER: Detail / Create page (header + toolbar + scrollable body)
+  // ---------------------------------------------------------------------------
+  const renderDetailPanel = () => {
+    if (!selectedItem && !isCreating) {
+      return <EmptyState message="Select a reimbursement claim to view details" />;
+    }
+
+    const status = selectedItem?.status || "";
+    const canApprove = !isCreating && status === "pending";
+    const canVerify = !isCreating && ["approved", "partial_approved"].includes(status);
+    const canPay = !isCreating && status === "verified";
+    const canDelete = !isCreating && ["pending", "rejected"].includes(status);
+    const anyWorkflowPending =
+      approveMutation.isPending ||
+      rejectMutation.isPending ||
+      verifyMutation.isPending ||
+      paymentMutation.isPending ||
+      deleteMutation.isPending;
+
+    const statusProps = selectedItem
+      ? getStatusProps(selectedItem.status, "reimbursementStatus")
+      : null;
+
+    return (
+      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <DetailPanelHeader
+          breadcrumbs={[
+            { label: "HR" },
+            { label: "Reimbursements", href: "/hr/reimbursements" },
+            { label: isCreating ? "New Claim" : selectedItem?.reimbursement_no || "" },
+          ]}
+          title={selectedItem && !isCreating ? selectedItem.reimbursement_no : ""}
+          titleIcon={<ReceiptIcon color="primary" />}
+          isCreating={isCreating}
+          createTitle="New Reimbursement Claim"
+          noSelectionTitle="Select a Reimbursement"
+          chips={
+            statusProps && !isCreating
+              ? [{ label: statusProps.label, color: statusProps.color }]
+              : []
+          }
+        />
+
+        <ActionToolbar
+          hasSelectedItem={!!selectedItem}
+          isCreating={isCreating}
+          isEditing={false}
+          isSaving={createMutation.isPending}
+          isFormValid={!!formData.employee_id && !!formData.branch_code}
+          canCreate={false}
+          canUpdate={false}
+          canDelete={false}
+          canDuplicate={false}
+          onSave={isCreating ? handleSave : undefined}
+          onCancel={isCreating ? handleCancel : undefined}
+          endActions={
+            !isCreating && selectedItem && (canApprove || canVerify || canPay || canDelete) ? (
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                {canApprove && (
+                  <>
+                    <Button
+                      size="small"
+                      color="success"
+                      variant="contained"
+                      startIcon={<ApproveIcon />}
+                      onClick={openApproveDialog}
+                      disabled={anyWorkflowPending}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="small"
+                      color="error"
+                      variant="outlined"
+                      startIcon={<RejectIcon />}
+                      onClick={openRejectDialog}
+                      disabled={anyWorkflowPending}
+                    >
+                      Reject
+                    </Button>
+                  </>
+                )}
+                {canVerify && (
+                  <Button
+                    size="small"
+                    color="info"
+                    variant="contained"
+                    startIcon={<VerifyIcon />}
+                    onClick={openVerifyDialog}
+                    disabled={anyWorkflowPending}
+                  >
+                    Finance Verify
+                  </Button>
+                )}
+                {canPay && (
+                  <Button
+                    size="small"
+                    color="primary"
+                    variant="contained"
+                    startIcon={<PaymentIcon />}
+                    onClick={openPaymentDialog}
+                    disabled={anyWorkflowPending}
+                  >
+                    Process Payment
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    size="small"
+                    color="error"
+                    variant="text"
+                    startIcon={<DeleteIcon />}
+                    onClick={handleDelete}
+                    disabled={anyWorkflowPending}
+                  >
+                    {deleteMutation.isPending ? "Deleting..." : "Delete"}
+                  </Button>
+                )}
+              </Box>
+            ) : undefined
+          }
+        />
+
+        <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+          {isCreating ? renderCreateBody() : selectedItem ? renderDetailBody(selectedItem) : null}
+        </Box>
+      </Box>
+    );
+  };
 
   // ---------------------------------------------------------------------------
   // RENDER: Main Layout
@@ -1302,6 +1232,7 @@ export default function ReimbursementsPage() {
               startIcon={<ArrowBackIcon fontSize="small" />}
               onClick={handleBackToReimbursements}
               sx={{ textTransform: "none" }}
+              disabled={createMutation.isPending}
             >
               Back to Reimbursements
             </Button>
@@ -1319,7 +1250,7 @@ export default function ReimbursementsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 190, flexShrink: 0 }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 170, flexShrink: 0 }}>
                 <TBranchFilter
@@ -1331,20 +1262,16 @@ export default function ReimbursementsPage() {
                   size="small"
                 />
               </Box>
-              <TextField
-                select
-                size="small"
-                label=""
-                value={filterStatus || ""}
-                onChange={(e) => setFilterStatus(e.target.value || null)}
-                sx={{ width: 170, flexShrink: 0 }}
-              >
-                {REIMBURSEMENT_STATUS_FILTER_OPTIONS.map((opt) => (
-                  <MenuItem key={String(opt.value)} value={opt.value || ""}>
-                    {opt.label}
-                  </MenuItem>
-                ))}
-              </TextField>
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TStatusFilter
+                  options={REIMBURSEMENT_STATUS_FILTER_OPTIONS}
+                  value={filterStatus}
+                  onChange={setFilterStatus}
+                  label=""
+                  placeholder="All Statuses"
+                  size="small"
+                />
+              </Box>
               {(searchQuery || filterBranch || filterStatus) && (
                 <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
                   Clear
@@ -1353,42 +1280,47 @@ export default function ReimbursementsPage() {
             </Box>
           )
         }
-        {...(isReimbursementDetailMode
-          ? {
-              children: isCreating ? renderCreateForm() : renderDetailView(),
-            }
-          : { children: renderTablePanel() })}
         headerActions={
           isReimbursementDetailMode ? undefined : (
-            <>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={handleNew}
-                sx={{ mr: 1 }}
-              >
-                Add Reimbursement
-              </Button>
-            </>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleNew}
+              sx={{ mr: 1 }}
+            >
+              Add Reimbursement
+            </Button>
           )
         }
-      />
+      >
+        {isReimbursementDetailMode ? renderDetailPanel() : renderTablePanel()}
+      </MasterDetailLayout>
 
-      {/* ---- APPROVE DIALOG ---- */}
-      <Dialog
+      {/* ---- APPROVE PANEL ---- */}
+      <TSidePanel
         open={approveDialogOpen}
         onClose={() => setApproveDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
+        title="Approve Reimbursement"
+        submitText="Approve"
+        isSubmitting={approveMutation.isPending}
+        submitDisabled={approveMutation.isPending}
+        onSubmit={() => {
+          if (!selectedItem || approveMutation.isPending) return;
+          approveMutation.mutate({
+            id: selectedItem.id,
+            data: {
+              approved_amount: approveAmount ? Number(approveAmount) : undefined,
+              remarks: approveRemarks || undefined,
+            },
+          });
+        }}
       >
-        <DialogTitle>Approve Reimbursement</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ mb: 2 }}>
+        <FormSection title="Approval" columns={1} isLast>
+          <Typography variant="body2">
             Claimed amount:{" "}
             <strong>
-              {currencySymbol}{" "}
-              {fmtLKR(selectedItem?.total_amount || 0)}
+              {currencySymbol} {fmtLKR(selectedItem?.total_amount || 0)}
             </strong>
           </Typography>
           <TextField
@@ -1400,7 +1332,6 @@ export default function ReimbursementsPage() {
             size="small"
             inputProps={{ step: "0.01", min: 0 }}
             helperText="Leave as-is for full approval, or reduce for partial approval"
-            sx={{ mb: 2 }}
           />
           <TRemarkField
             label="Remarks (optional)"
@@ -1411,40 +1342,26 @@ export default function ReimbursementsPage() {
             multiline
             rows={2}
           />
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setApproveDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="success"
-            disabled={approveMutation.isPending}
-            onClick={() => {
-              if (!selectedItem) return;
-              approveMutation.mutate({
-                id: selectedItem.id,
-                data: {
-                  approved_amount: approveAmount
-                    ? Number(approveAmount)
-                    : undefined,
-                  remarks: approveRemarks || undefined,
-                },
-              });
-            }}
-          >
-            {approveMutation.isPending ? "Approving..." : "Approve"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </FormSection>
+      </TSidePanel>
 
-      {/* ---- REJECT DIALOG ---- */}
-      <Dialog
+      {/* ---- REJECT PANEL ---- */}
+      <TSidePanel
         open={rejectDialogOpen}
         onClose={() => setRejectDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
+        title="Reject Reimbursement"
+        submitText="Reject"
+        isSubmitting={rejectMutation.isPending}
+        submitDisabled={rejectMutation.isPending || !rejectReason}
+        onSubmit={() => {
+          if (!selectedItem || rejectMutation.isPending || !rejectReason) return;
+          rejectMutation.mutate({
+            id: selectedItem.id,
+            data: { rejection_reason: rejectReason },
+          });
+        }}
       >
-        <DialogTitle>Reject Reimbursement</DialogTitle>
-        <DialogContent>
+        <FormSection title="Rejection" columns={1} isLast>
           <TextField
             label="Rejection Reason"
             value={rejectReason}
@@ -1456,38 +1373,28 @@ export default function ReimbursementsPage() {
             required
             error={!rejectReason}
             helperText="Reason is required for rejection"
-            sx={{ mt: 1 }}
           />
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="error"
-            disabled={rejectMutation.isPending || !rejectReason}
-            onClick={() => {
-              if (!selectedItem) return;
-              rejectMutation.mutate({
-                id: selectedItem.id,
-                data: { rejection_reason: rejectReason },
-              });
-            }}
-          >
-            {rejectMutation.isPending ? "Rejecting..." : "Reject"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </FormSection>
+      </TSidePanel>
 
-      {/* ---- VERIFY DIALOG ---- */}
-      <Dialog
+      {/* ---- VERIFY PANEL ---- */}
+      <TSidePanel
         open={verifyDialogOpen}
         onClose={() => setVerifyDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
+        title="Finance Verification"
+        submitText="Verify"
+        isSubmitting={verifyMutation.isPending}
+        submitDisabled={verifyMutation.isPending}
+        onSubmit={() => {
+          if (!selectedItem || verifyMutation.isPending) return;
+          verifyMutation.mutate({
+            id: selectedItem.id,
+            data: { remarks: verifyRemarks || undefined },
+          });
+        }}
       >
-        <DialogTitle>Finance Verification</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ mb: 2 }}>
+        <FormSection title="Verification" columns={1} isLast>
+          <Typography variant="body2">
             Verify receipts and amounts for {selectedItem?.reimbursement_no}
           </Typography>
           <TextField
@@ -1498,115 +1405,76 @@ export default function ReimbursementsPage() {
             size="small"
             multiline
             rows={2}
-            sx={{ mt: 1 }}
           />
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setVerifyDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="info"
-            disabled={verifyMutation.isPending}
-            onClick={() => {
-              if (!selectedItem) return;
-              verifyMutation.mutate({
-                id: selectedItem.id,
-                data: { remarks: verifyRemarks || undefined },
-              });
-            }}
-          >
-            {verifyMutation.isPending ? "Verifying..." : "Verify"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </FormSection>
+      </TSidePanel>
 
-      {/* ---- PAYMENT DIALOG ---- */}
-      <Dialog
+      {/* ---- PAYMENT PANEL ---- */}
+      <TSidePanel
         open={paymentDialogOpen}
         onClose={() => setPaymentDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
+        title="Process Payment"
+        submitText="Process Payment"
+        isSubmitting={paymentMutation.isPending}
+        submitDisabled={paymentMutation.isPending || !paymentAmount}
+        onSubmit={() => {
+          if (!selectedItem || paymentMutation.isPending || !paymentAmount) return;
+          paymentMutation.mutate({
+            id: selectedItem.id,
+            data: {
+              payment_method: paymentMethod,
+              payment_reference: paymentReference || undefined,
+              paid_amount: Number(paymentAmount),
+              remarks: paymentRemarks || undefined,
+            },
+          });
+        }}
       >
-        <DialogTitle>Process Payment</DialogTitle>
-        <DialogContent>
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2, 1fr)",
-              gap: 2,
-              mt: 1,
-            }}
+        <FormSection title="Payment Details" columns={1} isLast>
+          <TextField
+            select
+            label="Payment Method"
+            value={paymentMethod}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+            fullWidth
+            size="small"
+            required
           >
-            <TextField
-              select
-              label="Payment Method"
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-              fullWidth
-              size="small"
-              required
-            >
-              {REIMBURSEMENT_PAYMENT_METHODS.map((m) => (
-                <MenuItem key={m.value} value={m.value}>
-                  {m.label}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              label="Payment Reference"
-              value={paymentReference}
-              onChange={(e) => setPaymentReference(e.target.value)}
-              fullWidth
-              size="small"
-              placeholder="e.g. TXN-12345"
-            />
-            <TextField
-              label="Paid Amount"
-              type="number"
-              value={paymentAmount}
-              onChange={(e) => setPaymentAmount(e.target.value)}
-              fullWidth
-              size="small"
-              required
-              inputProps={{ step: "0.01", min: 0 }}
-            />
-            <Box />
-            <Box sx={{ gridColumn: "span 2" }}>
-              <TextField
-                label="Payment Remarks (optional)"
-                value={paymentRemarks}
-                onChange={(e) => setPaymentRemarks(e.target.value)}
-                fullWidth
-                size="small"
-                multiline
-                rows={2}
-              />
-            </Box>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="primary"
-            disabled={paymentMutation.isPending || !paymentAmount}
-            onClick={() => {
-              if (!selectedItem) return;
-              paymentMutation.mutate({
-                id: selectedItem.id,
-                data: {
-                  payment_method: paymentMethod,
-                  payment_reference: paymentReference || undefined,
-                  paid_amount: Number(paymentAmount),
-                  remarks: paymentRemarks || undefined,
-                },
-              });
-            }}
-          >
-            {paymentMutation.isPending ? "Processing..." : "Process Payment"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+            {REIMBURSEMENT_PAYMENT_METHODS.map((m) => (
+              <MenuItem key={m.value} value={m.value}>
+                {m.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            label="Payment Reference"
+            value={paymentReference}
+            onChange={(e) => setPaymentReference(e.target.value)}
+            fullWidth
+            size="small"
+            placeholder="e.g. TXN-12345"
+          />
+          <TextField
+            label="Paid Amount"
+            type="number"
+            value={paymentAmount}
+            onChange={(e) => setPaymentAmount(e.target.value)}
+            fullWidth
+            size="small"
+            required
+            inputProps={{ step: "0.01", min: 0 }}
+          />
+          <TextField
+            label="Payment Remarks (optional)"
+            value={paymentRemarks}
+            onChange={(e) => setPaymentRemarks(e.target.value)}
+            fullWidth
+            size="small"
+            multiline
+            rows={2}
+          />
+        </FormSection>
+      </TSidePanel>
 
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>

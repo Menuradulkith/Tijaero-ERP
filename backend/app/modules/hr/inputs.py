@@ -223,17 +223,34 @@ class PayrollBatchProcessStatutory(BaseModel):
 
 
 # ───────────────────────────── salary profile ─────────────────────────────
+class AllowanceIn(BaseModel):
+    name: ReqStr(100)
+    amount: PosMoney
+    # Counts for EPF / ETF (e.g. Budgetary Relief Allowance, cost-of-living)
+    epf_liable: bool = False
+    # Counts for APIT
+    taxable: bool = True
+
+
+REVISION_REASONS = ("joining", "increment", "promotion", "adjustment")
+
+
 class EmployeeSalaryProfileCreate(BaseModel):
     employee_id: EmpCode
     basic_salary: PosMoney
+    # Legacy fixed slots; new screens send allowances instead
     add_1_name: OptStr(100) = None
     add_1_value: OptMoney = None
     add_2_name: OptStr(100) = None
     add_2_value: OptMoney = None
+    allowances: Optional[List[AllowanceIn]] = Field(default=None, max_length=20)
     designation: OptStr(200) = None
     department: OptStr(200) = None
     effective_from_date: Optional[date] = None
     benefits: OptStr(2000) = None
+    # Salary history: why the salary changed (stored on the revision, not the profile)
+    revision_reason: Literal[REVISION_REASONS] = "adjustment"
+    revision_remarks: OptStr(500) = None
 
     @field_validator("effective_from_date")
     @classmethod
@@ -267,3 +284,68 @@ class EmployeeAssetCreate(BaseModel):
     asset_id: RowRef
     assign_reason: OptStr(1000) = None
     revoke_assignment: bool = False
+
+
+# ───────────────────────────── payroll settings ─────────────────────────────
+Rate = Annotated[Decimal, BeforeValidator(_money), Field(ge=0, le=100)]
+
+
+class PayrollSettingsIn(BaseModel):
+    epf_employee_rate: Rate = Decimal("8")
+    epf_employer_rate: Rate = Decimal("12")
+    etf_rate: Rate = Decimal("3")
+    pay_overtime: bool = True
+    ot_multiplier: Annotated[Decimal, BeforeValidator(_money), Field(ge=1, le=5)] = Decimal("1.5")
+    ot_divisor: int = Field(240, ge=100, le=400)
+    deduct_late: bool = False
+    stamp_duty_amount: Annotated[Decimal, BeforeValidator(_money), Field(ge=0, le=10000)] = Decimal("25")
+    stamp_duty_threshold: Money = Decimal("25000")
+    gratuity_enabled: bool = True
+    employer_epf_no: OptStr(30) = None
+    employer_tin: OptStr(30) = None
+
+
+# ───────────────────────────── loans / advances ─────────────────────────────
+class LoanIn(BaseModel):
+    employee_pk: RowRef
+    loan_type: Literal["loan", "advance"] = "loan"
+    issue_date: date
+    amount: PosMoney
+    installments: int = Field(1, ge=1, le=120)
+    installment_amount: Optional[PosMoney] = None
+    start_period: Period
+    payment_method: Literal[PAYMENT_METHODS] = "bank_transfer"
+    remarks: OptStr(1000) = None
+
+    @field_validator("issue_date")
+    @classmethod
+    def _id(cls, v):
+        return _window(v, "Issue date", 366, 31)
+
+    @model_validator(mode="after")
+    def _plan(self):
+        if self.installment_amount is None:
+            self.installment_amount = (self.amount / self.installments).quantize(Decimal("0.01"), rounding="ROUND_UP")
+        if self.installment_amount > self.amount:
+            raise ValueError("The instalment cannot be more than the loan")
+        if self.start_period < self.issue_date.strftime("%Y-%m"):
+            raise ValueError("Recovery cannot start before the month the loan is issued")
+        return self
+
+
+class LoanUpdate(BaseModel):
+    installment_amount: PosMoney
+    start_period: Period
+    remarks: OptStr(1000) = None
+
+
+class LoanRepaymentIn(BaseModel):
+    amount: PosMoney
+    payment_date: Optional[date] = None
+    payment_method: Literal[PAYMENT_METHODS] = "cash"
+    remarks: OptStr(500) = None
+
+    @field_validator("payment_date")
+    @classmethod
+    def _pd(cls, v):
+        return _window(v, "Payment date", 366, 0)

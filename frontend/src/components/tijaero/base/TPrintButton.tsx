@@ -36,6 +36,7 @@ export type TPrintDocumentType =
   | "credit-note"
   | "journal-entry"
   | "payroll"
+  | "payslip"
   | "expense"
   | "item-transfer-note"
   | "voucher"

@@ -589,12 +589,26 @@ class LeavePolicyService:
         return True
 
     def _entitlement_for(self, emp: Employee, lt: m.HRLeaveType, year: int) -> float:
-        """Yearly entitlement, pro-rated by whole months for people who joined during the year;
-        nothing before the minimum service has been served at the start of the year's end."""
+        """Yearly entitlement by the leave type's rule:
+        prorata   - pro-rated by whole months for people who joined during the year;
+        full      - the whole entitlement (maternity);
+        sl_annual - Shop & Office Employees Act annual leave: none in the joining year, the next year
+                    14 / 10 / 7 / 4 days for joining in Jan-Mar / Apr-Jun / Jul-Sep / Oct-Dec, full after that.
+        Nothing before the minimum service has been served by the year's end."""
         base = lt.annual_entitlement
         joined = emp.date_of_joining
         if joined and joined.year > year:
             return 0.0
+        rule = getattr(lt, "entitlement_rule", None) or "prorata"
+        if rule == "sl_annual" and joined:
+            if joined.year == year:
+                return 0.0
+            if joined.year == year - 1 and base:
+                quarter_days = (14, 10, 7, 4)[(joined.month - 1) // 3]
+                return float(round(base * quarter_days / 14 * 2) / 2)
+            return float(base)
+        if rule == "full":
+            return float(base)
         if lt.min_service_months and joined:
             eligible_from = _add_months(joined, lt.min_service_months)
             if eligible_from > date(year, 12, 31):
@@ -711,6 +725,52 @@ class LeavePolicyService:
                 if days > remaining + 1e-9:
                     raise HTTPException(status_code=400, detail=f"Not enough {lt.name} balance: {remaining:g} day(s) left, {days:g} requested")
         return lt
+
+
+class LieuLeaveService:
+    """Lieu leave: a day (or half day) earned by working on a holiday or weekly off. Each grant adds to
+    the employee's lieu allocation for the year and is kept in its remarks."""
+
+    def __init__(self, db: Session):
+        self.db = db
+        self.policy = LeavePolicyService(db)
+
+    def grant(self, data: s.LieuGrantIn, actor: User) -> dict:
+        from app.modules.attendance.models import Attendance
+        emp = self.db.query(Employee).filter(Employee.id == data.employee_pk).first()
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employee not found")
+        if emp.status not in LIVE_STATUSES:
+            raise HTTPException(status_code=400, detail="This employee is no longer in service")
+        lt = self.policy.get_type_by_code("lieu")
+        if not lt or not lt.active:
+            raise HTTPException(status_code=400, detail="Set up an active leave type with code 'lieu' first")
+        why = self.policy.time.is_non_working(emp, data.worked_date)
+        if not why:
+            raise HTTPException(status_code=400, detail=f"{data.worked_date} is a normal working day for this employee")
+        att = self.db.query(Attendance).filter(Attendance.employee_id == emp.employee_id, Attendance.date == data.worked_date).first()
+        if not att or not (att.work_mins or 0) > 0:
+            raise HTTPException(status_code=400, detail=f"No attendance with working time on {data.worked_date}")
+        tag = f"[lieu {data.worked_date.isoformat()}]"
+        row = self.db.query(m.HRLeaveAllocation).filter(
+            m.HRLeaveAllocation.employee_pk == emp.id, m.HRLeaveAllocation.leave_type_id == lt.id,
+            m.HRLeaveAllocation.year == data.worked_date.year).with_for_update().first()
+        if row and tag in (row.remarks or ""):
+            raise HTTPException(status_code=400, detail=f"Lieu leave was already granted for {data.worked_date}")
+        if row is None:
+            row = m.HRLeaveAllocation(employee_pk=emp.id, leave_type_id=lt.id, year=data.worked_date.year, allocated=0,
+                                      carried_forward=0, adjustment=0, remarks="", created_by=actor.id)
+            self.db.add(row)
+        row.adjustment = float(row.adjustment or 0) + data.days
+        note = f"{tag} {data.days:g} day(s) - {why}" + (f": {data.remarks}" if data.remarks else "")
+        row.remarks = "\n".join(x for x in (row.remarks, note) if x)
+        row.updated_by = actor.id
+        _flush(self.db)
+        log_audit(self.db, user_id=actor.id, action="grant_lieu", entity_type="hr_leave_allocation", entity_id=row.id,
+                  changes={"employee": emp.employee_id, "worked_date": str(data.worked_date), "days": data.days})
+        self.db.commit()
+        bal = next((b for b in self.policy.balances(emp, data.worked_date.year) if b["leave_type_id"] == lt.id), None)
+        return {"employee_pk": emp.id, "year": data.worked_date.year, "granted": data.days, "balance": bal["balance"] if bal else None}
 
 
 def is_half_day(leave_time: Optional[str]) -> bool:
@@ -880,7 +940,7 @@ class EmployeeService:
                "version": emp.updated_at.isoformat() if emp.updated_at else None}
         for f in ("name_with_initials", "marital_status", "nationality", "religion", "blood_group", "personal_email", "mobile_phone",
                   "home_phone", "address_line1", "address_line2", "city", "district", "postal_code", "permanent_address", "grade",
-                  "work_location", "holiday_list_id", "probation_end_date", "confirmation_date", "contract_end_date", "notice_period_days",
+                  "work_location", "holiday_list_id", "overtime_eligible", "probation_end_date", "confirmation_date", "contract_end_date", "notice_period_days",
                   "retirement_date", "resignation_date", "last_working_date", "exit_type", "exit_reason"):
             out[f] = getattr(emp, f)
         if can_see_sensitive:
@@ -1062,8 +1122,15 @@ class EmployeeService:
             if user and not user.is_superuser:
                 user.is_active = False
         self._seed_tasks(emp, "offboarding", actor.id)
+        # Leave after the last working day can no longer be taken
+        dropped = self.db.query(Leaves).filter(
+            Leaves.employee_id == emp.employee_id, Leaves.status.in_(("pending", "approved")),
+            Leaves.from_date > data.last_working_date).all()
+        for lv in dropped:
+            lv.status, lv.rejection_reason = "cancelled", f"Cancelled: employee leaves on {data.last_working_date}"
         log_audit(self.db, user_id=actor.id, action="separate", entity_type="employee", entity_id=emp.id,
-                  changes={"exit_type": data.exit_type, "last_working_date": str(data.last_working_date)})
+                  changes={"exit_type": data.exit_type, "last_working_date": str(data.last_working_date),
+                           "leave_cancelled": len(dropped)})
         self.db.commit()
         return self.detail(emp.id, actor, can_sensitive)
 

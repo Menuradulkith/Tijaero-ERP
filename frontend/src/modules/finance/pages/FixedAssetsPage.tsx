@@ -292,6 +292,8 @@ function AssetCreatePanel({
   const salvageN = Number(salvage) || 0;
   const lifeN = Number(life) || 0;
   const rateN = Number(rate) || 0;
+  const lifeError = lifeProblem(life);
+  const rateError = rateN < 0 || rateN > 100 ? "Rate must be between 0 and 100" : null;
   const accumulatedN = allowsAccumulated ? Number(accumulated) || 0 : 0;
   const monthly = estimateMonthly(method, costN, salvageN, lifeN, rateN);
 
@@ -333,7 +335,9 @@ function AssetCreatePanel({
     costN > 0 &&
     !salvageTooHigh &&
     !accumulatedTooHigh &&
-    (method === "declining" ? rateN > 0 : lifeN > 0);
+    (method === "declining" ? rateN > 0 : lifeN > 0) &&
+    !lifeError &&
+    !rateError;
 
   return (
     <DetailShell
@@ -365,6 +369,7 @@ function AssetCreatePanel({
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
+          inputProps={{ maxLength: 200 }}
         />
         <TextField
           select
@@ -407,8 +412,8 @@ function AssetCreatePanel({
             </MenuItem>
           ))}
         </TextField>
-        <TextField label="Serial no." size="small" value={serialNo} onChange={(e) => setSerialNo(e.target.value)} />
-        <TextField label="Where is it?" size="small" value={location} onChange={(e) => setLocation(e.target.value)} />
+        <TextField label="Serial no." size="small" value={serialNo} onChange={(e) => setSerialNo(e.target.value)} inputProps={{ maxLength: 100 }} />
+        <TextField label="Where is it?" size="small" value={location} onChange={(e) => setLocation(e.target.value)} inputProps={{ maxLength: 200 }} />
       </FormSection>
 
       <FormSection title="Cost" columns={3}>
@@ -454,7 +459,9 @@ function AssetCreatePanel({
           required={method !== "declining"}
           value={life}
           onChange={(e) => setLife(e.target.value)}
-          helperText={lifeN > 0 ? lifeText(lifeN) : undefined}
+          inputProps={{ min: 1, max: 1200, step: 1 }}
+          error={!!lifeError}
+          helperText={lifeError ?? (lifeN > 0 ? lifeText(lifeN) : undefined)}
         />
         {method === "declining" && (
           <TextField
@@ -464,6 +471,9 @@ function AssetCreatePanel({
             required
             value={rate}
             onChange={(e) => setRate(e.target.value)}
+            inputProps={{ min: 0, max: 100, step: 0.01 }}
+            error={!!rateError}
+            helperText={rateError ?? undefined}
           />
         )}
         <TextField
@@ -1277,6 +1287,8 @@ function AssetClassPanel({
 
   const lifeN = Number(life) || 0;
   const rateN = Number(rate) || 0;
+  const lifeError = lifeProblem(life);
+  const rateError = rateN < 0 || rateN > 100 ? "Rate must be between 0 and 100" : null;
 
   const save = useMutation({
     mutationFn: () => {
@@ -1300,7 +1312,8 @@ function AssetClassPanel({
     onError: (err) => handleApiError(err, "Could not save the asset class"),
   });
 
-  const valid = !!code.trim() && !!name.trim() && accountId !== null && lifeN > 0 && (method !== "declining" || rateN > 0);
+  const valid =
+    !!code.trim() && !!name.trim() && accountId !== null && lifeN > 0 && !lifeError && !rateError && (method !== "declining" || rateN > 0);
   const readOnly = !creating && !editing;
 
   return (
@@ -1337,7 +1350,7 @@ function AssetClassPanel({
       }
     >
       <FormSection title="Asset Class" columns={2}>
-        <TextField label="Code" size="small" required value={code} onChange={(e) => setCode(e.target.value)} disabled={readOnly} />
+        <TextField label="Code" size="small" required value={code} onChange={(e) => setCode(e.target.value)} disabled={readOnly} inputProps={{ maxLength: 20 }} />
         <TextField
           label="Name"
           placeholder="e.g. Vehicles"
@@ -1346,6 +1359,7 @@ function AssetClassPanel({
           value={name}
           onChange={(e) => setName(e.target.value)}
           disabled={readOnly}
+          inputProps={{ maxLength: 100 }}
         />
         <Box sx={{ gridColumn: "1 / -1" }}>
           <Autocomplete
@@ -1390,7 +1404,9 @@ function AssetClassPanel({
           required
           value={life}
           onChange={(e) => setLife(e.target.value)}
-          helperText={lifeN > 0 ? lifeText(lifeN) : undefined}
+          inputProps={{ min: 1, max: 1200, step: 1 }}
+          error={!!lifeError}
+          helperText={lifeError ?? (lifeN > 0 ? lifeText(lifeN) : undefined)}
           disabled={readOnly}
         />
         {method === "declining" && (
@@ -1401,6 +1417,9 @@ function AssetClassPanel({
             required
             value={rate}
             onChange={(e) => setRate(e.target.value)}
+            inputProps={{ min: 0, max: 100, step: 0.01 }}
+            error={!!rateError}
+            helperText={rateError ?? undefined}
             disabled={readOnly}
           />
         )}
@@ -1550,6 +1569,15 @@ function AssetClassesTab({ nav }: { nav: TabNav }) {
 }
 
 // ─── Page ───────────────────────────────────────────────────────────────────
+
+/** Useful life must be a whole number of months, 1 to 1200 (100 years). */
+function lifeProblem(life: string): string | null {
+  if (String(life ?? "").trim() === "") return null;
+  const n = Number(life);
+  if (!Number.isInteger(n)) return "Enter whole months, e.g. 12 or 60";
+  if (n < 1 || n > 1200) return "Useful life must be between 1 and 1200 months";
+  return null;
+}
 
 export default function FixedAssetsPage() {
   const [tab, setTab] = useState(0);

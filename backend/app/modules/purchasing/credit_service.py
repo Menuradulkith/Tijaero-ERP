@@ -74,7 +74,7 @@ class SupplierCreditService:
             invoice payments and approved returns
           * pending_credits     - draft / pending / approved credit POs not yet
             received (optionally excluding one PO being approved)
-          * invoice_outstanding - new PurchaseInvoice credit system balance_due
+          * invoice_outstanding - VAT less discount on credit PurchaseInvoices
 
         Every read (reports) and every write (the persisted
         ``supplier.left_credit_amount``) MUST go through this method so the
@@ -94,13 +94,19 @@ class SupplierCreditService:
         return available if available > 0 else Decimal("0")
 
     def _calculate_invoice_outstanding(self, db: Session, supplier_id: int) -> Decimal:
-        """Unpaid balance on credit PurchaseInvoices (new invoice system)."""
+        """What credit PurchaseInvoices add to the payable on top of their GRNs.
+
+        The goods were already owed from the GRN (Cr 2010), and payments on the
+        invoice are taken off in ``_calculate_outstanding_payable``; the invoice
+        itself only posts its VAT (Cr 2010) less its discount (Dr 2010). Adding
+        the invoice's whole balance_due counted the goods twice."""
         return Decimal(str(
-            db.query(func.coalesce(func.sum(PurchaseInvoice.balance_due), 0)).filter(
+            db.query(func.coalesce(func.sum(
+                func.coalesce(PurchaseInvoice.tax_amount, 0) - func.coalesce(PurchaseInvoice.discount_amount, 0)
+            ), 0)).filter(
                 PurchaseInvoice.supplier_id == supplier_id,
                 PurchaseInvoice.payment_type == "credit",
-                PurchaseInvoice.status.notin_(["cancelled", "paid"]),
-                PurchaseInvoice.payment_status.in_(["unpaid", "partial"]),
+                PurchaseInvoice.status != "cancelled",
             ).scalar() or 0
         ))
 
@@ -129,15 +135,7 @@ class SupplierCreditService:
         total_exposure = float(outstanding) + float(pending_credits)
 
         # Also include invoice-based credit outstanding (new system)
-        from app.modules.purchasing.invoice_models import PurchaseInvoice
-        invoice_credit_outstanding = db.query(
-            func.coalesce(func.sum(PurchaseInvoice.balance_due), 0)
-        ).filter(
-            PurchaseInvoice.supplier_id == supplier_id,
-            PurchaseInvoice.payment_type == "credit",
-            PurchaseInvoice.status.notin_(["cancelled", "paid"]),
-            PurchaseInvoice.payment_status.in_(["unpaid", "partial"]),
-        ).scalar() or Decimal("0")
+        invoice_credit_outstanding = self._calculate_invoice_outstanding(db, supplier_id)
         total_exposure += float(invoice_credit_outstanding)
 
         overdue_grns = self._get_overdue_grns(db, supplier_id, (supplier.credit_days or 0))
@@ -212,10 +210,10 @@ class SupplierCreditService:
         ]
 
         # ── Calculate totals ───────────────────────────────────────────
-        credit_outstanding = sum(po["remaining_amount"] for po in credit_pos if not po["is_settled"])
-        # Merge: add invoice-based amounts that are NOT already covered by PO-based
-        # (They're separate flows — invoice-based is the NEW system, PO-based is the old)
-        combined_credit_outstanding = credit_outstanding + invoice_credit_outstanding
+        # Credit owed comes from the one calculator the ledger agrees with: PO rows
+        # don't subtract invoice payments and an invoice's balance repeats its GRN
+        # value, so adding the two counted invoiced goods twice.
+        combined_credit_outstanding = float(self.calculate_amount_owed(db, supplier_id))
 
         non_credit_outstanding = sum(po["remaining_amount"] for po in non_credit_pos if not po["is_paid"])
         total_outstanding = combined_credit_outstanding + non_credit_outstanding
@@ -658,14 +656,25 @@ class SupplierCreditService:
           - payments on credit purchase invoices
           - APPROVED purchase returns on those GRNs
           - supplier-advance applications to those GRNs (Dr 2010 / Cr 2020)
+          + landed costs owed to this supplier on credit
         """
         from app.modules.purchasing.models import (
             PurchasingOrderItems, PurchasingReturn, PurchasingReturnItems, SupplierAdvanceApplication,
         )
 
+        # Landed costs (freight, duty...) owed on credit to this supplier as the
+        # forwarder: Cr 2010 when posted. They sit on any GRN, not only this
+        # supplier's, so they are counted before the GRN guard below.
+        from app.modules.purchasing.models import LandedCostVoucher
+        landed_cost_owed = Decimal(str(db.query(func.coalesce(func.sum(LandedCostVoucher.amount), 0)).filter(
+            LandedCostVoucher.supplier_id == supplier_id,
+            LandedCostVoucher.payment_method == "credit",
+            LandedCostVoucher.status == "posted",
+        ).scalar() or 0))
+
         grn_ids = self._credit_grn_ids(db, supplier_id)
         if not grn_ids:
-            return Decimal("0")
+            return landed_cost_owed
 
         grn_nos = [
             r[0] for r in db.query(GoodReceivedNote.good_received_no).filter(GoodReceivedNote.id.in_(grn_ids)).all()
@@ -700,16 +709,28 @@ class SupplierCreditService:
         ).scalar() or Decimal("0")
 
         # Also account for payments made via Purchase Invoices (new system).
-        # These are tracked in PurchaseInvoice.paid_amount rather than
-        # SupplierCreditsSettleTransaction.
-        from app.modules.purchasing.invoice_models import PurchaseInvoice
-        invoice_total_paid = db.query(
-            func.coalesce(func.sum(PurchaseInvoice.paid_amount), 0)
-        ).filter(
+        # Only VERIFIED payments have posted Dr 2010 (a pending one already
+        # shows on the invoice's paid_amount as a reservation), plus supplier
+        # advances applied to those invoices (posted when applied).
+        from app.modules.purchasing.invoice_models import PurchaseInvoice, PurchaseInvoicePayment
+        from app.modules.purchasing.models import SupplierPayment
+        live_invoices = db.query(PurchaseInvoice.id).filter(
             PurchaseInvoice.supplier_id == supplier_id,
             PurchaseInvoice.payment_type == "credit",
             PurchaseInvoice.status != "cancelled",
-        ).scalar() or Decimal("0")
+        )
+        invoice_total_paid = (db.query(
+            func.coalesce(func.sum(PurchaseInvoicePayment.allocated_amount), 0)
+        ).join(
+            SupplierPayment, SupplierPayment.id == PurchaseInvoicePayment.supplier_payment_id
+        ).filter(
+            PurchaseInvoicePayment.purchase_invoice_id.in_(live_invoices),
+            SupplierPayment.status == "verified",
+        ).scalar() or Decimal("0")) + (db.query(
+            func.coalesce(func.sum(SupplierAdvanceApplication.applied_amount), 0)
+        ).filter(
+            SupplierAdvanceApplication.purchase_invoice_id.in_(live_invoices),
+        ).scalar() or Decimal("0"))
 
         total_returns = db.query(
             func.coalesce(func.sum(PurchasingReturnItems.return_price * PurchasingReturnItems.quantity), 0)
@@ -728,7 +749,7 @@ class SupplierCreditService:
 
         return (
             Decimal(str(total_grn_value)) - Decimal(str(total_settled)) - Decimal(str(invoice_total_paid))
-            - Decimal(str(total_returns)) - Decimal(str(total_advance_applied))
+            - Decimal(str(total_returns)) - Decimal(str(total_advance_applied)) + landed_cost_owed
         )
 
     def _calculate_pending_credits(self, db: Session, supplier_id: int, exclude_po_id: Optional[int] = None) -> Decimal:

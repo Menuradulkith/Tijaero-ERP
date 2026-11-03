@@ -139,8 +139,55 @@ class CommissionService:
                 detail="commission_rate is required and must be > 0 for PERCENT type"
             )
 
+        # One live commission per invoice and agent - a second one would pay
+        # the agent twice for the same sale.
+        existing = db.query(CustomerAgentCommission).filter(
+            CustomerAgentCommission.invoice_id == data.invoice_id,
+            CustomerAgentCommission.customer_agent_id == data.customer_agent_id,
+            CustomerAgentCommission.status != "cancelled",
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"This agent already has a commission for invoice {invoice.invoice_no} "
+                    f"(status '{existing.status}'). Edit that one instead of adding another."
+                )
+            )
+
         commission_data = data.model_dump()
+        # The invoice amount always comes from the real invoice, never the request.
+        commission_data["invoice_amount"] = Decimal(str(invoice.grand_total or 0))
+        self._check_commission_amount(
+            commission_data["invoice_amount"], data.commission_type,
+            data.commission_rate, data.commission_amount,
+        )
         return commission_repository.create_commission(db, commission_data)
+
+    @staticmethod
+    def _check_commission_amount(invoice_amount, commission_type, commission_rate, commission_amount) -> None:
+        """Commission must fit inside the invoice, and a PERCENT commission must
+        equal rate x invoice amount (to the cent)."""
+        invoice_amount = Decimal(str(invoice_amount or 0))
+        amount = Decimal(str(commission_amount or 0))
+        if amount > invoice_amount:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Commission amount ({amount}) cannot be more than the invoice amount "
+                    f"({invoice_amount})."
+                )
+            )
+        if commission_type == "PERCENT" and commission_rate is not None:
+            expected = (invoice_amount * Decimal(str(commission_rate)) / Decimal("100")).quantize(Decimal("0.01"))
+            if abs(amount - expected) > Decimal("0.01"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Commission amount ({amount}) does not match {commission_rate}% of the "
+                        f"invoice amount ({invoice_amount}). It should be {expected}."
+                    )
+                )
 
     def update_commission(
         self,
@@ -166,6 +213,19 @@ class CommissionService:
             )
 
         update_data = data.model_dump(exclude_unset=True)
+        if {"commission_type", "commission_rate", "commission_amount"} & update_data.keys():
+            new_type = update_data.get("commission_type", commission.commission_type)
+            if new_type not in ("PERCENT", "AMOUNT"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="commission_type must be 'PERCENT' or 'AMOUNT'"
+                )
+            self._check_commission_amount(
+                commission.invoice_amount,
+                new_type,
+                update_data.get("commission_rate", commission.commission_rate),
+                update_data.get("commission_amount", commission.commission_amount),
+            )
         updated = commission_repository.update_commission(db, commission_id, update_data)
         if not updated:
             raise HTTPException(
@@ -226,6 +286,25 @@ class CommissionService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Commission is '{commission.status}', only pending or approved commissions can be declined"
+            )
+
+        # Money already set aside for this commission (a pending or verified
+        # payment) - cancel that payment first, or the agent is paid for a
+        # commission that no longer exists.
+        live_payment = db.query(CustomerAgentCommissionPayment.payment_no).join(
+            CustomerAgentCommissionPaymentItem,
+            CustomerAgentCommissionPaymentItem.payment_id == CustomerAgentCommissionPayment.id,
+        ).filter(
+            CustomerAgentCommissionPaymentItem.commission_id == commission.id,
+            CustomerAgentCommissionPayment.status != "cancelled",
+        ).first()
+        if live_payment:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"This commission already has payment {live_payment[0]}. "
+                    f"Cancel that payment before declining the commission."
+                )
             )
 
         update_data = {

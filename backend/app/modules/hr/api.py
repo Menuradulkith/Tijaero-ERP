@@ -313,3 +313,101 @@ def update_asset_assignment(assignment_id: RowId, asset: schemas.EmployeeAssetCr
 @router.delete("/employee-assets/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_need(P.HR_ASSET_DELETE)])
 def delete_asset_assignment(assignment_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     service.EmployeeAssetService(db).delete_asset_assignment(assignment_id, current_user.id)
+
+
+# ───────────────────────────── salary history ─────────────────────────────
+@router.get("/employees/{employee_id}/salary-revisions", dependencies=[SEE_SALARY])
+def list_salary_revisions(employee_id: Annotated[str, Path(min_length=1, max_length=50)], db: Session = Depends(get_db)):
+    """Effective-dated salary history, newest first."""
+    return service.SalaryProfileService(db).revisions(employee_id)
+
+
+@router.delete("/salary-revisions/{revision_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_need(P.SALARY_PROFILE_UPDATE)])
+def delete_salary_revision(revision_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    service.SalaryProfileService(db).delete_revision(revision_id, current_user.id)
+
+
+# ───────────────────────────── payroll settings ─────────────────────────────
+@router.get("/payroll-settings", response_model=schemas.PayrollSettingsOut, dependencies=[SEE_PAYROLL])
+def get_payroll_settings(db: Session = Depends(get_db)):
+    from app.modules.hr.sl_payroll import payroll_settings
+    row = payroll_settings(db)
+    db.commit()
+    return row
+
+
+@router.put("/payroll-settings", response_model=schemas.PayrollSettingsOut, dependencies=[_need(P.HR_SETUP_UPDATE)])
+def update_payroll_settings(data: schemas.PayrollSettingsIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from app.modules.hr.sl_payroll import update_payroll_settings as save
+    return save(db, data, current_user.id)
+
+
+# ───────────────────────────── statutory returns ─────────────────────────────
+@router.get("/payroll/batches/{batch_id}/returns/{kind}", dependencies=[SEE_PAYROLL])
+def get_statutory_return(batch_id: RowId, kind: Literal["epf", "etf", "apit", "bank"], db: Session = Depends(get_db)):
+    """EPF Form C, ETF R4, APIT schedule or the bank salary-transfer list of a payroll batch."""
+    from app.modules.hr.sl_payroll import statutory_return
+    return statutory_return(db, batch_id, kind)
+
+
+@router.get("/payroll/batches/{batch_id}/returns/{kind}/csv", dependencies=[SEE_PAYROLL])
+def download_statutory_return(batch_id: RowId, kind: Literal["epf", "etf", "apit", "bank"], db: Session = Depends(get_db)):
+    from fastapi.responses import Response
+    from app.modules.hr.sl_payroll import statutory_csv, statutory_return
+    data = statutory_return(db, batch_id, kind)
+    name = {"epf": "EPF_Form_C", "etf": "ETF_R4", "apit": "APIT_Schedule", "bank": "Salary_Bank_Transfer"}[kind]
+    return Response(content=statutory_csv(data), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{name}_{data["batch_no"]}.csv"'})
+
+
+# ───────────────────────────── final settlement ─────────────────────────────
+@router.get("/employees/{employee_pk}/final-settlement", dependencies=[SEE_PAYROLL])
+def get_final_settlement(employee_pk: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Gratuity, loans still owed and assets not returned for a leaving employee."""
+    from fastapi import HTTPException
+    from app.modules.employees.models import Employee
+    from app.modules.hr.sl_payroll import final_settlement
+    emp = db.query(Employee).filter(Employee.id == employee_pk).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    service._branch_access(current_user, emp.branch_code)
+    return final_settlement(db, emp)
+
+
+# ───────────────────────────── loans / advances ─────────────────────────────
+@router.get("/loans", dependencies=[SEE_DEDUCTIONS])
+def list_loans(status_filter: Optional[Literal["active", "settled", "cancelled"]] = Query(None, alias="status"),
+               employee_pk: Optional[int] = Query(None, ge=1, le=2_147_483_647),
+               loan_type: Optional[Literal["loan", "advance"]] = None, db: Session = Depends(get_db)):
+    from app.modules.hr.loans import LoanService
+    return LoanService(db).list(status_filter, employee_pk, loan_type)
+
+
+@router.get("/loans/{loan_id}", dependencies=[SEE_DEDUCTIONS])
+def get_loan(loan_id: RowId, db: Session = Depends(get_db)):
+    from app.modules.hr.loans import LoanService
+    return LoanService(db).get(loan_id)
+
+
+@router.post("/loans", status_code=status.HTTP_201_CREATED, dependencies=[_need(P.DEDUCTION_CREATE)])
+def create_loan(data: schemas.LoanIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from app.modules.hr.loans import LoanService
+    return LoanService(db).create(data, current_user)
+
+
+@router.put("/loans/{loan_id}", dependencies=[_need(P.DEDUCTION_UPDATE)])
+def update_loan(loan_id: RowId, data: schemas.LoanUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from app.modules.hr.loans import LoanService
+    return LoanService(db).update(loan_id, data, current_user)
+
+
+@router.post("/loans/{loan_id}/repay", dependencies=[_need(P.DEDUCTION_UPDATE)])
+def repay_loan(loan_id: RowId, data: schemas.LoanRepaymentIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from app.modules.hr.loans import LoanService
+    return LoanService(db).repay(loan_id, data, current_user)
+
+
+@router.post("/loans/{loan_id}/cancel", dependencies=[_need(P.DEDUCTION_DELETE)])
+def cancel_loan(loan_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from app.modules.hr.loans import LoanService
+    return LoanService(db).cancel(loan_id, current_user)

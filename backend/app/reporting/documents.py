@@ -785,9 +785,10 @@ def build_payroll(db: Session, year: int, month: int, company: dict) -> dict:
     records = q.all()
     for p, e in records:
         allowances = sum((money(v) for v in (p.add_1_value, p.add_2_value, p.add_sales_commision, p.add_bonus,
-                                              p.add_reimbursements, p.add_salary_advance)), ZERO)
+                                              p.add_reimbursements, p.add_salary_advance, p.add_overtime)), ZERO)
+        allowances += sum((money(a.get("amount")) for a in (p.allowance_lines or [])), ZERO)
         other = sum((money(v) for v in (p.less_stamp_duty, p.less_late_deductions, p.less_salary_advance_repayment,
-                                         p.less_loan_repayment, p.less_other_deductions)), ZERO)
+                                         p.less_loan_repayment, p.less_other_deductions, p.less_nopay)), ZERO)
         rows.append({"code": e.employee_id, "description": e.name_with_initials or e.employee_id, "details": [],
                      "basic": money(p.basic_salary), "allowances": allowances, "gross": money(p.gross_salary),
                      "epf": money(p.less_epf_employee), "apit": money(p.less_apit), "other": other,
@@ -819,6 +820,69 @@ def build_payroll(db: Session, year: int, month: int, company: dict) -> dict:
         signatures=["Prepared by", "Checked by", "Approved by"],
         landscape=True,
     )
+
+
+def build_payslip(db: Session, payroll_id: int, company: dict) -> tuple:
+    """One employee's payslip for a payroll record: earnings, deductions, net pay and the employer's
+    EPF / ETF contributions."""
+    from fastapi import HTTPException
+    from app.modules.employees.models import Employee, EmployeePayroll
+
+    row = (db.query(EmployeePayroll, Employee).join(Employee, Employee.employee_id == EmployeePayroll.employee_id)
+           .filter(EmployeePayroll.id == payroll_id).first())
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Payroll record #{payroll_id} not found")
+    p, e = row
+    if (p.status or "") == "cancelled":
+        raise HTTPException(status_code=400, detail="This payroll record was cancelled")
+    name = e.name_with_initials or (f"{e.user.first_name or ''} {e.user.last_name or ''}".strip() if e.user else e.employee_id)
+    period = date(p.payroll_year, p.payroll_month, 1).strftime("%B %Y") if p.payroll_year and p.payroll_month else "-"
+
+    earnings = [("Basic salary", p.basic_salary)]
+    earnings += [(a.get("name") or "Allowance", a.get("amount")) for a in (p.allowance_lines or [])]
+    earnings += [(p.add_1_name or "Allowance", p.add_1_value), (p.add_2_name or "Allowance", p.add_2_value)]
+    if p.add_overtime:
+        earnings.append((f"Overtime ({money(p.ot_hours):g} h)" if p.ot_hours else "Overtime", p.add_overtime))
+    earnings += [("Sales commission", p.add_sales_commision), ("Bonus", p.add_bonus), ("Reimbursements", p.add_reimbursements),
+                 ("Salary advance", p.add_salary_advance)]
+    deductions = [
+        (f"No-pay ({money(p.nopay_days):g} day(s))" if p.nopay_days else "No-pay", p.less_nopay),
+        ("EPF employee", p.less_epf_employee), ("APIT", p.less_apit), ("Stamp duty", p.less_stamp_duty),
+        ("Late attendance", p.less_late_deductions),
+        ("Loan / advance recovery", money(p.less_loan_repayment) + money(p.less_salary_advance_repayment)),
+        ("Other deductions", p.less_other_deductions),
+    ]
+    lines = [{"no": i, "description": d, "details": [], "amount": money(v)}
+             for i, (d, v) in enumerate([x for x in earnings if money(x[1]) != 0], start=1)]
+    ded_rows = [{"description": d, "amount": money(v)} for d, v in deductions if money(v) != 0]
+    employer = [{"description": "EPF employer contribution", "amount": money(p.epf_employer)},
+                {"description": "ETF employer contribution", "amount": money(p.etf_employer)}]
+    account = e.bank_account_no or ""
+    masked = ("*" * max(0, len(account) - 4) + account[-4:]) if account else None
+    two_cols = lambda title: [{"key": "description", "label": title, "type": "text"},  # noqa: E731
+                              {"key": "amount", "label": "Amount", "type": "money", "align": "right"}]
+    sections = []
+    if ded_rows:
+        sections.append({"title": "Deductions", "columns": two_cols("Deduction"), "rows": ded_rows})
+    sections.append({"title": "Employer contributions (not deducted from pay)", "columns": two_cols("Contribution"), "rows": employer})
+    doc = _doc(
+        key="payslip", title="PAYSLIP", number=f"{e.employee_id} / {period}", currency=company["currency_code"],
+        meta=[("Period", period), ("Employee no.", e.employee_id), ("Name", name),
+              ("Designation", e.designation_ref.name if e.designation_ref else None),
+              ("Department", e.department.name if e.department else None),
+              ("NIC", e.nic), ("EPF no.", e.epf_no), ("Bank", " ".join(x for x in (e.bank_name, masked) if x) or None),
+              ("Batch", p.payroll_batch_no), ("Paid on", _date(p.payment_date))],
+        columns=[{"key": "description", "label": "Earnings", "type": "text", "wide": True},
+                 {"key": "amount", "label": "Amount", "type": "money", "align": "right"}],
+        lines=lines,
+        totals=[_total("Gross pay", p.gross_salary, strong=True), _total("Total deductions", p.total_deductions, sign="-"),
+                _total("Net pay", p.net_salary, strong=True)],
+        amount_in_words=amount_in_words(money(p.net_salary), company["currency_code"]),
+        sections=sections,
+        notes=[("EPF earnings", f"{money(p.epf_earnings):,.2f}" if p.epf_earnings is not None else None)],
+        signatures=["Employer", "Employee"],
+    )
+    return doc, p, e, name, period
 
 
 # --------------------------------------------------------------------------- #

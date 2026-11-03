@@ -157,8 +157,29 @@ class TestReconciliation:
             "bank_account_id": b["id"], "date_from": str(TODAY - timedelta(days=5)), "date_to": str(TODAY),
             "lines": [{"line_date": str(TODAY - timedelta(days=30)), "amount": "10"}]})
         assert r.status_code == 422
-        st = _statement(superclient, b, [(TODAY, "10", "Z")], opening=0, closing=99)
-        assert st["warnings"] and "closing balance" in st["warnings"][0]
+        # 2026-11-02: an unbalanced statement is refused (it used to be saved with a warning)
+        r = superclient.post(f"{A}/bank-statements", json={
+            "bank_account_id": b["id"], "date_from": str(TODAY - timedelta(days=5)), "date_to": str(TODAY),
+            "opening_balance": "0", "closing_balance": "99",
+            "lines": [{"line_date": str(TODAY), "amount": "10"}]})
+        assert r.status_code == 422 and "off by 89.00" in r.json()["detail"]
+
+    def test_statement_no_is_unique_per_bank_account(self, superclient):
+        b, other = _bank(superclient), _bank(superclient)
+        _statement(superclient, b, [], opening=0, closing=0)  # ST-1
+        r = superclient.post(f"{A}/bank-statements", json={
+            "bank_account_id": b["id"], "statement_no": " st-1 ",
+            "date_from": str(TODAY - timedelta(days=5)), "date_to": str(TODAY)})
+        assert r.status_code == 400 and "already entered" in r.json()["detail"]
+        _statement(superclient, other, [], opening=0, closing=0)  # same number on another account is fine
+
+    def test_unmatch_an_unmatched_line_is_refused(self, superclient):
+        b = _bank(superclient)
+        st = _statement(superclient, b, [(TODAY, "10", "NOPE")])
+        line = st["lines"][0]
+        assert line["status"] == "unmatched"
+        r = superclient.post(f"{A}/bank-statement-lines/{line['id']}/unmatch")
+        assert r.status_code == 400 and "not matched" in r.json()["detail"]
 
 
 class TestCashbookSeesRegisteredBanks:

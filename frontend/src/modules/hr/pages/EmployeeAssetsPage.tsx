@@ -3,7 +3,7 @@
  */
 import { useCallback, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, FormControlLabel, IconButton, InputAdornment, MenuItem, Paper, Switch, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, FormControlLabel, IconButton, InputAdornment, MenuItem, Switch, TextField, Tooltip, Typography } from "@mui/material";
 import DevicesIcon from "@mui/icons-material/Devices";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -17,7 +17,6 @@ import {
   EmptyState,
   FormSection,
   MasterDetailLayout,
-  SelectableListItem,
   TConfirmDialog,
   TDataGrid,
   type TDataGridColumn,
@@ -77,7 +76,7 @@ export default function EmployeeAssetsPage() {
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    let list = (assets || []).filter(
+    const list = (assets || []).filter(
       (a) => !q || a.employee_id.toLowerCase().includes(q) || String(a.asset_id).includes(q) || (a.assign_reason || "").toLowerCase().includes(q)
     );
     // Fixed default order (newest first) — the browse table's own
@@ -318,14 +317,15 @@ export default function EmployeeAssetsPage() {
               startIcon={<ArrowBackIcon fontSize="small" />}
               onClick={handleBackToAssets}
               sx={{ textTransform: "none" }}
+              disabled={isSaving}
             >
               Back to Employee Assets
             </Button>
           ) : (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
-                placeholder="Search assignments..."
+                placeholder="Search employee, asset..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 InputProps={{
@@ -335,28 +335,28 @@ export default function EmployeeAssetsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 260 }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
+              {searchQuery && (
+                <Button size="small" onClick={() => setSearchQuery("")} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
+              )}
             </Box>
           )
         }
         headerActions={
-          isDetailMode ? undefined : (
-            <>
-              {canCreate && (
-                <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
-                  Add Asset Assignment
-                </Button>
-              )}
-            </>
-          )
+          !isDetailMode && canCreate ? (
+            <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew} sx={{ mr: 1 }}>
+              Add Asset Assignment
+            </Button>
+          ) : undefined
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        {...(isDetailMode
-          ? { children: detailContent }
-          : { children: tablePanel })}
-      />
+      >
+        {isDetailMode ? detailContent : tablePanel}
+      </MasterDetailLayout>
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

@@ -20,8 +20,6 @@ import {
   CustomerGiftVoucherUpdate,
   VoucherValidationRequest,
   VoucherValidationResponse,
-  VoucherRedeemRequest,
-  VoucherRedeemResponse,
   VoucherUsage,
 } from "./types";
 
@@ -530,13 +528,6 @@ export const vouchersApi = {
     return response.data;
   },
 
-  redeem: async (request: VoucherRedeemRequest) => {
-    const response = await apiClient.post<VoucherRedeemResponse>(
-      "/customers/vouchers/redeem",
-      request
-    );
-    return response.data;
-  },
 
   getUsageHistory: async (voucherId: number, skip = 0, limit = 100000) => {
     const response = await apiClient.get<VoucherUsage[]>(

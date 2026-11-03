@@ -25,9 +25,6 @@ import {
   InputAdornment,
   MenuItem,
   Paper,
-  Step,
-  StepLabel,
-  Stepper,
   TextField,
   Tooltip,
   Typography,
@@ -93,7 +90,6 @@ const STATUS_FILTER_OPTIONS = [
   { value: "recorded", label: "Recorded", color: "secondary" as const },
 ];
 
-const FORM_STEPS = ["Expense Information", "Payment Details"];
 
 // Initial form data
 const INITIAL_FORM_DATA: Partial<ExpenseCreate> = {
@@ -133,7 +129,6 @@ export default function ExpensesPage() {
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
-  const [formStep, setFormStep] = useState(0);
 
   // Workflow dialogs (kept for submit, approve, reject, payment, record actions)
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
@@ -188,7 +183,6 @@ export default function ExpensesPage() {
         cancelText: "Keep Editing",
         confirmColor: "warning",
       }),
-    onDiscard: () => { setFormStep(0); },
   });
 
   // Activity History is opened on demand from a detail icon next to the
@@ -197,13 +191,11 @@ export default function ExpensesPage() {
 
   const handleStartEdit = useCallback(() => {
     handleStartEditBase();
-    setFormStep(0);
   }, [handleStartEditBase]);
 
   const handleCancel = useCallback(
     (items: Expense[]) => {
       handleCancelBase(items);
-      setFormStep(0);
     },
     [handleCancelBase]
   );
@@ -213,7 +205,6 @@ export default function ExpensesPage() {
     if (defaultBranchCode) {
       setFormData(prev => ({ ...prev, branch_code: defaultBranchCode }));
     }
-    setFormStep(0);
   }, [handleNewExpenseBase, defaultBranchCode, setFormData]);
 
   const handleClearFilters = useCallback(() => {
@@ -284,7 +275,6 @@ export default function ExpensesPage() {
     onSuccess: (data) => {
       setIsCreating(false);
       setSelectedExpense(data);
-      setFormStep(0);
     },
   });
 
@@ -444,7 +434,6 @@ export default function ExpensesPage() {
       setIsCreating(false);
       setIsEditing(false);
       setSelectedExpense(null);
-      setFormStep(0);
     } else {
       handleCancel(filteredExpenses);
     }
@@ -458,7 +447,6 @@ export default function ExpensesPage() {
       setIsCreating(false);
       setIsEditing(false);
     }
-    setFormStep(0);
   }, [isCreating, setSelectedExpense, setIsCreating, setIsEditing]);
 
   // Whether we're showing a single expense's detail view (selected or being
@@ -680,7 +668,7 @@ export default function ExpensesPage() {
         isSaving={isSaving}
         isFormValid={isFormValid}
         onNew={handleNewExpense}
-        onSave={isCreating && formStep < FORM_STEPS.length - 1 ? undefined : handleSave}
+        onSave={handleSave}
         onCancel={handleCancelExpense}
         onEdit={canEdit ? handleStartEdit : undefined}
         onDelete={canDelete ? handleDelete : undefined}
@@ -709,16 +697,6 @@ export default function ExpensesPage() {
           <EmptyState message="Select an expense from the list or create a new one" />
         ) : (
           <>
-            {/* Stepper for create mode */}
-            {isCreating && (
-              <Stepper activeStep={formStep} sx={{ mb: 3 }}>
-                {FORM_STEPS.map((label) => (
-                  <Step key={label}>
-                    <StepLabel>{label}</StepLabel>
-                  </Step>
-                ))}
-              </Stepper>
-            )}
 
             {/* Rejection Warning */}
             {detail && detail.status === "rejected" && detail.rejection_reason && (
@@ -728,7 +706,8 @@ export default function ExpensesPage() {
             )}
 
             {/* Step 1: Expense Information (always show in view/edit mode) */}
-            {(formStep === 0 || !isCreating) && (
+            {(
+
               <>
                 <FormSection title="Expense Information" columns={3}>
                   <TextField

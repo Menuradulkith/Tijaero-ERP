@@ -156,6 +156,7 @@ function AccountPicker({
   placeholder,
   disabled,
   fallback,
+  required,
 }: {
   accounts: ChartOfAccount[];
   allowedTypes: string[];
@@ -166,6 +167,7 @@ function AccountPicker({
   disabled?: boolean;
   /** Shown read-only when the account list is not loaded (e.g. no edit right). */
   fallback?: AccountRef | null;
+  required?: boolean;
 }) {
   const options = useMemo(() => {
     const parents = new Set(accounts.filter((a) => a.is_active).map((a) => a.parent_account_id));
@@ -184,7 +186,7 @@ function AccountPicker({
       onChange={(_, v) => onChange(v ? v.id : null)}
       getOptionLabel={accountLabel}
       isOptionEqualToValue={(o, v) => o.id === v.id}
-      renderInput={(params) => <TextField {...params} label={label} placeholder={placeholder} />}
+      renderInput={(params) => <TextField {...params} label={label} placeholder={placeholder} required={required} />}
       disabled={disabled}
       fullWidth
     />
@@ -352,6 +354,7 @@ function PostingRuleDetail({
             disabled={ro}
             fallback={rule.account}
             label="Account"
+            required={controlType === "none"}
             placeholder={
               controlType === "expense_category"
                 ? "Optional: used for categories without their own default"
@@ -417,6 +420,7 @@ function PostingRuleDetail({
                     fallback={row.account ?? null}
                     onChange={(id) => setRows((rs) => rs.map((r) => (r.key === row.key ? { ...r, account_id: id } : r)))}
                     label="Account"
+                    required
                   />
                   {editing && (
                     <IconButton aria-label="Remove" onClick={() => setRows((rs) => rs.filter((r) => r.key !== row.key))}>
@@ -699,7 +703,8 @@ function TaxCodesTab({ canEdit, layout }: { canEdit: boolean; layout: SetupTabLa
   const detailMode = creating || !!selected;
   const ro = !creating && !editing;
   const isStandard = form.tax_type === "standard";
-  const valid = !!form.name?.trim() && (!creating || !!form.code?.trim());
+  const rateOk = Number(form.rate ?? 0) >= 0 && Number(form.rate ?? 0) <= 100;
+  const valid = !!form.name?.trim() && (!creating || !!form.code?.trim()) && rateOk;
 
   const detail = (
     <DetailArea
@@ -757,7 +762,7 @@ function TaxCodesTab({ canEdit, layout }: { canEdit: boolean; layout: SetupTabLa
           helperText={creating ? "Short, e.g. VAT, VAT-15, ZERO" : undefined}
           inputProps={{ maxLength: 20 }}
         />
-        <TextField label="Name" size="small" required disabled={ro} value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <TextField label="Name" size="small" required disabled={ro} value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} inputProps={{ maxLength: 100 }} />
         <TextField
           select
           label="Type"
@@ -781,8 +786,10 @@ function TaxCodesTab({ canEdit, layout }: { canEdit: boolean; layout: SetupTabLa
           type="number"
           value={form.rate ?? 0}
           disabled={ro || !isStandard}
-          onChange={(e) => setForm({ ...form, rate: Number(e.target.value) })}
-          inputProps={{ min: 0, max: 100, step: 0.5 }}
+          onChange={(e) => setForm({ ...form, rate: e.target.value === "" ? 0 : Number(e.target.value) })}
+          inputProps={{ min: 0, max: 100, step: 0.01 }}
+          error={!ro && isStandard && (Number(form.rate) < 0 || Number(form.rate) > 100)}
+          helperText={!ro && isStandard && (Number(form.rate) < 0 || Number(form.rate) > 100) ? "Rate must be between 0 and 100" : undefined}
         />
       </FormSection>
       <FormSection title="Usage" columns={2}>

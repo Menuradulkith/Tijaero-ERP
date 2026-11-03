@@ -139,6 +139,14 @@ export interface EmployeePayroll {
   less_apit?: number;
   epf_employer?: number;
   etf_employer?: number;
+  allowance_lines?: AllowanceLine[] | null;
+  allowances_total?: number;
+  ot_hours?: number | null;
+  add_overtime?: number | null;
+  nopay_days?: number | null;
+  less_nopay?: number | null;
+  epf_earnings?: number | null;
+  taxable_income?: number | null;
   // Workflow fields
   payroll_month?: number;
   payroll_year?: number;
@@ -197,6 +205,9 @@ export interface EmployeeSalaryProfile {
   add_1_value?: number;
   add_2_name?: string;
   add_2_value?: number;
+  allowances: AllowanceLine[];
+  allowances_total?: number;
+  epf_earnings?: number;
   designation?: string;
   department?: string;
   effective_from_date?: string;
@@ -213,10 +224,13 @@ export interface EmployeeSalaryProfileCreate {
   add_1_value?: number;
   add_2_name?: string;
   add_2_value?: number;
+  allowances: AllowanceLine[];
   designation?: string;
   department?: string;
   effective_from_date?: string;
   benefits?: string;
+  revision_reason?: SalaryRevisionReason;
+  revision_remarks?: string;
 }
 
 // Payroll Batch Types
@@ -577,4 +591,127 @@ export interface HRStatistics {
   total_deductions: number;
   total_promotions: number;
   active_assets: number;
+}
+
+// ─── Sri Lankan payroll ───────────────────────────────────────────────────────
+export interface AllowanceLine {
+  name: string;
+  amount: number;
+  /** Counts for EPF / ETF (e.g. Budgetary Relief Allowance) */
+  epf_liable: boolean;
+  /** Counts for APIT */
+  taxable: boolean;
+}
+
+export type SalaryRevisionReason = "joining" | "increment" | "promotion" | "adjustment";
+
+export interface SalaryRevision {
+  id: number;
+  employee_id: string;
+  effective_from: string;
+  basic_salary: number;
+  allowances: AllowanceLine[];
+  total: number;
+  change?: number | null;
+  change_percent?: number | null;
+  reason: SalaryRevisionReason;
+  remarks?: string | null;
+  created_by_name?: string | null;
+}
+
+export interface PayrollSettings {
+  epf_employee_rate: number;
+  epf_employer_rate: number;
+  etf_rate: number;
+  pay_overtime: boolean;
+  ot_multiplier: number;
+  ot_divisor: number;
+  deduct_late: boolean;
+  stamp_duty_amount: number;
+  stamp_duty_threshold: number;
+  gratuity_enabled: boolean;
+  employer_epf_no?: string | null;
+  employer_tin?: string | null;
+}
+
+export type StatutoryReturnKind = "epf" | "etf" | "apit" | "bank";
+
+export interface StatutoryReturn {
+  kind: StatutoryReturnKind;
+  title: string;
+  batch_no: string;
+  period: string;
+  employer_epf_no?: string | null;
+  employer_tin?: string | null;
+  rows: Record<string, string | number>[];
+  totals: Record<string, number>;
+  count: number;
+  warnings: string[];
+}
+
+export type LoanType = "loan" | "advance";
+export type LoanStatus = "active" | "settled" | "cancelled";
+
+export interface LoanRecovery {
+  id: number;
+  period: string;
+  amount: number;
+  payment_date?: string | null;
+  source: "payroll" | "cash";
+  payroll_batch_no?: string | null;
+  cancelled: boolean;
+  remarks?: string | null;
+}
+
+export interface EmployeeLoan {
+  id: number;
+  loan_no: string;
+  employee_pk: number;
+  employee_id?: string;
+  employee_name?: string | null;
+  loan_type: LoanType;
+  issue_date: string;
+  amount: number;
+  installment_amount: number;
+  installments: number;
+  start_period: string;
+  payment_method: string;
+  status: LoanStatus;
+  remarks?: string | null;
+  recovered: number;
+  balance: number;
+  created_at?: string;
+  recoveries?: LoanRecovery[];
+}
+
+export interface LoanCreate {
+  employee_pk: number;
+  loan_type: LoanType;
+  issue_date: string;
+  amount: number;
+  installments: number;
+  installment_amount?: number | null;
+  start_period: string;
+  payment_method: string;
+  remarks?: string;
+}
+
+export interface FinalSettlement {
+  employee_pk: number;
+  employee_id: string;
+  name: string;
+  status: string;
+  date_of_joining?: string | null;
+  last_working_date?: string | null;
+  exit_type?: string | null;
+  completed_years: number;
+  monthly_salary: number;
+  gratuity_eligible: boolean;
+  gratuity: number;
+  loans: { loan_no: string; loan_type: LoanType; balance: number }[];
+  loans_owed: number;
+  unreturned_assets: { id: number; asset: string }[];
+  last_month?: { period: string; days: number; days_in_month: number; processed: boolean } | null;
+  net_settlement: number;
+  notes: string[];
 }

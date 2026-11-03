@@ -1,7 +1,9 @@
 from app.common.base_models import AuditMixin, TimestampMixin
 from app.db.base import Base
 from sqlalchemy import (
+    JSON,
     TIMESTAMP,
+    UniqueConstraint,
     Boolean,
     Column,
     Date,
@@ -50,6 +52,7 @@ class Employee(Base, AuditMixin):
     grade = Column(String(30), nullable=True)
     work_location = Column(String(150), nullable=True)
     shift_id = Column(Integer, ForeignKey("hr_shifts.id"), nullable=True)
+    overtime_eligible = Column(Boolean, nullable=False, default=True, server_default="true")
     holiday_list_id = Column(Integer, ForeignKey("hr_holiday_lists.id"), nullable=True)
     # active | probation | notice_period | resigned | terminated | retired | inactive
     status = Column(String(20), nullable=False, default="active", server_default="active", index=True)
@@ -129,6 +132,14 @@ class EmployeePayroll(Base, AuditMixin):
     less_loan_repayment = Column(Numeric(60, 2), nullable=True)
     less_other_deductions = Column(Numeric(60, 2), nullable=True)
     less_apit = Column(Numeric(60, 2), nullable=True)  # APIT tax deduction
+    # Payroll-run detail: allowance lines [{name, amount, epf_liable, taxable}], overtime, no-pay
+    allowance_lines = Column(JSON, nullable=True)
+    ot_hours = Column(Numeric(10, 2), nullable=True)
+    add_overtime = Column(Numeric(60, 2), nullable=True)
+    nopay_days = Column(Numeric(6, 2), nullable=True)
+    less_nopay = Column(Numeric(60, 2), nullable=True)
+    epf_earnings = Column(Numeric(60, 2), nullable=True)  # base for EPF / ETF
+    taxable_income = Column(Numeric(60, 2), nullable=True)  # base for APIT
     # Employer contributions
     epf_employer = Column(Numeric(60, 2))
     etf_employer = Column(Numeric(60, 2))
@@ -169,6 +180,8 @@ class EmployeeSalaryProfile(Base, AuditMixin):
     add_1_value = Column(Numeric(60, 2))
     add_2_name = Column(String(100))
     add_2_value = Column(Numeric(60, 2))
+    # [{name, amount, epf_liable, taxable}] - replaces add_1 / add_2
+    allowances = Column(JSON, nullable=True)
     # Enhanced fields
     designation = Column(String(200), nullable=True)
     department = Column(String(200), nullable=True)
@@ -206,3 +219,18 @@ class EmployeesAssets(Base, AuditMixin):
         lazy="select",
         viewonly=True,
     )
+
+
+class SalaryRevision(Base, AuditMixin):
+    """Effective-dated salary: payroll uses the revision in force at the end of the month."""
+    __tablename__ = "hr_salary_revisions"
+    __table_args__ = (UniqueConstraint("employee_id", "effective_from", name="uq_hr_salary_revision"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Text, ForeignKey("employees.employee_id"), nullable=False, index=True)
+    effective_from = Column(Date, nullable=False)
+    basic_salary = Column(Numeric(60, 2), nullable=False)
+    allowances = Column(JSON, nullable=True)
+    # joining | increment | promotion | adjustment
+    reason = Column(String(20), nullable=False, default="adjustment")
+    remarks = Column(Text, nullable=True)

@@ -1146,6 +1146,29 @@ class GoodReceivedNoteListFilter(BaseModel):
     skip: int = 0
     limit: int = 100
 
+# How money left or came back: the ledger books "cash" to Cash on Hand and every
+# other method to the bank, so a typo must not silently become a bank payment.
+SUPPLIER_PAYMENT_METHODS = ("cash", "bank_transfer", "bank", "cheque", "card", "online")
+
+
+def _payment_method(value):
+    if value is None:
+        return value
+    v = str(value).strip().lower().replace(" ", "_")
+    if v not in SUPPLIER_PAYMENT_METHODS:
+        raise ValueError("Payment method must be cash, bank transfer, cheque, card or online")
+    return v
+
+
+def _required_text(value):
+    if value is None:
+        return value
+    v = str(value).strip()
+    if not v:
+        raise ValueError("This field can't be blank")
+    return v
+
+
 class SupplierCreditsSettleTransactionBase(BaseModel):
     payment_method: str
     cheque_date: date
@@ -1156,6 +1179,11 @@ class SupplierCreditsSettleTransactionBase(BaseModel):
 
 class SupplierCreditsSettleTransactionCreate(SupplierCreditsSettleTransactionBase):
     payment_amount: PositiveMoneyInput
+
+    @field_validator("payment_method")
+    @classmethod
+    def _method(cls, v):
+        return _payment_method(v)
 
 class SupplierCreditsSettleTransaction(SupplierCreditsSettleTransactionBase, TijaeroBaseSchema):
     id: int
@@ -1171,7 +1199,13 @@ class SupplierCreditsSettleBase(BaseModel):
     suppliers_id: int
 
 class SupplierCreditsSettleCreate(SupplierCreditsSettleBase):
-    transactions: List[SupplierCreditsSettleTransactionCreate]
+    supplier_credits_settle_no: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    transactions: List[SupplierCreditsSettleTransactionCreate] = Field(..., min_length=1)
+
+    @field_validator("branch_code")
+    @classmethod
+    def _branch(cls, v):
+        return _required_text(v)
 
 class SupplierCreditsSettleUpdate(BaseModel):
     branch_code: Optional[str] = None
@@ -1241,7 +1275,18 @@ class SupplierPaymentBase(BaseModel):
 
 
 class SupplierPaymentCreate(SupplierPaymentBase):
+    purchasing_order_id: Optional[int] = Field(None, ge=1)
     payment_amount: PositiveMoneyInput
+
+    @field_validator("payment_method")
+    @classmethod
+    def _method(cls, v):
+        return _payment_method(v)
+
+    @field_validator("branch_code", "payment_for")
+    @classmethod
+    def _text(cls, v):
+        return _required_text(v)
 
 
 class SupplierPaymentUpdate(BaseModel):
@@ -1301,7 +1346,17 @@ class SupplierAdvancePaymentBase(BaseModel):
 
 
 class SupplierAdvancePaymentCreate(SupplierAdvancePaymentBase):
+    purchasing_order_id: Optional[int] = Field(None, ge=1)
     original_amount: PositiveMoneyInput  # Original advance amount
+
+    @field_validator("payment_method")
+    @classmethod
+    def _method(cls, v):
+        return _payment_method(v)
+    @field_validator("branch_code")
+    @classmethod
+    def _branch(cls, v):
+        return _required_text(v)
 
 
 class SupplierAdvancePaymentUpdate(BaseModel):
@@ -1318,6 +1373,11 @@ class SupplierAdvanceReturnCreate(BaseModel):
     return_method: str  # Cash, Bank Transfer, Cheque
     return_reference: Optional[str] = None
     return_remarks: Optional[str] = None
+
+    @field_validator("return_method")
+    @classmethod
+    def _method(cls, v):
+        return _payment_method(v)
 
 
 class SupplierAdvancePayment(SupplierAdvancePaymentBase, TijaeroBaseSchema):

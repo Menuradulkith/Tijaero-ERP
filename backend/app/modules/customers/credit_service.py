@@ -651,6 +651,18 @@ class CustomerCreditService:
             ]
         }
     
+    @staticmethod
+    def _receivable_filter():
+        """Credit invoices the customer still owes on: approved (credit given,
+        posted to Trade Debtors) or completed, not cancelled. ``balance_due`` is the
+        open amount the ledger carries (settlements, returns, write-offs and
+        advances already taken off); a pending order has not posted yet."""
+        return (
+            Invoice.credit_amount > 0,
+            Invoice.status == True,  # noqa: E712
+            Invoice.approval_status.in_(("approved", "completed")),
+        )
+
     def get_aging_report(
         self,
         db: Session,
@@ -660,7 +672,7 @@ class CustomerCreditService:
     ) -> Dict[str, Any]:
         """AR aging. ``branch_code`` limits it to one branch; ``branch_codes`` (the
         caller's branch scope, None = all) limits it to those branches."""
-        query = db.query(Invoice).filter(Invoice.credit_amount > 0)
+        query = db.query(Invoice).filter(*self._receivable_filter())
         if customer_id:
             query = query.filter(Invoice.customer_id == customer_id)
         if branch_code:
@@ -684,7 +696,7 @@ class CustomerCreditService:
             if not customer:
                 continue
                 
-            remaining = self._get_invoice_remaining_credit(db, invoice.id, invoice.credit_amount)
+            remaining = Decimal(str(invoice.balance_due or 0))
             if remaining <= 0:
                 continue
             
@@ -857,11 +869,7 @@ class CustomerCreditService:
         Only includes completed invoices with credit_amount > 0 that haven't been fully settled."""
         query = db.query(Invoice, Customer).join(
             Customer, Invoice.customer_id == Customer.id
-        ).filter(
-            Invoice.credit_amount > 0,
-            Invoice.status == True,
-            Invoice.approval_status == "completed",
-        )
+        ).filter(*self._receivable_filter())
         if customer_id:
             query = query.filter(Invoice.customer_id == customer_id)
         if branch_code:
@@ -875,7 +883,7 @@ class CustomerCreditService:
         overdue_count = 0
 
         for invoice, customer in rows:
-            remaining = self._get_invoice_remaining_credit(db, invoice.id, invoice.credit_amount)
+            remaining = Decimal(str(invoice.balance_due or 0))
             if remaining <= 0:
                 continue
             due_date = invoice_due_date(invoice, customer)

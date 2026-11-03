@@ -128,19 +128,64 @@ function formatValidationErrors(errors: ValidationError[]): string {
   if (errors.length === 0) {
     return "Validation error occurred";
   }
+  return errors.map((err) => friendlyFieldError(err.loc, err.msg)).join("; ");
+}
 
-  if (errors.length === 1) {
-    const err = errors[0];
-    const field = err.loc.slice(1).join(".") || "field";
-    return `${field}: ${err.msg}`;
+/** "transaction_date" → "Transaction date", "account_id" → "Account". */
+export function humanizeFieldName(name: string): string {
+  const words = name.replace(/_id$/, "").replace(/[_\s]+/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1).toLowerCase() : "";
+}
+
+/**
+ * Turn one Pydantic error (loc path + msg) into a plain sentence, e.g.
+ * (["body","rate"], "Input should be less than or equal to 100") → "Rate must be 100 or less".
+ */
+export function friendlyFieldError(loc: (string | number)[] | string, rawMsg: string): string {
+  const parts = (Array.isArray(loc) ? loc.map(String) : String(loc || "").split(/\s*->\s*|\./))
+    .filter((p) => p && !["body", "query", "path"].includes(p));
+  const name = [...parts].reverse().find((p) => !/^\d+$/.test(p));
+  const index = parts.find((p) => /^\d+$/.test(p));
+  const F = name ? humanizeFieldName(name) : "This value";
+  let msg = String(rawMsg || "").trim();
+
+  // A validator's own text is already meant for people.
+  const custom = msg.match(/^(?:Value error|Assertion failed),\s*([\s\S]*)$/);
+  if (custom) msg = custom[1];
+
+  const rules: [RegExp, (m: RegExpMatchArray) => string][] = [
+    [/^Field required$/i, () => `${F} is required`],
+    [/^Input should be less than or equal to (.+)$/i, (m) => `${F} must be ${m[1]} or less`],
+    [/^Input should be less than (.+)$/i, (m) => `${F} must be less than ${m[1]}`],
+    [/^Input should be greater than or equal to (.+)$/i, (m) => `${F} must be ${m[1]} or more`],
+    [/^Input should be greater than (.+)$/i, (m) => `${F} must be more than ${m[1]}`],
+    [/^String should have at most (\d+) characters?$/i, (m) => `${F} can be at most ${m[1]} characters`],
+    [/^String should have at least (\d+) characters?$/i, (m) => (m[1] === "1" ? `${F} is required` : `${F} must be at least ${m[1]} characters`)],
+    [/^List should have at least (\d+) items?/i, (m) => `${F} needs at least ${m[1]} item(s)`],
+    [/^Input should be a valid (date|datetime|date or datetime|time)\b/i, () => `${F} is not a valid date`],
+    [/^Input should be a valid integer/i, () => `${F} must be a whole number`],
+    [/^Input should be a valid (number|decimal)/i, () => `${F} must be a number`],
+    [/^Decimal input should have no more than (\d+) decimal places?/i, (m) => `${F} can have at most ${m[1]} decimals`],
+    [/^Decimal input should have no more than (\d+) digits?/i, () => `${F} is too large`],
+    [/^Input should be a valid boolean/i, () => `${F} must be yes or no`],
+    [/^Input should be (.+)$/i, (m) => `${F} must be ${m[1].replace(/'/g, "")}`],
+    [/^String should match pattern/i, () => `${F} has an invalid format`],
+    [/^value is not a valid email address/i, () => `${F} is not a valid email address`],
+  ];
+  if (!custom) {
+    for (const [re, fmt] of rules) {
+      const m = msg.match(re);
+      if (m) {
+        msg = fmt(m);
+        break;
+      }
+    }
+    if (msg === String(rawMsg || "").trim() && name) msg = `${F}: ${msg}`;
   }
-
-  return errors
-    .map((err) => {
-      const field = err.loc.slice(1).join(".") || "field";
-      return `${field}: ${err.msg}`;
-    })
-    .join("; ");
+  msg = msg.charAt(0).toUpperCase() + msg.slice(1);
+  // Rows of a list ("lines -> 1") read as "Line 2", unless the text already says which line.
+  if (index !== undefined && !/^(line|row)\s+\d+/i.test(msg)) msg = `Line ${Number(index) + 1}: ${msg}`;
+  return msg;
 }
 
 /**
@@ -150,12 +195,7 @@ function formatValidationErrors(errors: ValidationError[]): string {
  * "body -> " so the message reads as just the field name.
  */
 function formatFieldMessages(errors: { field: string; message: string }[]): string {
-  return errors
-    .map((err) => {
-      const field = err.field?.replace(/^(body|query|path) -> /, "");
-      return field ? `${field}: ${err.message}` : err.message;
-    })
-    .join("; ");
+  return errors.map((err) => friendlyFieldError(err.field || "", err.message)).join("; ");
 }
 
 /**

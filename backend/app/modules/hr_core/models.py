@@ -126,6 +126,9 @@ class HRLeaveType(Base, AuditMixin):
     annual_entitlement = Column(Float, nullable=False, default=0)
     # none = fixed per year | monthly = accrues evenly over the year
     accrual = Column(String(10), nullable=False, default="none")
+    # prorata = by months in the joining year | full = whole entitlement | sl_annual = Shop & Office Act
+    # (nothing in the joining year; the next year 14 / 10 / 7 / 4 days by the joining quarter)
+    entitlement_rule = Column(String(10), nullable=False, default="prorata", server_default="prorata")
     carry_forward_max = Column(Float, nullable=False, default=0)
     is_paid = Column(Boolean, nullable=False, default=True)
     allow_half_day = Column(Boolean, nullable=False, default=True)

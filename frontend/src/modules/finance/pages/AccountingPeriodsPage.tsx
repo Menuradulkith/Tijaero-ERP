@@ -6,6 +6,7 @@
  * TFilterPanel, TSearchableSelect, expanded list items, and onRefresh.
  */
 
+import AddIcon from "@mui/icons-material/Add";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import HistoryIcon from "@mui/icons-material/History";
@@ -30,7 +31,7 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   TChip,
@@ -143,11 +144,8 @@ export default function AccountingPeriodsPage() {
     return filtered;
   }, [periods, searchQuery, sortField]);
 
-  useEffect(() => {
-    if (filteredPeriods.length > 0 && !selectedPeriod) {
-      setSelectedPeriod(filteredPeriods[0]);
-    }
-  }, [filteredPeriods, selectedPeriod]);
+  // No auto-selection: with nothing selected the toolbar keeps its Add action,
+  // and the header always offers "Generate Year".
 
   // Summary counts
   const openCount = periods.filter((p) => p.status === "open").length;
@@ -571,6 +569,16 @@ export default function AccountingPeriodsPage() {
         masterPanel={masterPanel}
         detailPanel={detailPanel}
         headerActions={
+          <Box sx={{ display: "flex", gap: 1 }}>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setGenerateDialogOpen(true)}
+            sx={{ textTransform: "none", whiteSpace: "nowrap" }}
+          >
+            Generate Year
+          </Button>
           <TExportButton
             filename="accounting_periods"
             headers={[
@@ -593,6 +601,7 @@ export default function AccountingPeriodsPage() {
             }
             disabled={filteredPeriods.length === 0}
           />
+          </Box>
         }
       />
 

@@ -307,13 +307,15 @@ class TestHRLedger:
         assert recs
         for p in recs:
             gross = D(str(p.gross_salary))
-            assert gross == D(str(p.basic_salary)) + D(str(p.add_1_value or 0)) + D(str(p.add_2_value or 0)) + D(str(p.add_sales_commision or 0))
+            lines = sum((D(str(a["amount"])) for a in (p.allowance_lines or [])), D("0"))
+            assert gross == (D(str(p.basic_salary)) + D(str(p.add_1_value or 0)) + D(str(p.add_2_value or 0)) + lines
+                             + D(str(p.add_sales_commision or 0)) + D(str(p.add_overtime or 0)))
             parts = sum(D(str(getattr(p, f) or 0)) for f in (
                 "less_epf_employee", "less_etf_employee", "less_stamp_duty", "less_late_deductions",
-                "less_salary_advance_repayment", "less_loan_repayment", "less_other_deductions", "less_apit"))
+                "less_salary_advance_repayment", "less_loan_repayment", "less_other_deductions", "less_apit", "less_nopay"))
             assert D(str(p.total_deductions)) == parts, (p.employee_id, p.total_deductions, parts)
             assert D(str(p.net_salary)) == gross - parts
-            assert D(str(p.total_employer_cost)) == gross + D(str(p.epf_employer)) + D(str(p.etf_employer))
+            assert D(str(p.total_employer_cost)) == gross - D(str(p.less_nopay or 0)) + D(str(p.epf_employer)) + D(str(p.etf_employer))
         assert D(str(batch["total_net_salary"])) == sum(D(str(p.net_salary)) for p in recs)
         assert D(str(batch["total_gross_salary"])) == sum(D(str(p.gross_salary)) for p in recs)
 

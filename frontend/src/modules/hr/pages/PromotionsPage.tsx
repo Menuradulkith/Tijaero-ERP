@@ -6,8 +6,9 @@
  */
 import { useCallback, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Box, Button, IconButton, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, IconButton, InputAdornment, TextField, Tooltip, Typography } from "@mui/material";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -33,13 +34,13 @@ import {
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { promotionsApi } from "@/modules/hr/api";
-import { formatDateTimeReadable } from "@/utils/formatters";
+import { formatDate, formatDateTimeReadable } from "@/utils/formatters";
 import type { EmployeePromotion, EmployeePromotionCreate } from "@/modules/hr/types";
 
 const INITIAL_FORM: EmployeePromotionCreate = {
   employee_id: "",
   designation: "",
-  appointed_date: new Date().toISOString().split("T")[0],
+  appointed_date: formatDate(new Date()),
   remark: "",
 };
 
@@ -73,7 +74,7 @@ export default function PromotionsPage() {
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    let list = (promotions || []).filter(
+    const list = (promotions || []).filter(
       (p) => !q || p.employee_id.toLowerCase().includes(q) || p.designation.toLowerCase().includes(q) || (p.remark || "").toLowerCase().includes(q)
     );
     // Default order before the user sorts a column in the table itself
@@ -283,34 +284,52 @@ export default function PromotionsPage() {
               startIcon={<ArrowBackIcon fontSize="small" />}
               onClick={handleBackToPromotions}
               sx={{ textTransform: "none" }}
+              disabled={isSaving}
             >
               Back to Promotions
+            </Button>
+          ) : (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                placeholder="Search employee, position..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+              />
+              {searchQuery && (
+                <Button size="small" onClick={() => setSearchQuery("")} sx={{ textTransform: "none" }}>
+                  Clear
+                </Button>
+              )}
+            </Box>
+          )
+        }
+        headerActions={
+          !isPromotionDetailMode && canCreate ? (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleNew}
+              sx={{ mr: 1 }}
+            >
+              Add Promotion
             </Button>
           ) : undefined
         }
         onRefresh={refetch}
         isLoading={isLoading}
-        {...(isPromotionDetailMode
-          ? { children: detailPanel }
-          : { children: promotionTablePanel })}
-        headerActions={
-          isPromotionDetailMode ? undefined : (
-            <>
-              {canCreate && (
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={handleNew}
-                  sx={{ mr: 1 }}
-                >
-                  Add Promotion
-                </Button>
-              )}
-            </>
-          )
-        }
-      />
+      >
+        {isPromotionDetailMode ? detailPanel : promotionTablePanel}
+      </MasterDetailLayout>
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

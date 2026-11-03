@@ -71,8 +71,16 @@ class ChequeService:
                 "Only a deposited cheque can be marked cleared."
                 + (" Confirm its bank deposit first." if chq.status == "received" else "")
             )
+        on = on or tz.today()
+        if on > tz.today():
+            raise _bad("The cleared date can't be in the future.")
+        if chq.cheque_date and on < chq.cheque_date:
+            raise _bad(
+                f"The cleared date ({on}) can't be before the cheque date ({chq.cheque_date}) - "
+                "a bank can't clear a cheque before the date written on it."
+            )
         chq.status = "cleared"
-        chq.status_date = on or tz.today()
+        chq.status_date = on
         self.db.commit()
         self.db.refresh(chq)
         return chq

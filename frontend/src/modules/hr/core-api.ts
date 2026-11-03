@@ -95,6 +95,7 @@ export interface LeaveType extends Versioned {
   description: string | null;
   annual_entitlement: number;
   accrual: "none" | "monthly";
+  entitlement_rule: "prorata" | "full" | "sl_annual";
   carry_forward_max: number;
   is_paid: boolean;
   allow_half_day: boolean;
@@ -193,6 +194,7 @@ export interface EmployeeProfile {
   work_location: string | null;
   shift_id: number | null;
   holiday_list_id: number | null;
+  overtime_eligible?: boolean;
   date_of_joining: string | null;
   probation_end_date: string | null;
   confirmation_date: string | null;

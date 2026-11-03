@@ -283,7 +283,9 @@ class TestPayroll:
         rec = next(x for x in r.json()["payroll_records"] if x["employee_id"] == emp.employee_id)
         import calendar
         dim = calendar.monthrange(today.year, today.month)[1]
-        assert Decimal(rec["less_other_deductions"]) == (Decimal(90000) / Decimal(dim)).quantize(Decimal("0.01"))
+        # no-pay has its own line (and is not a liability like "other deductions")
+        assert Decimal(rec["less_nopay"]) == (Decimal(90000) / Decimal(dim)).quantize(Decimal("0.01"))
+        assert Decimal(rec["nopay_days"]) == 1 and Decimal(rec["less_other_deductions"]) == 0
 
     def test_duplicate_run_and_workflow_rules(self, superclient, emp, api, make_user):
         today = date.today()

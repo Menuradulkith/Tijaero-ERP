@@ -59,6 +59,7 @@ import {
   MasterDetailLayout,
   showErrorToast,
   showSuccessToast,
+  showWarningToast,
   TPrintButton,
   TPrintPreviewDialog,
   TSearchableSelect,
@@ -129,11 +130,36 @@ interface LineItem {
   _id: string;
   line_number: number;
   account_id: number;
-  debit_amount: number;
-  credit_amount: number;
+  /** Kept as typed text (at most 2 decimals, never negative). */
+  debit_amount: string;
+  credit_amount: string;
   description: string;
   cost_center_id?: number | null;
 }
+
+/** Amount in cents, so totals and the balance check never drift on floats. */
+const toCents = (v: string) => Math.round((Number(v) || 0) * 100);
+/** What an amount field may hold while typing: digits, one dot, 2 decimals. */
+const AMOUNT_PATTERN = /^\d{0,12}(\.\d{0,2})?$/;
+
+const newLine = (id: string, n: number): LineItem => ({
+  _id: id,
+  line_number: n,
+  account_id: 0,
+  debit_amount: "",
+  credit_amount: "",
+  description: "",
+});
+
+/** Per-line problem that blocks saving, or null. */
+const lineProblem = (l: LineItem): string | null => {
+  const dr = toCents(l.debit_amount);
+  const cr = toCents(l.credit_amount);
+  if (!l.account_id) return "Select an account";
+  if (dr === 0 && cr === 0) return "Enter a debit or a credit amount";
+  if (dr > 0 && cr > 0) return "Enter either a debit or a credit, not both";
+  return null;
+};
 
 const INITIAL_FORM_DATA: JEFormData = {
   entry_date: new Date().toISOString().split("T")[0],
@@ -154,6 +180,8 @@ export default function JournalEntriesPage() {
   const confirmDialog = useConfirmDialog();
   const [formStep, setFormStep] = useState(0);
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
+  // Field errors show only after the user tried Next/Save.
+  const [showErrors, setShowErrors] = useState(false);
 
   // Filter states (applied - drives the actual list filtering)
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
@@ -215,10 +243,8 @@ export default function JournalEntriesPage() {
   const handleNew = useCallback(() => {
     handleNewBase();
     setFormStep(0);
-    setLineItems([
-      { _id: `new-1`, line_number: 1, account_id: 0, debit_amount: 0, credit_amount: 0, description: "" },
-      { _id: `new-2`, line_number: 2, account_id: 0, debit_amount: 0, credit_amount: 0, description: "" },
-    ]);
+    setShowErrors(false);
+    setLineItems([newLine("new-1", 1), newLine("new-2", 2)]);
   }, [handleNewBase]);
 
   // Cancelling out of "New Entry" should return to the browse table, not
@@ -282,10 +308,18 @@ export default function JournalEntriesPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // All accounts (inactive too) so a header account is recognised even when
+  // its only sub-accounts are inactive: the backend rejects any account that
+  // has children.
   const { data: accounts = [] } = useQuery({
-    queryKey: ["chart-of-accounts-all"],
-    queryFn: () => chartOfAccountsApi.getAll({ is_active: true, limit: 1000 }),
+    queryKey: ["chart-of-accounts-all", "with-inactive"],
+    queryFn: () => chartOfAccountsApi.getAll({ limit: 1000 }),
   });
+  // Only postable accounts: active and not a header (an account with children).
+  const postableAccounts = useMemo(() => {
+    const parents = new Set(accounts.map((a) => a.parent_account_id).filter(Boolean));
+    return accounts.filter((a) => a.is_active && !parents.has(a.id));
+  }, [accounts]);
 
   // Fetch detail when selected
   const { data: jeDetail } = useQuery({
@@ -395,18 +429,44 @@ export default function JournalEntriesPage() {
 
   const handleSave = useCallback(async () => {
     if (!isCreating) return;
+    // Say exactly what is wrong (and where) instead of a generic message.
+    const headerError = !formData.entry_date
+      ? "Entry date is required"
+      : !formData.description.trim()
+        ? "Description is required"
+        : null;
+    if (headerError) {
+      setShowErrors(true);
+      setFormStep(0);
+      showWarningToast(headerError);
+      return;
+    }
+    const badLine = lineItems.findIndex((l) => lineProblem(l));
+    if (badLine >= 0) {
+      setShowErrors(true);
+      setFormStep(1);
+      showWarningToast(`Line ${badLine + 1}: ${lineProblem(lineItems[badLine])}`);
+      return;
+    }
+    const dr = lineItems.reduce((s, l) => s + toCents(l.debit_amount), 0);
+    const cr = lineItems.reduce((s, l) => s + toCents(l.credit_amount), 0);
+    if (dr !== cr) {
+      setFormStep(1);
+      showWarningToast(`Debits and credits must be equal (difference ${fmtLKR(Math.abs(dr - cr) / 100)})`);
+      return;
+    }
     const lines = lineItems.map((l, i) => ({
       line_number: i + 1,
       account_id: l.account_id,
-      debit_amount: l.debit_amount,
-      credit_amount: l.credit_amount,
+      debit_amount: toCents(l.debit_amount) / 100,
+      credit_amount: toCents(l.credit_amount) / 100,
       description: l.description,
       cost_center_id: l.cost_center_id || null,
     }));
     // A double-click on Save must not create the journal twice.
     submitOnce("journal-entry-create", createMutation, {
       entry_date: formData.entry_date,
-      description: formData.description,
+      description: formData.description.trim(),
       entry_type: formData.entry_type,
       auto_reverse_date: formData.auto_reverse_date || undefined,
       lines,
@@ -415,17 +475,7 @@ export default function JournalEntriesPage() {
 
   // Line item helpers
   const handleAddLine = () => {
-    setLineItems([
-      ...lineItems,
-      {
-        _id: `new-${Date.now()}`,
-        line_number: lineItems.length + 1,
-        account_id: 0,
-        debit_amount: 0,
-        credit_amount: 0,
-        description: "",
-      },
-    ]);
+    setLineItems([...lineItems, newLine(`new-${Date.now()}`, lineItems.length + 1)]);
   };
 
   const handleRemoveLine = (id: string) => {
@@ -437,13 +487,23 @@ export default function JournalEntriesPage() {
     setLineItems(lineItems.map((l) => (l._id === id ? { ...l, [field]: value } : l)));
   };
 
-  const totalDebit = lineItems.reduce((sum, l) => sum + (Number(l.debit_amount) || 0), 0);
-  const totalCredit = lineItems.reduce((sum, l) => sum + (Number(l.credit_amount) || 0), 0);
-  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
+  // Totals are summed in cents from each line's 2-decimal amount.
+  const debitCents = lineItems.reduce((sum, l) => sum + toCents(l.debit_amount), 0);
+  const creditCents = lineItems.reduce((sum, l) => sum + toCents(l.credit_amount), 0);
+  const totalDebit = debitCents / 100;
+  const totalCredit = creditCents / 100;
+  const isBalanced = debitCents === creditCents && debitCents > 0;
+  const headerStepValid = !!formData.entry_date && !!formData.description.trim();
+  const handleAmountChange = (id: string, field: "debit_amount" | "credit_amount", raw: string) => {
+    const v = raw.replace(/,/g, "").trim();
+    if (!AMOUNT_PATTERN.test(v)) return; // ignore negatives, letters, a 3rd decimal
+    handleUpdateLine(id, field, v);
+  };
 
   const canEdit = false; // JE cannot be edited after creation
   const canDelete = !!(selectedJE && selectedJE.status === "draft");
-  const isFormValid = !!(formData.entry_date && formData.description && isBalanced);
+  // Save always runs handleSave, which names the actual problem field.
+  const isFormValid = true;
   const isSaving = createMutation.isPending;
 
   const detail = jeDetail || selectedJE;
@@ -666,6 +726,8 @@ export default function JournalEntriesPage() {
                   onChange={(e) => setFormData({ ...formData, entry_date: e.target.value })}
                   InputLabelProps={{ shrink: true }}
                   required
+                  error={showErrors && !formData.entry_date}
+                  helperText={showErrors && !formData.entry_date ? "Entry date is required" : undefined}
                 />
                 <TextField
                   select
@@ -693,6 +755,8 @@ export default function JournalEntriesPage() {
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   required
+                  error={showErrors && !formData.description.trim()}
+                  helperText={showErrors && !formData.description.trim() ? "Description is required" : undefined}
                   multiline
                   rows={2}
                 />
@@ -701,12 +765,13 @@ export default function JournalEntriesPage() {
 
             {formStep === 1 && (
               <FormSection title="Line Items" columns={1}>
-                <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
-                  <Table size="small">
+                {/* Scrolls sideways on narrow screens so Debit/Credit stay reachable. */}
+                <Paper variant="outlined" sx={{ width: "100%", overflowX: "auto", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
+                  <Table size="small" sx={{ minWidth: costCenters.length > 0 ? 860 : 680 }}>
                     <TableHead>
                       <TableRow sx={modernTableStyles.headerRow}>
                         <TableCell sx={{ width: 40 }}>#</TableCell>
-                        <TableCell>Account</TableCell>
+                        <TableCell sx={{ minWidth: 220 }}>Account</TableCell>
                         {costCenters.length > 0 && <TableCell sx={{ width: 170 }}>Cost center</TableCell>}
                         <TableCell>Description</TableCell>
                         <TableCell sx={{ width: 130 }}>Debit</TableCell>
@@ -715,7 +780,11 @@ export default function JournalEntriesPage() {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {lineItems.map((line, index) => (
+                      {lineItems.map((line, index) => {
+                        const problem = showErrors ? lineProblem(line) : null;
+                        const accountMissing = !!problem && !line.account_id;
+                        const amountProblem = !!problem && !accountMissing;
+                        return (
                         <TableRow key={line._id} sx={modernTableStyles.bodyRow}>
                           <TableCell>{index + 1}</TableCell>
                           <TableCell>
@@ -725,9 +794,11 @@ export default function JournalEntriesPage() {
                               fullWidth
                               value={line.account_id || ""}
                               onChange={(e) => handleUpdateLine(line._id, "account_id", Number(e.target.value))}
+                              error={accountMissing}
+                              helperText={accountMissing ? problem : undefined}
                             >
                               <MenuItem value="">Select account</MenuItem>
-                              {accounts.map((a) => (
+                              {postableAccounts.map((a) => (
                                 <MenuItem key={a.id} value={a.id}>
                                   {a.account_code} - {a.account_name}
                                 </MenuItem>
@@ -770,22 +841,25 @@ export default function JournalEntriesPage() {
                           </TableCell>
                           <TableCell>
                             <TextField
-                              type="number"
                               size="small"
                               fullWidth
-                              value={line.debit_amount || ""}
-                              onChange={(e) => handleUpdateLine(line._id, "debit_amount", Number(e.target.value))}
-                              inputProps={{ min: 0, step: "0.01" }}
+                              value={line.debit_amount}
+                              onChange={(e) => handleAmountChange(line._id, "debit_amount", e.target.value)}
+                              inputProps={{ inputMode: "decimal", "aria-label": "Debit" }}
+                              placeholder="0.00"
+                              error={amountProblem}
+                              helperText={amountProblem ? problem : undefined}
                             />
                           </TableCell>
                           <TableCell>
                             <TextField
-                              type="number"
                               size="small"
                               fullWidth
-                              value={line.credit_amount || ""}
-                              onChange={(e) => handleUpdateLine(line._id, "credit_amount", Number(e.target.value))}
-                              inputProps={{ min: 0, step: "0.01" }}
+                              value={line.credit_amount}
+                              onChange={(e) => handleAmountChange(line._id, "credit_amount", e.target.value)}
+                              inputProps={{ inputMode: "decimal", "aria-label": "Credit" }}
+                              placeholder="0.00"
+                              error={amountProblem}
                             />
                           </TableCell>
                           <TableCell>
@@ -796,7 +870,8 @@ export default function JournalEntriesPage() {
                             )}
                           </TableCell>
                         </TableRow>
-                      ))}
+                        );
+                      })}
                       <TableRow sx={modernTableStyles.footerRow}>
                         <TableCell colSpan={costCenters.length > 0 ? 4 : 3} sx={{ fontWeight: 700 }}>Total</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>{fmtLKR(totalDebit)}</TableCell>
@@ -807,7 +882,7 @@ export default function JournalEntriesPage() {
                   </Table>
                 </Paper>
 
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 1 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 1, mt: 1 }}>
                   <Button
                     size="small"
                     startIcon={<AddCircleOutlineIcon />}
@@ -815,7 +890,7 @@ export default function JournalEntriesPage() {
                   >
                     Add Line
                   </Button>
-                  {!isBalanced && totalDebit > 0 && (
+                  {!isBalanced && (debitCents > 0 || creditCents > 0) && (
                     <Alert severity="warning" sx={{ py: 0 }}>
                       Entry is not balanced. Difference: {fmtLKR(Math.abs(totalDebit - totalCredit))}
                     </Alert>
@@ -839,11 +914,15 @@ export default function JournalEntriesPage() {
               </Button>
               <Button
                 variant="contained"
-                disabled={formStep === FORM_STEPS.length - 1 ? false : !formData.description}
                 onClick={() => {
-                  if (formStep < FORM_STEPS.length - 1) {
-                    setFormStep((s) => s + 1);
+                  if (formStep >= FORM_STEPS.length - 1) return;
+                  if (!headerStepValid) {
+                    // Stay on the step and point at the field that is missing.
+                    setShowErrors(true);
+                    showWarningToast(!formData.entry_date ? "Entry date is required" : "Description is required");
+                    return;
                   }
+                  setFormStep((s) => s + 1);
                 }}
                 sx={{ display: formStep === FORM_STEPS.length - 1 ? "none" : undefined }}
               >

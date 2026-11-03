@@ -281,14 +281,21 @@ export default function ChartOfAccountsPage() {
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
   const handleSave = useCallback(async () => {
+    // Trim so "  1010 " and a name with stray spaces are stored cleanly.
+    const clean = {
+      ...formData,
+      account_code: formData.account_code.trim(),
+      account_name: formData.account_name.trim(),
+      account_category: (formData.account_category || "").trim(),
+    };
     if (isCreating) {
-      submitOnce("coa-create", createMutation, formData);
+      submitOnce("coa-create", createMutation, clean);
     } else if (selectedAccount) {
       submitOnce("coa-update", updateMutation, {
         id: selectedAccount.id,
         data: {
-          account_name: formData.account_name,
-          account_category: formData.account_category,
+          account_name: clean.account_name,
+          account_category: clean.account_category,
           parent_account_id: formData.parent_account_id,
           is_active: formData.is_active,
           normal_balance: formData.normal_balance,
@@ -313,7 +320,14 @@ export default function ChartOfAccountsPage() {
 
   const canEdit = !!selectedAccount;
   const canDelete = !!(selectedAccount && !selectedAccount.is_system_account);
-  const isFormValid = !!(formData.account_code && formData.account_name && formData.account_type && formData.account_category);
+  // Whitespace-only text counts as empty.
+  const isFormValid = !!(
+    formData.account_code.trim() &&
+    formData.account_name.trim() &&
+    formData.account_type &&
+    (formData.account_category || "").trim()
+  );
+  const onlySpaces = (v?: string | null) => !!v && !v.trim();
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   // Parent account & child accounts for detail view
@@ -481,6 +495,9 @@ export default function ChartOfAccountsPage() {
                 onChange={(e) => setFormData({ ...formData, account_code: e.target.value })}
                 disabled={!isCreating}
                 required
+                inputProps={{ maxLength: 50 }}
+                error={isCreating && onlySpaces(formData.account_code)}
+                helperText={isCreating && onlySpaces(formData.account_code) ? "Account code cannot be only spaces" : undefined}
               />
               <TextField
                 label="Account Name"
@@ -489,6 +506,9 @@ export default function ChartOfAccountsPage() {
                 onChange={(e) => setFormData({ ...formData, account_name: e.target.value })}
                 disabled={!isEditing && !isCreating}
                 required
+                inputProps={{ maxLength: 255 }}
+                error={(isEditing || isCreating) && onlySpaces(formData.account_name)}
+                helperText={(isEditing || isCreating) && onlySpaces(formData.account_name) ? "Account name cannot be only spaces" : undefined}
               />
               <TextField
                 select
@@ -515,6 +535,9 @@ export default function ChartOfAccountsPage() {
                 onChange={(e) => setFormData({ ...formData, account_category: e.target.value })}
                 disabled={!isEditing && !isCreating}
                 required
+                inputProps={{ maxLength: 100 }}
+                error={(isEditing || isCreating) && onlySpaces(formData.account_category)}
+                helperText={(isEditing || isCreating) && onlySpaces(formData.account_category) ? "Category cannot be only spaces" : undefined}
               />
               <TextField
                 select

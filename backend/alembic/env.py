@@ -39,6 +39,17 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        # Alembic creates alembic_version.version_num as varchar(32), but some
+        # revision ids are longer (s122_supplier_credit_days_nullable): widen it
+        # first so a fresh install doesn't stop half-way. Harmless if done already.
+        from sqlalchemy import text
+
+        connection.execute(text(
+            "CREATE TABLE IF NOT EXISTS alembic_version "
+            "(version_num VARCHAR(64) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+        ))
+        connection.execute(text("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)"))
+        connection.commit()
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()

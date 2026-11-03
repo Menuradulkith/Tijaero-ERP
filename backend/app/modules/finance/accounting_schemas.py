@@ -11,11 +11,16 @@ Pydantic v2 schemas for:
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import date, datetime
-from typing import Optional, List
+from typing import List, Literal, Optional
 from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema
 from app.core.money import MoneyIn, SignedMoneyIn
+from typing import Annotated
+from pydantic import StringConstraints
+
+# A reason someone must give (reverse, reject, correct, bounce...): trimmed, not blank.
+Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 
 # =============================================================================
@@ -34,8 +39,64 @@ class ChartOfAccountBase(BaseModel):
     description: Optional[str] = None
 
 
+ACCOUNT_TYPES = ("Asset", "Liability", "Equity", "Revenue", "Expense")
+
+
+def _clean_text(value: Optional[str], label: str, max_len: int) -> Optional[str]:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        raise ValueError(f"{label} can't be blank")
+    if len(value) > max_len:
+        raise ValueError(f"{label} can be at most {max_len} characters")
+    return value
+
+
+def _account_type(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    for t in ACCOUNT_TYPES:
+        if value.strip().lower() == t.lower():
+            return t
+    raise ValueError("Account type must be Asset, Liability, Equity, Revenue or Expense")
+
+
+def _normal_balance(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    for t in ("Debit", "Credit"):
+        if value.strip().lower() == t.lower():
+            return t
+    raise ValueError("Normal balance must be Debit or Credit")
+
+
 class ChartOfAccountCreate(ChartOfAccountBase):
-    pass
+    # Same fields as the response, but checked: the response model stays lenient.
+    @field_validator("account_code")
+    @classmethod
+    def _code(cls, v):
+        return _clean_text(v, "Account code", 50)
+
+    @field_validator("account_name")
+    @classmethod
+    def _name(cls, v):
+        return _clean_text(v, "Account name", 255)
+
+    @field_validator("account_type")
+    @classmethod
+    def _type(cls, v):
+        return _account_type(v)
+
+    @field_validator("normal_balance")
+    @classmethod
+    def _balance(cls, v):
+        return _normal_balance(v)
+
+    @field_validator("account_category", "description")
+    @classmethod
+    def _optional_text(cls, v, info):
+        return (v.strip() or None) if isinstance(v, str) else v
 
 
 class ChartOfAccountUpdate(BaseModel):
@@ -45,6 +106,16 @@ class ChartOfAccountUpdate(BaseModel):
     is_active: Optional[bool] = None
     normal_balance: Optional[str] = None
     description: Optional[str] = None
+
+    @field_validator("account_name")
+    @classmethod
+    def _name(cls, v):
+        return _clean_text(v, "Account name", 255)
+
+    @field_validator("normal_balance")
+    @classmethod
+    def _balance(cls, v):
+        return _normal_balance(v)
 
 
 class ChartOfAccountResponse(ChartOfAccountBase, TijaeroBaseSchema):
@@ -79,8 +150,10 @@ class COAListFilter(BaseModel):
 class JournalEntryLineCreate(BaseModel):
     line_number: int
     account_id: int
-    debit_amount: Decimal = Decimal("0")
-    credit_amount: Decimal = Decimal("0")
+    # Rounded to cents per line before the entry's totals are compared, so
+    # 0.005 + 0.005 vs 0.01 can't be stored as a "balanced" draft.
+    debit_amount: MoneyIn = Decimal("0")
+    credit_amount: MoneyIn = Decimal("0")
     description: Optional[str] = None
     reference_type: Optional[str] = None
     reference_id: Optional[int] = None
@@ -226,7 +299,7 @@ class PostJournalEntryRequest(BaseModel):
 
 
 class ReverseJournalEntryRequest(BaseModel):
-    reason: str
+    reason: Reason
     reversal_date: Optional[date] = None
 
 
@@ -242,7 +315,7 @@ class ApproveJournalEntryRequest(BaseModel):
 
 class RejectJournalEntryRequest(BaseModel):
     """Reject a submitted manual JE back to draft."""
-    reason: str
+    reason: Reason
 
 
 class ValidateJournalEntryResponse(BaseModel):
@@ -329,11 +402,17 @@ class TrialBalanceResponse(BaseModel):
 # =============================================================================
 
 class AccountingPeriodCreate(BaseModel):
-    fiscal_year: int
-    period_number: int
-    period_name: str
+    fiscal_year: int = Field(ge=2000, le=2100)
+    period_number: int = Field(ge=1, le=13)
+    period_name: str = Field(min_length=1, max_length=100)
     start_date: date
     end_date: date
+
+    @model_validator(mode="after")
+    def _dates_in_order(self):
+        if self.end_date < self.start_date:
+            raise ValueError("End date can't be before the start date")
+        return self
 
 
 class AccountingPeriodResponse(TijaeroBaseSchema):
@@ -355,8 +434,8 @@ class AccountingPeriodListFilter(BaseModel):
 
 
 class GeneratePeriodsRequest(BaseModel):
-    fiscal_year: int
-    start_month: int = 1  # 1=January
+    fiscal_year: int = Field(ge=2000, le=2100)
+    start_month: int = Field(default=1, ge=1, le=12)  # 1=January
 
 
 class ClosePeriodRequest(BaseModel):
@@ -426,9 +505,9 @@ class CashFlowStatementLineResponse(CashFlowStatementLineCreate, TijaeroBaseSche
 
 
 class CashFlowStatementCreate(BaseModel):
-    fiscal_year: int
-    fiscal_period: int
-    method: str = "indirect"
+    fiscal_year: int = Field(ge=2000, le=2100)
+    fiscal_period: int = Field(ge=1, le=12)
+    method: Literal["direct", "indirect"] = "indirect"
     notes: Optional[str] = None
 
 
@@ -636,7 +715,7 @@ class ReconciliationCheckResponse(BaseModel):
 
 class YearEndCloseRequest(BaseModel):
     """Request to create year-end closing entries."""
-    fiscal_year: int
+    fiscal_year: int = Field(ge=2000, le=2100)
     closing_date: Optional[date] = None  # Defaults to Dec 31 of fiscal_year
 
 
@@ -707,7 +786,7 @@ class CorrectionRequest(BaseModel):
     """
     Request to correct a posted JE: reverses the original and creates a new correct entry.
     """
-    reason: str
+    reason: Reason
     correction_date: Optional[date] = None
     corrected_lines: List[JournalEntryLineInput]
     description: Optional[str] = None
@@ -941,8 +1020,8 @@ class TaxCodeResponse(BaseModel):
 
 
 class TaxCodeCreate(BaseModel):
-    code: str = Field(..., min_length=1, max_length=20)
-    name: str = Field(..., min_length=1, max_length=100)
+    code: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
     rate: Decimal = Field(Decimal("0"), ge=0, le=100)
     tax_type: str = "standard"
     applies_to: str = "both"
@@ -1181,7 +1260,7 @@ class WriteOffCreate(BaseModel):
 
 
 class WriteOffReverse(BaseModel):
-    reason: str = Field(..., min_length=1, max_length=500)
+    reason: Reason
 
 
 class WriteOffResponse(BaseModel):
@@ -1225,7 +1304,7 @@ class ChequeStatusChange(BaseModel):
 
 
 class ChequeBounce(BaseModel):
-    reason: str = Field(..., min_length=1, max_length=500)
+    reason: Reason
     status_date: Optional[date] = None
 
 
@@ -1411,8 +1490,8 @@ class RecurringLineInput(BaseModel):
 
 
 class RecurringJournalCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=150)
-    description: str = Field(..., min_length=1, max_length=500)
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=150)]
+    description: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
     branch_code: Optional[str] = None
     frequency: str = "monthly"
     next_date: date

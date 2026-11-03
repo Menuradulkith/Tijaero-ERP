@@ -514,31 +514,103 @@ function RecurringTab({ nav, canWrite }: { nav: TabNav; canWrite: boolean }) {
 }
 
 // ─── Opening balances ─────────────────────────────────────────────────────────
-function parseLines(textValue: string): { lines: OpeningBalanceLine[]; skipped: number } {
-  const lines: OpeningBalanceLine[] = [];
-  let skipped = 0;
-  for (const raw of textValue.split(/\r?\n/)) {
-    const cells = raw.split(/[,\t;]/).map((c) => c.trim());
-    if (!cells[0] || !/\d/.test(cells[0])) {
-      if (raw.trim()) skipped++;
-      continue;
-    }
-    const num = (v?: string) => Number((v || "").replace(/,/g, "")) || 0;
-    const debit = num(cells[1]);
-    const credit = num(cells[2]);
-    if (!debit && !credit) {
-      skipped++;
-      continue;
-    }
-    lines.push({ account_code: cells[0], debit, credit, description: cells[3] || undefined });
+/** Splits a comma-separated line, honouring "quoted, fields" ("" is a literal quote). */
+function splitCsv(line: string): { cells: string[]; quoted: boolean[] } {
+  const cells: string[] = [];
+  const quoted: boolean[] = [];
+  let cur = "";
+  let inQuotes = false;
+  let wasQuoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') inQuotes = false;
+      else cur += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+      wasQuoted = true;
+    } else if (ch === ",") {
+      cells.push(cur.trim()); quoted.push(wasQuoted); cur = ""; wasQuoted = false;
+    } else cur += ch;
   }
-  return { lines, skipped };
+  cells.push(cur.trim());
+  quoted.push(wasQuoted);
+  return { cells, quoted };
+}
+
+/** Strict amount parser: "", "1000", "1,000", "1,000.50". Returns null when unreadable. */
+function parseAmount(v: string | undefined): number | null {
+  const s = (v || "").replace(/\s/g, "");
+  if (s === "" || s === "-") return 0;
+  if (!/^\d+(\.\d+)?$/.test(s) && !/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) return null;
+  return Number(s.replace(/,/g, ""));
+}
+
+interface ParsedOpening {
+  lines: OpeningBalanceLine[];
+  /** Lines that could not be read; saving is blocked while there are any. */
+  errors: string[];
+  /** Line numbers with a zero balance (nothing to post). */
+  zeroLines: number[];
+  headerIgnored: boolean;
+}
+
+function parseLines(textValue: string): ParsedOpening {
+  const out: ParsedOpening = { lines: [], errors: [], zeroLines: [], headerIgnored: false };
+  let seenContent = false;
+  textValue.split(/\r?\n/).forEach((raw, idx) => {
+    const no = idx + 1;
+    if (!raw.trim()) return;
+    let cells: string[];
+    if (raw.includes("\t") || raw.includes(";")) {
+      // Excel paste (tabs) or semicolon lists: commas inside a cell are thousands separators.
+      cells = raw.split(raw.includes("\t") ? "\t" : ";").map((c) => c.trim().replace(/^"(.*)"$/, "$1").trim());
+    } else {
+      const csv = splitCsv(raw);
+      cells = csv.cells;
+      // An unquoted 1,000 splits into "1" and "000": refuse rather than misread it.
+      const ambiguous = cells.some((c, i) => i >= 2 && !csv.quoted[i] && /^\d{3}(\.\d*)?$/.test(c) && /^\d+$/.test(cells[i - 1]));
+      if (ambiguous) {
+        out.errors.push(`Line ${no}: amounts with a thousands separator must be in quotes ("1,000") or pasted from Excel`);
+        seenContent = true;
+        return;
+      }
+      if (cells.length > 4) cells = [...cells.slice(0, 3), cells.slice(3).join(", ")];
+    }
+    const code = cells[0] || "";
+    if (!/\d/.test(code) && !cells.slice(1, 3).some((c) => /\d/.test(c))) {
+      // A first line like "Account, Debit, Credit" is a header row.
+      if (!seenContent) { out.headerIgnored = true; seenContent = true; return; }
+      out.errors.push(`Line ${no}: no account code or amounts found`);
+      return;
+    }
+    seenContent = true;
+    if (!code) { out.errors.push(`Line ${no}: account code is missing`); return; }
+    const debit = parseAmount(cells[1]);
+    const credit = parseAmount(cells[2]);
+    if (debit === null || credit === null) {
+      out.errors.push(`Line ${no}: "${debit === null ? cells[1] : cells[2]}" is not a valid amount`);
+      return;
+    }
+    if (/\.\d{3,}$/.test((cells[1] || "").trim()) || /\.\d{3,}$/.test((cells[2] || "").trim())) {
+      out.errors.push(`Line ${no}: amounts can have at most 2 decimals`);
+      return;
+    }
+    if (debit > 0 && credit > 0) {
+      out.errors.push(`Line ${no}: enter either a debit or a credit, not both`);
+      return;
+    }
+    if (!debit && !credit) { out.zeroLines.push(no); return; }
+    out.lines.push({ account_code: code, debit, credit, description: cells[3] || undefined });
+  });
+  return out;
 }
 
 function OpeningTab({ nav, canWrite }: { nav: TabNav; canWrite: boolean }) {
   const [entryDate, setEntryDate] = useState(today());
   const [raw, setRaw] = useState("");
-  const { lines, skipped } = useMemo(() => parseLines(raw), [raw]);
+  const { lines, errors, zeroLines, headerIgnored } = useMemo(() => parseLines(raw), [raw]);
   const dr = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
   const cr = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
   const save = useMutation({
@@ -567,7 +639,7 @@ function OpeningTab({ nav, canWrite }: { nav: TabNav; canWrite: boolean }) {
             isCreating={canWrite}
             isEditing={false}
             isSaving={save.isPending}
-            isFormValid={lines.length > 0 && !!entryDate}
+            isFormValid={lines.length > 0 && !!entryDate && errors.length === 0}
             onSave={canWrite ? () => submitOnce("RecurringJournalsPage-save-3", save) : undefined}
             onCancel={canWrite && raw ? () => setRaw("") : undefined}
           />
@@ -594,10 +666,23 @@ function OpeningTab({ nav, canWrite }: { nav: TabNav; canWrite: boolean }) {
             value={raw}
             onChange={(e) => setRaw(e.target.value)}
             disabled={!canWrite}
+            error={errors.length > 0}
+            helperText={errors.length > 0 ? `${errors.length} line(s) could not be read. ${errors[0]}` : undefined}
           />
+          {errors.length > 0 && (
+            <Alert severity="error" variant="outlined">
+              Fix these lines before saving:
+              <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                {errors.slice(0, 20).map((e) => <li key={e}>{e}</li>)}
+                {errors.length > 20 && <li>…and {errors.length - 20} more</li>}
+              </Box>
+            </Alert>
+          )}
           {lines.length > 0 && (
             <Alert severity={Math.abs(dr - cr) < 0.005 ? "success" : "info"} variant="outlined">
-              {lines.length} account(s) read{skipped ? `, ${skipped} line(s) skipped` : ""}. Debits {fmt(dr)}, credits {fmt(cr)}
+              {lines.length} account(s) read
+              {headerIgnored ? ", header row ignored" : ""}
+              {zeroLines.length ? `, zero balance ignored on line(s) ${zeroLines.join(", ")}` : ""}. Debits {fmt(dr)}, credits {fmt(cr)}
               {Math.abs(dr - cr) >= 0.005 ? `: ${fmt(Math.abs(dr - cr))} will go to Opening Balance Equity.` : ": balanced."}
             </Alert>
           )}

@@ -439,6 +439,29 @@ export default function CustomerPaymentsPage() {
     return paymentLines.reduce((sum, line) => sum + line.allocated_amount, 0);
   }, [paymentLines]);
 
+  // Payment date must be a real date and not in the future (the server
+  // rejects future dates too).
+  const paymentDateError = useMemo(() => {
+    if (!paymentDate || Number.isNaN(new Date(paymentDate).getTime())) return "Enter a valid payment date";
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    if (paymentDate > today) return "Payment date cannot be in the future";
+    return null;
+  }, [paymentDate]);
+
+  // What the split rows should add up to: the invoice amounts being settled
+  // plus any card service charge (same rule as the balance indicator).
+  const splitDueTotal = useMemo(() => {
+    const card = splitPayments
+      .filter((p) => p.method === "card" && p.card_id)
+      .map((p) => paymentCards.find((c: PaymentCard) => c.id === p.card_id))
+      .find((c) => c !== undefined);
+    const pct = card?.service_charge_percent || 0;
+    const nonCard = splitPayments.filter((p) => p.method !== "card").reduce((s, p) => s + (p.amount || 0), 0);
+    const cardBase = Math.max(0, basePaymentAmount - nonCard);
+    return basePaymentAmount + (pct > 0 ? Math.round(cardBase * pct) / 100 : 0);
+  }, [splitPayments, paymentCards, basePaymentAmount]);
+
   // Filtered customers
   const filteredCustomers = useMemo(() => {
     let filtered = customers;
@@ -668,8 +691,23 @@ export default function CustomerPaymentsPage() {
   }, []);
 
   const handleProceedToReview = useCallback(() => {
+    if (paymentDateError) {
+      showErrorToast(paymentDateError);
+      return;
+    }
     if (totalPaymentAmount <= 0) {
       showErrorToast("Total payment amount must be greater than 0");
+      return;
+    }
+    // The server refuses a payment larger than an invoice's balance, so an
+    // overpayment is blocked here rather than failing half-way through posting.
+    const enteredTotal = splitPayments.reduce((s, p) => s + (p.amount || 0), 0);
+    if (enteredTotal - splitDueTotal > 0.005) {
+      showErrorToast(
+        `The amount received (${currencySymbol} ${fmtLKR(enteredTotal)}) is more than the balance being paid ` +
+          `(${currencySymbol} ${fmtLKR(splitDueTotal)}). Reduce it by ${currencySymbol} ${fmtLKR(enteredTotal - splitDueTotal)}; ` +
+          `record any extra money as a customer advance.`
+      );
       return;
     }
 
@@ -723,10 +761,14 @@ export default function CustomerPaymentsPage() {
 
     setViewMode("review");
     setActiveStep(2);
-  }, [totalPaymentAmount, paymentMethod, referenceNumber, bankName, cardRefNumber, splitPayments]);
+  }, [totalPaymentAmount, paymentMethod, referenceNumber, bankName, cardRefNumber, splitPayments, paymentDateError, splitDueTotal, currencySymbol]);
 
   const handlePostPayment = useCallback(async () => {
     if (!selectedCustomer || paymentLines.length === 0) return;
+    if (paymentDateError) {
+      showErrorToast(paymentDateError);
+      return;
+    }
     if (postInFlightRef.current) return;
     postInFlightRef.current = true;
 
@@ -855,6 +897,7 @@ export default function CustomerPaymentsPage() {
     paymentLines,
     splitPayments,
     paymentDate,
+    paymentDateError,
     remarks,
     paymentCards,
     confirmDialog,
@@ -1531,7 +1574,10 @@ export default function CustomerPaymentsPage() {
               value={paymentDate}
               onChange={(e) => setPaymentDate(e.target.value)}
               InputLabelProps={{ shrink: true }}
+              inputProps={{ max: new Date().toISOString().split("T")[0] }}
               required
+              error={!!paymentDateError}
+              helperText={paymentDateError || undefined}
             />
           </Box>
 
@@ -1783,6 +1829,12 @@ export default function CustomerPaymentsPage() {
                     {remaining > 0.01 ? `${currencySymbol} ${fmtLKR(remaining)}` : remaining < -0.01 ? `- ${currencySymbol} ${fmtLKR(Math.abs(remaining))} (overpaid)` : "✓ Fully paid"}
                   </Typography>
                 </Box>
+                {remaining < -0.01 && (
+                  <Alert severity="error" sx={{ mt: 1, py: 0 }}>
+                    The amount received is more than the balance being paid. Overpayments are not
+                    accepted here: reduce the amount, and record any extra money as a customer advance.
+                  </Alert>
+                )}
                 {!isBalanced && (
                   <Button
                     size="small"

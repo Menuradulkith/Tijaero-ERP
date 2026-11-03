@@ -55,6 +55,9 @@ class LandedCostService:
             raise _bad("Landed cost can only be added to a posted GRN.")
         if data.supplier_id and not self.db.query(models.Supplier.id).filter(models.Supplier.id == data.supplier_id).first():
             raise _bad("Supplier not found.")
+        if data.payment_method == "credit" and not data.supplier_id:
+            # Cr Trade Creditors needs someone to owe it to.
+            raise _bad("Choose the supplier (forwarder) this charge is owed to, or record it as paid by cash or bank.")
 
         # One weight per PO line: its received quantity on this GRN (or quantity x unit price).
         lines = (

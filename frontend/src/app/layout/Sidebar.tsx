@@ -514,6 +514,7 @@ const menuItems: MenuItem[] = [
         subItems: [
           { text: "Salary Profiles", icon: <PersonIcon />, path: "/hr/salary-profiles", permission: PERMISSIONS.SALARY_PROFILES_VIEW },
           { text: "Deductions", icon: <ReceiptIcon />, path: "/hr/deductions", permission: PERMISSIONS.DEDUCTIONS_VIEW },
+          { text: "Loans & Advances", icon: <AccountBalanceWalletIcon />, path: "/hr/loans", permission: PERMISSIONS.DEDUCTIONS_VIEW },
           { text: "Payroll Records", icon: <ReceiptLongIcon />, path: "/hr/payroll", permission: PERMISSIONS.PAYROLL_VIEW },
           { text: "Payroll Processing", icon: <PaymentIcon />, path: "/hr/payroll-processing", permission: PERMISSIONS.PAYROLL_PROCESSING_VIEW },
           { text: "Sales Commissions", icon: <SellIcon />, path: "/hr/sales-commissions", permission: PERMISSIONS.HR_SALES_COMMISSIONS_VIEW },
@@ -887,7 +888,8 @@ export default function Sidebar({
                       {item.subItems!.map((subItem) => {
                         const isSubActive = subItem.subItems
                           ? false
-                          : location.pathname.startsWith(subItem.path) &&
+                          : (location.pathname === subItem.path ||
+                              location.pathname.startsWith(`${subItem.path}/`)) &&
                             (subItem.path === item.path
                               ? location.pathname === subItem.path
                               : true);
@@ -967,8 +969,9 @@ export default function Sidebar({
                                 <List disablePadding>
                                   {subItem.subItems!.map((nestedItem) => {
                                     const isNestedActive =
+                                      location.pathname === nestedItem.path ||
                                       location.pathname.startsWith(
-                                        nestedItem.path,
+                                        `${nestedItem.path}/`,
                                       );
                                     return (
                                       <ListItem

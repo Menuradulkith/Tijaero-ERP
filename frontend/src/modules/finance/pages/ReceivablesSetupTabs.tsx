@@ -78,7 +78,16 @@ export function WriteOffLimitsTab({ canEdit, layout }: { canEdit: boolean; layou
   };
   const value = editing ? draft : selected ? String(Number(selected.max_amount)) : "";
   const changed = !!selected && draft !== "" && Number(draft) !== Number(selected.max_amount);
-  const valid = draft.trim() !== "" && Number(draft) >= 0;
+  const MAX_LIMIT = 999999999.99;
+  const draftError =
+    draft.trim() === ""
+      ? null
+      : !/^\d+(\.\d{1,2})?$/.test(draft.trim())
+        ? "Enter an amount of 0 or more with at most 2 decimals"
+        : Number(draft) > MAX_LIMIT
+          ? "The limit can be at most 999,999,999.99"
+          : null;
+  const valid = draft.trim() !== "" && !draftError;
 
   const detail = selected && (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -121,9 +130,10 @@ export function WriteOffLimitsTab({ canEdit, layout }: { canEdit: boolean; layou
             value={value}
             disabled={!editing}
             onChange={(e) => setDraft(e.target.value)}
-            error={editing && Number(draft) < 0}
+            error={editing && !!draftError}
+            helperText={editing && draftError ? draftError : undefined}
             InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
-            inputProps={{ min: 0, step: "100" }}
+            inputProps={{ min: 0, max: MAX_LIMIT, step: "0.01" }}
           />
         </FormSection>
         <Alert severity="info" variant="outlined">

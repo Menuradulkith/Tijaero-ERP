@@ -179,8 +179,21 @@ class BankReconciliationService:
                 raise _bad(f"Line dated {ln.line_date} is outside the statement period.")
             if _d(ln.amount) == 0:
                 raise _bad("A statement line can't be zero.")
+        expected = _d(data.opening_balance) + sum((_d(ln.amount) for ln in data.lines), Decimal("0"))
+        if expected != _d(data.closing_balance):
+            raise _bad(
+                f"The closing balance ({_d(data.closing_balance)}) should be the opening balance plus the "
+                f"lines ({expected}). It is off by {_d(data.closing_balance) - expected} - check for a "
+                "missing or mistyped line."
+            )
+        statement_no = (data.statement_no or "").strip() or None
+        if statement_no and self.db.query(BankStatement.id).filter(
+            BankStatement.bank_account_id == ba.id, func.lower(BankStatement.statement_no) == statement_no.lower()
+        ).first():
+            raise _bad(f"Statement {statement_no} was already entered for this bank account.",
+                       status.HTTP_400_BAD_REQUEST)
         st = BankStatement(
-            bank_account_id=ba.id, statement_no=data.statement_no, date_from=data.date_from, date_to=data.date_to,
+            bank_account_id=ba.id, statement_no=statement_no, date_from=data.date_from, date_to=data.date_to,
             opening_balance=data.opening_balance, closing_balance=data.closing_balance, status="open",
             notes=data.notes, created_by=user_id,
         )
@@ -331,6 +344,8 @@ class BankReconciliationService:
         from .accounting_service import JournalEntryService
 
         ln = self._get_line(line_id)
+        if not ln.matches:
+            raise _bad("This line is not matched, so there is nothing to unmatch.", status.HTTP_400_BAD_REQUEST)
         created_gl = [m.gl_id for m in ln.matches if m.match_type == "created"]
         created = {je for (je,) in self.db.query(GeneralLedger.journal_entry_id).filter(GeneralLedger.id.in_(created_gl))} if created_gl else set()
         ln.matches.clear()

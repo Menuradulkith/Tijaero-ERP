@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema
 from app.modules.hr.inputs import (  # noqa: F401  strict input schemas live in inputs.py
-    SalaryDeductionCreate, ReimbursementItemCreate, ReimbursementCreate, ReimbursementUpdate, ReimbursementApprove, ReimbursementReject, ReimbursementVerify, ReimbursementPayment, EmployeePayrollCreate, PayrollRunRequest, PayrollBatchApprove, PayrollBatchReject, PayrollBatchProcessPayment, PayrollBatchProcessStatutory, EmployeeSalaryProfileCreate, EmployeePromotionCreate, EmployeeAssetCreate,
+    SalaryDeductionCreate, ReimbursementItemCreate, ReimbursementCreate, ReimbursementUpdate, ReimbursementApprove, ReimbursementReject, ReimbursementVerify, ReimbursementPayment, EmployeePayrollCreate, PayrollRunRequest, PayrollBatchApprove, PayrollBatchReject, PayrollBatchProcessPayment, PayrollBatchProcessStatutory, EmployeeSalaryProfileCreate, PayrollSettingsIn, LoanIn, LoanUpdate, LoanRepaymentIn, EmployeePromotionCreate, EmployeeAssetCreate,
 )
 
 # Salary Deduction Schemas
@@ -114,7 +114,23 @@ class EmployeePayrollBase(BaseModel):
     epf_employer: Optional[Decimal] = None
     etf_employer: Optional[Decimal] = None
 
+
+class AllowanceLine(BaseModel):
+    name: str
+    amount: Decimal
+    epf_liable: bool = False
+    taxable: bool = True
+
+
 class EmployeePayrollResponse(EmployeePayrollBase, TijaeroBaseSchema):
+    allowance_lines: Optional[List[AllowanceLine]] = None
+    allowances_total: Optional[Decimal] = None
+    ot_hours: Optional[Decimal] = None
+    add_overtime: Optional[Decimal] = None
+    nopay_days: Optional[Decimal] = None
+    less_nopay: Optional[Decimal] = None
+    epf_earnings: Optional[Decimal] = None
+    taxable_income: Optional[Decimal] = None
     id: int
     payroll_month: Optional[int] = None
     payroll_year: Optional[int] = None
@@ -153,6 +169,9 @@ class EmployeeSalaryProfileBase(BaseModel):
 
 class EmployeeSalaryProfile(EmployeeSalaryProfileBase, TijaeroBaseSchema):
     id: int
+    allowances: List[AllowanceLine] = []
+    allowances_total: Optional[Decimal] = None
+    epf_earnings: Optional[Decimal] = None
     designation: Optional[str] = None
     department: Optional[str] = None
     effective_from_date: Optional[date] = None
@@ -251,3 +270,20 @@ class HRStatistics(BaseModel):
     total_deductions: int = 0
     total_promotions: int = 0
     active_assets: int = 0
+
+
+class PayrollSettingsOut(BaseModel):
+    epf_employee_rate: Decimal
+    epf_employer_rate: Decimal
+    etf_rate: Decimal
+    pay_overtime: bool
+    ot_multiplier: Decimal
+    ot_divisor: int
+    deduct_late: bool
+    stamp_duty_amount: Decimal
+    stamp_duty_threshold: Decimal
+    gratuity_enabled: bool
+    employer_epf_no: Optional[str] = None
+    employer_tin: Optional[str] = None
+
+    model_config = {"from_attributes": True}

@@ -493,6 +493,11 @@ class PayrollService:
             created_at=str(p.created_at) if p.created_at else None,
             created_by=p.created_by,
             employee_name=self._resolve_employee_name(p.employee_id),
+            allowance_lines=p.allowance_lines,
+            allowances_total=sum((Decimal(str(a.get("amount") or 0)) for a in (p.allowance_lines or [])), Decimal("0"))
+            + Decimal(p.add_1_value or 0) + Decimal(p.add_2_value or 0),
+            ot_hours=p.ot_hours, add_overtime=p.add_overtime, nopay_days=p.nopay_days, less_nopay=p.less_nopay,
+            epf_earnings=p.epf_earnings, taxable_income=p.taxable_income,
         )
 
     def _batch_to_response(self, b: PayrollBatch, include_records: bool = False) -> schemas.PayrollBatchResponse:
@@ -548,57 +553,87 @@ class PayrollService:
 
     def _calculate_payroll(
         self,
-        profile: EmployeeSalaryProfile,
+        salary,
         deductions: List[SalaryDeductions],
         sales_commission: Decimal = Decimal("0"),
         factor: Decimal = Decimal("1"),
         nopay_days: Decimal = Decimal("0"),
         days_in_month: int = 30,
         epf_applicable: bool = True,
-    ) -> Dict[str, Decimal]:
-        """Payroll for one employee: salary profile (pro-rated when the employee joined or left during the
-        month), no-pay leave, statutory contributions (EPF/ETF only where the employment type has them),
-        APIT, and the month's deductions. Every amount is rounded to cents."""
+        settings=None,
+        ot_minutes: int = 0,
+        late_minutes: int = 0,
+        ot_eligible: bool = True,
+        loan_recovery: Decimal = Decimal("0"),
+    ) -> Dict[str, Any]:
+        """Payroll for one employee, Sri Lankan rules:
+
+        - salary (basic + allowance lines) is pro-rated when the employee joined or left during the month;
+        - EPF (8% / 12%) and ETF (3%) are on "total earnings" = basic + EPF-liable allowances, less no-pay
+          and late cuts; overtime and commission are not EPF earnings;
+        - overtime = hours x (basic + EPF-liable allowances) / divisor x multiplier (Shop & Office: 1.5 / 240);
+        - APIT is on gross pay less non-taxable allowances, no-pay and late cuts;
+        - stamp duty only when the pay is above the threshold.
+        Every amount is rounded to cents. Rates come from payroll settings."""
+        from .sl_payroll import allowance_list, payroll_settings
+        settings = settings or payroll_settings(self.db)
         q2 = lambda v: Decimal(v).quantize(Decimal("0.01"))
-        basic_full = profile.basic_salary or Decimal("0")
+        pct = lambda v: Decimal(v) / Decimal("100")
+        z = Decimal("0")
+
+        basic_full = Decimal(salary.basic_salary or 0)
+        lines_full = allowance_list(salary)
         basic = q2(basic_full * factor)
-        add_1 = q2((profile.add_1_value or Decimal("0")) * factor)
-        add_2 = q2((profile.add_2_value or Decimal("0")) * factor)
+        lines = [{"name": a["name"], "amount": q2(a["amount"] * factor), "epf_liable": a["epf_liable"], "taxable": a["taxable"]}
+                 for a in lines_full]
+        allowances = sum((a["amount"] for a in lines), z)
+        liable = sum((a["amount"] for a in lines if a["epf_liable"]), z)
+        non_taxable = sum((a["amount"] for a in lines if not a["taxable"]), z)
         sales_commission = q2(sales_commission)
 
-        gross_salary = basic + add_1 + add_2 + sales_commission
+        # Monthly earnings for rates: full month, basic + EPF-liable allowances
+        rate_base = basic_full + sum((a["amount"] for a in lines_full if a["epf_liable"]), z)
+        hourly = rate_base / Decimal(settings.ot_divisor or 240)
+        ot_hours = q2(Decimal(ot_minutes) / 60) if (settings.pay_overtime and ot_eligible and ot_minutes > 0) else z
+        overtime = q2(hourly * ot_hours * Decimal(settings.ot_multiplier)) if ot_hours else z
+        nopay = q2(rate_base / Decimal(days_in_month) * nopay_days) if nopay_days > 0 else z
+        late_auto = q2(hourly * Decimal(late_minutes) / 60) if (settings.deduct_late and late_minutes > 0) else z
 
-        epf_employee = q2(basic * self.EPF_EMPLOYEE_RATE) if epf_applicable else Decimal("0.00")
-        etf_employee = Decimal("0.00")  # ETF is employer-only in Sri Lanka
-        stamp_duty = self.STAMP_DUTY if basic > Decimal("0") else Decimal("0.00")
-        apit = self._calculate_apit(gross_salary)
-        epf_employer = q2(basic * self.EPF_EMPLOYER_RATE) if epf_applicable else Decimal("0.00")
-        etf_employer = q2(basic * self.ETF_EMPLOYER_RATE) if epf_applicable else Decimal("0.00")
+        gross_salary = basic + allowances + sales_commission + overtime
+        epf_earnings = max(z, basic + liable - nopay - late_auto)
+        taxable = max(z, gross_salary - non_taxable - nopay - late_auto)
 
-        late_deductions = Decimal("0")
-        salary_advance_repayment = Decimal("0")
-        loan_repayment = Decimal("0")
-        other_deductions = Decimal("0")
+        epf_employee = q2(epf_earnings * pct(settings.epf_employee_rate)) if epf_applicable else z
+        etf_employee = z  # ETF is employer-only in Sri Lanka
+        epf_employer = q2(epf_earnings * pct(settings.epf_employer_rate)) if epf_applicable else z
+        etf_employer = q2(epf_earnings * pct(settings.etf_rate)) if epf_applicable else z
+        stamp_duty = q2(settings.stamp_duty_amount) if (gross_salary - nopay) > Decimal(settings.stamp_duty_threshold) else z
+        apit = self._calculate_apit(taxable)
+
+        late_deductions = late_auto
+        salary_advance_repayment = z
+        loan_repayment = q2(loan_recovery)
+        other_deductions = z
         for d in deductions:
-            late_deductions += d.late_deductions or Decimal("0")
-            salary_advance_repayment += d.salary_advance_repayment or Decimal("0")
-            loan_repayment += d.loan_repayment or Decimal("0")
+            late_deductions += d.late_deductions or z
+            salary_advance_repayment += d.salary_advance_repayment or z
+            loan_repayment += d.loan_repayment or z
             if d.other_deductions is not None:
                 other_deductions += d.other_deductions
             elif not any([d.late_deductions, d.salary_advance_repayment, d.loan_repayment]):
                 # No component breakdown: the headline amount is a general deduction.
-                other_deductions += d.amount or Decimal("0")
-        if nopay_days > 0:
-            other_deductions += q2(basic_full / Decimal(days_in_month) * nopay_days)   # loss of pay
+                other_deductions += d.amount or z
 
         total_deductions = (epf_employee + etf_employee + stamp_duty + apit + late_deductions + salary_advance_repayment
-                            + loan_repayment + other_deductions)
+                            + loan_repayment + other_deductions + nopay)
         net_salary = gross_salary - total_deductions
-        total_employer_cost = gross_salary + epf_employer + etf_employer
+        total_employer_cost = gross_salary - nopay - late_auto + epf_employer + etf_employer
 
         return {
-            "basic_salary": basic, "add_1_name": profile.add_1_name, "add_1_value": add_1,
-            "add_2_name": profile.add_2_name, "add_2_value": add_2, "add_sales_commision": sales_commission,
+            "basic_salary": basic, "add_1_name": None, "add_1_value": None, "add_2_name": None, "add_2_value": None,
+            "allowance_lines": [{**a, "amount": str(a["amount"])} for a in lines], "add_sales_commision": sales_commission,
+            "ot_hours": ot_hours, "add_overtime": overtime, "nopay_days": q2(nopay_days), "less_nopay": nopay,
+            "epf_earnings": epf_earnings, "taxable_income": taxable,
             "gross_salary": gross_salary, "less_epf_employee": epf_employee, "less_etf_employee": etf_employee,
             "less_stamp_duty": stamp_duty, "less_late_deductions": late_deductions,
             "less_salary_advance_repayment": salary_advance_repayment, "less_loan_repayment": loan_repayment,
@@ -820,6 +855,12 @@ class PayrollService:
         for d in all_deductions:
             deductions_by_employee.setdefault(d.employee_id, []).append(d)
 
+        from .sl_payroll import attendance_minutes, payroll_settings, salary_for_period
+        from . import loans as loan_rules
+        from .models import HRLoanRecovery
+        settings = payroll_settings(self.db)
+        att = attendance_minutes(self.db, [p.employee_id for p in profiles], period_start, period_end)
+
         for profile in profiles:
             # Get employee's internal id
             emp_internal_id = employee_id_map.get(profile.employee_id)
@@ -840,41 +881,50 @@ class PayrollService:
 
             emp_obj, factor = profile_ctx[profile.employee_id]
             et = emp_obj.employment_type
-            calc = self._calculate_payroll(
-                profile, period_deductions, sales_commission, factor=factor, nopay_days=self._nopay_days(emp_obj, period_start, period_end),
-                days_in_month=days_in_month, epf_applicable=(et.epf_etf_applicable if et is not None else True),
+            ot_mins, late_mins = att.get(profile.employee_id, (0, 0))
+            args = dict(
+                salary=salary_for_period(self.db, profile, period_end), deductions=period_deductions,
+                sales_commission=sales_commission, factor=factor,
+                nopay_days=self._nopay_days(emp_obj, period_start, period_end), days_in_month=days_in_month,
+                epf_applicable=(et.epf_etf_applicable if et is not None else True), settings=settings,
+                ot_minutes=ot_mins, late_minutes=late_mins, ot_eligible=emp_obj.overtime_eligible is not False,
             )
+            calc = self._calculate_payroll(**args)
+
+            # Loan / advance instalments, never more than the pay left after everything else;
+            # a leaver's whole balance is recovered in the last month.
+            leaving = bool(emp_obj.last_working_date and emp_obj.last_working_date <= period_end
+                           and (emp_obj.status in LEFT_STATUSES or emp_obj.status == "notice_period"))
+            room = max(Decimal("0"), calc["net_salary"])
+            recoveries = []
+            for loan, due in loan_rules.due_for_period(self.db, emp_obj.id, period_str, leaving):
+                take = min(due, room)
+                if take <= 0:
+                    break
+                recoveries.append((loan, take))
+                room -= take
+            if recoveries:
+                calc = self._calculate_payroll(**args, loan_recovery=sum((t for _l, t in recoveries), Decimal("0")))
 
             payroll_record = EmployeePayroll(
                 employee_id=profile.employee_id,
                 payroll_month=month,
                 payroll_year=year,
                 payroll_batch_no=batch_no,
-                basic_salary=calc["basic_salary"],
-                add_1_name=calc["add_1_name"],
-                add_1_value=calc["add_1_value"],
-                add_2_name=calc["add_2_name"],
-                add_2_value=calc["add_2_value"],
-                add_sales_commision=calc["add_sales_commision"],
-                less_epf_employee=calc["less_epf_employee"],
-                less_etf_employee=calc["less_etf_employee"],
-                less_stamp_duty=calc["less_stamp_duty"],
-                less_late_deductions=calc["less_late_deductions"],
-                less_salary_advance_repayment=calc["less_salary_advance_repayment"],
-                less_loan_repayment=calc["less_loan_repayment"],
-                less_other_deductions=calc["less_other_deductions"],
-                less_apit=calc["less_apit"],
-                epf_employer=calc["epf_employer"],
-                etf_employer=calc["etf_employer"],
-                gross_salary=calc["gross_salary"],
-                total_deductions=calc["total_deductions"],
-                net_salary=calc["net_salary"],
-                total_employer_cost=calc["total_employer_cost"],
+                **calc,
                 status="draft",
                 created_at=tz.now(),
                 created_by=user_id,
             )
             self.db.add(payroll_record)
+            if recoveries:
+                self.db.flush()
+                for loan, take in recoveries:
+                    self.db.add(HRLoanRecovery(loan_id=loan.id, period=period_str, amount=take, payroll_id=payroll_record.id,
+                                               created_by=user_id, updated_by=user_id))
+                self.db.flush()
+                for loan, _take in recoveries:
+                    loan_rules.refresh_status(self.db, loan)
 
             total_gross += calc["gross_salary"]
             total_deductions += calc["total_deductions"]
@@ -1146,6 +1196,9 @@ class PayrollService:
             )
         batch.status = DocumentStatus.CANCELLED
         _audit(self.db, user_id, "cancel", "payroll_batch", batch.id, batch=batch.batch_no)
+        from . import loans as loan_rules
+        loan_rules.release_batch(self.db, [pid for (pid,) in self.db.query(EmployeePayroll.id).filter(
+            EmployeePayroll.payroll_batch_no == batch.batch_no)])
         self.db.query(EmployeePayroll).filter(
             EmployeePayroll.payroll_batch_no == batch.batch_no
         ).update({"status": "cancelled"})
@@ -1165,6 +1218,8 @@ class SalaryProfileService:
         return employee_id
 
     def _to_response(self, p: EmployeeSalaryProfile) -> schemas.EmployeeSalaryProfile:
+        from .sl_payroll import allowance_list
+        lines = allowance_list(p)
         return schemas.EmployeeSalaryProfile(
             id=p.id,
             employee_id=p.employee_id,
@@ -1173,6 +1228,9 @@ class SalaryProfileService:
             add_1_value=p.add_1_value,
             add_2_name=p.add_2_name,
             add_2_value=p.add_2_value,
+            allowances=lines,
+            allowances_total=sum((a["amount"] for a in lines), Decimal("0")),
+            epf_earnings=(p.basic_salary or Decimal("0")) + sum((a["amount"] for a in lines if a["epf_liable"]), Decimal("0")),
             designation=p.designation,
             department=p.department,
             effective_from_date=p.effective_from_date,
@@ -1180,14 +1238,46 @@ class SalaryProfileService:
             employee_name=self._resolve_employee_name(p.employee_id),
         )
 
+    @staticmethod
+    def _values(profile: schemas.EmployeeSalaryProfileCreate) -> Dict[str, Any]:
+        """Profile columns from the input: allowance lines replace the two legacy slots."""
+        from .sl_payroll import allowances_json
+        data = profile.model_dump(exclude={"allowances", "revision_reason", "revision_remarks"})
+        if profile.allowances is not None:
+            data["allowances"] = allowances_json(profile.allowances)
+            data.update(add_1_name=None, add_1_value=None, add_2_name=None, add_2_value=None)
+        return data
+
+    def _revise(self, p: EmployeeSalaryProfile, profile: schemas.EmployeeSalaryProfileCreate, user_id: int, first: bool) -> None:
+        """Keep the salary history: a new revision when pay changes (or on the same start date, a correction)."""
+        from .sl_payroll import allowance_list, record_revision
+        from app.modules.employees.models import SalaryRevision
+        when = p.effective_from_date or tz.today()
+        lines = [{"name": a["name"], "amount": str(a["amount"]), "epf_liable": a["epf_liable"], "taxable": a["taxable"]}
+                 for a in allowance_list(p)]
+        last = (self.db.query(SalaryRevision).filter(SalaryRevision.employee_id == p.employee_id)
+                .order_by(SalaryRevision.effective_from.desc()).first())
+        if last is not None and last.effective_from != when:
+            same = Decimal(last.basic_salary) == Decimal(p.basic_salary) and [
+                (a["name"], a["amount"], a["epf_liable"], a["taxable"]) for a in allowance_list(last)] == [
+                (a["name"], a["amount"], a["epf_liable"], a["taxable"]) for a in allowance_list(p)]
+            if same:
+                return
+        record_revision(self.db, p.employee_id, when, p.basic_salary, lines, "joining" if first and last is None else profile.revision_reason,
+                        profile.revision_remarks, user_id)
+
     def create_profile(self, profile: schemas.EmployeeSalaryProfileCreate, user_id: int = 0) -> schemas.EmployeeSalaryProfile:
         _live_employee(self.db, profile.employee_id)
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"salary-profile-{profile.employee_id}"})
         if self.db.query(EmployeeSalaryProfile.id).filter(EmployeeSalaryProfile.employee_id == profile.employee_id).first():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Salary profile already exists for employee '{profile.employee_id}'")
-        db_profile = EmployeeSalaryProfile(**profile.model_dump(), created_by=user_id)
+        db_profile = EmployeeSalaryProfile(**self._values(profile), created_by=user_id)
+        if not db_profile.effective_from_date:
+            emp = self.db.query(Employee).filter(Employee.employee_id == profile.employee_id).first()
+            db_profile.effective_from_date = (emp.date_of_joining if emp else None) or tz.today()
         self.db.add(db_profile)
         self.db.flush()
+        self._revise(db_profile, profile, user_id, first=True)
         _audit(self.db, user_id, "create", "salary_profile", db_profile.id, employee=profile.employee_id, basic=str(profile.basic_salary))
         self.db.commit()
         self.db.refresh(db_profile)
@@ -1216,13 +1306,38 @@ class SalaryProfileService:
         if profile.employee_id != db_profile.employee_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A salary profile cannot be moved to another employee")
         before = str(db_profile.basic_salary)
-        for key, value in profile.model_dump().items():
+        for key, value in self._values(profile).items():
             setattr(db_profile, key, value)
         db_profile.updated_by = user_id
+        self.db.flush()
+        self._revise(db_profile, profile, user_id, first=False)
         _audit(self.db, user_id, "update", "salary_profile", db_profile.id, basic=[before, str(profile.basic_salary)])
         self.db.commit()
         self.db.refresh(db_profile)
         return self._to_response(db_profile)
+
+    def revisions(self, employee_id: str) -> List[dict]:
+        from .sl_payroll import revisions_of
+        return revisions_of(self.db, employee_id)
+
+    def delete_revision(self, revision_id: int, user_id: int = 0) -> None:
+        """Remove a salary revision entered by mistake (not the only one, and not one a payroll run used)."""
+        from app.modules.employees.models import SalaryRevision
+        row = self.db.query(SalaryRevision).filter(SalaryRevision.id == revision_id).with_for_update().first()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Salary revision not found")
+        if self.db.query(SalaryRevision).filter(SalaryRevision.employee_id == row.employee_id).count() <= 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The only salary revision cannot be removed")
+        used = self.db.query(EmployeePayroll.id).filter(
+            EmployeePayroll.employee_id == row.employee_id, func.coalesce(EmployeePayroll.status, "draft") != "cancelled",
+            EmployeePayroll.payroll_batch_no.isnot(None),
+            (EmployeePayroll.payroll_year * 100 + EmployeePayroll.payroll_month) >= row.effective_from.year * 100 + row.effective_from.month,
+        ).first()
+        if used:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payroll has already been run on this salary; add a new revision instead")
+        _audit(self.db, user_id, "delete", "salary_revision", row.id, employee=row.employee_id, effective_from=str(row.effective_from))
+        self.db.delete(row)
+        self.db.commit()
 
     def delete_profile(self, profile_id: int, user_id: int = 0):
         db_profile = self.db.query(EmployeeSalaryProfile).filter(EmployeeSalaryProfile.id == profile_id).with_for_update().first()
