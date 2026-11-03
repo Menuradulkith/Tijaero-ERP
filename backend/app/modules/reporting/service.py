@@ -13,7 +13,7 @@ from app.modules.finance.models import (
     ChequePayments,
     Expenses,
 )
-from app.modules.hr.models import Reimbursements, SalaryDeductions
+from app.modules.hr.models import PayrollBatch, Reimbursements
 from app.modules.products.models import Product
 from app.modules.inventory.models import SalesStock
 from app.modules.sales.models import Invoice, InvoiceItems
@@ -262,14 +262,27 @@ class ReportingService:
     def get_finance_report(
         self, request: schemas.FinanceReportRequest
     ) -> schemas.FinanceReportResponse:
-        """Generate comprehensive finance report"""
+        """Finance summary for a period.
+
+        Income, expenses and net profit are the income statement's (the GL) for
+        the range. Bank deposits, card and cheque payments are cash RECEIPTS
+        (``total_receipts``), not income: a deposit moves cash already counted,
+        and a cheque may still bounce.
+        """
+        from app.modules.finance.accounting_models import GeneralLedger
+        from app.modules.finance.accounting_service import GeneralLedgerService
+
+        # created_date is a timestamp: compare against the day after end_date so
+        # deposits made on the last day are kept.
+        day_after_end = request.end_date + timedelta(days=1)
+
         # Bank deposits
         bank_deposits = (
             self.db.query(func.sum(BankDeposits.deposits_amount))
             .filter(
                 and_(
                     BankDeposits.created_date >= request.start_date,
-                    BankDeposits.created_date <= request.end_date,
+                    BankDeposits.created_date < day_after_end,
                 )
             )
             .scalar()
@@ -315,8 +328,27 @@ class ReportingService:
             or 0
         )
 
-        total_income = float(bank_deposits + card_payments + cheque_payments)
-        net_profit = total_income - float(total_expenses)
+        total_receipts = float(bank_deposits + card_payments + cheque_payments)
+
+        # Income statement for the range (one call per fiscal year it spans).
+        gl_service = GeneralLedgerService(self.db)
+        total_income = total_gl_expenses = net_profit = 0.0
+        fiscal_years = [
+            fy for (fy,) in self.db.query(GeneralLedger.fiscal_year).filter(
+                GeneralLedger.posting_date >= request.start_date,
+                GeneralLedger.posting_date <= request.end_date,
+            ).distinct().all()
+        ]
+        for fy in sorted(fiscal_years):
+            stmt = gl_service.get_income_statement(
+                fiscal_year=fy, date_from=request.start_date, date_to=request.end_date
+            )
+            total_income += float(stmt.revenue.total) + float(stmt.other_income.total)
+            total_gl_expenses += (
+                float(stmt.cost_of_sales.total) + float(stmt.operating_expenses.total)
+                + float(stmt.other_expenses.total)
+            )
+            net_profit += float(stmt.net_income)
 
         # Expenses by method
         expenses_by_method = (
@@ -348,7 +380,7 @@ class ReportingService:
             .filter(
                 and_(
                     BankDeposits.created_date >= request.start_date,
-                    BankDeposits.created_date <= request.end_date,
+                    BankDeposits.created_date < day_after_end,
                 )
             )
             .group_by("month")
@@ -362,8 +394,10 @@ class ReportingService:
 
         return schemas.FinanceReportResponse(
             total_income=total_income,
-            total_expenses=float(total_expenses),
+            total_expenses=total_gl_expenses,
             net_profit=net_profit,
+            total_receipts=total_receipts,
+            expense_module_total=float(total_expenses),
             bank_deposits=float(bank_deposits),
             card_payments=float(card_payments),
             cheque_payments=float(cheque_payments),
@@ -489,19 +523,26 @@ class ReportingService:
         # Total employees
         total_employees = self.db.query(func.count(Employee.id)).scalar() or 0
 
-        # Payroll
-        total_payroll = (
-            self.db.query(func.sum(EmployeePayroll.basic_salary)).scalar() or 0
+        # Payroll: the records of the payroll batches for the months in the range
+        # that have been paid (the GL posts a batch when its salaries are paid).
+        first_period = request.start_date.year * 100 + request.start_date.month
+        last_period = request.end_date.year * 100 + request.end_date.month
+        total_payroll, total_deductions = (
+            self.db.query(
+                func.coalesce(func.sum(EmployeePayroll.gross_salary), 0),
+                func.coalesce(func.sum(EmployeePayroll.total_deductions), 0),
+            )
+            .join(PayrollBatch, PayrollBatch.batch_no == EmployeePayroll.payroll_batch_no)
+            .filter(
+                PayrollBatch.status.in_(("salary_paid", "statutory_paid", "completed")),
+                (PayrollBatch.payroll_year * 100 + PayrollBatch.payroll_month).between(first_period, last_period),
+            )
+            .one()
         )
 
         # Reimbursements
         total_reimbursements = (
             self.db.query(func.sum(Reimbursements.total_amount)).scalar() or 0
-        )
-
-        # Deductions
-        total_deductions = (
-            self.db.query(func.sum(SalaryDeductions.amount)).scalar() or 0
         )
 
         return schemas.HRReportResponse(
@@ -574,7 +615,8 @@ class ReportingService:
             .filter(
                 and_(
                     WarrantyClaims.created_date >= request.start_date,
-                    WarrantyClaims.created_date <= request.end_date,
+                    # timestamp column: keep claims made on the last day
+                    WarrantyClaims.created_date < request.end_date + timedelta(days=1),
                 )
             )
             .scalar()

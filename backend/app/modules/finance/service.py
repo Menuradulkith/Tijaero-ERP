@@ -137,13 +137,30 @@ class ExpenseService:
             validate_branch_is_active(self.db, expense.branch_code)
         from app.modules.finance.posting_dates import check_posting_date
         check_posting_date(self.db, getattr(expense, "expense_date", None), "Expense date")
+        self._check_expense_account(getattr(expense, "account_code", None))
 
         return self.repo.create(expense, submitted_by=submitted_by)
+
+    def _check_expense_account(self, code: Optional[str]) -> None:
+        """Paying an expense posts Dr <account>: it must be an active Expense
+        account you can post to — never a bank, debtor or other control account."""
+        if not code:
+            return
+        from app.modules.finance.accounting_models import ChartOfAccounts
+        acc = self.db.query(ChartOfAccounts).filter(ChartOfAccounts.account_code == code.strip()).first()
+        is_header = acc is not None and self.db.query(ChartOfAccounts.id).filter(
+            ChartOfAccounts.parent_account_id == acc.id).first() is not None
+        if acc is None or not acc.is_active or is_header or (acc.account_type or "").lower() != "expense":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Account {code} can't take an expense: choose an active expense account (not a heading).",
+            )
 
     def update_expense(self, expense_id: int, data: schemas.ExpenseUpdate) -> models.Expenses:
         expense = self.get_expense(expense_id)
         if expense.status not in ("pending", "rejected"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot update expense in '{expense.status}' status")
+        self._check_expense_account(getattr(data, "account_code", None))
         return self.repo.update(expense_id, data)
 
     def get_expense(self, expense_id: int) -> models.Expenses:
@@ -709,14 +726,12 @@ class CashbookService:
                 ).all()
                 pre_balance = Decimal("0")
                 for pr in pre_records:
-                    mi = Decimal(str(pr.money_in)) if pr.money_in else Decimal("0")
-                    mo = Decimal(str(pr.money_out)) if pr.money_out else Decimal("0")
-                    pre_balance += mi - mo
+                    pre_balance += self._balance_effect(pr)
                 running_balance = pre_balance
                 opening_balance_seed = pre_balance
 
         for entry in sorted_entries:
-            running_balance = running_balance + entry.money_in - entry.money_out
+            running_balance = running_balance + self._balance_effect(entry)
             entry.running_balance = running_balance
 
         entries = list(reversed(sorted_entries))  # back to newest first
@@ -733,6 +748,15 @@ class CashbookService:
             entry_count=len(entries)
         )
     
+    @staticmethod
+    def _balance_effect(entry) -> Decimal:
+        """Effect of one cashbook row on the cash + bank balance (a deposit is a transfer)."""
+        if entry.entry_type == "bank_deposit":
+            return Decimal("0")
+        mi = Decimal(str(entry.money_in)) if entry.money_in else Decimal("0")
+        mo = Decimal(str(entry.money_out)) if entry.money_out else Decimal("0")
+        return mi - mo
+
     def _calculate_summary(self, entries: List[schemas.CashbookEntry], opening_balance: Decimal = Decimal("0")) -> schemas.CashbookSummary:
         """Calculate summary statistics from entries"""
         summary = schemas.CashbookSummary()
@@ -773,7 +797,9 @@ class CashbookService:
                 summary.voucher_sales += entry.money_in
                 summary.voucher_sales_count += 1
         
-        summary.net_movement = summary.total_money_in - summary.total_money_out
+        # A bank deposit moves money from the till to the bank: both are in the
+        # cashbook, so it leaves the cash + bank balance unchanged (as day-end).
+        summary.net_movement = summary.total_money_in - summary.total_money_out + summary.bank_deposits
         summary.closing_balance = summary.opening_balance + summary.net_movement
         
         return summary

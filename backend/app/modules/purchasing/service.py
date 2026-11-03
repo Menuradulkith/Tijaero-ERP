@@ -3601,19 +3601,25 @@ class SupplierCreditsSettleService:
             entity_id=settle.id,
             changes={"settle_no": settle.supplier_credits_settle_no, "status": "verified"},
         )
-        self.db.commit()
-        self.db.refresh(settle)
-        
+
         # ── GL Auto-Posting: Scenario 31 – Credit Settlement Verified ──
+        # Posted in the same transaction as the status (savepoint), still under the
+        # row lock: a cancel arriving meanwhile waits and then finds the journal to
+        # reverse, instead of cancelling in the gap and leaving the journal live.
+        gl_err = None
+        savepoint = self.db.begin_nested()
         try:
             from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
-            gl_service = PurchaseExpensePayrollGL(self.db)
-            gl_service.post_credit_settlement_to_gl(settle, user_id=verified_by or 0)
-            self.db.commit()
-        except Exception as gl_err:
+            PurchaseExpensePayrollGL(self.db).post_credit_settlement_to_gl(settle, user_id=verified_by or 0)
+            savepoint.commit()
+        except Exception as err:  # noqa: BLE001 - the settlement stands; the posting is retried from Finance
+            savepoint.rollback()
+            gl_err = err
+        self.db.commit()
+        self.db.refresh(settle)
+        if gl_err is not None:
             import logging
             logging.getLogger(__name__).warning(f"GL posting for credit settlement {settle.supplier_credits_settle_no} failed (non-blocking): {gl_err}")
-            self.db.rollback()
             record_gl_commit_failure(
                 self.db,
                 reference_type="CreditSettle",
@@ -3846,7 +3852,10 @@ class SupplierPaymentService:
         return self.repo.update(payment_id, payment_update)
     
     def verify_payment(self, payment_id: int, verified_by: int) -> models.SupplierPayment:
-        payment = self.repo.get_by_id(payment_id)
+        # Row lock: parallel verifies queue here, so only the first sees "pending".
+        payment = self.db.query(models.SupplierPayment).filter(
+            models.SupplierPayment.id == payment_id
+        ).with_for_update().populate_existing().first()
         if not payment:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

@@ -16,6 +16,7 @@ from app.modules.common.approval_service import (
     approval_service,
 )
 from app.modules.employees.models import Employee
+from app.modules.hr.scope import employee_names
 
 LIVE = ("active", "probation", "notice_period")
 
@@ -63,7 +64,7 @@ def _attendance_status(att: Attendance) -> str:
     return "present"   # checked in (still working or finished the day)
 
 
-def _to_attendance_response(db: Session, att: Attendance) -> schemas.Attendance:
+def _to_attendance_response(db: Session, att: Attendance, name: Optional[str] = None) -> schemas.Attendance:
     payload = {
         "id": att.id,
         "employee_id": att.employee_id,
@@ -79,14 +80,14 @@ def _to_attendance_response(db: Session, att: Attendance) -> schemas.Attendance:
         "early_mins": att.early_mins,
         "absent_mins": att.absent_mins,
         "leave_mins": att.leave_mins,
-        "employee_name": _resolve_employee_name(db, att.employee_id),
+        "employee_name": name if name is not None else _resolve_employee_name(db, att.employee_id),
         "branch_name": att.branch_code,
         "status": _attendance_status(att),
     }
     return schemas.Attendance(**payload)
 
 
-def _to_leave_response(db: Session, lv: Leaves) -> schemas.Leave:
+def _to_leave_response(db: Session, lv: Leaves, name: Optional[str] = None) -> schemas.Leave:
     return schemas.Leave(
         id=lv.id,
         employee_id=lv.employee_id,
@@ -101,7 +102,7 @@ def _to_leave_response(db: Session, lv: Leaves) -> schemas.Leave:
         approved_by=lv.approved_by,
         approved_date=lv.approved_date,
         rejection_reason=lv.rejection_reason,
-        employee_name=_resolve_employee_name(db, lv.employee_id),
+        employee_name=name if name is not None else _resolve_employee_name(db, lv.employee_id),
         created_at=lv.created_at,
     )
 
@@ -171,6 +172,7 @@ class AttendanceService:
             raise HTTPException(status_code=400, detail="This employee is no longer in service")
         self._branch_ok(data.branch_code)
         _need_branch(actor, data.branch_code)
+        _need_branch(actor, emp.branch_code)   # the employee's own branch too, not just the one on the record
         _lock(self.db, f"att-{data.employee_id}-{data.date or tz.today()}")
         if data.check_in and (data.date or tz.today()) == tz.today():
             import datetime as _dt
@@ -230,6 +232,7 @@ class AttendanceService:
             raise HTTPException(status_code=400, detail="The date is before the employee joined")
         self._branch_ok(data.branch_code)
         _need_branch(actor, data.branch_code)
+        _need_branch(actor, emp.branch_code)
         _lock(self.db, f"att-{data.employee_id}-{data.date}")
         existing = attendance_repo.get_by_employee_date(self.db, data.employee_id, data.date)
         if existing:
@@ -290,7 +293,8 @@ class AttendanceService:
             limit=filters.limit,
             allowed_branches=_branches_of(actor),
         )
-        return [_to_attendance_response(self.db, r) for r in rows]
+        names = employee_names(self.db, [r.employee_id for r in rows])   # one query, not two per row
+        return [_to_attendance_response(self.db, r, names.get(r.employee_id, r.employee_id)) for r in rows]
 
     def summary(
         self,
@@ -304,32 +308,40 @@ class AttendanceService:
             raise HTTPException(status_code=400, detail="Choose a period of at most 400 days, ending after it starts")
         if branch_code:
             _need_branch(actor, branch_code)
-        rows = attendance_repo.list(
-            self.db,
+        from sqlalchemy import case, func
+
+        leave = func.coalesce(Attendance.leave_mins, 0)
+
+        def count_if(cond):
+            return func.coalesce(func.sum(case((cond, 1), else_=0)), 0)
+
+        # One aggregate query instead of loading every row of the period into Python.
+        total_records, total_present, total_absent, total_late, total_leave, total_work_mins, total_ot_mins = attendance_repo.filtered(
+            self.db.query(
+                func.count(Attendance.id),
+                count_if(Attendance.check_in.isnot(None) & (leave == 0)),
+                count_if(Attendance.check_in.is_(None) & (leave == 0)),
+                count_if(func.coalesce(Attendance.late_mins, 0) > 0),
+                count_if(leave > 0),
+                func.coalesce(func.sum(Attendance.work_mins), 0),
+                func.coalesce(func.sum(Attendance.ot_mins), 0),
+            ),
             employee_id=employee_id,
             branch_code=branch_code,
             date_from=date_from,
             date_to=date_to,
-            skip=0,
-            limit=100000,
             allowed_branches=_branches_of(actor),
-        )
-        total_present = sum(1 for r in rows if r.check_in and not (r.leave_mins or 0))
-        total_absent = sum(1 for r in rows if not r.check_in and not (r.leave_mins or 0))
-        total_late = sum(1 for r in rows if (r.late_mins or 0) > 0)
-        total_leave = sum(1 for r in rows if (r.leave_mins or 0) > 0)
-        total_work_mins = sum((r.work_mins or 0) for r in rows)
-        total_ot_mins = sum((r.ot_mins or 0) for r in rows)
+        ).one()
         return schemas.AttendanceSummary(
             period_from=date_from,
             period_to=date_to,
-            total_records=len(rows),
+            total_records=total_records,
             total_present=total_present,
             total_absent=total_absent,
             total_late=total_late,
             total_leave=total_leave,
-            total_work_hours=round(total_work_mins / 60.0, 2),
-            total_ot_hours=round(total_ot_mins / 60.0, 2),
+            total_work_hours=round(float(total_work_mins) / 60.0, 2),
+            total_ot_hours=round(float(total_ot_mins) / 60.0, 2),
         )
 
 
@@ -435,7 +447,8 @@ class LeaveService:
             status=filters.status,
             allowed_branches=_branches_of(actor),
         )
-        return [_to_leave_response(self.db, lv) for lv in leaves]
+        names = employee_names(self.db, [lv.employee_id for lv in leaves])
+        return [_to_leave_response(self.db, lv, names.get(lv.employee_id, lv.employee_id)) for lv in leaves]
 
     def approve(self, leave_id: int, data: schemas.LeaveApprove, approver_id: int, actor: Optional[User] = None) -> schemas.Leave:
         # Lock row to prevent concurrent approve/reject race

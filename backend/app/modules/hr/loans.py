@@ -4,7 +4,7 @@ Issuing one posts  Dr 1130 Employee Advances / Cr Cash or Bank; payroll then cre
 instalment (less_loan_repayment). A cash repayment posts Dr Cash or Bank / Cr 1130."""
 import logging
 from decimal import Decimal
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, text
@@ -56,6 +56,29 @@ def due_for_period(db: Session, employee_pk: int, period: str, leaving: bool) ->
         if bal <= 0:
             continue
         out.append((loan, bal if leaving else min(Decimal(loan.installment_amount), bal)))
+    return out
+
+
+def dues_for_period(db: Session, leaving_by_pk: Dict[int, bool], period: str) -> Dict[int, List[tuple]]:
+    """due_for_period for many employees in two queries: {employee pk: [(loan, amount, balance before)]}."""
+    loans = (db.query(HREmployeeLoan)
+             .filter(HREmployeeLoan.employee_pk.in_(list(leaving_by_pk)), HREmployeeLoan.status == "active",
+                     HREmployeeLoan.start_period <= period)
+             .order_by(HREmployeeLoan.issue_date, HREmployeeLoan.id).all())
+    if not loans:
+        return {}
+    done = dict(db.query(HRLoanRecovery.loan_id, func.coalesce(func.sum(HRLoanRecovery.amount), 0))
+                .outerjoin(EmployeePayroll, EmployeePayroll.id == HRLoanRecovery.payroll_id)
+                .filter(HRLoanRecovery.loan_id.in_([l.id for l in loans]),
+                        or_(HRLoanRecovery.payroll_id.is_(None), func.coalesce(EmployeePayroll.status, "draft") != "cancelled"))
+                .group_by(HRLoanRecovery.loan_id).all())
+    out: Dict[int, List[tuple]] = {}
+    for loan in loans:
+        bal = max(ZERO, Decimal(loan.amount) - Decimal(done.get(loan.id) or 0))
+        if bal <= 0:
+            continue
+        due = bal if leaving_by_pk[loan.employee_pk] else min(Decimal(loan.installment_amount), bal)
+        out.setdefault(loan.employee_pk, []).append((loan, due, bal))
     return out
 
 
@@ -121,8 +144,11 @@ class LoanService:
                                   "cancelled": bool(p and p.status == "cancelled"), "remarks": r.remarks} for r, p in rows]
         return out
 
-    def list(self, status_: Optional[str] = None, employee_pk: Optional[int] = None, loan_type: Optional[str] = None) -> List[dict]:
+    def list(self, status_: Optional[str] = None, employee_pk: Optional[int] = None, loan_type: Optional[str] = None,
+             branches: Optional[List[str]] = None) -> List[dict]:
         q = self.db.query(HREmployeeLoan, Employee).join(Employee, Employee.id == HREmployeeLoan.employee_pk)
+        if branches is not None:
+            q = q.filter(or_(Employee.branch_code.in_(branches), Employee.branch_code.is_(None)))
         if status_:
             q = q.filter(HREmployeeLoan.status == status_)
         if employee_pk:

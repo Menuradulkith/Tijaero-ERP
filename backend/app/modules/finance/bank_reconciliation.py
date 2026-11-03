@@ -369,6 +369,18 @@ class BankReconciliationService:
             raise _bad("Choose an active account.")
         if contra.id == ba.account_id:
             raise _bad("Choose the account the money came from or went to, not the bank account itself.")
+        # The entry posts straight away, so the manual-journal account rules apply: no
+        # headings, and no control or VAT accounts (those move with their source documents).
+        from .accounting_service import CONTROL_ACCOUNT_CATEGORIES
+        from .tax_service import VatReturnService
+
+        if self.db.query(ChartOfAccounts.id).filter(ChartOfAccounts.parent_account_id == contra.id).first():
+            raise _bad(f"Account {contra.account_code} is a heading, not an account you can post to: choose one of its sub-accounts.")
+        if contra.account_category in CONTROL_ACCOUNT_CATEGORIES:
+            raise _bad(f"Account {contra.account_code} is a control account ({contra.account_category}): "
+                       "record this through its source document (customer receipt, supplier payment...) and match the line to it.")
+        if any(contra.id in ids for ids in VatReturnService(self.db)._vat_account_ids().values()):
+            raise _bad(f"Account {contra.account_code} is a VAT account: settle VAT through the VAT return, then match the line to it.")
         amount = _d(ln.amount)
         desc = (data.description or ln.description or "Bank statement item")[:500]
         bank_line = {"account_code": ba.account.account_code, "description": desc,

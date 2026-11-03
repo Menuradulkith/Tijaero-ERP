@@ -81,6 +81,10 @@ class FinanceReportResponse(BaseModel):
     total_income: float
     total_expenses: float
     net_profit: float
+    # Income / expenses / net profit are the income statement's; these are cash receipts
+    # (deposits + card + cheque) and the expense module's total, for reference.
+    total_receipts: float = 0.0
+    expense_module_total: float = 0.0
     bank_deposits: float
     card_payments: float
     cheque_payments: float

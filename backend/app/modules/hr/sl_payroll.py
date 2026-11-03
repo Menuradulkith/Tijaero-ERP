@@ -10,10 +10,11 @@ from typing import Dict, List, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.auth.models import User
 from app.common.audit import log_audit
+from app.utils.csv_export import csv_safe
 from app.core import timezone as tz
 from app.modules.attendance.models import Attendance
 from app.modules.employees.models import Employee, EmployeePayroll, EmployeeSalaryProfile, EmployeesAssets, SalaryRevision
@@ -82,6 +83,16 @@ def salary_for_period(db: Session, profile: EmployeeSalaryProfile, period_end: d
            .filter(SalaryRevision.employee_id == profile.employee_id, SalaryRevision.effective_from <= period_end)
            .order_by(SalaryRevision.effective_from.desc()).first())
     return rev or profile
+
+
+def salaries_for_period(db: Session, profiles: List[EmployeeSalaryProfile], period_end: date) -> dict:
+    """salary_for_period for many employees in one query: {employee code: revision or profile}."""
+    latest = {}
+    for rev in (db.query(SalaryRevision)
+                .filter(SalaryRevision.employee_id.in_([p.employee_id for p in profiles]), SalaryRevision.effective_from <= period_end)
+                .order_by(SalaryRevision.employee_id, SalaryRevision.effective_from.desc())):
+        latest.setdefault(rev.employee_id, rev)
+    return {p.employee_id: latest.get(p.employee_id, p) for p in profiles}
 
 
 def record_revision(db: Session, employee_id: str, effective_from: date, basic: Decimal, allowances: List[dict],
@@ -160,6 +171,7 @@ def statutory_return(db: Session, batch_id: int, kind: str) -> dict:
     settings = payroll_settings(db)
     records = (db.query(EmployeePayroll, Employee)
                .join(Employee, Employee.employee_id == EmployeePayroll.employee_id)
+               .options(joinedload(Employee.user))   # _name() falls back to the user: load it with the row
                .filter(EmployeePayroll.payroll_batch_no == batch.batch_no)
                .order_by(Employee.employee_id).all())
     period = date(batch.payroll_year, batch.payroll_month, 1).strftime("%B %Y")
@@ -219,7 +231,8 @@ def statutory_csv(data: dict) -> str:
     w = csv.writer(buf)
     w.writerow([label for _k, label in cols])
     for r in data["rows"]:
-        w.writerow([f"{r[k]:.2f}" if isinstance(r[k], Decimal) else r[k] for k, _l in cols])
+        # Names / account names are free text: neutralise "=", "+", "-", "@" so a cell never runs as a formula.
+        w.writerow([f"{r[k]:.2f}" if isinstance(r[k], Decimal) else csv_safe(r[k]) for k, _l in cols])
     w.writerow(["TOTAL"] + ["" for _ in cols[1:-1]] + [f"{data['totals'][cols[-1][0]]:.2f}"])
     return buf.getvalue()
 

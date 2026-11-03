@@ -481,6 +481,10 @@ def preview_template(
             raise HTTPException(status_code=422, detail=problems[0])
     if doc.guarded:
         ensure_document_printable(db, doc.key, body.document_id, user)
+    else:
+        # Payslips / vouchers have no approval step: still only the user's branches.
+        from app.modules.reporting.api import _ensure_unguarded_branch_access
+        _ensure_unguarded_branch_access(db, user, doc.key, body.document_id, getattr(body, "period", None))
 
     draft = DocumentTemplate(
         document_type=doc.key,

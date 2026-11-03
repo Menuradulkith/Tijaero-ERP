@@ -263,6 +263,8 @@ class FixedAssetService:
         end = _month_end(year, month)
         if end > _month_end(tz.today().year, tz.today().month):
             raise _bad("Depreciation can't be run for a future month.")
+        # Run during the current month: the month's charge is dated today, not on
+        # the month-end still ahead, so today's balance sheet includes it.
         self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext('fa-depreciation-run'))"))
         if self.db.query(DepreciationRun.id).filter(DepreciationRun.period_year == year, DepreciationRun.period_month == month,
                                                     DepreciationRun.status == "posted").first():
@@ -299,7 +301,7 @@ class FixedAssetService:
                 lines.append({"account_code": posting_ref("ACCUM_DEPRECIATION"), "debit": Decimal("0"), "credit": amount,
                               "description": f"Depreciation {year}-{month:02d} - {a.asset_no}"})
             # A run's id is not an asset id: its own reference type keeps the two apart.
-            je = self._post(reference_type="DepreciationRun", reference_id=run.id, reference_no=f"DEP-{year}-{month:02d}", lines=lines, on=end,
+            je = self._post(reference_type="DepreciationRun", reference_id=run.id, reference_no=f"DEP-{year}-{month:02d}", lines=lines, on=min(end, tz.today()),
                             description=f"Depreciation {year}-{month:02d}" + (f" | {branch}" if branch else ""),
                             branch_code=branch, user_id=user_id, marker=f"FA Depreciation run {run.id} {branch or '-'}")
             for a, amount in items:

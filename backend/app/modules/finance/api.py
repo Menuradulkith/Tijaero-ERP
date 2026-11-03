@@ -595,6 +595,14 @@ def get_cashbook_summary(
 # PETTY CASH ENDPOINTS (Scenario 25)
 # =============================================================================
 
+def _ensure_petty_cash_branch(db: Session, user: User, fund_id: int) -> None:
+    """403 when the fund belongs to a branch the user is not assigned to. A missing fund
+    falls through so the service raises its usual 404."""
+    row = db.query(models.PettyCash.branch_code).filter(models.PettyCash.id == fund_id).first()
+    if row and not validate_branch_access(user, row.branch_code):
+        raise HTTPException(status_code=403, detail=f"Access denied to branch: {row.branch_code}")
+
+
 @router.post("/petty-cash/funds", response_model=schemas.PettyCashFundResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.CASHBOOK_CREATE))])
 def open_petty_cash_fund(
     data: schemas.PettyCashFundCreate,
@@ -653,6 +661,7 @@ def get_petty_cash_fund_details(
     current_user: User = Depends(get_current_active_user),
 ):
     """Get a petty cash fund with all its transactions"""
+    _ensure_petty_cash_branch(db, current_user, fund_id)
     return service.PettyCashService(db).get_fund_with_transactions(fund_id)
 
 
@@ -663,6 +672,7 @@ def get_petty_cash_fund_summary(
     current_user: User = Depends(get_current_active_user),
 ):
     """Get summary statistics for a petty cash fund"""
+    _ensure_petty_cash_branch(db, current_user, fund_id)
     return service.PettyCashService(db).get_fund_summary(fund_id)
 
 
@@ -673,6 +683,7 @@ def record_petty_cash_expense(
     current_user: User = Depends(get_current_active_user),
 ):
     """Step 2: Record a petty cash expense (deducts from fund)"""
+    _ensure_petty_cash_branch(db, current_user, data.petty_cash_id)
     data.recorded_by = current_user.id  # never trust a user id sent by the client
     return service.PettyCashService(db).record_expense(data, user_id=current_user.id)
 
@@ -684,6 +695,7 @@ def replenish_petty_cash(
     current_user: User = Depends(get_current_active_user),
 ):
     """Step 3: Replenish a petty cash fund (adds to fund)"""
+    _ensure_petty_cash_branch(db, current_user, data.petty_cash_id)
     data.recorded_by = current_user.id  # never trust a user id sent by the client
     data.approved_by = current_user.id
     return service.PettyCashService(db).replenish_fund(data, user_id=current_user.id)
@@ -697,6 +709,7 @@ def reconcile_petty_cash(
     current_user: User = Depends(get_current_active_user),
 ):
     """Step 4: Close and reconcile a petty cash fund"""
+    _ensure_petty_cash_branch(db, current_user, fund_id)
     data.closed_by = current_user.id  # never trust a user id sent by the client
     return service.PettyCashService(db).reconcile_and_close(fund_id, data, user_id=current_user.id)
 
@@ -710,6 +723,7 @@ def list_petty_cash_transactions(
     current_user: User = Depends(get_current_active_user),
 ):
     """List all transactions for a petty cash fund"""
+    _ensure_petty_cash_branch(db, current_user, fund_id)
     return service.PettyCashService(db).list_transactions(fund_id, skip, limit)
 
 

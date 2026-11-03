@@ -70,10 +70,15 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
 
 
 def decode_token(token: str) -> Optional[dict]:
+    """Decode an ACCESS token. A refresh token (7 days, meant only for
+    /auth/refresh) must not open the API or the print previews."""
     try:
-        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError:
         return None
+    if payload.get("type") != "access":
+        return None
+    return payload
 
 
 def decode_refresh_token(token: str) -> Optional[dict]:

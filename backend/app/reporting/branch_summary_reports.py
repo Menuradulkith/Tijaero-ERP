@@ -5,14 +5,17 @@ Aggregates per-branch financial data for a given date using the actual
 Invoice model field names:
   - Invoice.created_date  (Date column, NOT added_date)
   - Per-payment-method columns: cash_amount, card_visa_amount, etc.
+  - Gross sales = the sale value the GL posts (subtotal + tax + service
+    charge), before gift vouchers / credit notes / customer advances
   - SaleReturn.added_date + total_refund
   - PurchasingOrder.purchasing_order_date + PurchasingOrderItems value
   - BankDeposits.created_date + deposits_amount
-  - CashbookEntryRecord running_balance / money_in / money_out
+  - Cash in hand = GL balance of the cash (till) accounts for the branch, the
+    same accounts day-end reconciles; CashbookEntryRecord money_in / money_out
   - PettyCash.current_balance
 """
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import List, Optional
 
@@ -20,9 +23,13 @@ from sqlalchemy import cast, func, Date, and_
 from sqlalchemy.orm import Session
 
 from app.auth.models import Branch
+from app.modules.finance.accounting_models import ChartOfAccounts, GeneralLedger
+from app.modules.finance.posting_rules import PostingRuleResolver
+from app.modules.finance.reconciliation_service import CASH_ACCOUNT_CODE
 from app.modules.finance.models import BankDeposits, CashbookEntryRecord, PettyCash, Expenses, Vouchers
 from app.modules.purchasing.models import PurchasingOrder, PurchasingOrderItems
 from app.modules.sales.models import Invoice, SaleReturn
+from app.modules.sales.sales_metrics import counted_invoice_filters
 
 
 def _d(v) -> Decimal:
@@ -53,8 +60,8 @@ def _build_summary(db: Session, start_date: date, end_date: date, branch_code: s
         db.query(Invoice)
         .filter(
             Invoice.branch_code == branch_code,
-            Invoice.created_date.between(start_date, end_date),          
-            Invoice.approval_status.in_(["approved", "completed"]),
+            Invoice.created_date.between(start_date, end_date),
+            *counted_invoice_filters(),
         )
         .all()
     )
@@ -64,6 +71,8 @@ def _build_summary(db: Session, start_date: date, end_date: date, branch_code: s
     sales_bank = _d(0)
     sales_credit = _d(0)
     sales_cheque = _d(0)
+    sales_other = _d(0)
+    total_sales = _d(0)
 
     sales_details = []
 
@@ -79,18 +88,21 @@ def _build_summary(db: Session, start_date: date, end_date: date, branch_code: s
         sales_bank += bank
         sales_credit += credit
         sales_cheque += cheque
+        # Sale value as the GL posts it (Cr revenue + tax + service charge); the
+        # part not paid by a tender column was paid by voucher / credit note / advance.
+        value = _d(inv.subtotal) + _d(inv.tax_amount) + _d(inv.service_charge_amount)
+        total_sales += value
+        sales_other += value - (cash + card + bank + credit + cheque)
 
         sales_details.append({
             "invoice_no": inv.invoice_no,
-            "total": float(_d(inv.grand_total)),
+            "total": float(value),
             "cash": float(cash),
             "card": float(card),
             "bank": float(bank),
             "credit": float(credit),
             "cheque": float(cheque),
         })
-
-    total_sales = sales_cash + sales_card + sales_bank + sales_credit + sales_cheque
 
     # ── Sale Returns ──────────────────────────────────────────────────────────
     returns_recs = (
@@ -166,18 +178,24 @@ def _build_summary(db: Session, start_date: date, end_date: date, branch_code: s
             "amount": float(amt)
         })
 
-    # ── Cashbook Entries ──────────────────────────────────────────────────────
-    end_of_period = datetime.combine(end_date, datetime.max.time())
-    last_entry = (
-        db.query(CashbookEntryRecord)
-        .filter(
-            CashbookEntryRecord.branch_code == branch_code,
-            CashbookEntryRecord.transaction_date <= end_of_period,
+    # ── Cash in hand: the till, i.e. the branch's GL cash accounts ────────────
+    # (1010 plus any account a CASH posting rule points to - the accounts the
+    # day-end reconciliation checks), balance up to the end date. The cashbook
+    # running balance mixes cash with bank and the whole book.
+    cash_codes = [code for code, method in PostingRuleResolver(db).cashbook_accounts().items() if method == "Cash"]         or [CASH_ACCOUNT_CODE]
+    cash_in_hand = _d(
+        db.query(
+            func.coalesce(func.sum(GeneralLedger.debit_amount), 0)
+            - func.coalesce(func.sum(GeneralLedger.credit_amount), 0)
         )
-        .order_by(CashbookEntryRecord.transaction_date.desc(), CashbookEntryRecord.id.desc())
-        .first()
+        .join(ChartOfAccounts, GeneralLedger.account_id == ChartOfAccounts.id)
+        .filter(
+            ChartOfAccounts.account_code.in_(cash_codes),
+            GeneralLedger.branch_code == branch_code,
+            GeneralLedger.posting_date <= end_date,
+        )
+        .scalar()
     )
-    cash_in_hand = _d(last_entry.running_balance if last_entry else 0)
 
     cashbook_period = (
         db.query(CashbookEntryRecord)
@@ -278,7 +296,7 @@ def _build_summary(db: Session, start_date: date, end_date: date, branch_code: s
             "bank_transfer": float(sales_bank),
             "credit": float(sales_credit),
             "cheque": float(sales_cheque),
-            "other": 0.0,
+            "other": float(sales_other),
             "total_gross": float(total_sales),
             "details": sales_details
         },

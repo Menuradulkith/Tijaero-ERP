@@ -199,6 +199,50 @@ def _compute_quick_stats(db: Session, period: str):
 # registry): the HTML view, used by the print-preview iframe, and its PDF.
 
 
+def _ensure_unguarded_branch_access(db: Session, user: User, doc_type: str, doc_id: Optional[int],
+                                    period: Optional[str]) -> None:
+    """Branch check for the prints that have no approval step (voucher, payslip, payroll
+    summary). Same answer as the approval-gated prints: a document from a branch the user
+    is not assigned to is "not found"."""
+    from app.auth.dependencies import validate_branch_access
+    from app.modules.customers.models import CustomerGiftVoucher
+    from app.modules.employees.models import Employee, EmployeePayroll
+
+    if user.is_superuser:
+        return
+    if doc_type == "voucher":
+        branches = [b for (b,) in db.query(CustomerGiftVoucher.branch_code).filter(CustomerGiftVoucher.id == doc_id)]
+        label = "Gift voucher"
+    elif doc_type == "payslip":
+        branches = [b for (b,) in db.query(Employee.branch_code)
+                    .join(EmployeePayroll, EmployeePayroll.employee_id == Employee.employee_id)
+                    .filter(EmployeePayroll.id == doc_id)]
+        label = "Payroll record"
+    elif doc_type == "payroll":
+        # The summary lists every employee paid in the month, so the user needs access to
+        # every branch in it.
+        today = tz.today()
+        try:
+            year, month = (int(x) for x in period.strip()[:7].split("-")) if period else (today.year, today.month)
+        except (ValueError, TypeError):
+            return  # the report itself answers 422 for a bad period
+        branches = [b for (b,) in db.query(Employee.branch_code).distinct()
+                    .join(EmployeePayroll, EmployeePayroll.employee_id == Employee.employee_id)
+                    .filter(EmployeePayroll.payroll_year == year, EmployeePayroll.payroll_month == month)]
+        denied = sorted({b for b in branches if b and not validate_branch_access(user, b)})
+        if denied:
+            raise HTTPException(
+                status_code=403,
+                detail="This payroll summary includes employees of branches you are not assigned to: "
+                       + ", ".join(denied),
+            )
+        return
+    else:
+        return
+    if any(b and not validate_branch_access(user, b) for b in branches):
+        raise HTTPException(status_code=404, detail=f"{label} not found")
+
+
 def _print_document(
     db: Session,
     user: User,
@@ -230,6 +274,8 @@ def _print_document(
         )
     if doc.guarded:
         ensure_document_printable(db, doc_type, doc_id, user)
+    else:
+        _ensure_unguarded_branch_access(db, user, doc_type, doc_id, period)
 
     service = get_document_report_service(db, template_id=template_id)
     generate = getattr(service, doc.method)
