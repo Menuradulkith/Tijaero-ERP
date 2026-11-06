@@ -53,13 +53,15 @@ _NIC_NEW = re.compile(r"^[0-9]{12}$")
 
 def _phone(v):
     v = _blank_to_none(v)
-    if v is not None and not _PHONE.match(v):
+    if v is not None and (not isinstance(v, str) or not _PHONE.match(v)):
         raise ValueError("Enter a valid phone number")
     return v
 
 
 def _nic(v):
     v = _blank_to_none(v)
+    if v is not None and not isinstance(v, str):
+        raise ValueError("NIC must be text")
     if v is not None and not (_NIC_OLD.match(v) or _NIC_NEW.match(v)):
         raise ValueError("NIC must be 9 digits + V/X (old) or 12 digits (new)")
     return v.upper() if v else v
@@ -588,7 +590,10 @@ class EmployeeProfileFields(BaseModel):
     date_of_birth: Optional[date] = None
     gender: Optional[Gender] = None
     # contact
-    personal_email: Annotated[Optional[str], BeforeValidator(_blank_to_none), Field(max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")] = None
+    personal_email: Annotated[
+        Optional[Annotated[str, StringConstraints(max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")]],
+        BeforeValidator(_blank_to_none),
+    ] = None
     mobile_phone: Phone = None
     home_phone: Phone = None
     address_line1: OptStr(200) = None
@@ -617,7 +622,10 @@ class EmployeeProfileFields(BaseModel):
     # bank (sensitive)
     bank_name: OptStr(100) = None
     bank_branch: OptStr(100) = None
-    bank_account_no: Annotated[Optional[str], BeforeValidator(_blank_to_none), Field(max_length=40, pattern=r"^[0-9A-Za-z\-]{4,40}$")] = None
+    bank_account_no: Annotated[
+        Optional[Annotated[str, StringConstraints(max_length=40, pattern=r"^[0-9A-Za-z\-]{4,40}$")]],
+        BeforeValidator(_blank_to_none),
+    ] = None
     bank_account_name: OptStr(150) = None
     # statutory (sensitive)
     epf_no: OptStr(30) = None

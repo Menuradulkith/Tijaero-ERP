@@ -9,11 +9,26 @@
  */
 
 import { MuiTelInput, type MuiTelInputCountry } from "mui-tel-input";
-import { getCountryCallingCode, parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js";
-import { useEffect, useRef, useState } from "react";
+import {
+  getCountryCallingCode,
+  parsePhoneNumberFromString,
+  validatePhoneNumberLength,
+  type CountryCode,
+} from "libphonenumber-js";
+import { useEffect, useRef, useState, type ClipboardEvent } from "react";
 import type { SxProps, Theme } from "@mui/material";
 
 export const DEFAULT_PHONE_COUNTRY: CountryCode = "LK";
+
+// Mirrors backend normalize_phone_number (app/common/validators.py).
+const PHONE_SEPARATORS = /[\s\-.()]/g;
+const E164 = /^\+[1-9]\d{6,14}$/;
+
+/** Strips separators and turns a "00" international prefix into "+". */
+const cleanPhone = (value: string): string => {
+  const cleaned = value.trim().replace(PHONE_SEPARATORS, "");
+  return cleaned.startsWith("00") ? `+${cleaned.slice(2)}` : cleaned;
+};
 
 /** Converts a stored/legacy number to E.164 where it can be parsed; otherwise returns it trimmed. */
 export const normalizePhone = (value?: string | null): string => {
@@ -27,7 +42,8 @@ export const normalizePhone = (value?: string | null): string => {
 export const isValidPhone = (value?: string | null): boolean => {
   const raw = (value ?? "").trim();
   if (!raw) return true;
-  return !!parsePhoneNumberFromString(raw, DEFAULT_PHONE_COUNTRY)?.isValid();
+  const parsed = parsePhoneNumberFromString(raw, DEFAULT_PHONE_COUNTRY);
+  return !!parsed?.isValid() && E164.test(parsed.number);
 };
 
 /** Error message for a number, or undefined when it is acceptable. */
@@ -82,8 +98,35 @@ export function TPhoneField({
     }
   }, [normalized]);
   const message = helperText ?? (touched || normalized ? phoneError(normalized, required && touched) : undefined);
-  // Don't flag a half-typed number as invalid until the field has been left.
-  const showError = !!helperText || (touched && !!phoneError(normalized, required));
+  // Don't flag a half-typed number as invalid until the field has been left,
+  // but a number that is already too long can't become valid by typing more.
+  const tooLong = !!normalized && validatePhoneNumberLength(normalized, defaultCountry) === "TOO_LONG";
+  const showError = !!helperText || tooLong || (touched && !!phoneError(normalized, required));
+
+  const dial = `+${getCountryCallingCode(defaultCountry)}`;
+
+  const emit = (display: string, out: string) => {
+    emitted.current = normalizePhone(out);
+    setInner(display);
+    onChange(out);
+  };
+
+  // The library inserts pasted text at the caret, so pasting "+94771234567"
+  // into the prefilled "+94" (or a half-deleted "+9") would be appended to it.
+  // A pasted full number replaces the whole value instead.
+  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    const cleaned = cleanPhone(e.clipboardData.getData("text"));
+    if (!cleaned) return;
+    const parsed = parsePhoneNumberFromString(cleaned, defaultCountry);
+    if (parsed?.isValid()) {
+      e.preventDefault();
+      emit(parsed.number, parsed.number);
+    } else if (cleaned.startsWith("+")) {
+      e.preventDefault();
+      setTouched(true);
+      emit(cleaned, cleaned.replace(/[^\d+]/g, ""));
+    }
+  };
 
   return (
     <MuiTelInput
@@ -98,27 +141,33 @@ export function TPhoneField({
         // Local-format entry ("0771234567") carries a trunk "0" that does not
         // belong after the default country's dial code; drop it so it matches
         // what the fresh field already does and validates as E.164.
-        const dial = `+${getCountryCallingCode(defaultCountry)}`;
         const compact = rawNext.replace(/\s/g, "");
-        const next = compact.startsWith(`${dial}0`)
-          ? dial + compact.slice(dial.length).replace(/^0+/, "")
-          : rawNext;
+        let next = rawNext;
+        if (compact.startsWith(`${dial}0`)) {
+          next = dial + compact.slice(dial.length).replace(/^0+/, "");
+        } else if (compact.startsWith(dial + dial.slice(1)) && !isValidPhone(compact)) {
+          // A full international number typed without "+" over the prefilled
+          // dial code ("+94" + "94771234567") repeats the dial code.
+          const retyped = parsePhoneNumberFromString(`+${compact.slice(dial.length)}`);
+          if (retyped?.isValid()) next = retyped.number;
+        }
         const changed = next !== rawNext;
         const national = changed ? next.slice(dial.length).replace(/\D/g, "") : info.nationalNumber;
         const numberValue = changed ? parsePhoneNumberFromString(next)?.number : info.numberValue;
         // A bare dial code ("+94") means nothing has been entered.
         const out = national ? (numberValue ?? next.replace(/[^\d+]/g, "")) : "";
-        emitted.current = normalizePhone(out);
         // A fully emptied input has no dial code, so the library would guess a
         // country from the first digit typed next (e.g. "7" -> +7). Fall back to
         // the default country's dial code, which is what an untouched field shows.
-        setInner(next.trim() ? next : dial);
-        onChange(out);
+        emit(next.trim() ? next : dial, out);
       }}
       onBlur={() => setTouched(true)}
-      // A bare dial code ("+94") is not a value: require 7+ digits so a required
-      // field counts as empty for the form's "highlight missing fields" check.
-      inputProps={required ? { pattern: "[^\\d]*(\\d[^\\d]*){7,}" } : undefined}
+      inputProps={{
+        onPaste: handlePaste,
+        // A bare dial code ("+94") is not a value: require 7+ digits so a required
+        // field counts as empty for the form's "highlight missing fields" check.
+        ...(required ? { pattern: "[^\\d]*(\\d[^\\d]*){7,}" } : {}),
+      }}
       error={showError}
       helperText={showError ? message : undefined}
       // Country dropdown: the library's flag button is a square, full-height

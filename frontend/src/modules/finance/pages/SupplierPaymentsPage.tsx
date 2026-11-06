@@ -166,14 +166,26 @@ const PAYMENT_METHODS = [
   { value: "cheque", label: "Cheque" },
 ];
 
-// Maps a saved payment account's type (backend enum) to the Title-Case
-// strings this page's own paymentMethod state/comparisons use ("Cash" /
-// "Bank Transfer" / "Cheque"). This screen's own PAYMENT_METHODS dropdown
-// only offers those 3 (transaction-recording is a separate, narrower
-// concept from the supplier's saved standing payment methods — see
-// SuppliersPage.tsx), so the newer saved-method types (Direct Debit,
-// Letter of Credit, Credit Card, Digital Wallet) fall through to their own
-// label as free text rather than being force-mapped to one of the 3.
+type PaymentMethodCode = "cash" | "bank_transfer" | "cheque";
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = Object.fromEntries(
+  PAYMENT_METHODS.map((m) => [m.value, m.label])
+);
+
+// Older payments were saved with labels ("Bank Transfer") or "bank"; returns
+// null for anything this screen's dropdown can't represent.
+const toPaymentMethodCode = (value: string | null | undefined): PaymentMethodCode | null => {
+  if (!value) return null;
+  const code = value.trim().toLowerCase().replace(/\s+/g, "_");
+  if (code === "bank") return "bank_transfer";
+  return PAYMENT_METHODS.some((m) => m.value === code) ? (code as PaymentMethodCode) : null;
+};
+
+// Display labels for a supplier's saved payment account types. This screen's
+// PAYMENT_METHODS dropdown only offers 3 (transaction-recording is a separate,
+// narrower concept from the supplier's saved standing payment methods — see
+// SuppliersPage.tsx), so picking a saved Direct Debit / Letter of Credit /
+// Credit Card / Digital Wallet account only fills the bank name.
 const ACCOUNT_TYPE_TO_PAYMENT_METHOD_LABEL: Record<SupplierPaymentAccountType, string> = {
   cash: "Cash",
   bank_transfer: "Bank Transfer",
@@ -265,7 +277,7 @@ export default function SupplierPaymentsPage() {
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
 
   // Payment form
-  const [paymentMethod, setPaymentMethod] = useState("Bank Transfer");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodCode>("bank_transfer");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [bankName, setBankName] = useState("");
   const [chequeDate, setChequeDate] = useState(new Date().toISOString().split("T")[0]);
@@ -581,7 +593,7 @@ export default function SupplierPaymentsPage() {
   }, [selectedSupplier?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetPaymentForm = () => {
-    setPaymentMethod("Bank Transfer");
+    setPaymentMethod("bank_transfer");
     setReferenceNumber("");
     setBankName("");
     setChequeDate(new Date().toISOString().split("T")[0]);
@@ -592,7 +604,8 @@ export default function SupplierPaymentsPage() {
   // Fill the payment form from one of the supplier's saved payment methods.
   const handleSelectSavedPaymentAccount = (account: SupplierPaymentAccount | null) => {
     if (!account) return;
-    setPaymentMethod(ACCOUNT_TYPE_TO_PAYMENT_METHOD_LABEL[account.method_type]);
+    const method = toPaymentMethodCode(account.method_type);
+    if (method) setPaymentMethod(method);
     if (account.bank_name) setBankName(account.bank_name);
   };
 
@@ -689,7 +702,8 @@ export default function SupplierPaymentsPage() {
 
     // Auto-populate payment form from last payment suggestion
     if (lastPaymentSuggestion) {
-      setPaymentMethod(lastPaymentSuggestion.payment_method);
+      const method = toPaymentMethodCode(lastPaymentSuggestion.payment_method);
+      if (method) setPaymentMethod(method);
       if (lastPaymentSuggestion.bank_name) {
         setBankName(lastPaymentSuggestion.bank_name);
       }
@@ -739,11 +753,11 @@ export default function SupplierPaymentsPage() {
       return;
     }
 
-    if (paymentMethod === "Bank Transfer" && !referenceNumber) {
+    if (paymentMethod === "bank_transfer" && !referenceNumber.trim()) {
       showErrorToast("Please enter bank transfer reference number");
       return;
     }
-    if (paymentMethod === "Cheque" && (!referenceNumber || !bankName)) {
+    if (paymentMethod === "cheque" && (!referenceNumber.trim() || !bankName.trim())) {
       showErrorToast("Please enter cheque number and bank name");
       return;
     }
@@ -807,8 +821,8 @@ export default function SupplierPaymentsPage() {
         payment_date: paymentDate,
         payment_method: paymentMethod,
         payment_amount: totalPaymentAmount,
-        reference_number: referenceNumber || undefined,
-        bank_name: bankName || undefined,
+        reference_number: referenceNumber.trim() || undefined,
+        bank_name: paymentMethod === "cash" ? undefined : bankName.trim() || undefined,
         branch_code: firstLine?.document.branch_code || "",
         remarks: remarks || undefined,
         allocations,
@@ -1679,7 +1693,7 @@ export default function SupplierPaymentsPage() {
           label="Payment Method"
           size="small"
           value={paymentMethod}
-          onChange={(e) => setPaymentMethod(e.target.value)}
+          onChange={(e) => setPaymentMethod(e.target.value as PaymentMethodCode)}
         >
           {PAYMENT_METHODS.map((option) => (
             <MenuItem key={option.value} value={option.value}>
@@ -1696,13 +1710,13 @@ export default function SupplierPaymentsPage() {
           InputLabelProps={{ shrink: true }}
         />
         <TextField
-          label={paymentMethod === "Cheque" ? "Cheque Number" : "Reference Number"}
+          label={paymentMethod === "cheque" ? "Cheque Number" : "Reference Number"}
           size="small"
           value={referenceNumber}
           onChange={(e) => setReferenceNumber(e.target.value)}
-          required={paymentMethod !== "Cash"}
+          required={paymentMethod !== "cash"}
         />
-        {paymentMethod === "Cheque" && (
+        {paymentMethod === "cheque" && (
           <>
             <Autocomplete
               freeSolo
@@ -1729,7 +1743,7 @@ export default function SupplierPaymentsPage() {
             />
           </>
         )}
-        {paymentMethod === "Bank Transfer" && previousBankNames.length > 0 && (
+        {paymentMethod === "bank_transfer" && previousBankNames.length > 0 && (
           <Autocomplete
             freeSolo
             options={previousBankNames}
@@ -1745,7 +1759,7 @@ export default function SupplierPaymentsPage() {
             )}
           />
         )}
-        {paymentMethod === "Bank Transfer" && previousBankNames.length === 0 && (
+        {paymentMethod === "bank_transfer" && previousBankNames.length === 0 && (
           <TextField
             label="Bank Name"
             size="small"
@@ -1809,7 +1823,7 @@ export default function SupplierPaymentsPage() {
           </Grid>
           <Grid item xs={12} sm={6}>
             <Typography variant="caption" color="text.secondary">Payment Method</Typography>
-            <Typography variant="body1">{paymentMethod}</Typography>
+            <Typography variant="body1">{PAYMENT_METHOD_LABELS[paymentMethod]}</Typography>
           </Grid>
           {referenceNumber && (
             <Grid item xs={12} sm={6}>

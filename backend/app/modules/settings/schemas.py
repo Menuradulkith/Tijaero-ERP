@@ -300,6 +300,16 @@ class CompanySettingsUpdate(BaseModel):
     def validate_default_timezone(cls, v: Optional[str]) -> Optional[str]:
         return _check_timezone(v)
 
+    @field_validator("company_website")
+    @classmethod
+    def validate_website(cls, v: Optional[str]) -> Optional[str]:
+        if not v or re.match(r"^https?://\S+$", v, re.I):
+            return v
+        # existing settings hold bare domains such as "www.tijaero.lk"
+        if re.match(r"^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(/\S*)?$", v, re.I):
+            return f"https://{v}"
+        raise ValueError("Website must be a domain or start with http:// or https://")
+
 
 class CompanySettings(CompanySettingsBase, TijaeroBaseSchema):
     id: int

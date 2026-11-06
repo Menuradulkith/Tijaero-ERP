@@ -241,9 +241,6 @@ export const customersApi = {
     return response.data;
   },
 
-  deleteContactPerson: async (customerId: number, contactId: number) => {
-    await apiClient.delete(`/customers/${customerId}/contact-persons/${contactId}`);
-  },
 
   create: async (data: CustomerCreate) => {
     const cleanData = cleanCustomerData(data);

@@ -6,6 +6,10 @@
  * cost and the shop-floor transactions. Lifecycle actions follow the backend:
  * draft -> released -> in progress -> completed -> closed (cancel from draft /
  * released / in progress while nothing has been booked).
+ *
+ * Shop-floor actions open right-side TSidePanels (ProductionOrderDialogs.tsx): materials,
+ * output (scrap reason, by-products, quality hold), time, outside work, quality check,
+ * completion options and cancel. Every submit is guarded against double clicks.
  */
 
 import { useCurrencyStore } from "@/state/currencyStore";
@@ -19,7 +23,9 @@ import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
 import BlockIcon from "@mui/icons-material/Block";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
+import FactCheckIcon from "@mui/icons-material/FactCheck";
 import HistoryIcon from "@mui/icons-material/History";
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import LockIcon from "@mui/icons-material/Lock";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -52,7 +58,8 @@ import {
 } from "@mui/material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { format } from "date-fns";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { formatDate, formatDateTimeReadable } from "@/utils/formatters";
 
@@ -62,6 +69,7 @@ import {
   EmptyState,
   fmtLKR,
   FormSection,
+  getStatusProps,
   MasterDetailLayout,
   modernTableStyles,
   TActivityHistoryPanel,
@@ -85,16 +93,21 @@ import { usePermission } from "@/auth/permissions";
 import { bomsApi, productionOrdersApi } from "@/modules/manufacturing/api";
 import FromQuotationDialog from "@/modules/manufacturing/components/FromQuotationDialog";
 import {
-  CancelOrderDialog,
-  MaterialMoveDialog,
-  OutputDialog,
-  TimeLogDialog,
+  CancelOrderPanel,
+  CompleteOrderPanel,
+  MaterialMovePanel,
+  OutputPanel,
+  OutsideWorkPanel,
+  QualityCheckPanel,
+  TimeLogPanel,
 } from "@/modules/manufacturing/components/ProductionOrderDialogs";
 import {
   PRIORITY_OPTIONS,
   PRODUCTION_ORDER_STATUS_OPTIONS,
+  SCRAP_REASONS,
   type ProductionOrder,
   type ProductionOrderInput,
+  type QcStatus,
 } from "@/modules/manufacturing/types";
 
 const STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
@@ -102,9 +115,16 @@ const STATUS_FILTER_OPTIONS: TFilterStatusOption[] = [
   ...PRODUCTION_ORDER_STATUS_OPTIONS,
 ];
 
-const todayISO = () => {
-  const d = new Date();
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const todayISO = () => format(new Date(), "yyyy-MM-dd");
+
+const scrapReasonLabel = (r?: string | null) => SCRAP_REASONS.find((x) => x.value === r)?.label || r || "";
+
+const QC_CHIP: Record<QcStatus, { label: string; color: "default" | "warning" | "success" | "error" | "info" }> = {
+  none: { label: "-", color: "default" },
+  on_hold: { label: "On hold", color: "warning" },
+  partly_passed: { label: "Partly passed", color: "info" },
+  passed: { label: "Passed", color: "success" },
+  failed: { label: "Failed", color: "error" },
 };
 
 const INITIAL_FORM_DATA: ProductionOrderInput = {
@@ -151,7 +171,7 @@ const num = (v: unknown) => Number(v ?? 0);
 
 type OrderRow = ProductionOrder & { product_display: string; branch_display: string };
 
-type DialogKind = "issue" | "return" | "output" | "time" | "cancel" | null;
+type DialogKind = "issue" | "return" | "output" | "time" | "outside" | "quality" | "complete" | "cancel" | null;
 
 interface OrderAction {
   fn: () => Promise<ProductionOrder>;
@@ -172,7 +192,17 @@ export default function ProductionOrdersPage() {
   const [lateOnly, setLateOnly] = useState(false);
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
   const [dialog, setDialog] = useState<DialogKind>(null);
+  // Operation preselected when a panel is opened from a row of the operations table
+  const [panelOpId, setPanelOpId] = useState<number | null>(null);
   const [activityTab, setActivityTab] = useState(0);
+  // In-flight guards: a double click must never submit twice
+  const actionRef = useRef(false);
+  const saveRef = useRef(false);
+  const deleteRef = useRef(false);
+  const openPanel = (kind: DialogKind, opId: number | null = null) => {
+    setPanelOpId(opId);
+    setDialog(kind);
+  };
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   const {
@@ -208,7 +238,7 @@ export default function ProductionOrdersPage() {
     ["branches", "locations", "products"],
     { productsLimit: 2000 }
   );
-  const branches = filteredBranches || [];
+  const branches = useMemo(() => filteredBranches || [], [filteredBranches]);
   const products = useMemo(() => (refData?.products || []).filter((p) => p.active !== false), [refData]);
 
   useEffect(() => {
@@ -427,40 +457,71 @@ export default function ProductionOrdersPage() {
       applyOrder(o);
     },
   });
-  const runAction = (fn: () => Promise<ProductionOrder>, success: string) => actionMutation.mutate({ fn, success });
+  const fireAction = (fn: () => Promise<ProductionOrder>, success: string) =>
+    actionMutation.mutate({ fn, success }, { onSettled: () => { actionRef.current = false; } });
+  const runAction = (fn: () => Promise<ProductionOrder>, success: string) => {
+    if (actionMutation.isPending || actionRef.current) return;
+    actionRef.current = true;
+    fireAction(fn, success);
+  };
 
   const handleSave = useCallback(() => {
+    if (createMutation.isPending || updateMutation.isPending || saveRef.current) return;
     const payload = {
       ...formData,
       source_reference: formData.source_reference?.trim() || null,
       remark: formData.remark?.trim() || null,
     };
+    const settled = { onSettled: () => { saveRef.current = false; } };
     if (isCreating) {
-      createMutation.mutate(payload);
+      saveRef.current = true;
+      createMutation.mutate(payload, settled);
     } else if (order) {
-      const { product_id: _p, branch_code: _b, ...data } = payload;
-      updateMutation.mutate({ id: order.id, data });
+      saveRef.current = true;
+      const { product_id: _p, branch_code: _b, ...data } = payload; // eslint-disable-line @typescript-eslint/no-unused-vars
+      updateMutation.mutate({ id: order.id, data }, settled);
     }
   }, [formData, isCreating, order, createMutation, updateMutation]);
 
   const handleDelete = useCallback(async () => {
-    if (!order) return;
-    const ok = await confirmDialog.confirm({
-      title: "Delete Production Order",
-      message: `Delete draft order "${order.order_no}"?`,
-      confirmText: "Delete",
-      confirmColor: "error",
-    });
-    if (ok) deleteMutation.mutate(order.id);
+    if (!order || deleteMutation.isPending || deleteRef.current) return;
+    deleteRef.current = true;
+    let ok = false;
+    try {
+      ok = await confirmDialog.confirm({
+        title: "Delete Production Order",
+        message: `Delete draft order "${order.order_no}"?`,
+        confirmText: "Delete",
+        confirmColor: "error",
+      });
+    } finally {
+      if (!ok) deleteRef.current = false;
+    }
+    if (ok) deleteMutation.mutate(order.id, { onSettled: () => { deleteRef.current = false; } });
   }, [order, confirmDialog, deleteMutation]);
 
   const confirmAndRun = async (title: string, message: string, confirmText: string, fn: () => Promise<ProductionOrder>, success: string) => {
-    const ok = await confirmDialog.confirm({ title, message, confirmText, confirmColor: "primary" });
-    if (ok) runAction(fn, success);
+    if (actionMutation.isPending || actionRef.current) return;
+    actionRef.current = true;
+    let ok = false;
+    try {
+      ok = await confirmDialog.confirm({ title, message, confirmText, confirmColor: "primary" });
+    } finally {
+      if (!ok) actionRef.current = false;
+    }
+    if (ok) fireAction(fn, success);
   };
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const busy = actionMutation.isPending;
+  // Output of a requires_qc product is held for a quality check (flag from the product master;
+  // an earlier held output of this order says the same)
+  const requiresQc = useMemo(() => {
+    if (!order) return false;
+    const p = (refData?.products || []).find((x) => x.id === order.product_id) as { requires_qc?: boolean } | undefined;
+    return !!p?.requires_qc || (activity?.outputs || []).some((o) => o.qc_status && o.qc_status !== "none") || order.qc_on_hold_quantity > 0;
+  }, [order, refData, activity]);
+  const heldOutputs = (activity?.outputs || []).filter((o) => o.qc_status === "on_hold" || o.qc_status === "partly_passed").length;
   const isDetailMode = !!selectedOrder || isCreating;
 
   // ── grid ──
@@ -587,21 +648,28 @@ export default function ProductionOrdersPage() {
     if (s === "released" && canShopFloor) {
       out.push(btn("Start", <PlayArrowIcon />, () => runAction(() => productionOrdersApi.start(id), "Order started"), "primary", "contained"));
     }
-    if ((s === "released" || s === "in_progress") && canShopFloor) {
-      out.push(btn("Issue Materials", <InventoryIcon />, () => setDialog("issue")));
+    const ops = order.operations || [];
+    const running = s === "released" || s === "in_progress";
+    if (running && canShopFloor) {
+      out.push(btn("Issue Materials", <InventoryIcon />, () => openPanel("issue")));
     }
     if ((s === "in_progress" || s === "completed") && canShopFloor) {
-      out.push(btn("Return Materials", <AssignmentReturnIcon />, () => setDialog("return")));
+      out.push(btn("Return Materials", <AssignmentReturnIcon />, () => openPanel("return")));
     }
-    if ((s === "released" || s === "in_progress") && canShopFloor) {
-      out.push(btn("Log Time", <TimerIcon />, () => setDialog("time")));
-      out.push(btn("Record Output", <OutputIcon />, () => setDialog("output"), "success"));
+    if (running && canShopFloor) {
+      if (ops.some((o) => !o.is_outside && o.status !== "completed")) {
+        out.push(btn("Log Time", <TimerIcon />, () => openPanel("time")));
+      }
+      if (ops.some((o) => o.is_outside && o.outside_quantity < (order.max_quantity || order.planned_quantity))) {
+        out.push(btn("Receive Outside Work", <LocalShippingIcon />, () => openPanel("outside")));
+      }
+      out.push(btn("Record Output", <OutputIcon />, () => openPanel("output"), "success"));
+    }
+    if (order.qc_on_hold_quantity > 0 && canApprove && s !== "cancelled") {
+      out.push(btn(`Quality Check (${order.qc_on_hold_quantity})`, <FactCheckIcon />, () => openPanel("quality"), "warning"));
     }
     if (s === "in_progress" && canApprove) {
-      out.push(btn("Complete", <DoneAllIcon />, () =>
-        confirmAndRun("Complete Production Order",
-          `Complete ${order.order_no}? Operations without booked time get their planned time (pro rata to the units done) and every operation is marked completed.`,
-          "Complete", () => productionOrdersApi.complete(id), "Order completed"), "success", "contained"));
+      out.push(btn("Complete", <DoneAllIcon />, () => openPanel("complete"), "success", "contained"));
     }
     if (s === "completed" && canApprove) {
       out.push(btn("Close", <LockIcon />, () =>
@@ -614,9 +682,9 @@ export default function ProductionOrdersPage() {
       !order.produced_quantity &&
       !order.scrapped_quantity &&
       !(order.materials || []).some((m) => m.issued_quantity > 0) &&
-      !(order.operations || []).some((op) => num(op.actual_minutes) > 0);
+      !ops.some((op) => num(op.actual_minutes) > 0 || op.outside_quantity > 0);
     if ((s === "draft" || s === "released" || s === "in_progress") && canApprove && untouched) {
-      out.push(btn("Cancel Order", <BlockIcon />, () => setDialog("cancel"), "error"));
+      out.push(btn("Cancel Order", <BlockIcon />, () => openPanel("cancel"), "error"));
     }
     // Printable once released (the order goes to the shop floor); drafts and cancelled orders are not
     if (["released", "in_progress", "completed", "closed"].includes(s)) {
@@ -795,8 +863,10 @@ export default function ProductionOrdersPage() {
     </FormSection>
   );
 
+  const tolerancePct = num(order?.overproduction_pct);
+  const yieldPct = order?.yield_pct === null || order?.yield_pct === undefined ? null : num(order.yield_pct);
   const progressStrip = order && !isCreating && (
-    <Paper variant="outlined" sx={{ p: 1.5, mb: 2, borderRadius: 3, display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(6, 1fr)" }, alignItems: "center" }}>
+    <Paper variant="outlined" sx={{ p: 1.5, mb: 2, borderRadius: 3, display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(5, 1fr)" }, alignItems: "center" }}>
       {info("Status", <TStatusChip status={order.status} statusMap="productionOrder" size="small" />)}
       {info(
         "Produced",
@@ -807,7 +877,28 @@ export default function ProductionOrdersPage() {
           <LinearProgress variant="determinate" value={Math.min(num(order.progress_pct), 100)} sx={{ height: 6, borderRadius: 3, mt: 0.5 }} />
         </Box>
       )}
-      {info("Scrapped", order.scrapped_quantity)}
+      {info(
+        "Planned / Max",
+        <Tooltip title={tolerancePct ? `Up to ${tolerancePct}% over-production allowed (good + scrap)` : "No over-production allowed"}>
+          <span>
+            {order.planned_quantity} / {order.max_quantity || order.planned_quantity}
+            {tolerancePct ? ` (+${tolerancePct}%)` : ""}
+          </span>
+        </Tooltip>
+      )}
+      {info("Scrapped", `${order.scrapped_quantity}${num(order.scrap_value) ? ` · ${currencySymbol} ${fmtLKR(num(order.scrap_value))}` : ""}`)}
+      {info(
+        "Yield",
+        yieldPct === null ? "-" : (
+          <Typography variant="body2" fontWeight={700} sx={{ color: yieldPct < 95 ? "warning.dark" : "success.main" }}>
+            {yieldPct.toFixed(1)}%
+          </Typography>
+        )
+      )}
+      {info(
+        "QC Hold",
+        order.qc_on_hold_quantity > 0 ? <TChip size="small" color="warning" label={`${order.qc_on_hold_quantity} on hold`} /> : "-"
+      )}
       {info(
         "Materials",
         order.material_status ? <TStatusChip status={order.material_status} statusMap="materialAvailability" size="small" /> : "-"
@@ -876,6 +967,8 @@ export default function ProductionOrdersPage() {
     </FormSection>
   );
 
+  const money = (v: unknown) => `${currencySymbol} ${fmtLKR(num(v))}`;
+  const opActions = !!order && canShopFloor && (order.status === "released" || order.status === "in_progress");
   const operationsTable = order && !isCreating && (
     <FormSection title="Operations" columns={1}>
       <Paper variant="outlined" sx={{ overflow: "auto", borderRadius: 3 }}>
@@ -889,27 +982,68 @@ export default function ProductionOrdersPage() {
               <TableCell align="right">Actual (min)</TableCell>
               <TableCell align="right">Completed Qty</TableCell>
               <TableCell align="center">Status</TableCell>
+              {opActions && <TableCell align="center" sx={{ width: 170 }}>Action</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
             {(order.operations || []).length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} sx={modernTableStyles.emptyCell}>This BOM has no routing operations</TableCell>
+                <TableCell colSpan={opActions ? 8 : 7} sx={modernTableStyles.emptyCell}>This BOM has no routing operations</TableCell>
               </TableRow>
             ) : (
-              order.operations.map((op) => (
-                <TableRow key={op.id} sx={modernTableStyles.bodyRow}>
-                  <TableCell>{op.sequence}</TableCell>
-                  <TableCell>{op.name}</TableCell>
-                  <TableCell>{op.work_center_code} {op.work_center_name ? `- ${op.work_center_name}` : ""}</TableCell>
-                  <TableCell align="right">{num(op.planned_minutes)}</TableCell>
-                  <TableCell align="right" sx={{ color: num(op.actual_minutes) > num(op.planned_minutes) ? "warning.dark" : undefined }}>
-                    {num(op.actual_minutes)}
-                  </TableCell>
-                  <TableCell align="right">{op.completed_quantity}</TableCell>
-                  <TableCell align="center"><TStatusChip status={op.status} statusMap="operationStatus" size="small" /></TableCell>
-                </TableRow>
-              ))
+              order.operations.map((op) => {
+                const cap = order.max_quantity || order.planned_quantity;
+                return (
+                  <TableRow key={op.id} sx={modernTableStyles.bodyRow}>
+                    <TableCell>{op.sequence}</TableCell>
+                    <TableCell>
+                      {op.name}
+                      {op.is_outside && <TChip size="small" variant="outlined" color="secondary" label="Outside" sx={{ ml: 1 }} />}
+                    </TableCell>
+                    <TableCell>
+                      {op.work_center_code} {op.work_center_name ? `- ${op.work_center_name}` : ""}
+                      {op.is_outside && (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {op.supplier_name || "No supplier"} · {money(op.outside_unit_cost)} / unit
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell align="right">{op.is_outside ? "-" : num(op.planned_minutes)}</TableCell>
+                    <TableCell align="right" sx={{ color: num(op.actual_minutes) > num(op.planned_minutes) ? "warning.dark" : undefined }}>
+                      {op.is_outside ? "-" : num(op.actual_minutes)}
+                    </TableCell>
+                    <TableCell align="right">
+                      {op.is_outside ? (
+                        <Tooltip title="Units received back from the subcontractor">
+                          <span>{op.outside_quantity} / {order.planned_quantity} received</span>
+                        </Tooltip>
+                      ) : (
+                        op.completed_quantity
+                      )}
+                    </TableCell>
+                    <TableCell align="center"><TStatusChip status={op.status} statusMap="operationStatus" size="small" /></TableCell>
+                    {opActions && (
+                      <TableCell align="center">
+                        {op.is_outside ? (
+                          op.outside_quantity < cap && (
+                            <Button size="small" startIcon={<LocalShippingIcon fontSize="small" />} disabled={busy}
+                              onClick={() => openPanel("outside", op.id)} sx={{ textTransform: "none" }}>
+                              Receive outside work
+                            </Button>
+                          )
+                        ) : (
+                          op.status !== "completed" && (
+                            <Button size="small" startIcon={<TimerIcon fontSize="small" />} disabled={busy}
+                              onClick={() => openPanel("time", op.id)} sx={{ textTransform: "none" }}>
+                              Log time
+                            </Button>
+                          )
+                        )}
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -917,7 +1051,42 @@ export default function ProductionOrdersPage() {
     </FormSection>
   );
 
-  const money = (v: unknown) => `${currencySymbol} ${fmtLKR(num(v))}`;
+  const byProductsSection = order && !isCreating && (order.by_products || []).length > 0 && (
+    <FormSection title="By-products" columns={1}>
+      <Paper variant="outlined" sx={{ overflow: "auto", borderRadius: 3 }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow sx={modernTableStyles.headerRow}>
+              <TableCell>By-product</TableCell>
+              <TableCell align="right">Per Unit</TableCell>
+              <TableCell align="right">Expected</TableCell>
+              <TableCell align="right">Received</TableCell>
+              <TableCell align="right">{`Unit Cost (${currencySymbol})`}</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {order.by_products.map((b) => (
+              <TableRow key={b.id} sx={modernTableStyles.bodyRow}>
+                <TableCell>
+                  <Typography variant="body2" fontWeight={600}>{b.product_name}</Typography>
+                  <Typography variant="caption" color="text.secondary">{b.product_code}</Typography>
+                </TableCell>
+                <TableCell align="right">{num(b.quantity_per_unit)} {b.unit_of_measure || ""}</TableCell>
+                <TableCell align="right">
+                  <Tooltip title="At the good units recorded so far"><span>{b.expected_quantity}</span></Tooltip>
+                </TableCell>
+                <TableCell align="right" sx={{ color: b.received_quantity < b.expected_quantity ? "warning.dark" : undefined, fontWeight: 600 }}>
+                  {b.received_quantity}
+                </TableCell>
+                <TableCell align="right">{fmtLKR(num(b.unit_cost))}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Paper>
+    </FormSection>
+  );
+
   const variance = order?.variance_amount !== null && order?.variance_amount !== undefined ? num(order.variance_amount) : null;
   const costingSection = order && !isCreating && (
     <FormSection title="Costing" columns={2}>
@@ -931,14 +1100,17 @@ export default function ProductionOrdersPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {[
+            {([
               ["Material", order.planned_material_cost, order.actual_material_cost],
               ["Labour", order.planned_labor_cost, order.actual_labor_cost],
               ["Overhead", order.planned_overhead_cost, order.actual_overhead_cost],
-            ].map(([label, p, a]) => (
-              <TableRow key={String(label)} sx={modernTableStyles.bodyRow}>
-                <TableCell>{String(label)}</TableCell>
-                <TableCell align="right">{money(p)}</TableCell>
+              ...((order.operations || []).some((o) => o.is_outside) || num(order.actual_outside_cost)
+                ? [["Outside Work", null, order.actual_outside_cost]]
+                : []),
+            ] as [string, unknown, unknown][]).map(([label, p, a]) => (
+              <TableRow key={label} sx={modernTableStyles.bodyRow}>
+                <TableCell>{label}</TableCell>
+                <TableCell align="right">{p === null ? "-" : money(p)}</TableCell>
                 <TableCell align="right">{money(a)}</TableCell>
               </TableRow>
             ))}
@@ -967,6 +1139,9 @@ export default function ProductionOrdersPage() {
           "Planned Unit Cost",
           order.planned_quantity ? money(num(order.planned_total_cost) / order.planned_quantity) : "-"
         )}
+        {info("Outside Work Cost", money(order.actual_outside_cost))}
+        {info("Scrap Value", money(order.scrap_value))}
+        {info("Yield", yieldPct === null ? "-" : `${yieldPct.toFixed(1)}%`)}
       </Box>
     </FormSection>
   );
@@ -979,6 +1154,8 @@ export default function ProductionOrdersPage() {
           <Tab label={`Material Movements (${activity?.materials.length ?? 0})`} />
           <Tab label={`Output Receipts (${activity?.outputs.length ?? 0})`} />
           <Tab label={`Time Logs (${activity?.time_logs.length ?? 0})`} />
+          <Tab label={`Outside Work (${activity?.outside_receipts?.length ?? 0})`} />
+          <Tab label={`Quality Results (${activity?.qc_results?.length ?? 0})`} />
         </Tabs>
         <Paper variant="outlined" sx={{ overflow: "auto", borderRadius: 3 }}>
           {activityTab === 0 && (
@@ -1023,21 +1200,37 @@ export default function ProductionOrdersPage() {
                   <TableCell>Date</TableCell>
                   <TableCell align="right">Good</TableCell>
                   <TableCell align="right">Scrap</TableCell>
+                  <TableCell>Scrap Reason</TableCell>
+                  <TableCell>QC</TableCell>
                   <TableCell>Batch / Serials</TableCell>
                   <TableCell>Location</TableCell>
+                  <TableCell>By-products</TableCell>
                   <TableCell align="right">{`Value (${currencySymbol})`}</TableCell>
                   <TableCell>By</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {(activity?.outputs || []).length === 0 ? (
-                  <TableRow><TableCell colSpan={7} sx={modernTableStyles.emptyCell}>No output recorded yet</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={10} sx={modernTableStyles.emptyCell}>No output recorded yet</TableCell></TableRow>
                 ) : (
                   activity!.outputs.map((o) => (
                     <TableRow key={o.id} sx={modernTableStyles.bodyRow}>
                       <TableCell>{formatDateTimeReadable(o.receipt_date)}</TableCell>
                       <TableCell align="right">{o.quantity}</TableCell>
                       <TableCell align="right">{o.scrap_quantity}</TableCell>
+                      <TableCell>{o.scrap_quantity > 0 ? scrapReasonLabel(o.scrap_reason) || "-" : "-"}</TableCell>
+                      <TableCell>
+                        {o.qc_status && o.qc_status !== "none" ? (
+                          <Tooltip title={`Passed ${o.qc_passed_quantity}, failed ${o.qc_failed_quantity} of ${o.quantity}`}>
+                            <span>
+                              <TChip size="small" variant="outlined" color={QC_CHIP[o.qc_status]?.color || "default"}
+                                label={QC_CHIP[o.qc_status]?.label || o.qc_status} />
+                            </span>
+                          </Tooltip>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
                       <TableCell>
                         {o.serial_numbers.length > 0 ? (
                           <Tooltip title={o.serial_numbers.join(", ")}>
@@ -1049,6 +1242,11 @@ export default function ProductionOrdersPage() {
                         {o.expiry_date ? ` · exp ${formatDate(o.expiry_date)}` : ""}
                       </TableCell>
                       <TableCell>{o.location_name || "-"}</TableCell>
+                      <TableCell>
+                        {(o.by_products || []).length > 0
+                          ? (o.by_products || []).map((b) => `${b.quantity} ${b.product_name || ""}`.trim()).join(", ")
+                          : "-"}
+                      </TableCell>
                       <TableCell align="right">{fmtLKR(num(o.total_value))}</TableCell>
                       <TableCell>{o.created_by_name || "-"}</TableCell>
                     </TableRow>
@@ -1095,6 +1293,76 @@ export default function ProductionOrdersPage() {
               </TableBody>
             </Table>
           )}
+          {activityTab === 3 && (
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={modernTableStyles.headerRow}>
+                  <TableCell>Received</TableCell>
+                  <TableCell>Operation</TableCell>
+                  <TableCell>Supplier</TableCell>
+                  <TableCell align="right">Qty</TableCell>
+                  <TableCell align="right">{`Amount (${currencySymbol})`}</TableCell>
+                  <TableCell>Bill Ref</TableCell>
+                  <TableCell>Expense</TableCell>
+                  <TableCell>By</TableCell>
+                  <TableCell>Remark</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(activity?.outside_receipts || []).length === 0 ? (
+                  <TableRow><TableCell colSpan={9} sx={modernTableStyles.emptyCell}>No outside work received yet</TableCell></TableRow>
+                ) : (
+                  (activity?.outside_receipts || []).map((r) => (
+                    <TableRow key={r.id} sx={modernTableStyles.bodyRow}>
+                      <TableCell>{formatDateTimeReadable(r.receipt_date)}</TableCell>
+                      <TableCell>{r.operation_name || "-"}</TableCell>
+                      <TableCell>{r.supplier_name || "-"}</TableCell>
+                      <TableCell align="right">{r.quantity}</TableCell>
+                      <TableCell align="right">{fmtLKR(num(r.amount))}</TableCell>
+                      <TableCell>{r.bill_reference || "-"}</TableCell>
+                      <TableCell>
+                        {r.expense_no ? <TChip size="small" variant="outlined" color="info" label={r.expense_no} /> : "-"}
+                      </TableCell>
+                      <TableCell>{r.created_by_name || "-"}</TableCell>
+                      <TableCell>{r.remark || "-"}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
+          {activityTab === 4 && (
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={modernTableStyles.headerRow}>
+                  <TableCell>Decided</TableCell>
+                  <TableCell>Batch</TableCell>
+                  <TableCell align="right">Passed</TableCell>
+                  <TableCell align="right">Failed</TableCell>
+                  <TableCell align="right">{`Written Off (${currencySymbol})`}</TableCell>
+                  <TableCell>By</TableCell>
+                  <TableCell>Remark</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(activity?.qc_results || []).length === 0 ? (
+                  <TableRow><TableCell colSpan={7} sx={modernTableStyles.emptyCell}>No quality decisions yet</TableCell></TableRow>
+                ) : (
+                  (activity?.qc_results || []).map((r) => (
+                    <TableRow key={r.id} sx={modernTableStyles.bodyRow}>
+                      <TableCell>{formatDateTimeReadable(r.decided_at)}</TableCell>
+                      <TableCell>{r.batch_no || "-"}</TableCell>
+                      <TableCell align="right">{r.passed_quantity}</TableCell>
+                      <TableCell align="right" sx={{ color: r.failed_quantity > 0 ? "error.main" : undefined }}>{r.failed_quantity}</TableCell>
+                      <TableCell align="right">{fmtLKR(num(r.failed_value))}</TableCell>
+                      <TableCell>{r.created_by_name || "-"}</TableCell>
+                      <TableCell>{r.remark || "-"}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </Paper>
       </Box>
     </FormSection>
@@ -1113,6 +1381,18 @@ export default function ProductionOrdersPage() {
         isCreating={isCreating}
         createTitle="New Production Order"
         noSelectionTitle="Select a Production Order"
+        chips={
+          order && !isCreating
+            ? [
+                (() => {
+                  const st = getStatusProps(order.status, "productionOrder");
+                  return { label: st.label, color: st.color };
+                })(),
+                ...(order.is_late ? [{ label: "Late", color: "error" as const }] : []),
+                ...(order.qc_on_hold_quantity > 0 ? [{ label: `QC hold ${order.qc_on_hold_quantity}`, color: "warning" as const }] : []),
+              ]
+            : []
+        }
       />
 
       <ActionToolbar
@@ -1149,6 +1429,12 @@ export default function ProductionOrdersPage() {
                 Draft order — components and operations are built from the BOM. Release it to issue materials and start production.
               </Alert>
             )}
+            {order && !isCreating && order.qc_on_hold_quantity > 0 && (
+              <Alert severity="warning" icon={<FactCheckIcon />} sx={{ mb: 2 }}>
+                {order.qc_on_hold_quantity} good unit(s){heldOutputs ? ` from ${heldOutputs} output receipt(s)` : ""} are on quality
+                hold and cannot be sold until an approver passes them{canApprove ? " — use Quality Check" : ""}.
+              </Alert>
+            )}
             {isCreating && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Components and routing operations are copied from the selected BOM when the order is saved.
@@ -1158,6 +1444,7 @@ export default function ProductionOrdersPage() {
             {headerForm}
             {!isEditing && materialsTable}
             {!isEditing && operationsTable}
+            {!isEditing && byProductsSection}
             {!isEditing && costingSection}
             {!isEditing && transactionsSection}
 
@@ -1190,7 +1477,7 @@ export default function ProductionOrdersPage() {
         title="Production Orders"
         titleSlot={
           isDetailMode ? (
-            <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={handleBack} sx={{ textTransform: "none" }}>
+            <Button size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={handleBack} disabled={busy || isSaving} sx={{ textTransform: "none" }}>
               Back to Production Orders
             </Button>
           ) : (
@@ -1207,13 +1494,13 @@ export default function ProductionOrdersPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 190, flexShrink: 0 }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
-              <Box sx={{ width: 160, flexShrink: 0 }}>
-                <TStatusFilter options={STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
-              </Box>
-              <Box sx={{ width: 150, flexShrink: 0 }}>
+              <Box sx={{ width: 160, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
+              </Box>
+              <Box sx={{ width: 170, flexShrink: 0 }}>
+                <TStatusFilter options={STATUS_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
               </Box>
               <TChip
                 label="Late only"
@@ -1252,7 +1539,7 @@ export default function ProductionOrdersPage() {
                 From Quotation
               </Button>
               <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleNew}>
-                Add Production Order
+                New production order
               </Button>
             </Stack>
           )
@@ -1283,7 +1570,7 @@ export default function ProductionOrdersPage() {
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 
-      <MaterialMoveDialog
+      <MaterialMovePanel
         open={dialog === "issue" || dialog === "return"}
         mode={dialog === "return" ? "return" : "issue"}
         order={order}
@@ -1300,22 +1587,62 @@ export default function ProductionOrdersPage() {
           )
         }
       />
-      <OutputDialog
+      <OutputPanel
         open={dialog === "output"}
         order={order}
         locations={filteredLocations}
+        requiresQc={requiresQc}
         saving={busy}
         onClose={() => setDialog(null)}
-        onSubmit={(data) => order && runAction(() => productionOrdersApi.recordOutput({ id: order.id, data }), "Output recorded")}
+        onSubmit={(data) =>
+          order &&
+          runAction(
+            () => productionOrdersApi.recordOutput({ id: order.id, data }),
+            requiresQc && data.quantity > 0 ? "Output recorded and held for a quality check" : "Output recorded"
+          )
+        }
       />
-      <TimeLogDialog
+      <TimeLogPanel
         open={dialog === "time"}
         order={order}
         saving={busy}
+        initialOperationId={panelOpId}
         onClose={() => setDialog(null)}
         onSubmit={(data) => order && runAction(() => productionOrdersApi.logTime({ id: order.id, data }), "Time logged")}
       />
-      <CancelOrderDialog
+      <OutsideWorkPanel
+        open={dialog === "outside"}
+        order={order}
+        saving={busy}
+        initialOperationId={panelOpId}
+        currencySymbol={currencySymbol}
+        onClose={() => setDialog(null)}
+        onSubmit={(data) =>
+          order &&
+          runAction(
+            () => productionOrdersApi.receiveOutsideWork({ id: order.id, data }),
+            data.create_expense ? "Outside work received; pending expense raised" : "Outside work received"
+          )
+        }
+      />
+      <QualityCheckPanel
+        open={dialog === "quality"}
+        order={order}
+        outputs={activity?.outputs || []}
+        saving={busy}
+        onClose={() => setDialog(null)}
+        onSubmit={(data) => order && runAction(() => productionOrdersApi.qualityDecision({ id: order.id, data }), "Quality decision saved")}
+      />
+      <CompleteOrderPanel
+        open={dialog === "complete"}
+        order={order}
+        saving={busy}
+        onClose={() => setDialog(null)}
+        onSubmit={(bookPlannedTime) =>
+          order && runAction(() => productionOrdersApi.complete({ id: order.id, bookPlannedTime }), "Order completed")
+        }
+      />
+      <CancelOrderPanel
         open={dialog === "cancel"}
         orderNo={order?.order_no}
         saving={busy}
@@ -1337,6 +1664,8 @@ export default function ProductionOrdersPage() {
           return_materials: "Materials returned",
           record_output: "Output recorded",
           log_time: "Time logged",
+          outside_work: "Outside work received",
+          qc_decision: "Quality decision",
           complete: "Order completed",
           close: "Order closed",
           cancel: "Order cancelled",

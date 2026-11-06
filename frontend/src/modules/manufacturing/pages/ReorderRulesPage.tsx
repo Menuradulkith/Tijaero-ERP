@@ -13,10 +13,6 @@ import {
   Autocomplete,
   Box,
   Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   FormControlLabel,
   IconButton,
   InputAdornment,
@@ -29,15 +25,17 @@ import {
 } from "@mui/material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  FormSection,
   MasterDetailLayout,
   TBranchFilter,
   TChip,
   TConfirmDialog,
   TDataGrid,
   type TDataGridColumn,
+  TSidePanel,
   TStatusChip,
   useCrudMutation,
   useTConfirmDialog,
@@ -77,6 +75,9 @@ export default function ReorderRulesPage() {
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
   const [editing, setEditing] = useState<ReorderRule | "new" | null>(null);
   const [form, setForm] = useState<RuleForm>(EMPTY_FORM);
+  // In-flight guards so a double click can never save or delete twice
+  const saveBusyRef = useRef(false);
+  const deleteBusyRef = useRef(false);
 
   const { filteredBranches, defaultBranchCode, data: refData } = useReferenceData(["branches", "products"], { productsLimit: 2000 });
   const branches = filteredBranches || [];
@@ -128,6 +129,7 @@ export default function ReorderRulesPage() {
     successMessage: "Reordering rule deleted",
     errorMessage: "Failed to delete reordering rule",
   });
+  const saving = createMutation.isPending || updateMutation.isPending;
 
   const openNew = () => {
     setForm({ ...EMPTY_FORM, branch_code: filterBranch || defaultBranchCode || "" });
@@ -148,13 +150,23 @@ export default function ReorderRulesPage() {
   };
 
   const handleDelete = async (rule: ReorderRule) => {
+    if (deleteMutation.isPending || deleteBusyRef.current) return;
+    deleteBusyRef.current = true;
+    let handedOff = false;
+    try {
     const ok = await confirmDialog.confirm({
       title: "Delete Reordering Rule",
       message: `Delete the rule for "${rule.product_name}" in ${rule.branch_code}? MRP stops planning stock for it.`,
       confirmText: "Delete",
       confirmColor: "error",
     });
-    if (ok) deleteMutation.mutate(rule.id);
+    if (ok) {
+      handedOff = true;
+      deleteMutation.mutate(rule.id, { onSettled: () => { deleteBusyRef.current = false; } });
+    }
+    } finally {
+      if (!handedOff) deleteBusyRef.current = false;
+    }
   };
 
   const min = Number(form.min_quantity);
@@ -168,7 +180,7 @@ export default function ReorderRulesPage() {
               : null;
 
   const handleSave = () => {
-    if (formError || !form.product_id) return;
+    if (formError || !form.product_id || saving || saveBusyRef.current) return;
     const data: ReorderRuleInput = {
       product_id: form.product_id,
       branch_code: form.branch_code,
@@ -178,10 +190,21 @@ export default function ReorderRulesPage() {
       preferred_supplier_id: form.preferred_supplier_id,
       active: form.active,
     };
-    if (editing === "new") createMutation.mutate(data);
-    else if (editing) {
-      const { product_id: _p, branch_code: _b, ...changes } = data;
-      updateMutation.mutate({ id: editing.id, data: changes });
+    const release = { onSettled: () => { saveBusyRef.current = false; } };
+    if (editing === "new") {
+      saveBusyRef.current = true;
+      createMutation.mutate(data, release);
+    } else if (editing) {
+      // Product and branch identify the rule and cannot change
+      const changes = {
+        min_quantity: data.min_quantity,
+        max_quantity: data.max_quantity,
+        multiple_quantity: data.multiple_quantity,
+        preferred_supplier_id: data.preferred_supplier_id,
+        active: data.active,
+      };
+      saveBusyRef.current = true;
+      updateMutation.mutate({ id: editing.id, data: changes }, release);
     }
   };
 
@@ -269,8 +292,6 @@ export default function ReorderRulesPage() {
     [canEdit] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const saving = createMutation.isPending || updateMutation.isPending;
-
   return (
     <>
       <MasterDetailLayout
@@ -289,11 +310,16 @@ export default function ReorderRulesPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 200, flexShrink: 0 }}
+              sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <Box sx={{ width: 150, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
             </Box>
+            {(searchQuery || filterBranch) && (
+              <Button size="small" onClick={() => { setSearchQuery(""); setFilterBranch(null); }} sx={{ textTransform: "none" }}>
+                Clear
+              </Button>
+            )}
           </Box>
         }
         onRefresh={() => queryClient.invalidateQueries({ queryKey: ["reorder-rules"] })}
@@ -323,10 +349,17 @@ export default function ReorderRulesPage() {
         </Box>
       </MasterDetailLayout>
 
-      <Dialog open={!!editing} onClose={saving ? undefined : () => setEditing(null)} maxWidth="sm" fullWidth>
-        <DialogTitle>{editing === "new" ? "New Reordering Rule" : "Edit Reordering Rule"}</DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={2}>
+      <TSidePanel
+        open={!!editing}
+        onClose={() => { if (!saving) setEditing(null); }}
+        title={editing === "new" ? "New Reordering Rule" : "Edit Reordering Rule"}
+        submitText="Save"
+        isSubmitting={saving}
+        submitDisabled={saving || !!formError}
+        onSubmit={handleSave}
+        width={560}
+      >
+        <FormSection title="Reordering Rule" columns={1} isLast>
             <Autocomplete<ProductRef>
               size="small"
               options={products}
@@ -379,13 +412,8 @@ export default function ReorderRulesPage() {
             {formError && (
               <Typography variant="caption" color="error">{formError}</Typography>
             )}
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditing(null)} disabled={saving}>Cancel</Button>
-          <Button variant="contained" onClick={handleSave} disabled={saving || !!formError}>Save</Button>
-        </DialogActions>
-      </Dialog>
+        </FormSection>
+      </TSidePanel>
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </>
   );

@@ -2,8 +2,8 @@
  * Contact persons of a business customer (buyer, accountant, ...).
  *
  * Two modes, like the Suppliers page:
- *  - existing customer (`customerId` set): each add/edit/delete saves
- *    immediately through the API;
+ *  - existing customer (`customerId` set): each add/edit saves immediately
+ *    through the API (saved contacts are never deleted, only set inactive);
  *  - new customer (no `customerId`): rows are kept as drafts in the parent
  *    (`drafts` / `onDraftsChange`) and saved together with the customer.
  */
@@ -59,6 +59,7 @@ const EMPTY_FORM: CustomerContactPersonCreate = {
   email: "",
   phone: "",
   is_primary: false,
+  active: true,
 };
 
 const EMAIL_PATTERN = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
@@ -126,16 +127,6 @@ export default function CustomerContactPersons({
     onError: (err) => showErrorToast(errorDetail(err, "Failed to save contact person")),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (contactId: number) =>
-      customersApi.deleteContactPerson(customerId as number, contactId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-      showSuccessToast("Contact person removed");
-    },
-    onError: (err) => showErrorToast(errorDetail(err, "Failed to remove contact person")),
-  });
-
   const openAdd = () => {
     setEditingRow(null);
     setForm(EMPTY_FORM);
@@ -151,6 +142,7 @@ export default function CustomerContactPersons({
       email: row.email || "",
       phone: normalizePhone(row.phone),
       is_primary: !!row.is_primary,
+      active: row.active !== false,
     });
     setDialogOpen(true);
   };
@@ -175,12 +167,9 @@ export default function CustomerContactPersons({
     closeDialog();
   };
 
-  const handleDelete = (row: Row) => {
-    if (!window.confirm(`Remove ${row.full_name} from this customer's contact persons?`)) return;
-    if (row.saved) {
-      deleteMutation.mutate(row.saved.id);
-      return;
-    }
+  // Only an unsaved draft can be dropped; a saved contact is deactivated instead.
+  const handleRemoveDraft = (row: Row) => {
+    if (row.saved) return;
     const next = drafts.filter((_, i) => `draft-${i}` !== row.key);
     if (next.length && !next.some((d) => d.is_primary)) next[0] = { ...next[0], is_primary: true };
     onDraftsChange?.(next);
@@ -226,6 +215,7 @@ export default function CustomerContactPersons({
               <TableCell>Designation</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Phone</TableCell>
+              <TableCell>Status</TableCell>
               {canEdit && <TableCell align="right" />}
             </TableRow>
           </TableHead>
@@ -239,6 +229,13 @@ export default function CustomerContactPersons({
                 <TableCell>{r.designation || "—"}</TableCell>
                 <TableCell>{r.email || "—"}</TableCell>
                 <TableCell>{r.phone || "—"}</TableCell>
+                <TableCell>
+                  <TChip
+                    label={r.active === false ? "Inactive" : "Active"}
+                    size="small"
+                    color={r.active === false ? "default" : "success"}
+                  />
+                </TableCell>
                 {canEdit && (
                   <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
                     <Tooltip title="Edit">
@@ -246,11 +243,13 @@ export default function CustomerContactPersons({
                         <EditOutlinedIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Remove">
-                      <IconButton size="small" onClick={() => handleDelete(r)}>
-                        <DeleteOutlineIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                    {!r.saved && (
+                      <Tooltip title="Remove">
+                        <IconButton size="small" onClick={() => handleRemoveDraft(r)}>
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                   </TableCell>
                 )}
               </TableRow>
@@ -315,6 +314,16 @@ export default function CustomerContactPersons({
                 />
               }
               label="Primary contact"
+            />
+            <FormControlLabel
+              sx={{ gridColumn: "1 / -1" }}
+              control={
+                <Switch
+                  checked={form.active !== false}
+                  onChange={(e) => setForm({ ...form, active: e.target.checked })}
+                />
+              }
+              label="Active"
             />
           </Box>
         </DialogContent>

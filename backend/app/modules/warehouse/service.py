@@ -992,10 +992,11 @@ class ItemReceiveNoteService:
         - Marks items as received
         - Updates sales_stock location and status
         """
-        # Get the transfer note
+        # Locked so two receivers of the same note queue up: each sees the other's lines
+        # as received and only one receive note is created.
         transfer_note = self.db.query(ItemTransferNote).filter(
             ItemTransferNote.id == transfer_note_id
-        ).first()
+        ).with_for_update().first()
         
         if not transfer_note:
             raise HTTPException(

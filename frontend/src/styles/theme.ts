@@ -196,6 +196,18 @@ export const createAppTheme = (mode: PaletteMode) => {
       "0px 64px 128px rgba(0, 0, 0, 0.1)",
     ],
     components: {
+      // A toggle reacts only to a click on the switch itself, not on its label text.
+      MuiFormControlLabel: {
+        styleOverrides: {
+          root: {
+            "&:has(.MuiSwitch-root)": {
+              pointerEvents: "none",
+              cursor: "default",
+              "& .MuiSwitch-root": { pointerEvents: "auto", cursor: "pointer" },
+            },
+          },
+        },
+      },
       MuiButton: {
         styleOverrides: {
           root: {

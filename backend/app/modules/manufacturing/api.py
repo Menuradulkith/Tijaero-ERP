@@ -270,11 +270,35 @@ def log_time(order_id: RowId, data: s.TimeLogIn, db: Session = Depends(get_db),
     return ProductionOrderService(db).log_time(order_id, data, user.id)
 
 
+@router.post("/orders/{order_id}/outside-work", response_model=s.ProductionOrderOut)
+def receive_outside_work(order_id: RowId, data: s.OutsideReceiptIn, db: Session = Depends(get_db),
+                         user: User = Depends(require_permission(*Permissions.SHOP_FLOOR_UPDATE))):
+    _order_access(db, user, order_id)
+    return ProductionOrderService(db).receive_outside_work(order_id, data, user.id)
+
+
+@router.post("/orders/{order_id}/quality", response_model=s.ProductionOrderOut)
+def quality_decision(order_id: RowId, data: s.QcDecisionIn, db: Session = Depends(get_db),
+                     user: User = Depends(require_permission(*Permissions.PRODUCTION_ORDER_APPROVE))):
+    """Pass / fail output held for a quality check (approvers decide, like closing an order)."""
+    _order_access(db, user, order_id)
+    return ProductionOrderService(db).qc_decision(order_id, data, user.id)
+
+
+@router.get("/trace", response_model=s.TraceOut)
+def trace_batch(batch_no: str = Query(..., min_length=1, max_length=100), db: Session = Depends(get_db),
+                user: User = Depends(ORDER_READ), branches: Optional[List[str]] = Depends(get_user_branch_filter)):
+    """Batch traceability: which component lots went into a finished batch, or which finished
+    batches used a component lot (for a recall)."""
+    return ProductionOrderService(db).trace(batch_no, branches)
+
+
 @router.post("/orders/{order_id}/complete", response_model=s.ProductionOrderOut)
-def complete_order(order_id: RowId, db: Session = Depends(get_db),
+def complete_order(order_id: RowId, data: Optional[s.CompleteIn] = None, db: Session = Depends(get_db),
                    user: User = Depends(require_permission(*Permissions.PRODUCTION_ORDER_APPROVE))):
     _order_access(db, user, order_id)
-    return ProductionOrderService(db).complete(order_id, user.id)
+    return ProductionOrderService(db).complete(order_id, user.id,
+                                               book_planned_time=data.book_planned_time if data else True)
 
 
 @router.post("/orders/{order_id}/close", response_model=s.ProductionOrderOut)

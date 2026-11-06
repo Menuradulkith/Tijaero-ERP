@@ -123,25 +123,6 @@ interface Location {
   branch_code: string;
 }
 
-/** Preview next sequential number using same format as backend */
-const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
-  const year = new Date().getFullYear();
-  const yy = String(year).slice(-2);
-  const actualBranch = branchCode || "HQ";
-  const fullPrefix = `${prefix}-${actualBranch}-${yy}`;
-  let maxSeq = 0;
-  for (const item of existing) {
-    if (item.no?.startsWith(fullPrefix)) {
-      const lastPart = item.no.split("-").pop() || "";
-      if (lastPart.length > 2) {
-        const seq = parseInt(lastPart.slice(2), 10);
-        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
-      }
-    }
-  }
-  return `${fullPrefix}${String(maxSeq + 1).padStart(6, '0')}`;
-};
-
 // The GRN date is always today (local date), filled in automatically
 const todayLocal = () => {
   const d = new Date();
@@ -192,8 +173,17 @@ const isLotReady = (i: GRNLineItem) =>
   (i.tracking_type !== "batch" || (!!i.batch_no?.trim() && !(i.expiry_date && i.expiry_date < todayLocalISO())));
 const lineUnits = (i: GRNLineItem) => (isLotItem(i) ? (i.quantity ?? 0) : 1);
 
-// Grouped items by product for nice display
+// Warranty is whole months, 0-600 (blank allowed), matching the server.
+const warrantyError = (value?: string) => {
+  const v = (value ?? "").trim();
+  if (!v) return undefined;
+  return /^\d+$/.test(v) && Number(v) <= 600 ? undefined : "0-600 months";
+};
+
+// Received items grouped per PO line: the same product can appear on several
+// lines of one PO, each with its own ordered qty and unit price.
 interface ProductGroup {
+  po_item_id: number;
   product_id: number;
   product_name: string;
   unit_price: number;
@@ -604,10 +594,6 @@ export default function GoodReceivedNotesPage() {
     enabled: branchResolved,
   });
 
-  const nextGRNNumber = useMemo(() => 
-    getNextNumber('GRN', (grns || []).map((g: GoodReceivedNote) => ({ no: g.good_received_no })), formData.branch_code), 
-  [grns, formData.branch_code]);
-
   const { data: purchaseOrders } = useQuery({
     queryKey: ["purchaseOrders"],
     queryFn: () => purchaseOrdersApi.getAll(),
@@ -745,6 +731,9 @@ export default function GoodReceivedNotesPage() {
       }
       if (rejectedEntries.some(([, r]) => r.reason.trim().length < 3)) {
         throw new Error("Enter a reason for every rejected quantity.");
+      }
+      if (itemsToSave.some((item) => warrantyError(item.warranty_month))) {
+        throw new Error("Warranty must be a whole number of months between 0 and 600.");
       }
 
       // One receipt, one transaction: the server validates every line (barcodes, batch, quantities,
@@ -921,8 +910,8 @@ export default function GoodReceivedNotesPage() {
   };
 
   // Serial products: add one more unit line while the over-receipt tolerance allows it.
-  const handleAddExtraUnit = (productId: number) => {
-    const first = lineItems.find((i) => i.product_id === productId && !isLotItem(i));
+  const handleAddExtraUnit = (poItemId: number) => {
+    const first = lineItems.find((i) => i.purchasing_order_items_id === poItemId && !isLotItem(i));
     if (!first) return;
     const extra: GRNLineItem = {
       ...first,
@@ -933,7 +922,7 @@ export default function GoodReceivedNotesPage() {
     };
     setLineItems((prev) => [...prev, extra]);
     setProductGroups((groups) =>
-      groups.map((g) => (g.product_id === productId ? { ...g, items: [...g.items, extra], total_quantity: g.total_quantity + 1 } : g))
+      groups.map((g) => (g.po_item_id === poItemId ? { ...g, items: [...g.items, extra], total_quantity: g.total_quantity + 1 } : g))
     );
   };
 
@@ -1133,13 +1122,15 @@ export default function GoodReceivedNotesPage() {
 
     items.forEach((item) => {
       const productId = item.product_id || 0;
-      if (groupMap.has(productId)) {
-        const group = groupMap.get(productId)!;
+      const poItemId = item.purchasing_order_items_id;
+      if (groupMap.has(poItemId)) {
+        const group = groupMap.get(poItemId)!;
         group.items.push(item);
         group.total_quantity += lineUnits(item);
       } else {
         const product = productList.find((p: Product) => p.id === productId);
-        groupMap.set(productId, {
+        groupMap.set(poItemId, {
+          po_item_id: poItemId,
           product_id: productId,
           product_name: item.product_name || product?.name || `Product ${productId}`,
           unit_price: item.unit_price || 0,
@@ -1155,10 +1146,10 @@ export default function GoodReceivedNotesPage() {
   }, []);
 
   // Toggle product group expansion
-  const toggleProductGroup = (productId: number) => {
+  const toggleProductGroup = (poItemId: number) => {
     setProductGroups(groups =>
       groups.map(g =>
-        g.product_id === productId ? { ...g, expanded: !g.expanded } : g
+        g.po_item_id === poItemId ? { ...g, expanded: !g.expanded } : g
       )
     );
   };
@@ -1503,11 +1494,9 @@ export default function GoodReceivedNotesPage() {
   };
 
   // Step 1 validation: GRN Information, Supplier Invoice, Remarks
-  // When creating, the GRN number is auto-generated (nextGRNNumber) and never written
-  // into formData.good_received_no, so treat the preview number as valid instead.
-  const effectiveGRNNumber = isCreating ? nextGRNNumber : formData.good_received_no;
-  const isStep1Valid = effectiveGRNNumber &&
-    formData.purchasingorders_id > 0;
+  // The GRN number is generated by the server when the GRN is saved, so it is
+  // neither shown nor needed while creating.
+  const isStep1Valid = formData.purchasingorders_id > 0;
 
   // Full form validation
   const isFormValid = isStep1Valid;
@@ -1763,25 +1752,36 @@ export default function GoodReceivedNotesPage() {
             {(formStep === 0 || !isCreating) && (
               <>
                 <FormSection title="GRN Information" columns={3}>
-                  <TextField
-                    label="GRN Number"
-                    size="small"
-                    value={isCreating ? nextGRNNumber : formData.good_received_no}
-                    disabled
-                  />
+                  {!isCreating && (
+                    <TextField
+                      label="GRN Number"
+                      size="small"
+                      value={formData.good_received_no}
+                      disabled
+                    />
+                  )}
                   <Autocomplete
                     size="small"
                     options={(() => {
                       const eligible = grnEligiblePOs || [];
                       // Also include the currently selected PO (may already be completed if editing)
-                      const currentPO = purchaseOrders?.find((o: PurchasingOrder) => o.id === formData.purchasingorders_id);
+                      const currentPO = purchaseOrders?.find((o: PurchasingOrder) => o.id === formData.purchasingorders_id)
+                        // The PO list is paged/filtered, so fall back to the number saved on the GRN itself.
+                        ?? (selectedGRN && !isCreating && selectedGRN.po_no
+                          ? ({ id: formData.purchasingorders_id, purchasing_order_no: selectedGRN.po_no } as PurchasingOrder)
+                          : undefined);
                       if (currentPO && !eligible.some((o: PurchasingOrder) => o.id === currentPO.id)) {
                         return [currentPO, ...eligible];
                       }
                       return eligible;
                     })()}
                     getOptionLabel={(option: PurchasingOrder) => option.purchasing_order_no || ""}
-                    value={purchaseOrders?.find((o: PurchasingOrder) => o.id === formData.purchasingorders_id) || null}
+                    value={
+                      purchaseOrders?.find((o: PurchasingOrder) => o.id === formData.purchasingorders_id)
+                      ?? (selectedGRN && !isCreating && selectedGRN.po_no
+                        ? ({ id: formData.purchasingorders_id, purchasing_order_no: selectedGRN.po_no } as PurchasingOrder)
+                        : null)
+                    }
                     onChange={(_, newValue) => {
                       handlePOChange(newValue?.id || 0);
                       handleBlur('purchasingorders_id');
@@ -1986,10 +1986,10 @@ export default function GoodReceivedNotesPage() {
                       const expiries = Array.from(new Set(group.items.map((i) => i.expiry_date).filter(Boolean)));
                       const trackingLabel = first?.tracking_type === "serial" ? "Serial" : first?.tracking_type === "batch" ? "Batch" : "Quantity";
                       return (
-                      <Fragment key={group.product_id}>
+                      <Fragment key={group.po_item_id}>
                         <TableRow hover sx={{ "& > td": { borderBottom: group.expanded ? 0 : undefined } }}>
                           <TableCell sx={{ px: 0.5 }}>
-                            <IconButton size="small" aria-label="Toggle details" onClick={() => toggleProductGroup(group.product_id)}>
+                            <IconButton size="small" aria-label="Toggle details" onClick={() => toggleProductGroup(group.po_item_id)}>
                               {group.expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                             </IconButton>
                           </TableCell>
@@ -2051,7 +2051,7 @@ export default function GoodReceivedNotesPage() {
                               <Button
                                 size="small"
                                 variant="text"
-                                onClick={() => handleAddExtraUnit(group.product_id)}
+                                onClick={() => handleAddExtraUnit(group.po_item_id)}
                                 sx={{ mb: 1, mr: 1 }}
                               >
                                 + Add unit (over-receipt tolerance allows {(receiptCaps[group.items[0].purchasing_order_items_id] ?? 0) - group.items.length} more)
@@ -2134,7 +2134,10 @@ export default function GoodReceivedNotesPage() {
                                       size="small"
                                       label="Warranty (months)"
                                       value={item.warranty_month || ""}
-                                      onChange={(e) => handleWarrantyChange(item._id, e.target.value)}
+                                      onChange={(e) => handleWarrantyChange(item._id, e.target.value.trim())}
+                                      inputProps={{ inputMode: "numeric", maxLength: 3 }}
+                                      error={!!warrantyError(item.warranty_month)}
+                                      helperText={warrantyError(item.warranty_month)}
                                       sx={{ width: 150 }}
                                     />
                                   </Box>
@@ -2185,7 +2188,10 @@ export default function GoodReceivedNotesPage() {
                                     size="small"
                                     placeholder="Warranty (months)"
                                     value={item.warranty_month || ""}
-                                    onChange={(e) => handleWarrantyChange(item._id, e.target.value)}
+                                    onChange={(e) => handleWarrantyChange(item._id, e.target.value.trim())}
+                                    inputProps={{ inputMode: "numeric", maxLength: 3 }}
+                                    error={!!warrantyError(item.warranty_month)}
+                                    helperText={warrantyError(item.warranty_month)}
                                     sx={{ width: 130 }}
                                     InputProps={{
                                       startAdornment: (

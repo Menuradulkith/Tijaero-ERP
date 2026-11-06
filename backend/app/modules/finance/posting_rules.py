@@ -140,6 +140,8 @@ EXPENSE_CATEGORY_DEFAULTS: Dict[str, str] = {
     "miscellaneous": "5190",
     "freight": "5020",
     "commission": "5150",
+    # A subcontractor's bill meets the outside work absorbed into WIP on 5040
+    "outside_work": "5040",
 }
 EXPENSE_CATEGORY_ALIASES: Dict[str, str] = {
     "travel_transportation": "travel",

@@ -15,7 +15,7 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from typing import List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from . import accounting_schemas as schemas
@@ -228,8 +228,14 @@ class GLPostingFailureService:
         branch_code: Optional[str] = None,
         skip: int = 0,
         limit: int = 100,
+        branch_codes: Optional[List[str]] = None,
     ) -> schemas.GLPostingFailureListResponse:
+        """``branch_codes`` (None = all) limits rows to those branches plus company-wide ones."""
         q = self.db.query(GLPostingFailure)
+        scope = None
+        if branch_codes is not None:
+            scope = or_(GLPostingFailure.branch_code.is_(None), GLPostingFailure.branch_code.in_(branch_codes))
+            q = q.filter(scope)
         if status:
             q = q.filter(GLPostingFailure.status == status)
         if source_module:
@@ -238,12 +244,10 @@ class GLPostingFailureService:
             q = q.filter(GLPostingFailure.branch_code == branch_code)
 
         total = q.count()
-        pending_count = (
-            self.db.query(func.count(GLPostingFailure.id))
-            .filter(GLPostingFailure.status == "pending")
-            .scalar()
-            or 0
-        )
+        pending_q = self.db.query(func.count(GLPostingFailure.id)).filter(GLPostingFailure.status == "pending")
+        if scope is not None:
+            pending_q = pending_q.filter(scope)
+        pending_count = pending_q.scalar() or 0
         rows = (
             q.order_by(GLPostingFailure.last_attempt_at.desc(), GLPostingFailure.id.desc())
             .offset(skip)

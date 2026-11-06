@@ -86,6 +86,7 @@ import { useReferenceData } from "@/hooks";
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import { EntityLink, EntityPeekButton } from "@/components/tijaero/peek";
 import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
+import LineAmountField, { lineAmountError } from "@/modules/purchasing/components/LineAmountField";
 import PurchaseOrderCreateWizard, {
   type PurchaseOrderWizardHandle,
   type PurchaseOrderWizardState,
@@ -100,6 +101,7 @@ import {
     Supplier,
     SupplierProduct,
 } from "@/modules/purchasing/types";
+import { UNTAXED_SUPPLIER_AREAS } from "@/modules/purchasing/types";
 import { productsApi } from "@/modules/inventory/api";
 
 import { useAuthStore } from "@/state/authStore";
@@ -816,13 +818,21 @@ export default function PurchaseOrdersPage() {
     [suppliers],
   );
 
-  // Calculate total amount from line items
-  const totalAmount = useMemo(() => {
-    return lineItems.reduce(
-      (sum, item) => sum + item.quantity * item.unit_price,
-      0,
-    );
-  }, [lineItems]);
+  // Line items before tax, the tax on them, and the total (what the supplier is owed).
+  // Tax rule matches the server: the product's tax %, none for a supplier on an untaxed tax area.
+  const subtotalAmount = useMemo(
+    () => lineItems.reduce((sum, item) => sum + item.quantity * item.unit_price, 0),
+    [lineItems],
+  );
+  const taxAmount = useMemo(() => {
+    const supplier = (suppliers as Supplier[] | undefined)?.find((s) => s.id === formData.first_suppliers_id);
+    if (supplier?.tax_area && UNTAXED_SUPPLIER_AREAS.includes(supplier.tax_area)) return 0;
+    return lineItems.reduce((sum, item) => {
+      const rate = Number((products.find((p: any) => p.id === item.product_id) as any)?.tax_rate ?? 0);
+      return sum + Math.round(item.quantity * item.unit_price * rate) / 100;
+    }, 0);
+  }, [lineItems, suppliers, products, formData.first_suppliers_id]);
+  const totalAmount = subtotalAmount + taxAmount;
 
   // Check credit limit when supplier, payment method, or total amount changes
   useEffect(() => {
@@ -998,11 +1008,6 @@ export default function PurchaseOrdersPage() {
       ((suppliers as Supplier[] | undefined)?.find((s) => s.id === formData.first_suppliers_id)?.max_credit_limit ?? 0) > 0;
 
     if (isCreditPayment && formData.first_suppliers_id) {
-      const totalAmount = lineItems.reduce(
-        (sum, item) => sum + item.quantity * item.unit_price,
-        0,
-      );
-
       try {
         const creditCheck = await purchaseOrdersApi.checkCredit(
           formData.first_suppliers_id,
@@ -1094,6 +1099,7 @@ export default function PurchaseOrdersPage() {
     createMutation,
     updateMutation,
     suppliers,
+    totalAmount,
   ]);
 
   const handleDuplicate = useCallback(() => {
@@ -1127,12 +1133,7 @@ export default function PurchaseOrdersPage() {
 
   // getStatusColor is now imported from common components
 
-  const calculateTotal = () => {
-    return lineItems.reduce(
-      (sum, item) => sum + item.quantity * item.unit_price,
-      0,
-    );
-  };
+  const calculateTotal = () => totalAmount;
 
   // Validation error messages
   const getFieldError = (fieldName: string): string | undefined => {
@@ -1186,7 +1187,7 @@ export default function PurchaseOrdersPage() {
   // Select Products step validation: at least one line item with a product and quantity chosen
   const isProductsStepValid =
     lineItems.length > 0 &&
-    lineItems.every((item) => item.product_id > 0 && item.quantity > 0);
+    lineItems.every((item) => item.product_id > 0 && !lineAmountError(Number(item.quantity), true));
 
   // Full form validation (both steps)
   const isFormValid =
@@ -1991,19 +1992,10 @@ export default function PurchaseOrdersPage() {
                               </TableCell>
                               <TableCell align="right">
                                 {isEditing || isCreating ? (
-                                  <TextField
-                                    size="small"
-                                    type="number"
+                                  <LineAmountField
+                                    integer
                                     value={item.quantity}
-                                    onChange={(e) =>
-                                      handleUpdateLineItem(
-                                        item._id,
-                                        "quantity",
-                                        parseInt(e.target.value) || 0,
-                                      )
-                                    }
-                                    sx={{ width: 80 }}
-                                    inputProps={{ min: 0 }}
+                                    onChange={(v) => handleUpdateLineItem(item._id, "quantity", v)}
                                   />
                                 ) : (
                                   item.quantity
@@ -2011,19 +2003,10 @@ export default function PurchaseOrdersPage() {
                               </TableCell>
                               <TableCell align="right">
                                 {isEditing || isCreating ? (
-                                  <TextField
-                                    size="small"
-                                    type="number"
+                                  <LineAmountField
+                                    width={100}
                                     value={Number(item.unit_price)}
-                                    onChange={(e) =>
-                                      handleUpdateLineItem(
-                                        item._id,
-                                        "unit_price",
-                                        parseFloat(e.target.value) || 0,
-                                      )
-                                    }
-                                    sx={{ width: 100 }}
-                                    inputProps={{ min: 0, step: 0.01 }}
+                                    onChange={(v) => handleUpdateLineItem(item._id, "unit_price", v)}
                                   />
                                 ) : (
                                   fmtLKR(Number(item.unit_price))
@@ -2089,6 +2072,20 @@ export default function PurchaseOrdersPage() {
                               )}
                             </TableRow>
                           ))
+                        )}
+                        {taxAmount > 0 && (
+                          <>
+                            <TableRow>
+                              <TableCell colSpan={6} align="right">Subtotal:</TableCell>
+                              <TableCell align="right">{fmtLKR(subtotalAmount)}</TableCell>
+                              {(isEditing || isCreating) && <TableCell />}
+                            </TableRow>
+                            <TableRow>
+                              <TableCell colSpan={6} align="right">VAT / Tax:</TableCell>
+                              <TableCell align="right">{fmtLKR(taxAmount)}</TableCell>
+                              {(isEditing || isCreating) && <TableCell />}
+                            </TableRow>
+                          </>
                         )}
                         <TableRow sx={modernTableStyles.footerRow}>
                           <TableCell

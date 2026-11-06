@@ -47,6 +47,8 @@ import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import AssignmentIcon from "@mui/icons-material/Assignment";
 import EngineeringIcon from "@mui/icons-material/Engineering";
 import FactoryIcon from "@mui/icons-material/Factory";
+import ManageSearchIcon from "@mui/icons-material/ManageSearch";
+import { ROUTES } from "@/constants/routes";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 import RuleIcon from "@mui/icons-material/Rule";
 import PrecisionManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
@@ -207,6 +209,12 @@ const menuItems: MenuItem[] = [
         text: "Production Orders",
         icon: <AssignmentIcon />,
         path: "/manufacturing/orders",
+        permission: PERMISSIONS.PRODUCTION_ORDERS_VIEW,
+      },
+      {
+        text: "Batch Trace",
+        icon: <ManageSearchIcon />,
+        path: ROUTES.MANUFACTURING.BATCH_TRACE,
         permission: PERMISSIONS.PRODUCTION_ORDERS_VIEW,
       },
       { text: "Job Cards", icon: <EngineeringIcon />, path: "/manufacturing/job-cards", permission: PERMISSIONS.SHOP_FLOOR_VIEW },
@@ -488,12 +496,7 @@ const menuItems: MenuItem[] = [
         // separate petty_cash permission (see backend/app/auth/rbac.py).
         permission: PERMISSIONS.CASHBOOK_VIEW,
       },
-      {
-        text: "Payment Vouchers",
-        icon: <ReceiptLongIcon />,
-        path: "/finance/payment-vouchers",
-        permission: PERMISSIONS.PAYMENT_VOUCHERS_VIEW,
-      },
+      // Payment Vouchers stays out of the menu until its page saves anything.
     ],
   },
   {

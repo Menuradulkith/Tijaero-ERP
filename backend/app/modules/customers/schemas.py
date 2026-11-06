@@ -275,6 +275,7 @@ class CustomerContactPersonBase(BaseModel):
     email: Optional[str] = None  # lenient on read; validated on create/update
     phone: Optional[str] = Field(None)
     is_primary: bool = False
+    active: bool = True
 
 class CustomerContactPersonCreate(BaseModel):
     _v_phone = field_validator("phone", mode="before")(normalize_phone_number)
@@ -284,6 +285,7 @@ class CustomerContactPersonCreate(BaseModel):
     email: OptStr(75) = None
     phone: Optional[str] = Field(None, max_length=20)
     is_primary: bool = False
+    active: bool = True
 
     @field_validator("email")
     @classmethod
@@ -305,8 +307,9 @@ class CustomerContactPersonUpdate(BaseModel):
     email: OptStr(75) = None
     phone: Optional[str] = Field(None, max_length=20)
     is_primary: Optional[bool] = None
+    active: Optional[bool] = None
 
-    _no_nulls = _reject_null("title", "full_name", "phone", "is_primary")
+    _no_nulls = _reject_null("title", "full_name", "phone", "is_primary", "active")
 
     @field_validator("email")
     @classmethod
@@ -636,6 +639,23 @@ class CustomerSupportWithCallLogs(CustomerSupport):
 # Gift Voucher Schemas
 # =============================================================================
 
+_VOUCHER_CODE_RE = re.compile(r"[A-Za-z0-9._\-/]+")
+
+
+def _voucher_amount_cents(v):
+    """Reject sub-cent amounts (0.005 would otherwise round up to a Rs. 0.01 voucher).
+    Float noise such as 10.100000000000001 is tolerated and rounded by PositiveMoneyIn."""
+    if v is None or isinstance(v, bool):
+        return v
+    try:
+        d = Decimal(str(v).strip())
+    except Exception:
+        return v
+    if d.is_finite() and abs(d - d.quantize(Decimal("0.01"))) > Decimal("0.000001"):
+        raise ValueError("Amount can have at most 2 decimal places")
+    return v
+
+
 class GiftVoucherBase(BaseModel):
     # Lenient: shared with the GiftVoucher response (a legacy 0.00 voucher must not 500 the list).
     barcode_no: str = Field(..., description="Voucher barcode/code")
@@ -646,7 +666,7 @@ class GiftVoucherCreate(GiftVoucherBase):
     barcode_no: str = Field(..., min_length=1, max_length=50, description="Voucher barcode/code")
     amount: PositiveMoneyIn = Field(..., description="Voucher amount")
     valid_period_in_months: int = Field(default=12, ge=1, le=60, description="Validity period in months")
-    purchased_invoice_no: Optional[str] = Field(None, description="Invoice number where voucher was purchased")
+    purchased_invoice_no: Optional[str] = Field(None, max_length=200, description="Invoice number where voucher was purchased")
     # Payment details for cashbook entry
     payment_method: str = Field(default="cash", description="Payment method used to purchase voucher (cash, card, bank_transfer, cheque)")
     branch_code: Optional[str] = Field(None, description="Branch where voucher was sold")
@@ -667,12 +687,35 @@ class GiftVoucherCreate(GiftVoucherBase):
         v = v.strip()
         if not v:
             raise ValueError("Voucher code can't be blank")
+        if not _VOUCHER_CODE_RE.fullmatch(v):
+            raise ValueError("Voucher code may only contain letters, digits and . _ - /")
         return v
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _amount_cents(cls, v):
+        return _voucher_amount_cents(v)
+
+    @field_validator("purchased_invoice_no")
+    @classmethod
+    def _invoice_no(cls, v):
+        return (v.strip() or None) if isinstance(v, str) else v
 
 class GiftVoucherUpdate(BaseModel):
     amount: Optional[PositiveMoneyIn] = None
     valid_period_in_months: Optional[int] = Field(None, ge=1, le=60)
     status: Optional[str] = None
+    purchased_invoice_no: Optional[str] = Field(None, max_length=200)
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _amount_cents(cls, v):
+        return _voucher_amount_cents(v)
+
+    @field_validator("purchased_invoice_no")
+    @classmethod
+    def _invoice_no(cls, v):
+        return (v.strip() or None) if isinstance(v, str) else v
 
 class GiftVoucher(GiftVoucherBase, TijaeroBaseSchema):
     id: int

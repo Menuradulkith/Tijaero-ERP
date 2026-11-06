@@ -31,10 +31,12 @@ CUSTOMER = Param("customer_id", "Customer", "customer")
 SUPPLIER = Param("supplier_id", "Supplier", "supplier")
 
 
-def _reporting(ctx: RunContext):
+def _reporting(ctx: RunContext, branch_code=None):
+    """The reporting service limited to the user's branches (or to one picked branch)."""
     from app.modules.reporting.service import ReportingService
 
-    return ReportingService(ctx.db)
+    code, codes = ctx.branch_scope(branch_code) if branch_code or ctx.allowed_branches is not None else (None, None)
+    return ReportingService(ctx.db, branch_codes=[code] if code else codes)
 
 
 def _gl(ctx: RunContext):
@@ -62,9 +64,10 @@ def _sales_summary(ctx: RunContext, p: dict) -> ReportResult:
             table("by_date", "Sales by date", r.sales_by_date, [
                 Column("date", "Date", "date"), Column("orders", "Orders", "int", True),
                 Column("revenue", "Revenue", "money", True)]),
-            table("top_products", "Top products", r.top_products, [
-                Column("product_name", "Product"), Column("quantity_sold", "Quantity sold", "number", True),
-                Column("revenue", "Revenue", "money", True)]),
+            # Only the top 10: a footer total would read like total sales, so none.
+            table("top_products", "Top 10 products", r.top_products, [
+                Column("product_name", "Product"), Column("quantity_sold", "Quantity sold", "number"),
+                Column("revenue", "Revenue", "money")]),
             table("by_branch", "Sales by branch", r.sales_by_branch, [
                 Column("branch_code", "Branch"), Column("orders", "Orders", "int", True),
                 Column("revenue", "Revenue", "money", True)]),
@@ -122,7 +125,15 @@ def _supplier_payments(ctx: RunContext, p: dict) -> ReportResult:
             metric("Payments", s.get("total_count"), "int"),
             metric("Pending", s.get("pending_amount"), "money"),
         ],
-        tables=[table("payments", "Supplier payments", r["items"])],
+        # The totalled table holds only money paid, so its total equals "Total paid". Advance
+        # applications move money already paid, and cancelled payments paid nothing.
+        tables=[
+            table("payments", "Supplier payments", [
+                i for i in r["items"] if i.get("type") != "Advance Application" and i.get("status") != "cancelled"]),
+            table("not_counted", "Advance applications and cancelled payments (not counted)", [
+                i for i in r["items"] if i.get("type") == "Advance Application" or i.get("status") == "cancelled"],
+                totals=False),
+        ],
     )
 
 
@@ -169,7 +180,7 @@ register(ReportDef(
 def _finance_summary(ctx: RunContext, p: dict) -> ReportResult:
     from app.modules.reporting.schemas import FinanceReportRequest
 
-    r = _reporting(ctx).get_finance_report(FinanceReportRequest(
+    r = _reporting(ctx, p["branch_code"]).get_finance_report(FinanceReportRequest(
         start_date=p["date_from"], end_date=p["date_to"], report_type="summary"))
     return ReportResult(
         metrics=[
@@ -184,7 +195,8 @@ def _finance_summary(ctx: RunContext, p: dict) -> ReportResult:
         tables=[
             table("expenses", "Expense vouchers by method", r.expenses_by_category, [
                 Column("category", "Method"), Column("amount", "Amount", "money", True)]),
-            table("monthly", "Monthly bank deposits", r.monthly_summary),
+            table("monthly", "Monthly bank deposits", r.monthly_summary, [
+                Column("month", "Month"), Column("income", "Deposits", "money", True)]),
         ],
         notes=["Income, expenses and net profit come from the income statement (general ledger) for the period. "
                "Receipts are money received (bank deposits, card and cheque payments); they are not income."],
@@ -326,8 +338,8 @@ def _cashbook(ctx: RunContext, p: dict) -> ReportResult:
 
 register(ReportDef(
     "finance.summary", "Finance summary", "Finance",
-    "Income, expenses and payments received for a period, company-wide.",
-    Permissions.REPORTING_FINANCE_VIEW, _finance_summary, (DATE_FROM, DATE_TO), company_wide=True,
+    "Income, expenses and payments received for a period.",
+    Permissions.REPORTING_FINANCE_VIEW, _finance_summary, (DATE_FROM, DATE_TO, BRANCH),
 ))
 register(ReportDef(
     "finance.income_statement", "Income statement", "Finance",
@@ -364,7 +376,8 @@ register(ReportDef(
 def _inventory_summary(ctx: RunContext, p: dict) -> ReportResult:
     from app.modules.reporting.schemas import InventoryReportRequest
 
-    r = _reporting(ctx).get_inventory_report(InventoryReportRequest(low_stock_threshold=p["low_stock_threshold"]))
+    r = _reporting(ctx, p["branch_code"]).get_inventory_report(
+        InventoryReportRequest(low_stock_threshold=p["low_stock_threshold"]))
     return ReportResult(
         metrics=[metric("Products", r.total_products, "int"), metric("Stock value", r.total_stock_value, "money"),
                  metric("Low-stock items", len(r.low_stock_items), "int")],
@@ -381,7 +394,7 @@ def _inventory_summary(ctx: RunContext, p: dict) -> ReportResult:
 def _warehouse_summary(ctx: RunContext, p: dict) -> ReportResult:
     from app.modules.reporting.schemas import WarehouseReportRequest
 
-    r = _reporting(ctx).get_warehouse_report(WarehouseReportRequest(start_date=p["date_from"], end_date=p["date_to"]))
+    r = _reporting(ctx, p["branch_code"]).get_warehouse_report(WarehouseReportRequest(start_date=p["date_from"], end_date=p["date_to"]))
     return ReportResult(metrics=[
         metric("Transfers", r.total_transfers, "int"), metric("Receipts", r.total_receives, "int"),
         metric("Pending approvals", r.pending_approvals, "int")])
@@ -391,13 +404,12 @@ register(ReportDef(
     "inventory.summary", "Inventory summary", "Inventory",
     "Product count, stock value and items below a stock threshold.",
     Permissions.REPORTING_INVENTORY_VIEW, _inventory_summary,
-    (Param("low_stock_threshold", "Low-stock threshold", "int", required=True, default=10, min=0, max=100000),),
-    company_wide=True,
+    (Param("low_stock_threshold", "Low-stock threshold", "int", required=True, default=10, min=0, max=100000), BRANCH),
 ))
 register(ReportDef(
     "warehouse.summary", "Warehouse activity", "Warehouse",
     "Transfers, receipts and pending approvals for a period.",
-    Permissions.REPORTING_WAREHOUSE_VIEW, _warehouse_summary, (DATE_FROM, DATE_TO), company_wide=True,
+    Permissions.REPORTING_WAREHOUSE_VIEW, _warehouse_summary, (DATE_FROM, DATE_TO, BRANCH),
 ))
 
 
@@ -406,15 +418,6 @@ def _hr_reports():
     from app.modules.hr_core import reports
 
     return reports
-
-
-def _hr_payroll(ctx: RunContext, p: dict) -> ReportResult:
-    from app.modules.reporting.schemas import HRReportRequest
-
-    r = _reporting(ctx).get_hr_report(HRReportRequest(start_date=p["date_from"], end_date=p["date_to"]))
-    return ReportResult(metrics=[
-        metric("Employees", r.total_employees, "int"), metric("Payroll", r.total_payroll, "money"),
-        metric("Reimbursements", r.total_reimbursements, "money"), metric("Deductions", r.total_deductions, "money")])
 
 
 def _breakdown(rows) -> list[dict]:
@@ -474,11 +477,6 @@ def _attrition(ctx: RunContext, p: dict) -> ReportResult:
 
 
 DAYS_30 = Param("days", "Days ahead", "int", required=True, default=30, min=0, max=365)
-register(ReportDef(
-    "hr.payroll_summary", "Payroll summary", "HR",
-    "Employees, payroll, reimbursements and deductions for a period, company-wide.",
-    Permissions.REPORTING_HR_VIEW, _hr_payroll, (DATE_FROM, DATE_TO), company_wide=True,
-))
 register(ReportDef("hr.headcount", "Headcount", "HR", "Employees by status, department, designation, type, branch and gender.",
                    Permissions.HR_REPORTS_VIEW, _headcount))
 register(ReportDef("hr.birthdays", "Upcoming birthdays", "HR", "Employee birthdays in the coming days.",
@@ -499,11 +497,12 @@ register(ReportDef("hr.attrition", "Attrition", "HR", "Joiners, leavers and attr
 def _support_summary(ctx: RunContext, p: dict) -> ReportResult:
     from app.modules.reporting.schemas import SupportReportRequest
 
-    r = _reporting(ctx).get_support_report(SupportReportRequest(
-        start_date=p["date_from"], end_date=p["date_to"], branch_code=ctx.single_branch(p["branch_code"])))
+    # The service limited to the picked branch, so the job-type table and warranty claims follow it too.
+    r = _reporting(ctx, p["branch_code"]).get_support_report(SupportReportRequest(
+        start_date=p["date_from"], end_date=p["date_to"], branch_code=p["branch_code"]))
+    # Tickets have no open/closed status, so none is shown.
     return ReportResult(
-        metrics=[metric("Tickets", r.total_tickets, "int"), metric("Open", r.open_tickets, "int"),
-                 metric("Closed", r.closed_tickets, "int"), metric("Warranty claims", r.total_warranty_claims, "int")],
+        metrics=[metric("Tickets", r.total_tickets, "int"), metric("Warranty claims", r.total_warranty_claims, "int")],
         tables=[table("by_type", "Tickets by job type", r.tickets_by_type, [
             Column("job_type", "Job type"), Column("count", "Tickets", "int", True)])],
     )
@@ -528,7 +527,7 @@ def _branch_summary(ctx: RunContext, p: dict) -> ReportResult:
 
 register(ReportDef(
     "support.summary", "Support tickets", "Support",
-    "Tickets opened, closed and by job type for a period.",
+    "Tickets and warranty claims by job type for a period.",
     Permissions.REPORTING_SUPPORT_VIEW, _support_summary, (DATE_FROM, DATE_TO, BRANCH),
 ))
 register(ReportDef(

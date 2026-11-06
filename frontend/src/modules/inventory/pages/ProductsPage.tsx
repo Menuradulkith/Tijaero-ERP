@@ -2,6 +2,7 @@ import { usePermission } from "@/auth/permissions";
 import {
   TChip,
     ActionToolbar,
+    continueOrReveal,
     DetailPanelHeader,
     EmptyState,
     fmtLKR,
@@ -106,6 +107,23 @@ const PRODUCT_ACTIVE_FILTER_OPTIONS = [
   { value: "inactive", label: "Inactive" },
 ];
 
+// Same bounds as the API's _Price
+const MAX_PRICE = 999_999_999_999.99;
+const priceError = (v: unknown): string | null => {
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  if (v < 0) return "Cannot be negative";
+  if (v > MAX_PRICE) return "Too large";
+  if (Math.abs(v * 100 - Math.round(v * 100)) > 1e-6) return "Use at most 2 decimals";
+  return null;
+};
+
+const toleranceError = (v: unknown): string | null =>
+  typeof v === "number" && (v < 0 || v > 100) ? "Enter 0 to 100" : null;
+
+// Shelf life is optional; when set it must be a whole number of days, 1 to 3650.
+const shelfLifeError = (v: number | null | undefined): string | null =>
+  v == null ? null : !Number.isInteger(v) || v < 1 || v > 3650 ? "Enter a whole number from 1 to 3650" : null;
+
 // Initial form data
 const emptyProductForm: ProductCreate = {
   name: "",
@@ -116,12 +134,15 @@ const emptyProductForm: ProductCreate = {
   tracking_type: "" as ProductCreate["tracking_type"],
   over_receipt_tolerance_pct: 0,
   under_receipt_tolerance_pct: 0,
+  shelf_life_days: null,
+  requires_qc: false,
   description: "",
   website_active: false,
   website_price: undefined,
   selling_price: undefined,
   active: true,
   cost_price: undefined,
+  tax_rate: 0,
   category_id: 0,
   items_brand_id: 0,
   // No image_url: the image is written only by the upload/remove endpoints
@@ -256,6 +277,8 @@ export default function ProductsPage({
 
   // Which of the General / Pricing / Suppliers tabs is active, shown in the
   // detail header below the breadcrumb+title.
+  // The product just created in this session: it is walked through the remaining tabs with Next.
+  const [justCreatedId, setJustCreatedId] = useState<number | null>(null);
   const [activeProductSection, setActiveProductSection] = useState<
     "general" | "pricing" | "suppliers"
   >("general");
@@ -849,6 +872,7 @@ export default function ProductsPage({
     onSuccess: (newProduct) => {
       productState.setIsCreating(false);
       productState.setIsEditing(false);
+      setJustCreatedId(newProduct.id);
       productState.setSelectedItem(newProduct);
       setMinPriceInput("");
 
@@ -1066,12 +1090,15 @@ export default function ProductsPage({
       tracking_type: (product.tracking_type || "") as ProductCreate["tracking_type"],
       over_receipt_tolerance_pct: Number(product.over_receipt_tolerance_pct ?? 0),
       under_receipt_tolerance_pct: Number(product.under_receipt_tolerance_pct ?? 0),
+      shelf_life_days: product.shelf_life_days ?? null,
+      requires_qc: !!product.requires_qc,
       description: product.description || "",
       website_active: product.website_active,
       website_price: product.website_price ?? undefined,
       selling_price: product.selling_price || 0,
       active: product.active,
       cost_price: product.cost_price,
+      tax_rate: product.tax_rate ?? 0,
       category_id: product.category_id,
       items_brand_id: product.items_brand_id,
     });
@@ -1129,7 +1156,20 @@ export default function ProductsPage({
       !productState.formData.items_brand_id
     ) {
       showErrorToast("Please fill in all required fields");
-      setProductTouched({ name: true, tracking_type: true });
+      setProductTouched({ name: true, tracking_type: true, category_id: true, items_brand_id: true });
+      return;
+    }
+    if (
+      toleranceError(productState.formData.over_receipt_tolerance_pct) ||
+      toleranceError(productState.formData.under_receipt_tolerance_pct)
+    ) {
+      setActiveProductSection("general");
+      showErrorToast("Receipt tolerances must be between 0 and 100%");
+      return;
+    }
+    if (shelfLifeError(productState.formData.shelf_life_days)) {
+      setActiveProductSection("general");
+      showErrorToast("Shelf life must be a whole number of days from 1 to 3650");
       return;
     }
     // Prices live on the Pricing tab: take the user there instead of failing silently.
@@ -1144,6 +1184,19 @@ export default function ProductsPage({
     }
     
     // Validate prices
+    const badPrice = (
+      [
+        ["Cost price", productState.formData.cost_price],
+        ["Website price", productState.formData.website_price],
+        ["Selling price", productState.formData.selling_price],
+        ["Minimum selling price", minPriceInput],
+      ] as const
+    ).find(([, v]) => priceError(v));
+    if (badPrice) {
+      setActiveProductSection("pricing");
+      showErrorToast(`${badPrice[0]}: ${priceError(badPrice[1])}`);
+      return;
+    }
     if (productState.formData.selling_price < productState.formData.cost_price) {
       showErrorToast("Selling price cannot be less than cost price");
       return;
@@ -1433,9 +1486,15 @@ export default function ProductsPage({
 
   // Whether we're showing a single product's / category's / brand's detail
   // view (selected or being created) instead of that tab's browse table.
-  // "Next" while creating appears once General's mandatory fields are filled; the other tabs are optional.
+  // "Next" (only after the first save) validates the tab being left (highlighting what is missing) before moving on.
   const nextProductTab = PRODUCT_DETAIL_TABS[PRODUCT_DETAIL_TABS.findIndex((t) => t.id === activeProductSection) + 1];
-  const canGoNext = !!nextProductTab && (activeProductSection !== "general" || !isProductGeneralIncomplete);
+  const prevProductTab = PRODUCT_DETAIL_TABS[PRODUCT_DETAIL_TABS.findIndex((t) => t.id === activeProductSection) - 1];
+  const currentProductSectionValid =
+    activeProductSection === "general"
+      ? !isProductGeneralIncomplete
+      : activeProductSection === "pricing"
+        ? productState.formData.cost_price != null && productState.formData.selling_price != null
+        : true;
 
   const isProductDetailMode = !!productState.selectedItem || productState.isCreating;
   const isCategoryDetailMode = !!categoryState.selectedItem || categoryState.isCreating;
@@ -1529,7 +1588,13 @@ export default function ProductsPage({
           tabsSlot={
             (productState.selectedItem || productState.isCreating) && (
               <TTabs
-                tabs={PRODUCT_DETAIL_TABS.map((t) => (productState.isCreating && t.id !== "general" ? { ...t, disabled: isProductGeneralIncomplete } : t))}
+                tabs={PRODUCT_DETAIL_TABS.map((t) =>
+                  // Until the product is saved only General (and Pricing, where the
+                  // required cost price lives, once General is filled) can be opened.
+                  productState.isCreating && t.id !== "general"
+                    ? { ...t, disabled: t.id !== "pricing" || isProductGeneralIncomplete }
+                    : t,
+                )}
                 activeTab={activeProductSection}
                 onChange={(id) => setActiveProductSection(id as typeof activeProductSection)}
                 appearance="segmented"
@@ -1549,7 +1614,19 @@ export default function ProductsPage({
           onAdd={handleNewProduct}
           onDuplicate={handleDuplicateProduct}
           onSave={handleSaveProduct}
-          onNext={canGoNext ? () => setActiveProductSection(nextProductTab.id as typeof activeProductSection) : undefined}
+          onBack={
+            prevProductTab && !productState.isCreating && productState.selectedItem?.id === justCreatedId
+              ? () => setActiveProductSection(prevProductTab.id as typeof activeProductSection)
+              : undefined
+          }
+          onNext={
+            nextProductTab && !productState.isCreating && productState.selectedItem?.id === justCreatedId
+              ? () =>
+                  continueOrReveal(currentProductSectionValid, () =>
+                    setActiveProductSection(nextProductTab.id as typeof activeProductSection),
+                  )
+              : undefined
+          }
           onCancel={handleCancelProduct}
           onEdit={() => {
             setMinPriceInput(currentMinPrice?.minimum_price ?? "");
@@ -1559,6 +1636,7 @@ export default function ProductsPage({
             createProductMutation.isPending || updateProductMutation.isPending
           }
           saveDisabled={isProductGeneralIncomplete}
+          onInvalidSave={() => setProductTouched((t) => ({ ...t, name: true, tracking_type: true, category_id: true, items_brand_id: true }))}
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -1602,9 +1680,9 @@ export default function ProductsPage({
                       onBlur={() => handleProductBlur("name")}
                       disabled={!productState.isEditing && !productState.isCreating}
                       required
-                      error={productTouched.name && !productState.formData.name}
+                      error={productTouched.name && !(productState.formData.name ?? "").trim()}
                       helperText={
-                        productTouched.name && !productState.formData.name
+                        productTouched.name && !(productState.formData.name ?? "").trim()
                           ? "Product name is required"
                           : ""
                       }
@@ -1700,12 +1778,13 @@ export default function ProductsPage({
                       onChange={(e) =>
                         productState.setFormData({
                           ...productState.formData,
-                          over_receipt_tolerance_pct: Math.min(100, Math.max(0, Number(e.target.value) || 0)),
+                          over_receipt_tolerance_pct: Number(e.target.value) || 0,
                         })
                       }
                       disabled={!productState.isEditing && !productState.isCreating}
                       inputProps={{ min: 0, max: 100, step: 0.5 }}
-                      helperText="A PO line may be received up to this % over the ordered quantity (0 = exact)."
+                      error={Boolean(toleranceError(productState.formData.over_receipt_tolerance_pct))}
+                      helperText={toleranceError(productState.formData.over_receipt_tolerance_pct) ?? "A PO line may be received up to this % over the ordered quantity (0 = exact)."}
                     />
                     <TextField
                       label="Under-receipt tolerance (%)"
@@ -1715,12 +1794,13 @@ export default function ProductsPage({
                       onChange={(e) =>
                         productState.setFormData({
                           ...productState.formData,
-                          under_receipt_tolerance_pct: Math.min(100, Math.max(0, Number(e.target.value) || 0)),
+                          under_receipt_tolerance_pct: Number(e.target.value) || 0,
                         })
                       }
                       disabled={!productState.isEditing && !productState.isCreating}
                       inputProps={{ min: 0, max: 100, step: 0.5 }}
-                      helperText="A PO line counts as fully received once it is this % short (0 = exact)."
+                      error={Boolean(toleranceError(productState.formData.under_receipt_tolerance_pct))}
+                      helperText={toleranceError(productState.formData.under_receipt_tolerance_pct) ?? "A PO line counts as fully received once it is this % short (0 = exact)."}
                     />
                     <TextField
                       label="Description"
@@ -1738,6 +1818,48 @@ export default function ProductsPage({
                       rows={2}
                       sx={{ gridColumn: { sm: "1 / -1" } }}
                     />
+                  </FormSection>
+
+                  <FormSection title="Manufacturing">
+                    <TextField
+                      label="Shelf life (days)"
+                      size="small"
+                      type="number"
+                      value={productState.formData.shelf_life_days ?? ""}
+                      onChange={(e) =>
+                        productState.setFormData({
+                          ...productState.formData,
+                          shelf_life_days: e.target.value === "" ? null : Number(e.target.value),
+                        })
+                      }
+                      disabled={!productState.isEditing && !productState.isCreating}
+                      inputProps={{ min: 1, max: 3650, step: 1 }}
+                      error={Boolean(shelfLifeError(productState.formData.shelf_life_days))}
+                      helperText={
+                        shelfLifeError(productState.formData.shelf_life_days) ??
+                        "A finished batch expires this many days after it is produced"
+                      }
+                    />
+                    <Box>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={!!productState.formData.requires_qc}
+                            onChange={(e) =>
+                              productState.setFormData({
+                                ...productState.formData,
+                                requires_qc: e.target.checked,
+                              })
+                            }
+                            disabled={!productState.isEditing && !productState.isCreating}
+                          />
+                        }
+                        label="Hold output for quality check"
+                      />
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", ml: 0.5 }}>
+                        Production output stays frozen until someone passes it
+                      </Typography>
+                    </Box>
                   </FormSection>
 
                   <FormSection title="Classification">
@@ -1766,8 +1888,11 @@ export default function ProductsPage({
                           {...params}
                           label="Category"
                           required
+                          error={productTouched.category_id && !productState.formData.category_id}
                           helperText={
-                            productState.isEditing || productState.isCreating
+                            productTouched.category_id && !productState.formData.category_id
+                              ? "Category is required"
+                              : productState.isEditing || productState.isCreating
                               ? "Only active categories can be selected"
                               : ""
                           }
@@ -1802,8 +1927,11 @@ export default function ProductsPage({
                           {...params}
                           label="Brand"
                           required
+                          error={productTouched.items_brand_id && !productState.formData.items_brand_id}
                           helperText={
-                            productState.isEditing || productState.isCreating
+                            productTouched.items_brand_id && !productState.formData.items_brand_id
+                              ? "Brand is required"
+                              : productState.isEditing || productState.isCreating
                               ? "Only active brands can be selected"
                               : ""
                           }
@@ -1969,22 +2097,38 @@ export default function ProductsPage({
                     disabled={!isPricingEditable}
                     required
                     error={
-                      productTouched.cost_price &&
+                      (productTouched.cost_price &&
                       (productState.formData.cost_price === undefined ||
-                        productState.formData.cost_price === null)
+                        productState.formData.cost_price === null)) ||
+                      Boolean(priceError(productState.formData.cost_price))
                     }
                     helperText={
                       productTouched.cost_price &&
                       (productState.formData.cost_price === undefined ||
                         productState.formData.cost_price === null)
                         ? "Cost price is required"
-                        : ""
+                        : priceError(productState.formData.cost_price) ?? ""
                     }
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">{currencySymbol}</InputAdornment>
                       ),
                     }}
+                  />
+                  <TextField
+                    label="Tax Rate (%)"
+                    inputProps={{ min: 0, max: 100, step: "0.01" }}
+                    size="small"
+                    type="number"
+                    value={productState.formData.tax_rate ?? ""}
+                    onChange={(e) =>
+                      productState.setFormData({
+                        ...productState.formData,
+                        tax_rate: e.target.value ? parseFloat(e.target.value) : 0,
+                      })
+                    }
+                    disabled={!isPricingEditable}
+                    helperText="VAT/tax added to this product on purchase orders"
                   />
                   <TextField
                     label="Website Price"
@@ -2001,18 +2145,20 @@ export default function ProductsPage({
                       })
                     }
                     error={
-                      typeof productState.formData.website_price === "number" &&
+                      Boolean(priceError(productState.formData.website_price)) ||
+                      (typeof productState.formData.website_price === "number" &&
                       productState.formData.website_price > 0 &&
                       typeof productState.formData.cost_price === "number" &&
-                      productState.formData.website_price < productState.formData.cost_price
+                      productState.formData.website_price < productState.formData.cost_price)
                     }
                     helperText={
-                      typeof productState.formData.website_price === "number" &&
+                      priceError(productState.formData.website_price) ??
+                      (typeof productState.formData.website_price === "number" &&
                       productState.formData.website_price > 0 &&
                       typeof productState.formData.cost_price === "number" &&
                       productState.formData.website_price < productState.formData.cost_price
                         ? `Cannot be less than cost price`
-                        : ""
+                        : "")
                     }
                     disabled={!isPricingEditable}
                     InputProps={{
@@ -2042,6 +2188,7 @@ export default function ProductsPage({
                       (productTouched.selling_price &&
                       (productState.formData.selling_price === undefined ||
                         productState.formData.selling_price === null)) ||
+                      Boolean(priceError(productState.formData.selling_price)) ||
                       (typeof productState.formData.selling_price === "number" &&
                       typeof productState.formData.cost_price === "number" &&
                       productState.formData.selling_price < productState.formData.cost_price)
@@ -2051,6 +2198,8 @@ export default function ProductsPage({
                       (productState.formData.selling_price === undefined ||
                         productState.formData.selling_price === null)
                         ? "Selling price is required"
+                        : priceError(productState.formData.selling_price)
+                        ? priceError(productState.formData.selling_price)
                         : typeof productState.formData.selling_price === "number" &&
                           typeof productState.formData.cost_price === "number" &&
                           productState.formData.selling_price < productState.formData.cost_price
@@ -2076,25 +2225,25 @@ export default function ProductsPage({
                         return;
                       }
                       const parsed = Number(raw);
-                      setMinPriceInput(
-                        Number.isFinite(parsed) ? Math.max(0, parsed) : "",
-                      );
+                      setMinPriceInput(Number.isFinite(parsed) ? parsed : "");
                     }}
                     disabled={!isPricingEditable}
                     error={
+                      Boolean(priceError(minPriceInput)) ||
                       typeof minPriceInput === "number" &&
                       (minPriceInput < (productState.formData.cost_price || 0) ||
                         (typeof productState.formData.selling_price === "number" &&
                           minPriceInput > productState.formData.selling_price))
                     }
                     helperText={
-                      typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0)
+                      priceError(minPriceInput) ??
+                      (typeof minPriceInput === "number" && minPriceInput < (productState.formData.cost_price || 0)
                         ? `Cannot be less than cost price (${currencySymbol} ${productState.formData.cost_price || 0})`
                         : typeof minPriceInput === "number" &&
                             typeof productState.formData.selling_price === "number" &&
                             minPriceInput > productState.formData.selling_price
                           ? `Cannot be more than selling price (${currencySymbol} ${productState.formData.selling_price})`
-                          : ""
+                          : "")
                     }
                     InputProps={{
                       startAdornment: (
@@ -2216,7 +2365,8 @@ export default function ProductsPage({
           isSaving={
             createCategoryMutation.isPending || updateCategoryMutation.isPending
           }
-          saveDisabled={!categoryState.formData.name}
+          saveDisabled={!(categoryState.formData.name ?? "").trim()}
+          onInvalidSave={() => setCategoryTouched({ name: true })}
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -2251,9 +2401,9 @@ export default function ProductsPage({
                     !categoryState.isEditing && !categoryState.isCreating
                   }
                   required
-                  error={categoryTouched.name && !categoryState.formData.name}
+                  error={categoryTouched.name && !(categoryState.formData.name ?? "").trim()}
                   helperText={
-                    categoryTouched.name && !categoryState.formData.name
+                    categoryTouched.name && !(categoryState.formData.name ?? "").trim()
                       ? "Category name is required"
                       : ""
                   }
@@ -2463,7 +2613,8 @@ export default function ProductsPage({
           isSaving={
             createBrandMutation.isPending || updateBrandMutation.isPending
           }
-          saveDisabled={!brandState.formData.brand_name}
+          saveDisabled={!(brandState.formData.brand_name ?? "").trim()}
+          onInvalidSave={() => setBrandTouched({ brand_name: true })}
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -2497,10 +2648,10 @@ export default function ProductsPage({
                 disabled={!brandState.isEditing && !brandState.isCreating}
                 required
                 error={
-                  brandTouched.brand_name && !brandState.formData.brand_name
+                  brandTouched.brand_name && !(brandState.formData.brand_name ?? "").trim()
                 }
                 helperText={
-                  brandTouched.brand_name && !brandState.formData.brand_name
+                  brandTouched.brand_name && !(brandState.formData.brand_name ?? "").trim()
                     ? "Brand name is required"
                     : ""
                 }

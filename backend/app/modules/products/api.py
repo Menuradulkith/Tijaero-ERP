@@ -408,7 +408,7 @@ def get_product_minimum_price_history(
 
 @router.get(
     "/products/{product_id}/minimum-prices/current",
-    response_model=schemas.MinimumPrice,
+    response_model=Optional[schemas.MinimumPrice],
     summary="Get Current Minimum Price",
     dependencies=[Depends(require_permission(*Permissions.PRODUCT_VIEW))],
 )
@@ -417,14 +417,8 @@ def get_current_minimum_price(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
 ):
-    price = service.minimum_price_service.get_current_minimum_price(db, product_id)
-    if not price:
-        from fastapi import HTTPException
-
-        raise HTTPException(
-            status_code=404, detail="No minimum price set for this product"
-        )
-    return price
+    """Returns null when the product has no minimum price yet."""
+    return service.minimum_price_service.get_current_minimum_price(db, product_id)
 
 
 @router.post(

@@ -79,6 +79,14 @@ import { useCurrencyStore } from "@/state/currencyStore";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+const MAX_LINE_AMOUNT = 999_999_999.99;
+const lineAmountError = (v: number | string) => {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return "Enter an amount above zero";
+  if (n > MAX_LINE_AMOUNT) return "Amount is too large";
+  return null;
+};
+
 interface ReimbursementFormData extends ReimbursementCreate {
   status?: string;
 }
@@ -1025,7 +1033,9 @@ export default function ReimbursementsPage() {
                       }
                       fullWidth
                       variant="standard"
-                      inputProps={{ step: "0.01", min: 0 }}
+                      inputProps={{ step: "0.01", min: 0.01, max: MAX_LINE_AMOUNT }}
+                      error={Number(item.amount) !== 0 && Boolean(lineAmountError(item.amount))}
+                      helperText={Number(item.amount) !== 0 ? lineAmountError(item.amount) ?? undefined : undefined}
                     />
                   </TableCell>
                   <TableCell>
@@ -1139,7 +1149,7 @@ export default function ReimbursementsPage() {
           isCreating={isCreating}
           isEditing={false}
           isSaving={createMutation.isPending}
-          isFormValid={!!formData.employee_id && !!formData.branch_code}
+          isFormValid={!!formData.employee_id && !!formData.branch_code && !lineItems.some((i) => lineAmountError(i.amount))}
           canCreate={false}
           canUpdate={false}
           canDelete={false}

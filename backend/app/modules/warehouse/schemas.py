@@ -136,9 +136,9 @@ class WarehouseListFilter(BaseModel):
 
 # Barcode Validation Schemas
 class BarcodeValidationRequest(BaseModel):
-    barcode: str
-    from_location_id: int
-    branch_code: Optional[str] = None
+    barcode: str = Field(..., min_length=1, max_length=255)
+    from_location_id: int = Field(..., ge=1, le=2_147_483_647)
+    branch_code: Optional[str] = Field(None, max_length=200)
 
 class BarcodeValidationResponse(BaseModel):
     valid: bool
@@ -154,9 +154,9 @@ class BarcodeValidationResponse(BaseModel):
 
 
 class LotValidationRequest(BaseModel):
-    product_id: int
-    quantity: int = Field(..., ge=1)
-    from_location_id: int
+    product_id: int = Field(..., ge=1, le=2_147_483_647)
+    quantity: int = Field(..., ge=1, le=1_000_000)
+    from_location_id: int = Field(..., ge=1, le=2_147_483_647)
 
 
 class LotValidationResponse(BaseModel):

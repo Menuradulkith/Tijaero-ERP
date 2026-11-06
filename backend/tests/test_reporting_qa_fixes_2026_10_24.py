@@ -47,10 +47,6 @@ class TestIdOverflow:
         r = superclient.get(f"{CENTER}/lookup/customer", params={"ids": f"{2 ** 40},{INT4_MAX + 1}"})
         assert r.status_code == 200 and r.json() == []
 
-    def test_legacy_inventory_report_with_huge_category(self, superclient):
-        r = superclient.post("/api/v1/reporting/inventory", json={"category": str(2 ** 40)})
-        assert r.status_code == 200 and r.json()["total_products"] == 0
-
 
 class TestInventorySummary:
     def test_stock_value_matches_the_valuation_report(self, superclient):
@@ -67,9 +63,9 @@ class TestInventorySummary:
         for row in none["tables"][0]["rows"]:
             assert row["available_quantity"] == 0
 
-    @pytest.mark.parametrize("threshold", [-1, 1_000_001])
-    def test_legacy_endpoint_bounds_the_threshold(self, superclient, threshold):
-        r = superclient.post("/api/v1/reporting/inventory", json={"low_stock_threshold": threshold})
+    @pytest.mark.parametrize("threshold", [-1, 100_001])
+    def test_threshold_is_bounded(self, superclient, threshold):
+        r = _run(superclient, "inventory.summary", {"low_stock_threshold": threshold})
         assert r.status_code == 422
 
 

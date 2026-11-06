@@ -302,11 +302,16 @@ export interface SupplierUpdate {
 }
 
 // Purchase Order Types
+/** Supplier tax areas that charge no tax on a purchase order, whatever the product's tax rate. */
+export const UNTAXED_SUPPLIER_AREAS = ["domestic_zero_rated", "domestic_exempt", "export", "import"];
+
 export interface PurchasingOrderItem {
   id: number;
   product_id: number;
   quantity: number;
   unit_price: number;
+  /** Tax % saved on the line when the order was saved. */
+  tax_rate?: number | string;
   warrenty_month: string;
   remark?: string;
   purchasingorders_id: number;
@@ -352,7 +357,10 @@ export interface PurchasingOrder {
   updated_by?: number;
   updated_by_name?: string;
   status: string;
+  /** Line items plus tax. */
   total_amount: number;
+  subtotal_amount?: number;
+  tax_amount?: number;
   /** Sum of every line item's quantity — derived server-side. */
   total_quantity: number;
   paid_amount: number;

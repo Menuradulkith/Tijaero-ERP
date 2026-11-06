@@ -222,25 +222,25 @@ export const minimumPriceApi = {
     return response.data;
   },
 
-  getCurrent: async (productId: number) => {
-    const response = await apiClient.get<MinimumPrice>(
+  /** Returns null when the product has no minimum price yet. */
+  getCurrent: async (productId: number): Promise<MinimumPrice | null> => {
+    const response = await apiClient.get<MinimumPrice | null>(
       `/inventory/products/${productId}/minimum-prices/current`
     );
-    return response.data;
+    return response.data ?? null;
   },
 
   /**
-   * Same as getCurrent, but "no minimum price yet" (404) is an expected state,
-   * not an error: returns null and does not raise the global red error toast.
-   * (getCurrent still throws — the quotation page relies on that.)
+   * Same as getCurrent, but errors do not raise the global red error toast.
+   * Older backends answered 404 for "no minimum price yet"; that is still mapped to null.
    */
   getCurrentOrNull: async (productId: number): Promise<MinimumPrice | null> => {
     try {
-      const response = await apiClient.get<MinimumPrice>(
+      const response = await apiClient.get<MinimumPrice | null>(
         `/inventory/products/${productId}/minimum-prices/current`,
         { headers: { "X-Hide-Error-Toast": "true" } }
       );
-      return response.data;
+      return response.data ?? null;
     } catch (error: unknown) {
       if ((error as { response?: { status?: number } })?.response?.status === 404) return null;
       throw error;

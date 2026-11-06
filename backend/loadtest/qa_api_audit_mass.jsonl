@@ -1,0 +1,2 @@
+{"phase": "mass", "path": "/api/v1/finance/accounting/cost-centers", "status": 201, "echoed": ["branch_code"], "sev": "High"}
+{"phase": "mass", "path": "/api/v1/finance/accounting/bank-accounts", "status": 201, "echoed": ["branch_code"], "sev": "High"}

@@ -41,7 +41,7 @@ import { usePermission } from "@/auth/permissions";
 import { leavesApi, employeesApi } from "@/modules/hr/api";
 import apiClient from "@/api/client";
 import { hrOrgApi } from "@/modules/hr/core-api";
-import type { Leave, LeaveCreate } from "@/modules/hr/types";
+import { isLiveEmployee, type Leave, type LeaveCreate } from "@/modules/hr/types";
 import { formatDate } from "@/utils/formatters";
 
 const STATUS_OPTIONS: TFilterStatusOption[] = [
@@ -134,6 +134,12 @@ export default function LeavesPage() {
     queryKey: ["hr", "leave-types-active"],
     queryFn: () => hrOrgApi.leaveTypes.list({ active: true }),
   });
+
+  // A new application opens on the first active type when the default code is not one of them
+  useEffect(() => {
+    if (!isCreating || !leaveTypes.length || leaveTypes.some((t) => t.code === formData.leave_type)) return;
+    setFormData((f) => ({ ...f, leave_type: leaveTypes[0].code }));
+  }, [isCreating, leaveTypes, formData.leave_type, setFormData]);
 
   const { data: balance } = useQuery({
     queryKey: ["leave-balance", formData.employee_id],
@@ -290,7 +296,8 @@ export default function LeavesPage() {
   }, [isCreating, setSelectedItem, setIsCreating, setIsEditing]);
 
   const isFormValid =
-    !!formData.employee_id && !!formData.from_date && !!formData.to_date && !!formData.leave_reason;
+    !!formData.employee_id && !!formData.from_date && !!formData.to_date && formData.to_date >= formData.from_date
+    && !!formData.leave_reason.trim() && !daysError;
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
   const canEditSelected = selectedLeave?.status === "pending";
@@ -465,7 +472,7 @@ export default function LeavesPage() {
                 disabled={isDisabled || !isCreating}
                 required
               >
-                {(employees || []).map((emp) => (
+                {(employees || []).filter((emp) => isLiveEmployee(emp) || emp.employee_id === formData.employee_id).map((emp) => (
                   <MenuItem key={emp.id} value={emp.employee_id}>
                     {emp.employee_id}
                   </MenuItem>
@@ -537,6 +544,8 @@ export default function LeavesPage() {
                   multiline
                   rows={2}
                   required
+                  inputProps={{ maxLength: 1000 }}
+                  helperText={`${formData.leave_reason.length}/1000`}
                 />
               </Box>
             </FormSection>

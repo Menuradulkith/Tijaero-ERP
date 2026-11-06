@@ -444,7 +444,11 @@ export default function PurchaseInvoicesPage() {
     },
   });
 
+  // A ref (not state) so a fast double click can't send a second create before re-render.
+  const savingRef = useRef(false);
+
   const handleSave = useCallback(() => {
+    if (savingRef.current || createMutation.isPending) return;
     const total = calculateSelectedTotal();
     const today = localYmd();
     const invoiceDate = formData.supplier_invoice_date || today;
@@ -493,7 +497,8 @@ export default function PurchaseInvoicesPage() {
       remarks: formData.remarks || undefined,
       items,
     };
-    createMutation.mutate(dataToSave);
+    savingRef.current = true;
+    createMutation.mutate(dataToSave, { onSettled: () => { savingRef.current = false; } });
   }, [formData, selectedGRNs, createMutation, creditPeriod, vatValue, effectiveTaxCode]);
 
   const handleCancelInvoice = useCallback(async () => {

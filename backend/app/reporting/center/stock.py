@@ -19,7 +19,7 @@ from decimal import Decimal
 from sqlalchemy import Date, and_, case, cast, func, literal, or_, select, union_all
 from sqlalchemy.orm import aliased
 
-from app.auth.rbac import Permissions
+from app.auth.rbac import Permissions, user_has_permission
 from app.common.enums import StockStatus
 from app.core import timezone as tz
 
@@ -147,13 +147,16 @@ def _stock_valuation(ctx: RunContext, p: dict) -> ReportResult:
         .scalar()
     )
     gl = Decimal(str(gl or 0))
+    metrics = [
+        metric("Stock value", total_value, "money"),
+        metric("Units on hand", sum(r["on_hand"] for r in out), "int"),
+    ]
+    # Ledger balances only for users who may see the general ledger.
+    if user_has_permission(ctx.user, *Permissions.GENERAL_LEDGER_VIEW):
+        metrics += [metric("GL inventory (1200, 1210)", gl, "money"),
+                    metric("Difference to GL", total_value - gl, "money")]
     return ReportResult(
-        metrics=[
-            metric("Stock value", total_value, "money"),
-            metric("Units on hand", sum(r["on_hand"] for r in out), "int"),
-            metric("GL inventory (1200, 1210)", gl, "money"),
-            metric("Difference to GL", total_value - gl, "money"),
-        ],
+        metrics=metrics,
         tables=[table("valuation", "Stock valuation", out, cols)],
         notes=[
             "On hand = available + reserved + frozen, valued at each unit's purchase cost (product cost when "

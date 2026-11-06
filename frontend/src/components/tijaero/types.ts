@@ -225,8 +225,12 @@ export interface ActionToolbarProps {
   onDelete?: () => void;
   /** Save callback */
   onSave?: () => void;
+  /** Called instead of onSave when Save is clicked on an invalid form (e.g. to mark fields touched) */
+  onInvalidSave?: () => void;
   /** Moves a record being created on to its next tab; the button shows only while creating */
   onNext?: () => void;
+  /** Moves back to the previous tab; shown alongside onNext */
+  onBack?: () => void;
   /** Cancel callback */
   onCancel?: () => void;
   /** Edit callback */

@@ -119,8 +119,8 @@ def list_transfer_notes(
     from_location_id: Optional[int] = None,
     to_location_id: Optional[int] = None,
     to_location_branch: Optional[str] = Query(None, description="Filter by receiving location's branch code"),
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -146,8 +146,8 @@ def list_transfer_notes(
         from_location_id=from_location_id,
         to_location_id=to_location_id,
         to_location_branch=to_location_branch,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit
     )

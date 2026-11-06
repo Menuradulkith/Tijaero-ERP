@@ -18,6 +18,9 @@ import {
   Operator,
   OrderActivity,
   OutputInput,
+  OutsideReceiptInput,
+  QcDecisionInput,
+  TraceResult,
   ProductionOrder,
   ProductionOrderInput,
   ProductionOrderPage,
@@ -99,7 +102,9 @@ export const productionOrdersApi = {
   },
   release: async (id: number): Promise<ProductionOrder> => (await apiClient.post(`${BASE}/orders/${id}/release`)).data,
   start: async (id: number): Promise<ProductionOrder> => (await apiClient.post(`${BASE}/orders/${id}/start`)).data,
-  complete: async (id: number): Promise<ProductionOrder> => (await apiClient.post(`${BASE}/orders/${id}/complete`)).data,
+  /** bookPlannedTime: in-house operations with no time logged get their planned time (default true). */
+  complete: async ({ id, bookPlannedTime = true }: { id: number; bookPlannedTime?: boolean }): Promise<ProductionOrder> =>
+    (await apiClient.post(`${BASE}/orders/${id}/complete`, { book_planned_time: bookPlannedTime })).data,
   close: async (id: number): Promise<ProductionOrder> => (await apiClient.post(`${BASE}/orders/${id}/close`)).data,
   cancel: async ({ id, reason }: { id: number; reason: string }): Promise<ProductionOrder> =>
     (await apiClient.post(`${BASE}/orders/${id}/cancel`, { reason })).data,
@@ -111,6 +116,12 @@ export const productionOrdersApi = {
     (await apiClient.post(`${BASE}/orders/${id}/output`, data)).data,
   logTime: async ({ id, data }: { id: number; data: TimeLogInput }): Promise<ProductionOrder> =>
     (await apiClient.post(`${BASE}/orders/${id}/time-logs`, data)).data,
+  receiveOutsideWork: async ({ id, data }: { id: number; data: OutsideReceiptInput }): Promise<ProductionOrder> =>
+    (await apiClient.post(`${BASE}/orders/${id}/outside-work`, data)).data,
+  qualityDecision: async ({ id, data }: { id: number; data: QcDecisionInput }): Promise<ProductionOrder> =>
+    (await apiClient.post(`${BASE}/orders/${id}/quality`, data)).data,
+  trace: async (batchNo: string): Promise<TraceResult> =>
+    (await apiClient.get(`${BASE}/trace`, { params: { batch_no: batchNo } })).data,
   createFromQuote: async (data: FromQuoteInput): Promise<ProductionOrder> =>
     (await apiClient.post(`${BASE}/orders/from-quote`, data)).data,
   getQuoteDemand: async (params?: { q?: string; branch_code?: string; manufactured_only?: boolean }): Promise<QuoteDemandLine[]> =>

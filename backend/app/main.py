@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import date, datetime
 
 # Import all models to register them with SQLAlchemy
@@ -17,6 +18,8 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
+
+_API_DOCS = os.getenv("ENABLE_API_DOCS", "true").strip().lower() not in ("0", "false", "no")
 
 
 # ── Fast ORJSONResponse ───────────────────────────────────────────────
@@ -52,9 +55,10 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="Comprehensive ERP System API with modules for Sales, Inventory, Finance, HR, and more",
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    # Set ENABLE_API_DOCS=false in production to hide the schema and Swagger UI.
+    openapi_url=f"{settings.API_V1_STR}/openapi.json" if _API_DOCS else None,
+    docs_url="/docs" if _API_DOCS else None,
+    redoc_url="/redoc" if _API_DOCS else None,
     openapi_tags=tags_metadata,
     swagger_ui_parameters=swagger_ui_parameters,
     default_response_class=ORJSONResponse,
@@ -167,6 +171,45 @@ app.add_middleware(RejectNulMiddleware)
 from app.core.security_headers import SecurityHeadersMiddleware  # noqa: E402
 app.add_middleware(SecurityHeadersMiddleware)
 
+
+# ── Audit User Context Middleware ────────────────────────────────────
+from app.core.audit_context import current_user_id  # noqa: E402
+from app.core.security import decode_token  # noqa: E402
+
+# Registered before CORSMiddleware so it sits inside it: the 500 it answers for an
+# unhandled error must carry the CORS headers, or the browser reports a network error.
+@app.middleware("http")
+async def audit_user_middleware(request: Request, call_next):
+    token = None
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:]
+    else:
+        token = request.query_params.get("token")
+        
+    user_id = None
+    if token:
+        try:
+            payload = decode_token(token)
+            if payload:
+                sub = payload.get("sub")
+                if sub is not None:
+                    user_id = int(sub)
+        except Exception:
+            pass
+            
+    token_token = current_user_id.set(user_id)
+    try:
+        response = await call_next(request)
+        return response
+    except Exception as exc:
+        # Answer here: the app-level Exception handler re-raises after sending its 500,
+        # which makes uvicorn drop the keep-alive connection and fail the client's next request.
+        return await general_exception_handler(request, exc)
+    finally:
+        current_user_id.reset(token_token)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -199,38 +242,6 @@ class _SafeUploads(StaticFiles):
 
 
 app.mount("/uploads", _SafeUploads(directory=str(_upload_dir)), name="uploads")
-
-
-# ── Audit User Context Middleware ────────────────────────────────────
-from app.core.audit_context import current_user_id
-from app.core.security import decode_token
-
-@app.middleware("http")
-async def audit_user_middleware(request: Request, call_next):
-    token = None
-    auth_header = request.headers.get("authorization", "")
-    if auth_header.lower().startswith("bearer "):
-        token = auth_header[7:]
-    else:
-        token = request.query_params.get("token")
-        
-    user_id = None
-    if token:
-        try:
-            payload = decode_token(token)
-            if payload:
-                sub = payload.get("sub")
-                if sub is not None:
-                    user_id = int(sub)
-        except Exception:
-            pass
-            
-    token_token = current_user_id.set(user_id)
-    try:
-        response = await call_next(request)
-        return response
-    finally:
-        current_user_id.reset(token_token)
 
 
 # ── Global Exception Handlers ────────────────────────────────────────
@@ -378,13 +389,14 @@ def root():
     return {"message": "ERP API", "version": settings.VERSION}
 
 
-@app.get("/debug-headers")
-def debug_headers(request: Request):
-    return {
-        "scheme": request.url.scheme,
-        "client": request.client,
-        "headers": dict(request.headers),
-    }
+if os.getenv("ENABLE_DEBUG_HEADERS", "").strip().lower() in ("1", "true", "yes"):
+    @app.get("/debug-headers")
+    def debug_headers(request: Request):
+        return {
+            "scheme": request.url.scheme,
+            "client": request.client,
+            "headers": {k: v for k, v in request.headers.items() if k.lower() not in ("authorization", "cookie")},
+        }
 
 
 @app.on_event("startup")

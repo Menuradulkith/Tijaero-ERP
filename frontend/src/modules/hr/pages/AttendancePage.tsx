@@ -42,7 +42,7 @@ import {
 import { usePermission } from "@/auth/permissions";
 import { attendanceApi, employeesApi } from "@/modules/hr/api";
 import { branchApi } from "@/modules/branches/api";
-import type { Attendance, AttendanceCreate } from "@/modules/hr/types";
+import { isLiveEmployee, type Attendance, type AttendanceCreate } from "@/modules/hr/types";
 import { formatDate } from "@/utils/formatters";
 
 const STATUS_OPTIONS: TFilterStatusOption[] = [
@@ -470,7 +470,7 @@ export default function AttendancePage() {
                 disabled={isDisabled || !isCreating}
                 required
               >
-                {(employees || []).map((emp) => (
+                {(employees || []).filter((emp) => isLiveEmployee(emp) || emp.employee_id === formData.employee_id).map((emp) => (
                   <MenuItem key={emp.id} value={emp.employee_id}>
                     {emp.employee_id}
                   </MenuItem>

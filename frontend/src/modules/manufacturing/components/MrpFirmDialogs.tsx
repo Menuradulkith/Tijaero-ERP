@@ -1,5 +1,5 @@
 /**
- * Dialogs that firm MRP suggestions into real documents:
+ * Side panels that firm MRP suggestions into real documents:
  * - PurchaseFirmDialog: purchase orders, one per supplier (and branch), sent for PO approval
  * - ProduceFirmDialog: draft production orders
  * Quantities, suppliers, prices and dates can be adjusted before creating.
@@ -8,13 +8,7 @@
 import {
   Alert,
   Autocomplete,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   MenuItem,
-  Stack,
   Table,
   TableBody,
   TableCell,
@@ -24,17 +18,20 @@ import {
   Typography,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
-import { addDays as addDaysFns, format, parseISO } from "date-fns";
+import { addDays as addDaysFns, parseISO } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
 
-import { modernTableStyles } from "@/components/tijaero";
+import { FormSection, modernTableStyles, TSidePanel } from "@/components/tijaero";
 import { suppliersApi } from "@/modules/purchasing/api";
 import type { MrpLine, Priority } from "@/modules/manufacturing/types";
 import { PRIORITY_OPTIONS } from "@/modules/manufacturing/types";
+import { formatDate } from "@/utils/formatters";
 
 // Local calendar dates (toISOString would shift them to UTC)
-const today = () => format(new Date(), "yyyy-MM-dd");
-const addDays = (iso: string, days: number) => format(addDaysFns(parseISO(iso), days), "yyyy-MM-dd");
+const today = () => formatDate(new Date());
+const addDays = (iso: string, days: number) => formatDate(addDaysFns(parseISO(iso), days));
+
+const PANEL_WIDTH = 880;
 
 
 interface PurchaseRow {
@@ -93,17 +90,38 @@ export function PurchaseFirmDialog({ open, lines, saving, onClose, onSubmit }: P
 
   const supplierCount = new Set(rows.map((r) => `${r.supplier_id}:${r.line.branch_code}`)).size;
 
+  const handleSubmit = () => {
+    if (saving || error) return;
+    onSubmit({
+      expected_date: expectedDate || null,
+      rows: rows.map((r) => ({
+        line: r.line,
+        quantity: Math.floor(Number(r.quantity)),
+        supplier_id: r.supplier_id as number,
+        unit_price: r.unit_price ? Number(r.unit_price) : null,
+      })),
+    });
+  };
+
   return (
-    <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Create Purchase Orders</DialogTitle>
-      <DialogContent dividers>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          One purchase order is raised per supplier and branch ({supplierCount} in total). They go through the usual purchase order approval.
-        </Typography>
-        <Stack direction="row" spacing={1.5} sx={{ mb: 2 }}>
-          <TextField size="small" type="date" label="Expected Delivery" InputLabelProps={{ shrink: true }}
-            value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} inputProps={{ min: today() }} />
-        </Stack>
+    <TSidePanel
+      open={open}
+      onClose={() => { if (!saving) onClose(); }}
+      title="Create Purchase Orders"
+      submitText="Create Purchase Orders"
+      isSubmitting={saving}
+      submitDisabled={saving || !!error}
+      onSubmit={handleSubmit}
+      width={PANEL_WIDTH}
+    >
+      <Typography variant="body2" color="text.secondary">
+        One purchase order is raised per supplier and branch ({supplierCount} in total). They go through the usual purchase order approval.
+      </Typography>
+      <FormSection title="Delivery" columns={3}>
+        <TextField size="small" type="date" label="Expected Delivery" InputLabelProps={{ shrink: true }}
+          value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} inputProps={{ min: today() }} />
+      </FormSection>
+      <FormSection title="Lines" columns={1} isLast>
         <Table size="small">
           <TableHead>
             <TableRow sx={modernTableStyles.headerRow}>
@@ -145,29 +163,9 @@ export function PurchaseFirmDialog({ open, lines, saving, onClose, onSubmit }: P
             ))}
           </TableBody>
         </Table>
-        {error && <Alert severity="warning" sx={{ mt: 2 }}>{error}</Alert>}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button
-          variant="contained"
-          disabled={saving || !!error}
-          onClick={() =>
-            onSubmit({
-              expected_date: expectedDate || null,
-              rows: rows.map((r) => ({
-                line: r.line,
-                quantity: Math.floor(Number(r.quantity)),
-                supplier_id: r.supplier_id as number,
-                unit_price: r.unit_price ? Number(r.unit_price) : null,
-              })),
-            })
-          }
-        >
-          Create Purchase Orders
-        </Button>
-      </DialogActions>
-    </Dialog>
+        {error && <Alert severity="warning">{error}</Alert>}
+      </FormSection>
+    </TSidePanel>
   );
 }
 
@@ -214,17 +212,40 @@ export function ProduceFirmDialog({ open, lines, saving, onClose, onSubmit }: Pr
       ? "Planned end cannot be before the planned start"
       : null;
 
+  const handleSubmit = () => {
+    if (saving || error) return;
+    onSubmit({
+      priority,
+      rows: rows.map((r) => ({
+        line: r.line,
+        quantity: Math.floor(Number(r.quantity)),
+        planned_start_date: r.start,
+        planned_end_date: r.end,
+      })),
+    });
+  };
+
   return (
-    <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Create Production Orders</DialogTitle>
-      <DialogContent dividers>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Draft production orders are created from each item's default BOM. Release them from the Production Orders page.
-        </Typography>
-        <TextField select size="small" label="Priority" value={priority} sx={{ width: 180, mb: 2 }}
+    <TSidePanel
+      open={open}
+      onClose={() => { if (!saving) onClose(); }}
+      title="Create Production Orders"
+      submitText="Create Production Orders"
+      isSubmitting={saving}
+      submitDisabled={saving || !!error}
+      onSubmit={handleSubmit}
+      width={PANEL_WIDTH}
+    >
+      <Typography variant="body2" color="text.secondary">
+        Draft production orders are created from each item's default BOM. Release them from the Production Orders page.
+      </Typography>
+      <FormSection title="Orders" columns={3}>
+        <TextField select size="small" label="Priority" value={priority}
           onChange={(e) => setPriority(e.target.value as Priority)}>
           {PRIORITY_OPTIONS.map((p) => <MenuItem key={p.value} value={p.value}>{p.label}</MenuItem>)}
         </TextField>
+      </FormSection>
+      <FormSection title="Lines" columns={1} isLast>
         <Table size="small">
           <TableHead>
             <TableRow sx={modernTableStyles.headerRow}>
@@ -257,28 +278,8 @@ export function ProduceFirmDialog({ open, lines, saving, onClose, onSubmit }: Pr
             ))}
           </TableBody>
         </Table>
-        {error && <Alert severity="warning" sx={{ mt: 2 }}>{error}</Alert>}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button
-          variant="contained"
-          disabled={saving || !!error}
-          onClick={() =>
-            onSubmit({
-              priority,
-              rows: rows.map((r) => ({
-                line: r.line,
-                quantity: Math.floor(Number(r.quantity)),
-                planned_start_date: r.start,
-                planned_end_date: r.end,
-              })),
-            })
-          }
-        >
-          Create Production Orders
-        </Button>
-      </DialogActions>
-    </Dialog>
+        {error && <Alert severity="warning">{error}</Alert>}
+      </FormSection>
+    </TSidePanel>
   );
 }

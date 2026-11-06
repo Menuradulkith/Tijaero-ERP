@@ -141,6 +141,7 @@ def get_reference_data(
                 "category_id": p.category_id,
                 "items_brand_id": p.items_brand_id,
                 "cost_price": float(p.cost_price) if p.cost_price is not None else None,
+                "tax_rate": float(p.tax_rate or 0),
                 "selling_price": float(p.selling_price) if p.selling_price is not None else None,
                 "minimum_price": minimum_price,
                 "item_type": p.item_type,
@@ -223,6 +224,7 @@ def get_reference_data(
             {
                 "id": e.id,
                 "employee_id": e.employee_id,
+                "user_id": e.user_id,
                 "first_name": e.user.first_name if e.user else "",
                 "last_name": e.user.last_name if e.user else "",
                 "full_name": (

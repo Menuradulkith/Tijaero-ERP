@@ -2,7 +2,9 @@
  * WorkCentersPage - Manufacturing work centers (machines / stations / lines)
  *
  * Master data for routing operations: capacity, efficiency and the labour /
- * overhead rates production orders absorb per hour of booked time.
+ * overhead rates production orders absorb per hour of booked time. An outside
+ * work center is a step another company does (washing, embroidery, lamination);
+ * it is costed per unit on the BOM operation instead of by time.
  * Same browse-table -> detail pattern as the purchasing pages.
  */
 
@@ -39,6 +41,7 @@ import {
   MasterDetailLayout,
   TActivityHistoryPanel,
   TBranchFilter,
+  TChip,
   TConfirmDialog,
   TDataGrid,
   type TDataGridColumn,
@@ -54,6 +57,7 @@ import { useReferenceData } from "@/hooks";
 import { usePermission } from "@/auth/permissions";
 import { workCentersApi } from "@/modules/manufacturing/api";
 import { WorkCenter, WorkCenterInput } from "@/modules/manufacturing/types";
+import { suppliersApi } from "@/modules/purchasing/api";
 
 const INITIAL_FORM_DATA: WorkCenterInput = {
   code: "",
@@ -66,11 +70,18 @@ const INITIAL_FORM_DATA: WorkCenterInput = {
   labor_rate_per_hour: 0,
   overhead_rate_per_hour: 0,
   active: true,
+  is_outside: false,
+  supplier_id: null,
 };
 
 const ACTIVE_FILTER_OPTIONS = [
   { value: "active", label: "Active" },
   { value: "inactive", label: "Inactive" },
+];
+
+const KIND_FILTER_OPTIONS = [
+  { value: "inhouse", label: "In-house" },
+  { value: "outside", label: "Outside work" },
 ];
 
 const resetFormFromWorkCenter = (wc: WorkCenter): WorkCenterInput => ({
@@ -84,6 +95,8 @@ const resetFormFromWorkCenter = (wc: WorkCenter): WorkCenterInput => ({
   labor_rate_per_hour: Number(wc.labor_rate_per_hour),
   overhead_rate_per_hour: Number(wc.overhead_rate_per_hour),
   active: wc.active,
+  is_outside: !!wc.is_outside,
+  supplier_id: wc.supplier_id ?? null,
 });
 
 // A browse-table row with display values precomputed so the grid's own
@@ -95,6 +108,7 @@ type WorkCenterRow = WorkCenter & {
   overhead_num: number;
   load_hours: number;
   status_key: string;
+  supplier_display: string;
 };
 
 const numberOrZero = (value: string) => {
@@ -111,6 +125,7 @@ export default function WorkCentersPage() {
 
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
+  const [filterKind, setFilterKind] = useState<string | null>(null);
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
 
   const {
@@ -142,7 +157,7 @@ export default function WorkCentersPage() {
   });
 
   const { filteredBranches } = useReferenceData(["branches"]);
-  const branches = filteredBranches || [];
+  const branches = useMemo(() => filteredBranches || [], [filteredBranches]);
 
   const { data: workCenters, isLoading, isError: loadFailed } = useQuery({
     queryKey: ["mfg-work-centers"],
@@ -156,6 +171,12 @@ export default function WorkCentersPage() {
     const fresh = workCenters.find((w) => w.id === selectedWorkCenter.id);
     if (fresh && fresh !== selectedWorkCenter) setSelectedWorkCenter(fresh);
   }, [workCenters]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Subcontractors for outside work centers (same lookup as the reorder rules page)
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ["suppliers", "active"],
+    queryFn: () => suppliersApi.getAll({ active: true }),
+  });
 
   const canCreate = usePermission("work_centers", "create");
   const canUpdate = usePermission("work_centers", "update");
@@ -171,13 +192,20 @@ export default function WorkCentersPage() {
     setSearchQuery("");
     setFilterStatus(null);
     setFilterBranch(null);
+    setFilterKind(null);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows: WorkCenterRow[] = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return (workCenters || [])
-      .filter((wc) => !q || wc.code.toLowerCase().includes(q) || wc.name.toLowerCase().includes(q))
+      .filter((wc) =>
+        !q ||
+        wc.code.toLowerCase().includes(q) ||
+        wc.name.toLowerCase().includes(q) ||
+        (wc.supplier_name || "").toLowerCase().includes(q)
+      )
       .filter((wc) => !filterStatus || (filterStatus === "active") === wc.active)
+      .filter((wc) => !filterKind || (filterKind === "outside") === !!wc.is_outside)
       .filter((wc) => !filterBranch || !wc.branch_code || wc.branch_code === filterBranch)
       .map((wc) => ({
         ...wc,
@@ -187,8 +215,9 @@ export default function WorkCentersPage() {
         overhead_num: Number(wc.overhead_rate_per_hour),
         load_hours: Math.round((Number(wc.open_load_minutes) / 60) * 10) / 10,
         status_key: wc.active ? "active" : "inactive",
+        supplier_display: wc.is_outside ? wc.supplier_name || "-" : "",
       }));
-  }, [workCenters, searchQuery, filterStatus, filterBranch, getBranchDisplay]);
+  }, [workCenters, searchQuery, filterStatus, filterBranch, filterKind, getBranchDisplay]);
 
   const afterSave = (saved: WorkCenter) => {
     setIsCreating(false);
@@ -223,6 +252,7 @@ export default function WorkCentersPage() {
 
   // Blocks a second Save click before the first one has settled.
   const savingRef = useRef(false);
+  const deletingRef = useRef(false);
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   const isFormValid =
@@ -242,6 +272,8 @@ export default function WorkCentersPage() {
       name: formData.name.trim(),
       description: formData.description?.trim() || null,
       branch_code: formData.branch_code || null,
+      // A supplier only belongs to an outside work center
+      supplier_id: formData.is_outside ? formData.supplier_id || null : null,
     };
     savingRef.current = true;
     const settle = { onSettled: () => { savingRef.current = false; } };
@@ -262,7 +294,9 @@ export default function WorkCentersPage() {
       confirmText: "Delete",
       confirmColor: "error",
     });
-    if (confirmed) deleteMutation.mutate(selectedWorkCenter.id);
+    if (!confirmed || deletingRef.current) return;
+    deletingRef.current = true;
+    deleteMutation.mutate(selectedWorkCenter.id, { onSettled: () => { deletingRef.current = false; } });
   }, [selectedWorkCenter, confirmDialog, deleteMutation]);
 
   const handleNew = useCallback(() => {
@@ -304,7 +338,19 @@ export default function WorkCentersPage() {
           <Typography variant="body2" fontWeight={600}>{params.row.code}</Typography>
         ),
       },
-      { field: "name", header: "Name", flex: 1, minWidth: 180 },
+      {
+        field: "name",
+        header: "Name",
+        flex: 1,
+        minWidth: 200,
+        renderCell: (params: GridRenderCellParams<WorkCenterRow>) => (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+            <Typography variant="body2" noWrap>{params.row.name}</Typography>
+            {params.row.is_outside && <TChip label="Outside" size="small" color="secondary" variant="outlined" />}
+          </Box>
+        ),
+      },
+      { field: "supplier_display", header: "Supplier", width: 170 },
       { field: "branch_display", header: "Branch", width: 170 },
       { field: "capacity", header: "Capacity", width: 95, type: "number" },
       {
@@ -315,8 +361,22 @@ export default function WorkCentersPage() {
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<WorkCenterRow>) => `${params.row.efficiency_num}%`,
       },
-      { field: "labor_num", header: `Labour/h (${currencySymbol})`, width: 130, type: "currency" },
-      { field: "overhead_num", header: `Overhead/h (${currencySymbol})`, width: 140, type: "currency" },
+      {
+        field: "labor_num",
+        header: `Labour/h (${currencySymbol})`,
+        width: 130,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<WorkCenterRow>) => (params.row.is_outside ? "-" : fmtLKR(params.row.labor_num)),
+      },
+      {
+        field: "overhead_num",
+        header: `Overhead/h (${currencySymbol})`,
+        width: 140,
+        align: "right",
+        headerAlign: "right",
+        renderCell: (params: GridRenderCellParams<WorkCenterRow>) => (params.row.is_outside ? "-" : fmtLKR(params.row.overhead_num)),
+      },
       {
         field: "load_hours",
         header: "Open Load",
@@ -390,6 +450,16 @@ export default function WorkCentersPage() {
         isCreating={isCreating}
         createTitle="New Work Center"
         noSelectionTitle="Select a Work Center"
+        chips={
+          selectedWorkCenter && !isCreating
+            ? [
+                { label: selectedWorkCenter.active ? "Active" : "Inactive", color: selectedWorkCenter.active ? "success" : "default" },
+                ...(selectedWorkCenter.is_outside
+                  ? [{ label: selectedWorkCenter.supplier_name ? `Outside · ${selectedWorkCenter.supplier_name}` : "Outside work", color: "secondary" as const, variant: "outlined" as const }]
+                  : []),
+              ]
+            : undefined
+        }
       />
 
       <ActionToolbar
@@ -463,6 +533,45 @@ export default function WorkCentersPage() {
               />
             </FormSection>
 
+            <FormSection title="Outside Work" columns={3}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={formData.is_outside}
+                    onChange={(e) => setFormData({ ...formData, is_outside: e.target.checked })}
+                    disabled={readOnly}
+                  />
+                }
+                label="Outside work (another company)"
+              />
+              <Autocomplete
+                size="small"
+                options={suppliers}
+                getOptionLabel={(sp) => sp.company_name}
+                value={suppliers.find((sp) => sp.id === formData.supplier_id) || null}
+                onChange={(_, sp) => setFormData({ ...formData, supplier_id: sp?.id ?? null })}
+                isOptionEqualToValue={(o, v) => o.id === v.id}
+                disabled={readOnly || !formData.is_outside}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Supplier"
+                    placeholder={
+                      formData.is_outside && formData.supplier_id && !suppliers.some((sp) => sp.id === formData.supplier_id)
+                        ? selectedWorkCenter?.supplier_name || undefined
+                        : undefined
+                    }
+                    helperText={formData.is_outside ? "The company that does this step" : "Only for outside work"}
+                  />
+                )}
+              />
+              <Typography variant="body2" color="text.secondary" sx={{ alignSelf: "center" }}>
+                {formData.is_outside
+                  ? "Washing, embroidery, lamination and similar steps done by another company. Costed per unit: set the outside price on each BOM operation. Labour and overhead rates are not used."
+                  : "Switch on when another company does this step for you."}
+              </Typography>
+            </FormSection>
+
             <FormSection title="Capacity" columns={3}>
               <TextField
                 label="Capacity (parallel operations)"
@@ -474,7 +583,7 @@ export default function WorkCentersPage() {
                 disabled={readOnly}
                 inputProps={{ min: 1, max: 1000, step: 1 }}
                 error={formData.capacity < 1}
-                helperText={formData.capacity < 1 ? "At least 1" : "Machines / stations working at once"}
+                helperText={formData.capacity < 1 ? "At least 1" : formData.is_outside ? undefined : "Machines / stations working at once"}
               />
               <TextField
                 label="Efficiency"
@@ -487,7 +596,7 @@ export default function WorkCentersPage() {
                 inputProps={{ min: 1, max: 300, step: 1 }}
                 InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
                 error={formData.efficiency_pct < 1 || formData.efficiency_pct > 300}
-                helperText="Planned minutes are divided by this"
+                helperText={formData.is_outside ? undefined : "Planned minutes are divided by this"}
               />
               <TextField
                 label="Working Hours / Day"
@@ -499,10 +608,17 @@ export default function WorkCentersPage() {
                 disabled={readOnly}
                 inputProps={{ min: 0.5, max: 24, step: 0.5 }}
                 error={formData.working_hours_per_day <= 0 || formData.working_hours_per_day > 24}
-                helperText={`${capacityMinutesPerDay.toLocaleString()} capacity minutes per day`}
+                helperText={formData.is_outside ? "Used for lead time only" : `${capacityMinutesPerDay.toLocaleString()} capacity minutes per day`}
               />
             </FormSection>
 
+            {formData.is_outside ? (
+              <FormSection title="Costing" columns={1}>
+                <Typography variant="body2" color="text.secondary">
+                  Outside work is costed per unit. Enter the supplier&apos;s price per unit on each BOM operation that uses this work center.
+                </Typography>
+              </FormSection>
+            ) : (
             <FormSection title="Costing" columns={3}>
               <TextField
                 label={`Labour Rate / Hour (${currencySymbol})`}
@@ -530,6 +646,7 @@ export default function WorkCentersPage() {
                 helperText="Absorbed into production orders per hour booked"
               />
             </FormSection>
+            )}
 
             <FormSection title="Description" columns={1}>
               <TRemarkField
@@ -617,15 +734,18 @@ export default function WorkCentersPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 210, flexShrink: 0 }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 150, flexShrink: 0 }}>
                 <TStatusFilter options={ACTIVE_FILTER_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
               </Box>
+              <Box sx={{ width: 150, flexShrink: 0 }}>
+                <TStatusFilter options={KIND_FILTER_OPTIONS} value={filterKind} onChange={setFilterKind} label="" placeholder="All Types" size="small" />
+              </Box>
               <Box sx={{ width: 160, flexShrink: 0 }}>
                 <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
               </Box>
-              {(searchQuery || filterStatus || filterBranch) && (
+              {(searchQuery || filterStatus || filterBranch || filterKind) && (
                 <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
                   Clear
                 </Button>

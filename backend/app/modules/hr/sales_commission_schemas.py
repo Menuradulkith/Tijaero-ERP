@@ -143,6 +143,7 @@ class BulkApproveCommissionsRequest(BaseModel):
 
 class SalesSummaryListFilter(BaseModel):
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None
     fiscal_year: Optional[int] = None
     fiscal_month: Optional[int] = None
     status: Optional[str] = None
@@ -153,6 +154,7 @@ class SalesSummaryListFilter(BaseModel):
 class SalesCommissionListFilter(BaseModel):
     employee_id: Optional[int] = None
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None
     fiscal_year: Optional[int] = None
     fiscal_month: Optional[int] = None
     status: Optional[str] = None

@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, true
 from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal
@@ -20,11 +20,71 @@ from app.modules.finance.gl_posting_service import (
 )
 
 
+# Deposits of money that never sat in Cash on Hand (bank transfers, sale cheques).
+_NON_CASH_DEPOSIT_SOURCES = ("Sales Invoice", "Credit Settlement", "Cheque Deposit - Sales Invoice")
+
+
+def branch_cash_on_hand(db: Session, branch_code: str) -> Optional[Decimal]:
+    """GL balance of the branch's Cash on Hand account; None when the account can't be resolved."""
+    from app.modules.finance.accounting_models import ChartOfAccounts, GeneralLedger
+    from app.modules.finance.posting_rules import resolve_account
+    from sqlalchemy import func
+
+    try:
+        code = resolve_account(db, "CASH", branch_code=branch_code)
+    except Exception:
+        return None
+    account = db.query(ChartOfAccounts.id).filter(ChartOfAccounts.account_code == code).first()
+    if account is None:
+        return None
+    balance = db.query(
+        func.coalesce(func.sum(GeneralLedger.debit_amount), 0)
+        - func.coalesce(func.sum(GeneralLedger.credit_amount), 0)
+    ).filter(
+        GeneralLedger.account_id == account.id,
+        GeneralLedger.branch_code == branch_code,
+    ).scalar()
+    return Decimal(str(balance or 0))
+
+
 class BankDepositService:
     def __init__(self, db: Session):
         self.repo = repository.BankDepositRepository(db)
+
+    def _check_cash_available(self, branch_code: str, amount: Decimal, exclude_id: Optional[int] = None) -> None:
+        """A cash deposit cannot exceed the branch's cash on hand less other cash deposits awaiting verification."""
+        db = self.repo.db
+        on_hand = branch_cash_on_hand(db, branch_code)
+        if on_hand is None:
+            return
+        pending = db.query(models.BankDeposits).filter(
+            models.BankDeposits.branch_code == branch_code,
+            models.BankDeposits.verified.isnot(True),
+            models.BankDeposits.status == "pending",
+            or_(
+                models.BankDeposits.payment_for.is_(None),
+                models.BankDeposits.payment_for.notin_(_NON_CASH_DEPOSIT_SOURCES),
+            ),
+        )
+        if exclude_id is not None:
+            pending = pending.filter(models.BankDeposits.id != exclude_id)
+        pending_total = sum((Decimal(str(d.deposits_amount or 0)) for d in pending.all()), Decimal("0"))
+        available = on_hand - pending_total
+        if Decimal(str(amount)) - available > Decimal("0.005"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Deposit amount exceeds the cash on hand at {branch_code}: "
+                    f"Rs. {max(available, Decimal('0')):,.2f} available"
+                ),
+            )
     
     def create_deposit(self, deposit: schemas.BankDepositCreate, created_by: int = None) -> models.BankDeposits:
+        from app.common.branch_validation import validate_branch_is_active
+
+        validate_branch_is_active(self.repo.db, deposit.branch_code)
+        if deposit.payment_for not in _NON_CASH_DEPOSIT_SOURCES:
+            self._check_cash_available(deposit.branch_code, deposit.deposits_amount)
         return self.repo.create(deposit, created_by=created_by)
     
     def get_deposit(self, deposit_id: int) -> models.BankDeposits:
@@ -48,6 +108,9 @@ class BankDepositService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You cannot verify a bank deposit you entered",
             )
+        if (existing is not None and not existing.verified
+                and existing.payment_for not in _NON_CASH_DEPOSIT_SOURCES):
+            self._check_cash_available(existing.branch_code, existing.deposits_amount, exclude_id=existing.id)
         deposit, newly_verified = self.repo.verify(deposit_id, user_id=user_id)
         if not deposit:
             raise HTTPException(
@@ -119,6 +182,9 @@ class ChequePaymentService:
         self.repo = repository.ChequePaymentRepository(db)
     
     def create_payment(self, payment: schemas.ChequePaymentCreate, created_by: int = None) -> models.ChequePayments:
+        from app.common.branch_validation import validate_branch_is_active
+
+        validate_branch_is_active(self.repo.db, payment.branch_code)
         return self.repo.create(payment, created_by=created_by)
     
     def get_payment(self, payment_id: int) -> models.ChequePayments:
@@ -720,20 +786,24 @@ class CashbookService:
 
         # Seed with the running balance of the last entry BEFORE the date range
         # (so the table shows balances relative to the true opening balance).
-        if filters.date_from and filters.branch_code:
-            opening_entry = self.db.query(models.CashbookEntryRecord).filter(
-                models.CashbookEntryRecord.branch_code == filters.branch_code,
+        # One branch, the user's branches, or (no filter) every branch.
+        if filters.branch_code:
+            branch_cond = models.CashbookEntryRecord.branch_code == filters.branch_code
+        elif filters.branch_codes:  # same rule as the entry list above
+            branch_cond = models.CashbookEntryRecord.branch_code.in_(filters.branch_codes)
+        else:
+            branch_cond = true()
+        if filters.date_from:
+            opening_entry = self.db.query(models.CashbookEntryRecord.id).filter(
+                branch_cond,
                 models.CashbookEntryRecord.transaction_date < datetime.combine(filters.date_from, datetime.min.time())
-            ).order_by(
-                models.CashbookEntryRecord.transaction_date.desc(),
-                models.CashbookEntryRecord.id.desc()
             ).first()
             if opening_entry:
                 # The opening entry's stored running_balance may itself be stale,
                 # so recompute it from scratch for the whole history before the
                 # date range and use the final value as the seed.
                 pre_records = self.db.query(models.CashbookEntryRecord).filter(
-                    models.CashbookEntryRecord.branch_code == filters.branch_code,
+                    branch_cond,
                     models.CashbookEntryRecord.transaction_date < datetime.combine(filters.date_from, datetime.min.time())
                 ).order_by(
                     models.CashbookEntryRecord.transaction_date.asc(),

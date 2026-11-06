@@ -24,7 +24,7 @@ def run(db, plant, make_user):  # noqa: F811
         s.MaterialLineIn(material_id=mats[plant["top"].id]["id"], quantity=5),
         s.MaterialLineIn(material_id=mats[plant["leg"].id]["id"], quantity=20)]), uid)
     svc.log_time(o["id"], s.TimeLogIn(operation_id=o["operations"][0]["id"], minutes=D(60), completed_quantity=4), uid)
-    o = svc.record_output(o["id"], s.OutputIn(quantity=4, scrap_quantity=1, batch_no="TBL-7"), uid)
+    o = svc.record_output(o["id"], s.OutputIn(quantity=4, scrap_quantity=1, scrap_reason="burnt", batch_no="TBL-7"), uid)
     admin, _ = make_user(is_superuser=True)
     return dict(order=o, ctx=RunContext(db, admin), svc=svc, uid=uid)
 

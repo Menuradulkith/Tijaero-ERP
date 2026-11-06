@@ -73,6 +73,18 @@ def not_in_future(value: date | None) -> date | None:
     return value
 
 
+def warranty_months(value: Any) -> Any:
+    """Warranty period in whole months, 0-600, stored as text. Blank -> None."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    if not s.isdigit() or int(s) > 600:
+        raise ValueError("Warranty must be a whole number of months between 0 and 600.")
+    return str(int(s))
+
+
 def trimmed_non_empty(value: Any) -> Any:
     """Strip a string and reject empty results."""
     if value is None:
@@ -97,6 +109,14 @@ def assert_amount_within(
     if a > m:
         raise ValueError(f"{label} {a} exceeds allowed maximum {m}.")
     return a
+
+
+def ensure_date_range(date_from: date | None, date_to: date | None) -> None:
+    """422 when a report/list filter has From after To (an inverted range silently returns nothing)."""
+    if date_from and date_to and date_from > date_to:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=422, detail="From date must be on or before To date")
 
 
 # ---- contact numbers -----------------------------------------------------

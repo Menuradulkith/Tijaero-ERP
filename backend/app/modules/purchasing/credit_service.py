@@ -337,7 +337,13 @@ class SupplierCreditService:
         from app.modules.purchasing.models import PurchasingOrderItems
 
         return db.query(
-            func.coalesce(func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0)
+            func.coalesce(
+                func.sum(
+                    PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price
+                    * (1 + PurchasingOrderItems.tax_rate / 100)
+                ),
+                0,
+            )
         ).filter(
             PurchasingOrderItems.purchasingorders_id == po_id
         ).scalar() or Decimal("0")
@@ -1824,12 +1830,15 @@ class SupplierCreditService:
         date_to: Optional[date] = None,
         supplier_id: Optional[int] = None,
         branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Consolidated payment report across all suppliers and payment types.
         Queries SupplierPayment (verified, non-auto), SupplierCreditsSettleTransaction,
         and SupplierAdvanceApplication into a unified flat list.
+        ``branch_codes`` (None = all) is the caller's branch scope.
         """
+        codes = [branch_code] if branch_code else branch_codes
         items: List[Dict[str, Any]] = []
 
         # --- 1. Direct payments (all statuses except auto-recorded GRN cash) ---
@@ -1849,8 +1858,8 @@ class SupplierCreditService:
             sp_query = sp_query.filter(SupplierPayment.payment_date <= date_to)
         if supplier_id:
             sp_query = sp_query.filter(SupplierPayment.supplier_id == supplier_id)
-        if branch_code:
-            sp_query = sp_query.filter(SupplierPayment.branch_code == branch_code)
+        if codes is not None:
+            sp_query = sp_query.filter(SupplierPayment.branch_code.in_(codes))
 
         for payment, supplier_name in sp_query.all():
             # Determine label: if any allocated invoice is credit → "Credit Settlement"
@@ -1910,8 +1919,8 @@ class SupplierCreditService:
             )
         if supplier_id:
             cs_query = cs_query.filter(SupplierCreditsSettle.suppliers_id == supplier_id)
-        if branch_code:
-            cs_query = cs_query.filter(SupplierCreditsSettle.branch_code == branch_code)
+        if codes is not None:
+            cs_query = cs_query.filter(SupplierCreditsSettle.branch_code.in_(codes))
 
         for txn, settle_no, br_code, sup_id, settle_status, supplier_name, grn_no in cs_query.all():
             items.append({
@@ -1956,8 +1965,8 @@ class SupplierCreditService:
             aa_query = aa_query.filter(SupplierAdvanceApplication.application_date <= date_to)
         if supplier_id:
             aa_query = aa_query.filter(SupplierAdvancePayment.supplier_id == supplier_id)
-        if branch_code:
-            aa_query = aa_query.filter(SupplierAdvancePayment.branch_code == branch_code)
+        if codes is not None:
+            aa_query = aa_query.filter(SupplierAdvancePayment.branch_code.in_(codes))
 
         for app, advance_no, sup_id, br_code, supplier_name, grn_no in aa_query.all():
             items.append({
@@ -1987,8 +1996,8 @@ class SupplierCreditService:
             ap_query = ap_query.filter(SupplierAdvancePayment.payment_date <= date_to)
         if supplier_id:
             ap_query = ap_query.filter(SupplierAdvancePayment.supplier_id == supplier_id)
-        if branch_code:
-            ap_query = ap_query.filter(SupplierAdvancePayment.branch_code == branch_code)
+        if codes is not None:
+            ap_query = ap_query.filter(SupplierAdvancePayment.branch_code.in_(codes))
 
         for advance, supplier_name in ap_query.all():
             items.append({
@@ -2037,10 +2046,12 @@ class SupplierCreditService:
         db: Session,
         supplier_id: Optional[int] = None,
         branch_code: Optional[str] = None,
+        branch_codes: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Get all outstanding (unpaid/partial) documents across all suppliers.
         Includes credit GRNs (settled via SupplierCreditsSettleTransaction)
         and non-credit POs (settled via SupplierPayment)."""
+        codes = [branch_code] if branch_code else branch_codes
         from app.modules.purchasing.models import PurchasingOrderItems, SupplierAdvanceApplication, SupplierPayment, SupplierAdvancePayment, PurchasingReturn, PurchasingReturnItems
 
         items: list[Dict[str, Any]] = []
@@ -2052,7 +2063,7 @@ class SupplierCreditService:
         # Same rules as calculate_amount_owed, so the total agrees with GL 2010.
         today = tz.today()
         for doc in self._payable_documents(
-            db, supplier_id=supplier_id, branch_codes=[branch_code] if branch_code else None
+            db, supplier_id=supplier_id, branch_codes=codes
         ):
             remaining = doc["balance_due"]
             if remaining == 0:
@@ -2090,8 +2101,8 @@ class SupplierCreditService:
         )
         if supplier_id:
             po_query = po_query.filter(PurchasingOrder.first_suppliers_id == supplier_id)
-        if branch_code:
-            po_query = po_query.filter(PurchasingOrder.branch_code == branch_code)
+        if codes is not None:
+            po_query = po_query.filter(PurchasingOrder.branch_code.in_(codes))
 
         for po, supplier in po_query.order_by(PurchasingOrder.purchasing_order_date.desc()).all():
             po_total = db.query(

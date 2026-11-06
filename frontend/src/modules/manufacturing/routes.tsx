@@ -6,6 +6,7 @@ import MaterialRequirementsPage from "./pages/MaterialRequirementsPage";
 import ReorderRulesPage from "./pages/ReorderRulesPage";
 import BOMsPage from "./pages/BOMsPage";
 import WorkCentersPage from "./pages/WorkCentersPage";
+import BatchTracePage from "./pages/BatchTracePage";
 import ProtectedRoute from "@/auth/components/ProtectedRoute";
 
 export default function ManufacturingRoutes() {
@@ -13,6 +14,7 @@ export default function ManufacturingRoutes() {
     <Routes>
       <Route index element={<ProtectedRoute resource="manufacturing_dashboard" action="view"><ManufacturingDashboard /></ProtectedRoute>} />
       <Route path="orders" element={<ProtectedRoute resource="production_orders" action="view"><ProductionOrdersPage /></ProtectedRoute>} />
+      <Route path="trace" element={<ProtectedRoute resource="production_orders" action="view"><BatchTracePage /></ProtectedRoute>} />
       <Route path="job-cards" element={<ProtectedRoute resource="shop_floor" action="view"><JobCardsPage /></ProtectedRoute>} />
       <Route path="mrp" element={<ProtectedRoute resource="mrp" action="view"><MaterialRequirementsPage /></ProtectedRoute>} />
       <Route path="reorder-rules" element={<ProtectedRoute resource="mrp" action="view"><ReorderRulesPage /></ProtectedRoute>} />

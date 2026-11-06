@@ -15,7 +15,7 @@ from decimal import Decimal
 
 from sqlalchemy import func
 
-from app.auth.rbac import Permissions
+from app.auth.rbac import Permissions, user_has_permission
 
 from .core import Column, Param, ReportDef, ReportResult, RunContext, metric, register, table
 
@@ -58,7 +58,8 @@ def _pct(part: Decimal, whole: Decimal) -> Decimal:
 
 
 def _actual(o) -> Decimal:
-    return D(str(o.actual_material_cost)) + D(str(o.actual_labor_cost)) + D(str(o.actual_overhead_cost))
+    return (D(str(o.actual_material_cost)) + D(str(o.actual_labor_cost)) + D(str(o.actual_overhead_cost))
+            + D(str(o.actual_outside_cost or 0)))
 
 
 def _planned(o) -> Decimal:
@@ -86,7 +87,8 @@ def _wip(ctx: RunContext, p: dict) -> ReportResult:
             "status": STATUS_LABELS.get(o.status, o.status), "planned_end": o.planned_end_date,
             "planned_qty": o.planned_quantity, "produced_qty": o.produced_quantity,
             "material": D(str(o.actual_material_cost)), "labour": D(str(o.actual_labor_cost)),
-            "overhead": D(str(o.actual_overhead_cost)), "output_value": output, "wip": _actual(o) - output,
+            "overhead": D(str(o.actual_overhead_cost)), "outside": D(str(o.actual_outside_cost or 0)),
+            "output_value": output, "wip": _actual(o) - output,
         })
     wip_total = sum((r["wip"] for r in rows), ZERO)
 
@@ -94,7 +96,9 @@ def _wip(ctx: RunContext, p: dict) -> ReportResult:
           .join(ChartOfAccounts, ChartOfAccounts.id == GeneralLedger.account_id)
           .filter(ChartOfAccounts.account_code == "1230"))
     gl = _scope(gl, GeneralLedger.branch_code, branch_code, branch_codes)
-    gl_balance = D(str(gl.scalar() or 0)) if not p["product_id"] else None
+    # Ledger balance only for users who may see the general ledger.
+    show_gl = not p["product_id"] and user_has_permission(ctx.user, *Permissions.GENERAL_LEDGER_VIEW)
+    gl_balance = D(str(gl.scalar() or 0)) if show_gl else None
 
     notes = ["WIP = material issued + labour and overhead booked - output received at standard cost, for released, "
              "in-progress and completed orders. Closing an order posts what is left to the production variance account.",
@@ -113,7 +117,8 @@ def _wip(ctx: RunContext, p: dict) -> ReportResult:
             Column("product", "Product"), Column("status", "Status"), Column("planned_end", "Due", "date"),
             Column("planned_qty", "Planned", "int", True), Column("produced_qty", "Produced", "int", True),
             Column("material", "Material", "money", True), Column("labour", "Labour", "money", True),
-            Column("overhead", "Overhead", "money", True), Column("output_value", "Output (std)", "money", True),
+            Column("overhead", "Overhead", "money", True), Column("outside", "Outside work", "money", True),
+            Column("output_value", "Output (std)", "money", True),
             Column("wip", "WIP", "money", True)])],
         notes=notes,
     )
@@ -151,7 +156,8 @@ def _variance(ctx: RunContext, p: dict) -> ReportResult:
             "item_code": prod.item_code, "product": prod.name, "produced_qty": o.produced_quantity,
             "scrap_qty": o.scrapped_quantity, "standard_unit_cost": D(str(o.standard_unit_cost)),
             "planned_cost": planned_for_output, "material": D(str(o.actual_material_cost)),
-            "labour": D(str(o.actual_labor_cost)), "overhead": D(str(o.actual_overhead_cost)), "actual_cost": actual,
+            "labour": D(str(o.actual_labor_cost)), "overhead": D(str(o.actual_overhead_cost)),
+            "outside": D(str(o.actual_outside_cost or 0)), "actual_cost": actual,
             "output_value": D(str(o.output_value)), "variance": variance,
             "variance_pct": _pct(variance, D(str(o.output_value))),
         })
@@ -186,6 +192,7 @@ def _variance(ctx: RunContext, p: dict) -> ReportResult:
                 Column("scrap_qty", "Scrap", "int", True), Column("standard_unit_cost", "Std unit cost", "money"),
                 Column("planned_cost", "Planned cost", "money", True), Column("material", "Material", "money", True),
                 Column("labour", "Labour", "money", True), Column("overhead", "Overhead", "money", True),
+                Column("outside", "Outside work", "money", True),
                 Column("actual_cost", "Actual cost", "money", True), Column("output_value", "Output (std)", "money", True),
                 Column("variance", "Variance", "money", True), Column("variance_pct", "Variance %", "percent")]),
         ],
@@ -366,6 +373,7 @@ def _traceability(ctx: RunContext, p: dict) -> ReportResult:
     from app.modules.inventory.models import SalesStock
     from app.modules.purchasing.models import GoodReceivedNote, PurchasingOrder, Supplier
     from app.modules.sales.models import Invoice, InvoiceItems
+    from app.modules.sales.sales_metrics import counted_invoice_filters
 
     m, Product = _m()
     O = m.MfgProductionOrder
@@ -411,7 +419,9 @@ def _traceability(ctx: RunContext, p: dict) -> ReportResult:
         inv = (ctx.db.query(Invoice.invoice_no, Invoice.created_date, Customer.customer_name)
                .join(InvoiceItems, InvoiceItems.invoice_id == Invoice.id)
                .outerjoin(Customer, Customer.id == Invoice.customer_id)
-               .filter(InvoiceItems.sales_stock_id == row.id).first())
+               # Only real sales: a unit on a cancelled invoice was never sold.
+               .filter(InvoiceItems.sales_stock_id == row.id, *counted_invoice_filters())
+               .order_by(Invoice.created_date.desc(), Invoice.id.desc()).first())
         outputs.append({"order_no": order_no_of[row.production_order_id], "item_code": prod.item_code, "product": prod.name,
                         "qty": row.quantity, "serial": row.barcode, "batch_no": row.batch_no, "branch_code": row.branch_code,
                         "status": (row.status or "").replace("_", " ").capitalize(), "received": row.added_date,

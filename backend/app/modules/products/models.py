@@ -44,12 +44,18 @@ class Product(Base, AuditMixin):
     # +over% and counts as fully received once -under% has arrived. 0 = exact quantity.
     over_receipt_tolerance_pct = Column(Numeric(5, 2), nullable=False, server_default="0")
     under_receipt_tolerance_pct = Column(Numeric(5, 2), nullable=False, server_default="0")
+    # Manufactured goods: a finished batch expires this many days after it is produced
+    shelf_life_days = Column(Integer, nullable=True)
+    # Manufactured goods: output is held (stock status frozen) until a quality check passes it
+    requires_qc = Column(Boolean, nullable=False, server_default="false", default=False)
     description = Column(Text)
     website_active = Column(Boolean, nullable=False)
     website_price = Column(Numeric(60, 2))
     selling_price = Column(Numeric(60, 2))
     active = Column(Boolean, nullable=False, index=True)
     cost_price = Column(Numeric(60, 2), nullable=False)
+    # VAT/tax percentage added to this product's purchase order lines.
+    tax_rate = Column(Numeric(5, 2), nullable=False, server_default="0")
     created_date = Column(Date, nullable=False)
     category_id = Column(Integer, ForeignKey("category.id"), nullable=False, index=True)
     items_brand_id = Column(Integer, ForeignKey("items_brand.id"), nullable=False, index=True)

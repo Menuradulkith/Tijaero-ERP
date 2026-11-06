@@ -14,6 +14,7 @@ labour and overhead are absorbed at the work-center rates, and closing an order 
 whatever is left in WIP to the production variance account.
 """
 from sqlalchemy import (
+    JSON,
     TIMESTAMP,
     Boolean,
     Column,
@@ -48,6 +49,10 @@ class MfgWorkCenter(Base, AuditMixin):
     labor_rate_per_hour = Column(Numeric(14, 2), nullable=False, default=0)
     overhead_rate_per_hour = Column(Numeric(14, 2), nullable=False, default=0)
     active = Column(Boolean, nullable=False, default=True)
+    # Outside work: the "center" is another company (washing, embroidery, lamination...).
+    # Its operations are costed per unit (BOM operation outside_unit_cost), not by time.
+    is_outside = Column(Boolean, nullable=False, default=False)
+    supplier_id = Column(Integer, ForeignKey("supplier.id"), nullable=True)
 
 
 class MfgBOM(Base, AuditMixin):
@@ -64,8 +69,12 @@ class MfgBOM(Base, AuditMixin):
     # The BOM a new production order for the product picks up (one active default per product)
     is_default = Column(Boolean, nullable=False, default=False)
     description = Column(Text, nullable=True)
+    # An order may produce up to this % more than planned (yields vary in food / herbal work)
+    overproduction_pct = Column(Numeric(5, 2), nullable=False, default=0)
 
     product = relationship("Product", lazy="joined")
+    by_products = relationship("MfgBOMByProduct", back_populates="bom", cascade="all, delete-orphan",
+                               order_by="MfgBOMByProduct.id")
     items = relationship("MfgBOMItem", back_populates="bom", cascade="all, delete-orphan",
                          order_by="MfgBOMItem.sequence")
     operations = relationship("MfgBOMOperation", back_populates="bom", cascade="all, delete-orphan",
@@ -101,9 +110,26 @@ class MfgBOMOperation(Base, AuditMixin):
     # Per unit of the product
     run_minutes = Column(Numeric(12, 4), nullable=False, default=0)
     description = Column(Text, nullable=True)
+    # Outside work centers: what the subcontractor charges per unit
+    outside_unit_cost = Column(Numeric(14, 2), nullable=False, default=0)
 
     bom = relationship("MfgBOM", back_populates="operations")
     work_center = relationship("MfgWorkCenter", lazy="joined")
+
+
+class MfgBOMByProduct(Base, AuditMixin):
+    """A side product the BOM also yields (bread crumbs, poonac, plastic regrind): received into
+    stock with the output at its own standard cost, which reduces the main product's cost."""
+    __tablename__ = "mfg_bom_byproducts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bom_id = Column(Integer, ForeignKey("mfg_boms.id", ondelete="CASCADE"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    # Per output_quantity of the BOM, like the components
+    quantity = Column(Numeric(14, 4), nullable=False)
+
+    bom = relationship("MfgBOM", back_populates="by_products")
+    product = relationship("Product", lazy="joined")
 
 
 class MfgReorderRule(Base, AuditMixin):
@@ -139,6 +165,8 @@ class MfgProductionOrder(Base, AuditMixin):
     planned_quantity = Column(Integer, nullable=False)
     produced_quantity = Column(Integer, nullable=False, default=0)
     scrapped_quantity = Column(Integer, nullable=False, default=0)
+    # Copied from the BOM: good + scrap may reach planned x (1 + pct/100)
+    overproduction_pct = Column(Numeric(5, 2), nullable=False, default=0)
     planned_start_date = Column(Date, nullable=False)
     planned_end_date = Column(Date, nullable=False)
     actual_start_at = Column(TIMESTAMP, nullable=True)
@@ -164,6 +192,9 @@ class MfgProductionOrder(Base, AuditMixin):
     actual_material_cost = Column(Numeric(16, 2), nullable=False, default=0)
     actual_labor_cost = Column(Numeric(16, 2), nullable=False, default=0)
     actual_overhead_cost = Column(Numeric(16, 2), nullable=False, default=0)
+    # Outside work received at the subcontractor's per-unit price
+    actual_outside_cost = Column(Numeric(16, 2), nullable=False, default=0)
+    # Standard value of everything received: main output plus by-products
     output_value = Column(Numeric(16, 2), nullable=False, default=0)
     # Posted to the variance account on close (actual - output value)
     variance_amount = Column(Numeric(16, 2), nullable=True)
@@ -180,6 +211,8 @@ class MfgProductionOrder(Base, AuditMixin):
                              cascade="all, delete-orphan", order_by="MfgProductionOrderMaterial.sequence")
     operations = relationship("MfgProductionOrderOperation", back_populates="order",
                               cascade="all, delete-orphan", order_by="MfgProductionOrderOperation.sequence")
+    by_products = relationship("MfgProductionOrderByProduct", back_populates="order",
+                               cascade="all, delete-orphan", order_by="MfgProductionOrderByProduct.id")
 
 
 class MfgProductionOrderMaterial(Base, AuditMixin):
@@ -218,9 +251,29 @@ class MfgProductionOrderOperation(Base, AuditMixin):
     overhead_rate_per_hour = Column(Numeric(14, 2), nullable=False, default=0)
     started_at = Column(TIMESTAMP, nullable=True)
     completed_at = Column(TIMESTAMP, nullable=True)
+    # Outside work (copied from the work center / BOM operation at release)
+    is_outside = Column(Boolean, nullable=False, default=False)
+    supplier_id = Column(Integer, ForeignKey("supplier.id"), nullable=True)
+    outside_unit_cost = Column(Numeric(14, 2), nullable=False, default=0)
+    outside_quantity = Column(Integer, nullable=False, default=0)
 
     order = relationship("MfgProductionOrder", back_populates="operations")
     work_center = relationship("MfgWorkCenter", lazy="joined")
+
+
+class MfgProductionOrderByProduct(Base, AuditMixin):
+    __tablename__ = "mfg_production_order_byproducts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("mfg_production_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    quantity_per_unit = Column(Numeric(14, 6), nullable=False)
+    received_quantity = Column(Integer, nullable=False, default=0)
+    # Standard cost fixed at release
+    unit_cost = Column(Numeric(14, 2), nullable=False, default=0)
+
+    order = relationship("MfgProductionOrder", back_populates="by_products")
+    product = relationship("Product", lazy="joined")
 
 
 class MfgMaterialTransaction(Base, AuditMixin):
@@ -240,6 +293,8 @@ class MfgMaterialTransaction(Base, AuditMixin):
     branch_code = Column(String(200), nullable=False)
     transaction_date = Column(TIMESTAMP, nullable=False)
     remark = Column(String(255), nullable=True)
+    # The stock lots taken / returned: [{"batch_no", "expiry_date", "quantity", "stock_id"}]
+    lots = Column(JSON, nullable=True)
 
     product = relationship("Product", lazy="joined")
     order = relationship("MfgProductionOrder", lazy="select")
@@ -261,7 +316,54 @@ class MfgProductionOutput(Base, AuditMixin):
     location_id = Column(Integer, ForeignKey("good_received_locations.id"), nullable=True)
     receipt_date = Column(TIMESTAMP, nullable=False)
     remark = Column(String(255), nullable=True)
+    # burnt | damaged | quality_fail | expired | machine_fault | other (schemas.ScrapReason)
+    scrap_reason = Column(String(30), nullable=True)
+    # none | on_hold | passed | failed | partly_passed (quality hold of the good units)
+    qc_status = Column(String(20), nullable=False, default="none")
+    qc_passed_quantity = Column(Integer, nullable=False, default=0)
+    qc_failed_quantity = Column(Integer, nullable=False, default=0)
+    # By-products received with this output: [{"product_id", "quantity", "unit_cost", "value"}]
+    by_products = Column(JSON, nullable=True)
+    byproduct_value = Column(Numeric(16, 2), nullable=False, default=0)
 
+    order = relationship("MfgProductionOrder", lazy="select")
+
+
+class MfgOutsideReceipt(Base, AuditMixin):
+    """Work done by a subcontractor on an outside operation (posts Dr WIP / Cr 5040 at the
+    agreed per-unit price; the supplier's bill is a pending expense booked to 5040)."""
+    __tablename__ = "mfg_outside_receipts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("mfg_production_orders.id"), nullable=False, index=True)
+    operation_id = Column(Integer, ForeignKey("mfg_production_order_operations.id"), nullable=False)
+    supplier_id = Column(Integer, ForeignKey("supplier.id"), nullable=True)
+    quantity = Column(Integer, nullable=False)
+    amount = Column(Numeric(16, 2), nullable=False)
+    bill_reference = Column(String(200), nullable=True)
+    expense_id = Column(Integer, ForeignKey("expenses.id"), nullable=True)
+    receipt_date = Column(TIMESTAMP, nullable=False)
+    remark = Column(String(255), nullable=True)
+
+    order = relationship("MfgProductionOrder", lazy="select")
+    operation = relationship("MfgProductionOrderOperation", lazy="joined")
+
+
+class MfgQcResult(Base, AuditMixin):
+    """A quality decision on held output: passed units become available, failed units are
+    written off (Dr 5030 Production Variance / Cr 1210 Inventory)."""
+    __tablename__ = "mfg_qc_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    output_id = Column(Integer, ForeignKey("mfg_production_outputs.id"), nullable=False, index=True)
+    order_id = Column(Integer, ForeignKey("mfg_production_orders.id"), nullable=False, index=True)
+    passed_quantity = Column(Integer, nullable=False, default=0)
+    failed_quantity = Column(Integer, nullable=False, default=0)
+    failed_value = Column(Numeric(16, 2), nullable=False, default=0)
+    remark = Column(String(500), nullable=True)
+    decided_at = Column(TIMESTAMP, nullable=False)
+
+    output = relationship("MfgProductionOutput", lazy="joined")
     order = relationship("MfgProductionOrder", lazy="select")
 
 

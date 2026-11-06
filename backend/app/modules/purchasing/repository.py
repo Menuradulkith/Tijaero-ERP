@@ -564,6 +564,7 @@ class PurchasingOrderRepository:
         for item in order.items:
             db_item = models.PurchasingOrderItems(
                 **item.model_dump(),
+                tax_rate=self._line_tax_rate(item.product_id, order_data.get('first_suppliers_id')),
                 purchasingorders_id=db_order.id,
                 created_date=tz.today(),
                 added_date=tz.now()
@@ -577,6 +578,23 @@ class PurchasingOrderRepository:
             self.db.flush()
         return db_order
     
+    # Suppliers on these tax treatments charge no tax, whatever the product's rate.
+    _UNTAXED_SUPPLIER_AREAS = ("domestic_zero_rated", "domestic_exempt", "export", "import")
+
+    def _line_tax_rate(self, product_id, supplier_id):
+        """Tax % for a PO line: the product's rate, 0 when the supplier's tax area is untaxed."""
+        from decimal import Decimal
+        from app.modules.products.models import Product
+
+        area = (
+            self.db.query(models.Supplier.tax_area).filter(models.Supplier.id == supplier_id).scalar()
+            if supplier_id else None
+        )
+        if area in self._UNTAXED_SUPPLIER_AREAS:
+            return Decimal("0")
+        rate = self.db.query(Product.tax_rate).filter(Product.id == product_id).scalar()
+        return Decimal(str(rate or 0))
+
     def get_by_id(self, order_id: int) -> Optional[models.PurchasingOrder]:
         return self.db.query(models.PurchasingOrder).filter(
             models.PurchasingOrder.id == order_id
@@ -708,8 +726,10 @@ class PurchasingOrderRepository:
                 ).delete()
 
                 for item in items_data:
+                    item = {k: v for k, v in item.items() if k != "tax_rate"}
                     db_item = models.PurchasingOrderItems(
                         **item,
+                        tax_rate=self._line_tax_rate(item.get("product_id"), db_order.first_suppliers_id),
                         purchasingorders_id=db_order.id,
                         created_date=tz.today(),
                         added_date=tz.now()
@@ -958,8 +978,13 @@ class SupplierCreditsSettleRepository:
             models.SupplierCreditsSettle.id == settle_id
         ).first()
     
-    def get_all(self, skip: int = 0, limit: int = 100) -> List[models.SupplierCreditsSettle]:
-        return self.db.query(models.SupplierCreditsSettle).order_by(
+    def get_all(
+        self, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None
+    ) -> List[models.SupplierCreditsSettle]:
+        q = self.db.query(models.SupplierCreditsSettle)
+        if branch_codes is not None:
+            q = q.filter(models.SupplierCreditsSettle.branch_code.in_(branch_codes))
+        return q.order_by(
             models.SupplierCreditsSettle.created_date.desc()
         ).offset(skip).limit(limit).all()
     
@@ -1217,6 +1242,8 @@ class SupplierAdvancePaymentRepository:
             query = query.filter(models.SupplierAdvancePayment.supplier_id == filters.supplier_id)
         if filters.branch_code:
             query = query.filter(models.SupplierAdvancePayment.branch_code == filters.branch_code)
+        elif filters.branch_codes is not None:
+            query = query.filter(models.SupplierAdvancePayment.branch_code.in_(filters.branch_codes))
         if filters.is_fully_applied is not None:
             query = query.filter(models.SupplierAdvancePayment.is_fully_applied == filters.is_fully_applied)
         if filters.date_from:

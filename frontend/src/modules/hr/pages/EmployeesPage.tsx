@@ -3,7 +3,7 @@
  * List: server-paged, searchable, filter by department / branch / status / type.
  * Record: Personal, Job, Bank & Statutory, Family, Qualifications, Documents, Checklist, Leave.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   Alert, Avatar, Box, Button, Chip, FormControlLabel, IconButton, InputAdornment,
@@ -203,11 +203,24 @@ export default function EmployeesPage() {
   const left = !!detail && ["resigned", "terminated", "retired"].includes(detail.status);
 
   // ── field helpers ──
+  const fieldErrors: Partial<Record<keyof EmployeeProfile, string>> = {};
+  (["mobile_phone", "home_phone"] as const).forEach((k) => {
+    const v = String(form[k] ?? "").trim();
+    if (v && !/^\+?[\d\s()-]{7,}$/.test(v)) fieldErrors[k] = "Digits, spaces and + - ( ) only";
+  });
+  const hasFieldErrors = Object.keys(fieldErrors).length > 0;
+  const savingRef = useRef(false);   // blocks a second click before the first save has settled
+  const save = () => {
+    if (savingRef.current || hasFieldErrors) return;
+    savingRef.current = true;
+    saveMutation.mutate(undefined, { onSettled: () => { savingRef.current = false; } });
+  };
   const text = (k: keyof EmployeeProfile, label: string, opts: { type?: string; required?: boolean; helper?: string; max?: number; select?: { value: string | number; label: string }[]; span?: boolean; multiline?: boolean } = {}) => (
     <TextField
       key={k} size="small" fullWidth label={label} required={opts.required} disabled={readOnly || (left && !creating)}
       type={opts.select ? undefined : opts.type} select={Boolean(opts.select)} multiline={opts.multiline} minRows={opts.multiline ? 2 : undefined}
-      InputLabelProps={opts.type === "date" ? { shrink: true } : undefined} helperText={opts.helper} inputProps={{ maxLength: opts.max }}
+      InputLabelProps={opts.type === "date" ? { shrink: true } : undefined} inputProps={{ maxLength: opts.max }}
+      error={Boolean(fieldErrors[k])} helperText={fieldErrors[k] ?? opts.helper}
       sx={opts.span ? { gridColumn: { sm: "1 / -1" } } : undefined}
       value={form[k] ?? ""} onChange={(e) => set(k, e.target.value)}
     >
@@ -610,12 +623,12 @@ export default function EmployeesPage() {
         isCreating={creating}
         isEditing={editing && !creating}
         isSaving={saveMutation.isPending}
-        isFormValid={!creating || (!!newUserId && !!newEmployeeId.trim())}
+        isFormValid={!hasFieldErrors && (!creating || (!!newUserId && !!newEmployeeId.trim()))}
         canDelete={false}
         canDuplicate={false}
         onNew={canCreate ? startCreate : undefined}
         onEdit={detail && canUpdate && !left ? () => setEditing(true) : undefined}
-        onSave={() => { if (!saveMutation.isPending) saveMutation.mutate(); }}
+        onSave={save}
         onCancel={cancelEdit}
         endActions={lifecycleActions}
       />

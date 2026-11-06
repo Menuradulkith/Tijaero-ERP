@@ -247,7 +247,9 @@ class SalesService:
             query = query.filter(
                 or_(
                     SaleReturn.sale_return_no.ilike(search_term),
-                    SaleReturn.invoice_no.ilike(search_term),
+                    SaleReturn.invoice_id.in_(
+                        db.query(Invoice.id).filter(Invoice.invoice_no.ilike(search_term))
+                    ),
                 )
             )
         
@@ -256,7 +258,11 @@ class SalesService:
         total = fast_count(query)
         
         # Apply sorting
-        sort_column = getattr(SaleReturn, sort_by, SaleReturn.added_date)
+        sort_column = (
+            SaleReturn.__table__.c[sort_by]
+            if sort_by in SaleReturn.__table__.c
+            else SaleReturn.added_date
+        )
         if sort_desc:
             query = query.order_by(desc(sort_column))
         else:
@@ -2820,6 +2826,12 @@ class SalesService:
         invoice.balance_due = 0
         invoice.credit_amount = 0
         invoice.payment_status = PaymentStatus.CANCELLED
+        # A transfer still awaiting verification must leave the verify queue with the order.
+        if invoice.bank_transfer_status == "pending_verification":
+            invoice.bank_transfer_status = "rejected"
+            invoice.bank_transfer_verified_by = user_id
+            invoice.bank_transfer_verified_date = tz.now()
+            invoice.bank_transfer_rejection_reason = "Order cancelled"
         self._close_approval_request(db, invoice, user_id)
 
         log_audit(
@@ -3092,6 +3104,9 @@ class SalesService:
                         f"{invoice.invoice_no} and cannot be returned against it."
                     ),
                 )
+            product_name = getattr(invoice_item.product, "name", None)
+            if product_name:
+                identifier = f"{product_name} ({item_data.barcode})" if item_data.barcode else product_name
 
             # ── Barcode-tracked units are one-of-a-kind: no duplicates, no re-returns ──
             if item_data.barcode:
@@ -3108,7 +3123,9 @@ class SalesService:
                     )
 
             # Calculate return price (use sold price if not specified)
-            return_price = Decimal(str(item_data.return_price or item_data.sold_price))
+            return_price = Decimal(str(
+                item_data.return_price if item_data.return_price is not None else item_data.sold_price
+            ))
             quantity = item_data.quantity
 
             # ── Refund price can never exceed what the customer actually paid ──
@@ -3378,6 +3395,13 @@ class SalesService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Sale return is already {sale_return.status}"
+            )
+        from app.auth.models import User as _User
+        _approver = db.query(_User).filter(_User.id == user_id).first()
+        if _approver and not _approver.is_superuser and sale_return.created_by and sale_return.created_by == user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot approve a return you created",
             )
         
         # Update approval record
@@ -3878,6 +3902,51 @@ class SalesService:
         Creates settlement record and updates invoice payment status.
         Standard ERP credit payment settlement flow.
         """
+        applied = self._apply_credit_payment(db, payment_data, user_id, require_cheque_bank=require_cheque_bank)
+        db.commit()
+        self._after_credit_payments_commit(db, [applied], user_id)
+        return applied["result"]
+
+    def settle_credit_payments(self, db: Session, payments: List[schemas.CreditPaymentCreate], user_id: int):
+        """Settle several payment rows (any mix of invoices and methods) as one transaction: if any row is
+        refused, nothing is posted. Rows on the same invoice are checked against the balance left by the rows
+        before them."""
+        savepoint = db.begin_nested()
+        try:
+            applied = [self._apply_credit_payment(db, p, user_id) for p in payments]
+        except Exception:
+            savepoint.rollback()
+            raise
+        savepoint.commit()
+        db.commit()
+        self._after_credit_payments_commit(db, applied, user_id)
+        return [a["result"] for a in applied]
+
+    def _after_credit_payments_commit(self, db: Session, applied: List[dict], user_id: int) -> None:
+        """Customer credit refresh and GL posting for settlements that changed an invoice balance (a bank
+        transfer waits for verification)."""
+        posted = [a for a in applied if not a["pending"]]
+        for customer_id in dict.fromkeys(a["customer_id"] for a in posted):
+            customer_credit_service.update_customer_credit_balance(db, customer_id)
+
+        # Post credit settlement to GL (Dr Cash/Bank/Card, Cr Trade Debtors)
+        for a in posted:
+            try:
+                from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+                gl_service = PurchaseExpensePayrollGL(db)
+                gl_service.post_customer_credit_settlement_to_gl(
+                    a["credit_settle"], [a["settle_transaction"]], user_id=user_id
+                )
+                db.commit()
+            except Exception as gl_err:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"GL posting for credit settlement {a['credit_settle'].customer_credits_settle_no} failed (non-blocking): {gl_err}"
+                )
+
+    def _apply_credit_payment(self, db: Session, payment_data: schemas.CreditPaymentCreate, user_id: int,
+                              require_cheque_bank: bool = True) -> dict:
+        """Validate and write one settlement row (flushed, not committed)."""
         from app.modules.customers.models import CustomerCreditsSettle, CustomerCreditsSettleTransaction
         from app.modules.finance.models import ChequePayments, CardPayments, BankDeposits
         
@@ -4022,17 +4091,21 @@ class SalesService:
         
         # For bank transfers: defer balance update and GL posting until verification
         if payment_method == "bank_transfer":
-            previous_balance = invoice.balance_due
-            db.commit()
-            db.refresh(invoice)
+            db.flush()
             return {
-                "invoice_id": invoice.id,
-                "payment_amount": payment_data.payment_amount,
-                "previous_balance": previous_balance,
-                "new_balance": invoice.balance_due,  # Unchanged — pending verification
-                "payment_status": "pending_bank_verification",
-                "settlement_record_id": credit_settle.id,
-                "message": f"Bank transfer payment of Rs. {payment_data.payment_amount:,.2f} submitted for verification. Balance will be updated after verification."
+                "pending": True,
+                "customer_id": invoice.customer_id,
+                "credit_settle": credit_settle,
+                "settle_transaction": settle_transaction,
+                "result": {
+                    "invoice_id": invoice.id,
+                    "payment_amount": payment_data.payment_amount,
+                    "previous_balance": invoice.balance_due,
+                    "new_balance": invoice.balance_due,  # Unchanged — pending verification
+                    "payment_status": "pending_bank_verification",
+                    "settlement_record_id": credit_settle.id,
+                    "message": f"Bank transfer payment of Rs. {payment_data.payment_amount:,.2f} submitted for verification. Balance will be updated after verification."
+                },
             }
         
         # Update invoice payment tracking (non-bank-transfer methods)
@@ -4048,35 +4121,22 @@ class SalesService:
         elif invoice.paid_amount > 0:
             invoice.payment_status = PaymentStatus.PARTIAL
         
-        db.commit()
-        
-        # Step 12: Update customer credit balance (restore left_credit_amount)
-        customer_credit_service.update_customer_credit_balance(db, invoice.customer_id)
-        
-        # Step 13: Post credit settlement to GL (Dr Cash/Bank/Card, Cr Trade Debtors)
-        try:
-            from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
-            gl_service = PurchaseExpensePayrollGL(db)
-            gl_service.post_customer_credit_settlement_to_gl(
-                credit_settle, [settle_transaction], user_id=user_id
-            )
-            db.commit()
-        except Exception as gl_err:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"GL posting for credit settlement {settle_no} failed (non-blocking): {gl_err}"
-            )
-        
-        db.refresh(invoice)
+        db.flush()
         
         return {
-            "invoice_id": invoice.id,
-            "payment_amount": payment_data.payment_amount,
-            "previous_balance": previous_balance,
-            "new_balance": invoice.balance_due,
-            "payment_status": invoice.payment_status,
-            "settlement_record_id": credit_settle.id,
-            "message": f"Payment of Rs. {payment_data.payment_amount:,.2f} recorded successfully. New balance: Rs. {invoice.balance_due:,.2f}"
+            "pending": False,
+            "customer_id": invoice.customer_id,
+            "credit_settle": credit_settle,
+            "settle_transaction": settle_transaction,
+            "result": {
+                "invoice_id": invoice.id,
+                "payment_amount": payment_data.payment_amount,
+                "previous_balance": previous_balance,
+                "new_balance": invoice.balance_due,
+                "payment_status": invoice.payment_status,
+                "settlement_record_id": credit_settle.id,
+                "message": f"Payment of Rs. {payment_data.payment_amount:,.2f} recorded successfully. New balance: Rs. {invoice.balance_due:,.2f}"
+            },
         }
     
     def get_invoice_payment_history(self, db: Session, invoice_id: int):
@@ -4315,6 +4375,20 @@ class SalesService:
                 detail=f"Bank transfer is not pending verification. Current status: {invoice.bank_transfer_status}"
             )
         
+        def _val(v):
+            return getattr(v, "value", v)
+
+        is_cancelled = (
+            invoice.status is False
+            or _val(invoice.payment_status) == PaymentStatus.CANCELLED.value
+            or _val(invoice.approval_status) == DocumentStatus.CANCELLED.value
+        )
+        if action == "verify" and is_cancelled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Order {invoice.invoice_no} is cancelled; reject this transfer instead of verifying it.",
+            )
+
         if action == "verify":
             # SAL-03: an order whose transfer does not cover it (created before the create-time check) is not paid
             _tendered = sum(

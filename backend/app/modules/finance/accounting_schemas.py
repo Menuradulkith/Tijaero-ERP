@@ -9,18 +9,37 @@ Pydantic v2 schemas for:
 - Cash Flow Statements
 """
 
+import re
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import date, datetime
 from typing import List, Literal, Optional
 from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema
+from app.common.db_errors import sanitize_db_error
 from app.core.money import MoneyIn, SignedMoneyIn
 from typing import Annotated
-from pydantic import StringConstraints
+from pydantic import BeforeValidator, StringConstraints
 
 # A reason someone must give (reverse, reject, correct, bounce...): trimmed, not blank.
 Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
+
+def _blank_to_none(v):
+    if isinstance(v, str):
+        return v.strip() or None
+    return v
+
+
+def ReqText(n: int):
+    """Required input text: trimmed, not blank, at most n characters."""
+    return Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=n)]
+
+
+def OptText(n: int):
+    """Optional input text: trimmed, blank -> None, at most n characters."""
+    return Annotated[Optional[Annotated[str, StringConstraints(max_length=n)]], BeforeValidator(_blank_to_none)]
 
 
 # =============================================================================
@@ -53,6 +72,20 @@ def _clean_text(value: Optional[str], label: str, max_len: int) -> Optional[str]
     return value
 
 
+_ACCOUNT_CODE_RE = re.compile(r"[A-Za-z0-9.\-]+")
+_OPTIONAL_TEXT_LIMITS = {"account_category": 100, "description": 2000}
+
+
+def _optional_text(value: Optional[str], field_name: str) -> Optional[str]:
+    if not isinstance(value, str):
+        return value
+    value = value.strip() or None
+    limit = _OPTIONAL_TEXT_LIMITS[field_name]
+    if value and len(value) > limit:
+        raise ValueError(f"{field_name.replace('_', ' ').capitalize()} can be at most {limit} characters")
+    return value
+
+
 def _account_type(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
@@ -80,7 +113,10 @@ class ChartOfAccountCreate(ChartOfAccountBase):
     @field_validator("account_code")
     @classmethod
     def _code(cls, v):
-        return _clean_text(v, "Account code", 50)
+        v = _clean_text(v, "Account code", 50)
+        if not _ACCOUNT_CODE_RE.fullmatch(v):
+            raise ValueError("Account code may only contain letters, digits, dots and dashes")
+        return v
 
     @field_validator("account_name")
     @classmethod
@@ -100,7 +136,7 @@ class ChartOfAccountCreate(ChartOfAccountBase):
     @field_validator("account_category", "description")
     @classmethod
     def _optional_text(cls, v, info):
-        return (v.strip() or None) if isinstance(v, str) else v
+        return _optional_text(v, info.field_name)
 
 
 class ChartOfAccountUpdate(BaseModel):
@@ -115,6 +151,11 @@ class ChartOfAccountUpdate(BaseModel):
     @classmethod
     def _name(cls, v):
         return _clean_text(v, "Account name", 255)
+
+    @field_validator("account_category", "description")
+    @classmethod
+    def _optional_text(cls, v, info):
+        return _optional_text(v, info.field_name)
 
     @field_validator("normal_balance")
     @classmethod
@@ -481,7 +522,7 @@ class CashFlowCategoryCreate(BaseModel):
     display_order: int
     is_inflow: bool
     account_mapping: Optional[str] = None
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=2000)
     is_active: bool = True
 
 
@@ -492,7 +533,7 @@ class CashFlowCategoryUpdate(BaseModel):
     display_order: Optional[int] = None
     is_inflow: Optional[bool] = None
     account_mapping: Optional[str] = None
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=2000)
     is_active: Optional[bool] = None
 
 
@@ -882,6 +923,11 @@ class GLPostingFailureResponse(TijaeroBaseSchema):
     error_message: str
     status: str
     attempts: int = 1
+
+    @field_validator("error_message")
+    @classmethod
+    def _readable_error(cls, v):
+        return sanitize_db_error(v)
     last_attempt_at: Optional[datetime] = None
     resolved_at: Optional[datetime] = None
     resolved_by: Optional[int] = None
@@ -901,6 +947,11 @@ class RetryPostingFailureResponse(BaseModel):
     journal_entry_no: Optional[str] = None
     error_code: Optional[str] = None
     error_message: Optional[str] = None
+
+    @field_validator("error_message")
+    @classmethod
+    def _readable_error(cls, v):
+        return sanitize_db_error(v)
 
 
 # =============================================================================
@@ -1143,24 +1194,33 @@ class VatSettlementResponse(BaseModel):
 # =============================================================================
 
 class BankAccountCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
-    bank_name: Optional[str] = Field(None, max_length=100)
-    account_number: Optional[str] = Field(None, max_length=50)
+    name: ReqText(100)
+    bank_name: OptText(100) = None
+    account_number: OptText(50) = None
     branch_code: Optional[str] = None
     account_id: Optional[int] = None  # existing GL account; omit to create one under 1000
     currency: Optional[str] = Field("LKR", max_length=10)
     reconcile_from: Optional[date] = None
-    notes: Optional[str] = Field(None, max_length=1000)
+    notes: OptText(1000) = None
 
 
 class BankAccountUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    bank_name: Optional[str] = Field(None, max_length=100)
-    account_number: Optional[str] = Field(None, max_length=50)
+    name: Optional[ReqText(100)] = None
+    bank_name: OptText(100) = None
+    account_number: OptText(50) = None
     branch_code: Optional[str] = None
     reconcile_from: Optional[date] = None
     is_active: Optional[bool] = None
-    notes: Optional[str] = Field(None, max_length=1000)
+    notes: OptText(1000) = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _required_not_null(cls, values):
+        if isinstance(values, dict):
+            for key in ("name", "is_active"):
+                if key in values and values[key] is None:
+                    raise ValueError(f"{key} cannot be null")
+        return values
 
 
 class BankAccountResponse(BaseModel):
@@ -1395,23 +1455,23 @@ class CostCenterProfitReport(BaseModel):
 # =============================================================================
 
 class AssetClassCreate(BaseModel):
-    code: str = Field(..., min_length=1, max_length=20)
-    name: str = Field(..., min_length=1, max_length=100)
+    code: ReqText(20)
+    name: ReqText(100)
     asset_account_id: int
     depreciation_method: str = "straight_line"
     useful_life_months: int = Field(60, ge=1, le=1200)
     declining_rate: Optional[Decimal] = Field(None, ge=0, le=100)
-    description: Optional[str] = Field(None, max_length=1000)
+    description: OptText(1000) = None
 
 
 class AssetClassUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    name: Optional[ReqText(100)] = None
     asset_account_id: Optional[int] = None
     depreciation_method: Optional[str] = None
     useful_life_months: Optional[int] = Field(None, ge=1, le=1200)
     declining_rate: Optional[Decimal] = Field(None, ge=0, le=100)
     is_active: Optional[bool] = None
-    description: Optional[str] = Field(None, max_length=1000)
+    description: OptText(1000) = None
 
 
 class AssetClassResponse(BaseModel):
@@ -1430,12 +1490,12 @@ class AssetClassResponse(BaseModel):
 
 
 class FixedAssetCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=200)
+    name: ReqText(200)
     asset_class_id: int
     branch_code: Optional[str] = None
     cost_center_id: Optional[int] = None
-    serial_no: Optional[str] = Field(None, max_length=100)
-    location: Optional[str] = Field(None, max_length=200)
+    serial_no: OptText(100) = None
+    location: OptText(200) = None
     acquisition_date: date
     cost: MoneyIn
     salvage_value: MoneyIn = Decimal("0")
@@ -1445,7 +1505,7 @@ class FixedAssetCreate(BaseModel):
     depreciation_start: Optional[date] = None
     accumulated_depreciation: MoneyIn = Decimal("0")  # already taken, for an asset brought in
     funding: str = "existing"  # existing (already in the books), bank, cash, supplier, opening
-    notes: Optional[str] = Field(None, max_length=2000)
+    notes: OptText(2000) = None
 
 
 class FixedAssetResponse(BaseModel):

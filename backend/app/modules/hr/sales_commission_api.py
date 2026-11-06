@@ -2,20 +2,41 @@
 Sales Commission API - Scenario 28A
 REST endpoints for Monthly Branch Sales Summary and Sales Officer Commission
 """
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.orm import Session
 from typing import Annotated, List, Optional
 
 from app.db.session import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_user_branch_codes
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.modules.hr import sales_commission_schemas as schemas
+from app.modules.hr.sales_commission_models import MonthlyBranchSalesSummary, SalesOfficerMonthlyCommission
 from app.modules.hr.sales_commission_service import SalesCommissionService
 
 RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
 
 router = APIRouter(prefix="/sales-commissions", tags=["sales-commissions"])
+
+
+def _user_scope(user: User) -> Optional[List[str]]:
+    """Branch codes the user may see (None = all)."""
+    return None if user.is_superuser else get_user_branch_codes(user)
+
+
+def _check_branch_param(user: User, branch_code: Optional[str]) -> None:
+    scope = _user_scope(user)
+    if branch_code and scope is not None and branch_code not in scope:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
+
+
+def _ensure_row_in_scope(db: Session, user: User, model, row_id: int, label: str) -> None:
+    scope = _user_scope(user)
+    if scope is None:
+        return
+    row = db.query(model.branch_code).filter(model.id == row_id).first()
+    if row is None or row.branch_code not in scope:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{label} not found")
 
 
 # =============================================================================
@@ -31,10 +52,11 @@ def generate_monthly_summary(
     """
     Step 1: Generate monthly sales summary for branches.
     Calculates revenue, COGS, returns, discounts, net revenue, and gross profit.
-    If branch_code is None, generates for all branches.
+    If branch_code is None, generates for all branches the user can access.
     """
+    _check_branch_param(current_user, data.branch_code)
     service = SalesCommissionService(db)
-    return service.generate_monthly_summary(data, current_user.id)
+    return service.generate_monthly_summary(data, current_user.id, branch_codes=_user_scope(current_user))
 
 
 @router.get("/summaries", response_model=List[schemas.MonthlyBranchSalesSummaryResponse], dependencies=[Depends(require_permission(*Permissions.HR_SALES_COMMISSION_VIEW))])
@@ -49,9 +71,11 @@ def list_summaries(
     current_user: User = Depends(get_current_user),
 ):
     """List all monthly sales summaries with optional filters"""
+    _check_branch_param(current_user, branch_code)
     service = SalesCommissionService(db)
     filters = schemas.SalesSummaryListFilter(
         branch_code=branch_code,
+        branch_codes=_user_scope(current_user),
         fiscal_year=fiscal_year,
         fiscal_month=fiscal_month,
         status=status,
@@ -68,6 +92,7 @@ def get_summary(
     current_user: User = Depends(get_current_user),
 ):
     """Get a single summary with its associated commissions"""
+    _ensure_row_in_scope(db, current_user, MonthlyBranchSalesSummary, summary_id, "Summary")
     service = SalesCommissionService(db)
     return service.get_summary(summary_id)
 
@@ -83,6 +108,7 @@ def finalize_summary(
     Step 2: Finance Accountant finalizes the summary after review.
     This enables commission calculation.
     """
+    _ensure_row_in_scope(db, current_user, MonthlyBranchSalesSummary, summary_id, "Summary")
     service = SalesCommissionService(db)
     return service.finalize_summary(summary_id, data, current_user.id)
 
@@ -100,6 +126,7 @@ def calculate_commissions(
     
     Only runs if summary is finalized. No commission if branch made a loss.
     """
+    _ensure_row_in_scope(db, current_user, MonthlyBranchSalesSummary, summary_id, "Summary")
     service = SalesCommissionService(db)
     from decimal import Decimal
     comm_pct = Decimal(str(commission_percentage)) if commission_percentage else None
@@ -124,10 +151,12 @@ def list_commissions(
     current_user: User = Depends(get_current_user),
 ):
     """List all commission records with optional filters"""
+    _check_branch_param(current_user, branch_code)
     service = SalesCommissionService(db)
     filters = schemas.SalesCommissionListFilter(
         employee_id=employee_id,
         branch_code=branch_code,
+        branch_codes=_user_scope(current_user),
         fiscal_year=fiscal_year,
         fiscal_month=fiscal_month,
         status=status,
@@ -145,6 +174,7 @@ def get_commission(
     current_user: User = Depends(get_current_user),
 ):
     """Get a single commission record by ID"""
+    _ensure_row_in_scope(db, current_user, SalesOfficerMonthlyCommission, commission_id, "Commission")
     service = SalesCommissionService(db)
     return service.get_commission(commission_id)
 
@@ -160,6 +190,7 @@ def approve_commission(
     Step 5: Finance Manager approves an individual commission.
     Commission becomes ready for payroll inclusion.
     """
+    _ensure_row_in_scope(db, current_user, SalesOfficerMonthlyCommission, commission_id, "Commission")
     service = SalesCommissionService(db)
     return service.approve_commission(commission_id, data, current_user.id)
 
@@ -171,6 +202,8 @@ def bulk_approve_commissions(
     current_user: User = Depends(get_current_user),
 ):
     """Bulk approve multiple commissions at once"""
+    for commission_id in data.commission_ids:
+        _ensure_row_in_scope(db, current_user, SalesOfficerMonthlyCommission, commission_id, "Commission")
     service = SalesCommissionService(db)
     return service.bulk_approve_commissions(data, current_user.id)
 
@@ -183,6 +216,7 @@ def reject_commission(
     current_user: User = Depends(get_current_user),
 ):
     """Reject a commission with reason"""
+    _ensure_row_in_scope(db, current_user, SalesOfficerMonthlyCommission, commission_id, "Commission")
     service = SalesCommissionService(db)
     return service.reject_commission(commission_id, data, current_user.id)
 
@@ -215,6 +249,7 @@ def mark_commission_paid(
     current_user: User = Depends(get_current_user),
 ):
     """Mark commission as paid and link to payroll record"""
+    _ensure_row_in_scope(db, current_user, SalesOfficerMonthlyCommission, commission_id, "Commission")
     service = SalesCommissionService(db)
     return service.mark_commission_as_paid(commission_id, payroll_id)
 

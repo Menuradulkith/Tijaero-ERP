@@ -233,8 +233,11 @@ class TestFinanceLedger:
         assert b.cashbook_net() == b.gl_cash_net() == D("-250.00"), (b.cashbook_net(), b.gl_cash_net(), je)
         b.assert_balanced("expense")
 
-    def test_bank_deposit_moves_cash_to_bank(self, db, superclient, make_branch):
-        branch = make_branch()
+    def test_bank_deposit_moves_cash_to_bank(self, db, superclient, superuser, shop):
+        branch = shop[0]
+        # A deposit cannot exceed the branch's cash on hand, so take the cash first.
+        sale = superclient.post(S + "/", json=_order(shop, superuser[0].id, qty=8, price=100.0))
+        assert sale.status_code == 201, sale.text
         r = superclient.post(F + "/bank-deposits", json={
             "deposits_amount": "800.00", "branch_code": branch.branch_code, "bank_name": "BOC", "payment_for": "cash_deposit"})
         assert r.status_code in (200, 201), r.text

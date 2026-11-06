@@ -32,7 +32,9 @@ class TestCatalogue:
     def test_catalogue_is_filtered_by_permission(self, api, make_user, make_branch):
         _, token = make_user(permissions=[("reporting_sales", "view")], branches=[make_branch()])
         keys = {x["key"] for x in api(token).get(f"{BASE}/catalog").json()["reports"]}
-        assert keys == {"sales.summary"}
+        # Every report gated by reporting_sales:view, and nothing else.
+        assert keys == {k for k, r in REGISTRY.items() if r.permission == ("reporting_sales", "view")}
+        assert keys >= {"sales.summary", "sales.invoice_register", "sales.by_customer"}
 
     def test_running_needs_the_reports_permission(self, api, make_user, make_branch):
         _, token = make_user(permissions=[("reporting_sales", "view")], branches=[make_branch()])

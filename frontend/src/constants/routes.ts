@@ -114,6 +114,11 @@ export const ROUTES = {
     ASSETS: '/hr/assets',
   },
   
+  // Manufacturing
+  MANUFACTURING: {
+    BATCH_TRACE: '/manufacturing/trace',
+  },
+
   // Reporting
   REPORTING: {
     DASHBOARD: '/reporting',

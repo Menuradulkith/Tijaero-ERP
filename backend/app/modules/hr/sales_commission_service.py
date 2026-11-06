@@ -140,7 +140,8 @@ class SalesCommissionService:
     def generate_monthly_summary(
         self,
         data: schemas.MonthlyBranchSalesSummaryCreate,
-        user_id: int
+        user_id: int,
+        branch_codes: Optional[List[str]] = None,
     ) -> List[schemas.MonthlyBranchSalesSummaryResponse]:
         """
         Generate monthly sales summary for one or all branches.
@@ -153,6 +154,8 @@ class SalesCommissionService:
         # Get branches to process
         if data.branch_code:
             branches = [data.branch_code]
+        elif branch_codes is not None:
+            branches = list(branch_codes)
         else:
             # Get all branches
             branch_records = self.db.query(Branch.branch_code).all()
@@ -612,6 +615,8 @@ class SalesCommissionService:
 
         if filters.branch_code:
             query = query.filter(MonthlyBranchSalesSummary.branch_code == filters.branch_code)
+        if filters.branch_codes is not None:
+            query = query.filter(MonthlyBranchSalesSummary.branch_code.in_(filters.branch_codes))
         if filters.fiscal_year:
             query = query.filter(MonthlyBranchSalesSummary.fiscal_year == filters.fiscal_year)
         if filters.fiscal_month:
@@ -659,6 +664,8 @@ class SalesCommissionService:
             query = query.filter(SalesOfficerMonthlyCommission.employee_id == filters.employee_id)
         if filters.branch_code:
             query = query.filter(SalesOfficerMonthlyCommission.branch_code == filters.branch_code)
+        if filters.branch_codes is not None:
+            query = query.filter(SalesOfficerMonthlyCommission.branch_code.in_(filters.branch_codes))
         if filters.fiscal_year:
             query = query.filter(SalesOfficerMonthlyCommission.fiscal_year == filters.fiscal_year)
         if filters.fiscal_month:

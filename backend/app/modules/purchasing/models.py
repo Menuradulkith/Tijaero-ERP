@@ -361,9 +361,27 @@ class PurchasingOrder(Base, AuditMixin):
         sync automatically. Every response path (create, get, list, batch
         create) picks this up via Pydantic's from_attributes, since it reads
         like any other model attribute."""
+        return self.subtotal_amount + self.tax_amount
+
+    @property
+    def subtotal_amount(self):
+        """Line items before tax."""
         from decimal import Decimal
         return sum(
             (Decimal(str(item.quantity)) * item.unit_price for item in self.items),
+            Decimal("0.00"),
+        )
+
+    @property
+    def tax_amount(self):
+        """Tax over every line, using each line's saved tax rate."""
+        from decimal import Decimal, ROUND_HALF_UP
+        return sum(
+            (
+                (Decimal(str(item.quantity)) * item.unit_price * Decimal(str(item.tax_rate or 0)) / Decimal("100"))
+                .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                for item in self.items
+            ),
             Decimal("0.00"),
         )
 
@@ -379,6 +397,8 @@ class PurchasingOrderItems(Base, AuditMixin):
     id = Column(Integer, primary_key=True, index=True)
     quantity = Column(Integer, nullable=False)
     unit_price = Column(Numeric(60, 2), nullable=False)
+    # Tax % snapshot taken when the line is saved (the product's rate, 0 for a tax-exempt supplier).
+    tax_rate = Column(Numeric(5, 2), nullable=False, server_default="0")
     warrenty_month = Column(String(30), nullable=False)
     remark = Column(String(200))
     created_date = Column(Date, nullable=False)

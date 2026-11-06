@@ -149,15 +149,6 @@ export default function ProductSuppliersList({
     onError: (e: unknown) => setError(handleApiError(e, "Failed to save.")),
   });
 
-  const deleteMut = useMutation({
-    mutationFn: (mapping: SupplierProduct) => suppliersApi.deleteProduct(mapping.supplier_id, mapping.id),
-    onSuccess: () => { invalidate(); showSuccessToast("Supplier removed"); closePanel(); },
-    // HTTP errors are toasted (with the real reason) by the shared client; only report anything else.
-    onError: (e: unknown) => {
-      if (!(e as { isAxiosError?: boolean })?.isAxiosError) showErrorToast("Cannot delete this supplier mapping.");
-    },
-  });
-
   const formFromMapping = (mapping: MappingRow): MappingFormState => ({
     supplier_id: mapping.supplier_id,
     supplier_sku: mapping.supplier_sku || "",
@@ -199,7 +190,10 @@ export default function ProductSuppliersList({
     setError("");
   };
 
+  // Only a mapping that is not saved yet (new product) can be dropped; a saved
+  // supplier mapping is deactivated through Edit instead.
   const handleDeleteClick = async (mapping: MappingRow) => {
+    if (!isPending) return;
     const confirmed = await confirmDialog.confirm({
       title: "Remove Supplier",
       message: `This will remove "${mapping.supplier_company_name || "this supplier"}" from this product's approved-vendor list.`,
@@ -208,12 +202,8 @@ export default function ProductSuppliersList({
     });
     if (!confirmed) return;
 
-    if (isPending) {
-      onPendingMappingsChange?.((pendingMappings ?? []).filter((m) => m.id !== mapping.id));
-      if (panelMode) closePanel();
-      return;
-    }
-    deleteMut.mutate(mapping as SupplierProduct);
+    onPendingMappingsChange?.((pendingMappings ?? []).filter((m) => m.id !== mapping.id));
+    if (panelMode) closePanel();
   };
 
   const handleSave = () => {
@@ -337,16 +327,18 @@ export default function ProductSuppliersList({
                   >
                     <EditIcon fontSize="small" />
                   </IconButton>
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteClick(params.row);
-                    }}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
+                  {isPending && (
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteClick(params.row);
+                      }}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  )}
                 </Box>
               ),
             },
@@ -354,7 +346,7 @@ export default function ProductSuppliersList({
         : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canEdit, activeMapping, currencySymbol]
+    [canEdit, activeMapping, currencySymbol, isPending]
   );
 
   return (

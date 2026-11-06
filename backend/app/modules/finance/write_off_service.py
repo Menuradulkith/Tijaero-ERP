@@ -253,6 +253,12 @@ class WriteOffService:
 
     def response(self, w: CustomerWriteOff, invoice_no: Optional[str] = None,
                  customer_name: Optional[str] = None) -> schemas.WriteOffResponse:
+        if invoice_no is None and w.invoice_id:
+            from app.modules.sales.models import Invoice
+            invoice_no = self.db.query(Invoice.invoice_no).filter(Invoice.id == w.invoice_id).scalar()
+        if customer_name is None and w.customer_id:
+            from app.modules.customers.models import Customer
+            customer_name = self.db.query(Customer.customer_name).filter(Customer.id == w.customer_id).scalar()
         return schemas.WriteOffResponse(
             id=w.id, write_off_no=w.write_off_no, invoice_id=w.invoice_id, invoice_no=invoice_no,
             customer_id=w.customer_id, customer_name=customer_name, branch_code=w.branch_code,
