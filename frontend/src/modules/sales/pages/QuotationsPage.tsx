@@ -1063,27 +1063,23 @@ export default function QuotationsPage() {
           return updated;
         });
 
-        try {
-          // Fetch the current minimum price from the MinimumPrice table
-          const minPriceData = await minimumPriceApi.getCurrent(product.id);
-          const minSellingPrice = minPriceData?.minimum_price || 0;
-
-          // Update minimum price fields only — keep selling_price as product catalogue price
+        const setMinPrice = (minSellingPrice: number) =>
           setLineItems(prev => {
             const updated = [...prev];
             updated[index].min_price = minSellingPrice;
             updated[index].minimum_selling_price = minSellingPrice;
             return updated;
           });
+        try {
+          // Fetch the current minimum price from the MinimumPrice table
+          const minPriceData = await minimumPriceApi.getCurrent(product.id);
+          // Update minimum price fields only — keep selling_price as product catalogue price
+          setMinPrice(minPriceData?.minimum_price || 0);
+          if (!minPriceData) {
+            showErrorToast("No minimum price set for this product. Please set a minimum price first.");
+          }
         } catch (error) {
-          // If no minimum price set in the MinimumPrice table, set to 0
-          setLineItems(prev => {
-            const updated = [...prev];
-            updated[index].min_price = 0;
-            updated[index].minimum_selling_price = 0;
-            return updated;
-          });
-          showErrorToast("No minimum price set for this product. Please set a minimum price first.");
+          setMinPrice(0);
         }
       }
     }

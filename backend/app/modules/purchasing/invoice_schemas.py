@@ -1,12 +1,12 @@
 """
 Purchase Invoice Schemas
 """
-from pydantic import BaseModel, Field, field_validator
-from datetime import date, datetime
+from pydantic import BaseModel, Field, field_validator, model_validator
+from datetime import date, datetime, timedelta
 from typing import Optional, List
 from decimal import Decimal
 
-from app.modules.purchasing.schemas import MoneyInput, PositiveMoneyInput, _payment_method
+from app.modules.purchasing.schemas import MoneyInput, PositiveMoneyInput, _check_payment_reference, _payment_method
 
 
 # ==================== PURCHASE INVOICE ITEM SCHEMAS ====================
@@ -43,6 +43,13 @@ class PurchaseInvoiceItemResponse(PurchaseInvoiceItemBase):
 
 # ==================== PURCHASE INVOICE SCHEMAS ====================
 
+def _supplier_invoice_date_not_future(v):
+    # One day of slack for time zones.
+    if v is not None and v > date.today() + timedelta(days=1):
+        raise ValueError("Supplier invoice date cannot be in the future")
+    return v
+
+
 class PurchaseInvoiceBase(BaseModel):
     supplier_invoice_no: str
     supplier_invoice_date: date
@@ -66,6 +73,8 @@ class PurchaseInvoiceCreate(PurchaseInvoiceBase):
     total_amount: MoneyInput = Decimal("0")
     items: List[PurchaseInvoiceItemCreate]
 
+    _v_invoice_date = field_validator("supplier_invoice_date")(_supplier_invoice_date_not_future)
+
 
 class PurchaseInvoiceUpdate(BaseModel):
     supplier_invoice_no: Optional[str] = None
@@ -79,6 +88,8 @@ class PurchaseInvoiceUpdate(BaseModel):
     tax_code: Optional[str] = None
     remarks: Optional[str] = None
     items: Optional[List[PurchaseInvoiceItemCreate]] = None
+
+    _v_invoice_date = field_validator("supplier_invoice_date")(_supplier_invoice_date_not_future)
 
 
 class PurchaseInvoiceResponse(PurchaseInvoiceBase):
@@ -142,7 +153,7 @@ class PaymentWithAllocationsCreate(BaseModel):
     payment_date: date
     payment_method: str  # Cash, Bank Transfer, Cheque
     payment_amount: PositiveMoneyInput  # Total payment amount
-    reference_number: Optional[str] = None
+    reference_number: Optional[str] = Field(None, max_length=300)
     bank_name: Optional[str] = None
     branch_code: str
     remarks: Optional[str] = None
@@ -153,6 +164,10 @@ class PaymentWithAllocationsCreate(BaseModel):
     @classmethod
     def _method(cls, v):
         return _payment_method(v)
+
+    @model_validator(mode="after")
+    def _reference(self):
+        return _check_payment_reference(self)
 
 
 class PaymentAllocationResponse(BaseModel):

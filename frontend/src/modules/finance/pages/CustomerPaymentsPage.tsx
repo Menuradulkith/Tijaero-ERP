@@ -462,6 +462,87 @@ export default function CustomerPaymentsPage() {
     return basePaymentAmount + (pct > 0 ? Math.round(cardBase * pct) / 100 : 0);
   }, [splitPayments, paymentCards, basePaymentAmount]);
 
+  // What will actually be posted: each method row (card rows net of their
+  // service charge) fills the selected invoices in order, up to each invoice's
+  // allocation, so the review table and the posted settlements agree.
+  const settlementRows = useMemo(() => {
+    const toCents = (n: number) => Math.round(n * 100);
+    const invoiceLeft = paymentLines
+      .filter((l) => l.allocated_amount > 0)
+      .map((l) => ({ invoiceId: l.invoice.id, left: toCents(l.allocated_amount) }));
+    const rows: Array<{ invoiceId: number; paymentAmount: number; payload: Record<string, unknown> }> = [];
+
+    for (const splitRow of splitPayments) {
+      if (!(splitRow.amount > 0)) continue;
+      const cardDetails = splitRow.method === "card" && splitRow.card_id
+        ? paymentCards.find((c: PaymentCard) => c.id === splitRow.card_id)
+        : null;
+      const pct = cardDetails?.service_charge_percent || 0;
+      const rowTotal = toCents(splitRow.amount);
+      const rowBase = pct > 0 ? Math.round(rowTotal / (1 + pct / 100)) : rowTotal;
+
+      let apiPaymentMethod = splitRow.method;
+      if (splitRow.method === "card" && cardDetails) {
+        const nameLower = cardDetails.card_name.toLowerCase();
+        if (nameLower.includes("master")) {
+          apiPaymentMethod = "card_mastercard";
+        } else if (nameLower.includes("amex") || nameLower.includes("american")) {
+          apiPaymentMethod = "card_amex";
+        } else {
+          apiPaymentMethod = "card_visa";
+        }
+      }
+
+      let baseLeft = rowBase;
+      let chargeLeft = rowTotal - rowBase;
+      for (const inv of invoiceLeft) {
+        if (baseLeft <= 0) break;
+        const portion = Math.min(baseLeft, inv.left);
+        if (portion <= 0) continue;
+        inv.left -= portion;
+        baseLeft -= portion;
+        const charge = baseLeft <= 0 ? chargeLeft : Math.min(chargeLeft, Math.round((portion * pct) / 100));
+        chargeLeft -= charge;
+
+        rows.push({
+          invoiceId: inv.invoiceId,
+          paymentAmount: portion / 100,
+          payload: {
+            invoice_id: inv.invoiceId,
+            payment_method: apiPaymentMethod,
+            payment_amount: portion / 100,
+            payment_date: paymentDate,
+            ...(splitRow.method === "cheque" && {
+              cheque_number: splitRow.cheque_number,
+              cheque_bank: splitRow.cheque_bank,
+              cheque_date: splitRow.cheque_date,
+            }),
+            ...(splitRow.method === "card" && {
+              card_ref_number: splitRow.card_ref_number,
+              card_holder_name: splitRow.card_holder_name,
+              payment_card_id: splitRow.card_id,
+              service_charge_amount: charge / 100,
+            }),
+            ...(splitRow.method === "bank_transfer" && {
+              bank_transfer_ref: splitRow.bank_transfer_ref,
+              bank_name: splitRow.bank_name,
+            }),
+            remarks: remarks || undefined,
+          },
+        });
+      }
+    }
+    return rows;
+  }, [paymentLines, splitPayments, paymentCards, paymentDate, remarks]);
+
+  const settledByInvoice = useMemo(() => {
+    const totals = new Map<number, number>();
+    for (const row of settlementRows) {
+      totals.set(row.invoiceId, (totals.get(row.invoiceId) || 0) + row.paymentAmount);
+    }
+    return totals;
+  }, [settlementRows]);
+
   // Filtered customers
   const filteredCustomers = useMemo(() => {
     let filtered = customers;
@@ -769,6 +850,10 @@ export default function CustomerPaymentsPage() {
       showErrorToast(paymentDateError);
       return;
     }
+    if (settlementRows.length === 0) {
+      showErrorToast("Enter a payment amount to post");
+      return;
+    }
     if (postInFlightRef.current) return;
     postInFlightRef.current = true;
 
@@ -792,80 +877,14 @@ export default function CustomerPaymentsPage() {
       setSaving(true);
       setError(null);
 
-      // Process each payment line (invoice)
-      let hasPendingBankTransfer = false;
-      for (const line of paymentLines) {
-        if (line.allocated_amount <= 0) continue;
-
-        // Calculate proportional split for this invoice
-        const totalAllocated = paymentLines.reduce((sum, l) => sum + l.allocated_amount, 0);
-        const proportion = line.allocated_amount / totalAllocated;
-
-        // Process each payment method proportionally
-        for (const splitRow of splitPayments) {
-          if (splitRow.amount <= 0) continue;
-
-          const proportionalAmount = splitRow.amount * proportion;
-
-          // Calculate service charge if applicable
-          const cardDetails = splitRow.method === "card" && splitRow.card_id
-            ? paymentCards.find((c: PaymentCard) => c.id === splitRow.card_id)
-            : null;
-          
-          let paymentAmt = proportionalAmount;
-          let serviceCharge = 0;
-
-          if (cardDetails && (cardDetails.service_charge_percent || 0) > 0) {
-            const pct = cardDetails.service_charge_percent;
-            paymentAmt = Math.round((proportionalAmount / (1 + pct / 100)) * 100) / 100;
-            serviceCharge = Math.round((proportionalAmount - paymentAmt) * 100) / 100;
-          }
-
-          // Determine the correct payment method string for backend
-          let apiPaymentMethod = splitRow.method;
-          if (splitRow.method === "card" && cardDetails) {
-            const nameLower = cardDetails.card_name.toLowerCase();
-            if (nameLower.includes("visa")) {
-              apiPaymentMethod = "card_visa";
-            } else if (nameLower.includes("master")) {
-              apiPaymentMethod = "card_mastercard";
-            } else if (nameLower.includes("amex") || nameLower.includes("american")) {
-              apiPaymentMethod = "card_amex";
-            } else {
-              apiPaymentMethod = "card_visa"; // Fallback
-            }
-          }
-
-          const payload = {
-            invoice_id: line.invoice.id,
-            payment_method: apiPaymentMethod,
-            payment_amount: paymentAmt,
-            payment_date: paymentDate,
-            ...(splitRow.method === "cheque" && {
-              cheque_number: splitRow.cheque_number,
-              cheque_bank: splitRow.cheque_bank,
-              cheque_date: splitRow.cheque_date,
-            }),
-            ...(splitRow.method === "card" && {
-              card_ref_number: splitRow.card_ref_number,
-              card_holder_name: splitRow.card_holder_name,
-              payment_card_id: splitRow.card_id,
-              service_charge_amount: serviceCharge,
-            }),
-            ...(splitRow.method === "bank_transfer" && {
-              bank_transfer_ref: splitRow.bank_transfer_ref,
-              bank_name: splitRow.bank_name,
-            }),
-            remarks: remarks || undefined,
-          };
-
-          const response = await apiClient.post(`/sales/${line.invoice.id}/settle-payment`, payload);
-          // Track if any bank transfer is pending verification
-          if (response.data?.payment_status === "pending_bank_verification") {
-            hasPendingBankTransfer = true;
-          }
-        }
-      }
+      // All rows are posted in one all-or-nothing request.
+      const response = await apiClient.post<{ results: Array<{ payment_status: string }> }>(
+        "/sales/settle-payments",
+        { payments: settlementRows.map((row) => row.payload) }
+      );
+      const hasPendingBankTransfer = response.data.results.some(
+        (r) => r.payment_status === "pending_bank_verification"
+      );
 
       if (hasPendingBankTransfer) {
         showSuccessToast(
@@ -896,10 +915,8 @@ export default function CustomerPaymentsPage() {
     selectedCustomer,
     paymentLines,
     splitPayments,
-    paymentDate,
+    settlementRows,
     paymentDateError,
-    remarks,
-    paymentCards,
     confirmDialog,
     loadCreditStatus,
     loadCustomerInvoices,
@@ -2067,7 +2084,8 @@ export default function CustomerPaymentsPage() {
               </TableHead>
               <TableBody>
                 {paymentLines.map((line) => {
-                  const remainingAfter = line.invoice.balance_due - line.allocated_amount;
+                  const settled = settledByInvoice.get(line.invoice.id) || 0;
+                  const remainingAfter = line.invoice.balance_due - settled;
                   return (
                     <TableRow key={line.id}>
                       <TableCell>
@@ -2081,7 +2099,7 @@ export default function CustomerPaymentsPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography color="primary.main" fontWeight="bold">
-                          {line.allocated_amount > 0 ? fmtLKR(line.allocated_amount) : "-"}
+                          {settled > 0 ? fmtLKR(settled) : "-"}
                         </Typography>
                       </TableCell>
                     <TableCell align="right">
@@ -2100,7 +2118,7 @@ export default function CustomerPaymentsPage() {
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="h6" fontWeight="bold" color="text.primary">
-                    {currencySymbol} {fmtLKR(basePaymentAmount)}
+                    {currencySymbol} {fmtLKR(settlementRows.reduce((s, r) => s + r.paymentAmount, 0))}
                   </Typography>
                 </TableCell>
                 <TableCell />

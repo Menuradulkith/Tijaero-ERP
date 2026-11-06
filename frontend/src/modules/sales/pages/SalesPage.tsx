@@ -949,9 +949,9 @@ export default function SalesPage() {
       if (navState.items && navState.items.length > 0) {
         const prefilledItems: ItemFormData[] = navState.items.map((item) => ({
           product_id: item.product_id,
-          quantity: item.quantity,
-          selling_price: item.selling_price,
-          minimum_selling_price: item.minimum_selling_price,
+          quantity: Number(item.quantity) || 0,
+          selling_price: Number(item.selling_price) || 0,
+          minimum_selling_price: Number(item.minimum_selling_price) || 0,
           warrenty_month: item.warrenty_month || "0",
           barcode: undefined,
           product_name: item.product_name || "",
@@ -1261,10 +1261,10 @@ export default function SalesPage() {
       product_id: item.product_id,
       product_name: (products as any[] | undefined)?.find((p: any) => p.id === item.product_id)?.name ?? item.product_name ?? "",
       barcode: item.barcode || undefined,
-      discount_percent: item.discount_percent || 0,
-      quantity: item.quantity,
-      selling_price: item.selling_price,
-      minimum_selling_price: item.minimum_selling_price,
+      discount_percent: Number(item.discount_percent) || 0,
+      quantity: Number(item.quantity) || 0,
+      selling_price: Number(item.selling_price) || 0,
+      minimum_selling_price: Number(item.minimum_selling_price) || 0,
       warrenty_month: item.warrenty_month,
       branch_code: state.selectedItem!.branch_code,
       added_date: new Date().toISOString(),
@@ -1577,6 +1577,14 @@ export default function SalesPage() {
     const firstCreditRow = splitPayments.find((p) => p.method === "credit");
     const primaryMethod = splitPayments.length === 1 ? splitPayments[0].method : (splitPayments.length > 0 ? splitPayments[0].method : paymentMethod);
 
+    // The API rejects money sent as strings.
+    const numericLineItems = lineItems.map((li) => ({
+      ...li,
+      quantity: Number(li.quantity) || 0,
+      selling_price: Number(li.selling_price) || 0,
+      minimum_selling_price: Number(li.minimum_selling_price) || 0,
+      discount_percent: Number(li.discount_percent) || 0,
+    }));
     const invoiceData: InvoiceCreate = {
       ...(state.formData as InvoiceCreate),
       payment_method: primaryMethod,
@@ -1589,7 +1597,7 @@ export default function SalesPage() {
       credit_amount: splitCreditPay,
       // Include service charge in payment adjustments (for card payments)
       payment_adjustments: serviceCharge,
-      items: lineItems,
+      items: numericLineItems,
       // Tax and Discount fields
       is_tax_invoice: taxMode === "inclusive",
       tax_rate: effectiveTaxRate,
@@ -1652,7 +1660,7 @@ export default function SalesPage() {
       // FE-7: the remarks edited in the form are saved too (they were dropped)
       updateMutation.mutate({
         id: state.selectedItem.id,
-        data: { items: lineItems, remarks: state.formData.remarks ?? "" },
+        data: { items: numericLineItems, remarks: state.formData.remarks ?? "" },
       });
     } else {
       // Create new invoice
@@ -1785,12 +1793,15 @@ export default function SalesPage() {
       const productObj = products.find(
         (p: any) => p.id === stockItem.product_id,
       );
+      // The stock API returns money as strings ("100.00").
       const sellingPrice =
-        stockItem.selling_price ?? productObj?.selling_price ?? 0;
+        Number(stockItem.selling_price ?? productObj?.selling_price ?? 0) || 0;
       const minimumPrice =
-        stockItem.minimum_selling_price ??
-        (productObj as any)?.minimum_price ??
-        sellingPrice;
+        Number(
+          stockItem.minimum_selling_price ??
+            (productObj as any)?.minimum_price ??
+            sellingPrice,
+        ) || 0;
       if (isLot) {
         const existingIndex = lineItems.findIndex(
           (li) => !li.barcode && li.product_id === stockItem.product_id,
@@ -1912,11 +1923,14 @@ export default function SalesPage() {
 
         // Get prices from product relationship or top-level fields
         const sellingPrice =
-          stockItem.selling_price || stockItem.product?.selling_price || 0;
+          Number(stockItem.selling_price || stockItem.product?.selling_price || 0) || 0;
         const minimumPrice =
-          stockItem.minimum_price ||
-          stockItem.product?.minimum_price ||
-          sellingPrice;
+          Number(
+            stockItem.minimum_selling_price ||
+              stockItem.minimum_price ||
+              stockItem.product?.minimum_price ||
+              sellingPrice,
+          ) || 0;
         const warrantyMonths =
           stockItem.warranty_month || stockItem.product?.warrenty_month || "0";
         const productName =

@@ -27,6 +27,7 @@ _Uom = _Short(20)
 _TrackingType = Literal["serial", "batch", "none"]
 _Tolerance = Annotated[float, Field(ge=0, le=100)]
 _Price = Annotated[float, Field(ge=0, le=MAX_PRICE)]
+_TaxRate = Annotated[float, Field(ge=0, le=100)]
 
 
 def _blank_to_none(value):
@@ -132,12 +133,16 @@ class ProductBase(BaseModel):
     tracking_type: str = Field(default="serial", max_length=10)
     over_receipt_tolerance_pct: float = 0
     under_receipt_tolerance_pct: float = 0
+    # Manufactured goods: days a finished batch keeps (sets its expiry) / hold output for a quality check
+    shelf_life_days: Optional[int] = None
+    requires_qc: bool = False
     description: Optional[str] = None
     website_active: bool = False
     website_price: Optional[float] = None
     selling_price: Optional[float] = None
     active: bool = True
     cost_price: float = Field(..., ge=0)
+    tax_rate: float = 0
     category_id: int
     items_brand_id: int
     image_url: Optional[str] = None
@@ -152,12 +157,15 @@ class ProductCreate(BaseModel):
     tracking_type: _TrackingType  # required: no default is assumed
     over_receipt_tolerance_pct: _Tolerance = 0
     under_receipt_tolerance_pct: _Tolerance = 0
+    shelf_life_days: Optional[int] = Field(None, ge=1, le=3650)
+    requires_qc: bool = False
     description: Optional[_Description] = None
     website_active: bool = False
     website_price: Optional[_Price] = None
     selling_price: Optional[_Price] = None
     active: bool = True
     cost_price: _Price
+    tax_rate: _TaxRate = 0
     category_id: _Id
     items_brand_id: _Id
     # NB: no image_url — the upload/remove image endpoints are its only writers.
@@ -187,12 +195,16 @@ class ProductUpdate(BaseModel):
     tracking_type: Optional[_TrackingType] = None
     over_receipt_tolerance_pct: Optional[_Tolerance] = None
     under_receipt_tolerance_pct: Optional[_Tolerance] = None
+    # Send null to clear the shelf life
+    shelf_life_days: Optional[int] = Field(None, ge=1, le=3650)
+    requires_qc: Optional[bool] = None
     description: Optional[_Description] = None
     website_active: Optional[bool] = None
     website_price: Optional[_Price] = None
     selling_price: Optional[_Price] = None
     active: Optional[bool] = None
     cost_price: Optional[_Price] = None
+    tax_rate: Optional[_TaxRate] = None
     category_id: Optional[_Id] = None
     items_brand_id: Optional[_Id] = None
     # image_url is intentionally absent: the upload/remove image endpoints
@@ -212,7 +224,8 @@ class ProductUpdate(BaseModel):
 
     @field_validator(
         "name", "item_type", "unit_of_measure", "tracking_type", "over_receipt_tolerance_pct",
-        "under_receipt_tolerance_pct", "website_active", "active", "cost_price", "category_id", "items_brand_id"
+        "under_receipt_tolerance_pct", "website_active", "active", "cost_price", "category_id", "items_brand_id",
+        "requires_qc",
     )
     @classmethod
     def _required_not_null(cls, value):

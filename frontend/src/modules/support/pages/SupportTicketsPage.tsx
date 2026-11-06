@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Box, Paper } from "@mui/material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
@@ -24,8 +24,11 @@ import { formatDateTime } from "@/utils/formatters";
 import { supportTicketsApi } from "@/modules/support/api";
 import { CustomerSupportCreate } from "@/modules/support/types";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
+import { useReferenceData } from "@/hooks/useReferenceData";
 import { usePermission } from "@/auth/permissions";
 import { handleApiError } from "@/utils/errorHandling";
+
+const NO_USER = "" as unknown as number;
 
 export default function SupportTicketsPage() {
   const queryClient = useQueryClient();
@@ -42,6 +45,25 @@ export default function SupportTicketsPage() {
     queryFn: () => supportTicketsApi.getAll({ limit: 1000 }),
   });
 
+  const { data: refData, filteredBranches } = useReferenceData(["branches", "customers", "employees"]);
+  const branchOptions = filteredBranches.map((b) => ({
+    value: b.branch_code,
+    label: `${b.branch_code} - ${b.branch_name}`,
+  }));
+  const userOptions = useMemo(
+    () =>
+      (refData?.employees || [])
+        .filter((e) => e.user_id)
+        .map((e) => ({ value: e.user_id as number, label: `${e.full_name} (${e.employee_id})` })),
+    [refData?.employees]
+  );
+  const userName = useMemo(() => new Map(userOptions.map((o) => [o.value, o.label])), [userOptions]);
+  const customerName = useMemo(
+    () => new Map((refData?.customers || []).map((c) => [c.id, c.customer_name])),
+    [refData?.customers]
+  );
+  const customerIds = useMemo(() => (refData?.customers || []).map((c) => c.id), [refData?.customers]);
+
   const { control, handleSubmit, reset } = useForm<CustomerSupportCreate>({
     defaultValues: {
       job_number: "",
@@ -50,9 +72,9 @@ export default function SupportTicketsPage() {
       job_description: "",
       contact_person: "",
       branch_code: "",
-      assigned_user_id: 0,
-      customer_id: undefined,
-      invoice_id: undefined,
+      assigned_user_id: NO_USER,
+      customer_id: null,
+      invoice_id: null,
     },
   });
 
@@ -113,7 +135,12 @@ export default function SupportTicketsPage() {
     { field: "job_type", headerName: "Type", width: 120 },
     { field: "contact_person", headerName: "Contact", width: 150 },
     { field: "branch_code", headerName: "Branch", width: 100 },
-    { field: "assigned_user_id", headerName: "Assigned To", width: 120 },
+    {
+      field: "assigned_user_id",
+      headerName: "Assigned To",
+      width: 160,
+      valueFormatter: (value: number) => userName.get(value) || value,
+    },
     {
       field: "date",
       headerName: "Date",
@@ -187,7 +214,9 @@ export default function SupportTicketsPage() {
       date: new Date().toISOString().split("T")[0],
       contact_person: "",
       branch_code: getDefaultBranchCode || "",
-      assigned_user_id: 0,
+      assigned_user_id: NO_USER,
+      customer_id: null,
+      invoice_id: null,
     });
     setOpenDialog(true);
   };
@@ -251,6 +280,7 @@ export default function SupportTicketsPage() {
         submitText={editingId ? "Update" : "Create"}
         isSubmitting={createMutation.isPending || updateMutation.isPending}
         maxWidth="md"
+        noValidate
       >
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
           <TFormField
@@ -270,25 +300,43 @@ export default function SupportTicketsPage() {
           <TFormField
             name="branch_code"
             control={control}
-            label="Branch Code"
+            label="Branch"
+            fieldType="select"
+            options={branchOptions}
             required
-            rules={{ required: "Branch code is required" }}
+            rules={{ required: "Branch is required" }}
           />
-          <TFormField
-            name="assigned_user_id"
-            control={control}
-            label="Assigned User ID"
-            fieldType="number"
-            required
-            rules={{ required: "Assigned user is required", min: { value: 1, message: "Must be at least 1" } }}
-          />
+          {userOptions.length > 0 ? (
+            <TFormField
+              name="assigned_user_id"
+              control={control}
+              label="Assigned To"
+              fieldType="select"
+              options={userOptions}
+              required
+              rules={{ required: "Assigned user is required" }}
+            />
+          ) : (
+            <TFormField
+              name="assigned_user_id"
+              control={control}
+              label="Assigned User ID"
+              fieldType="number"
+              required
+              rules={{ required: "Assigned user is required", min: { value: 1, message: "Must be at least 1" } }}
+            />
+          )}
           <TFormField
             name="date"
             control={control}
             label="Date"
             fieldType="date"
             required
-            rules={{ required: "Date is required" }}
+            rules={{
+              required: "Date is required",
+              validate: (v) =>
+                String(v) <= new Date().toISOString().split("T")[0] || "The ticket date cannot be in the future",
+            }}
           />
           <Box sx={{ gridColumn: "span 2" }}>
             <TFormField
@@ -299,17 +347,30 @@ export default function SupportTicketsPage() {
               rows={3}
             />
           </Box>
-          <TFormField
-            name="customer_id"
-            control={control}
-            label="Customer ID (Optional)"
-            fieldType="number"
-          />
+          {customerIds.length > 0 ? (
+            <TFormField
+              name="customer_id"
+              control={control}
+              label="Customer (Optional)"
+              fieldType="autocomplete"
+              autocompleteOptions={customerIds}
+              getOptionLabel={(id) => customerName.get(id as number) || `Customer ${id}`}
+            />
+          ) : (
+            <TFormField
+              name="customer_id"
+              control={control}
+              label="Customer ID (Optional)"
+              fieldType="number"
+              rules={{ min: { value: 1, message: "Must be at least 1" } }}
+            />
+          )}
           <TFormField
             name="invoice_id"
             control={control}
             label="Invoice ID (Optional)"
             fieldType="number"
+            rules={{ min: { value: 1, message: "Must be at least 1" } }}
           />
         </Box>
       </TFormDialog>

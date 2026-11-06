@@ -720,6 +720,8 @@ export default function CompanyAssetsDashboard() {
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
                 InputLabelProps={{ shrink: true }}
+                error={!!dateFrom && !!dateTo && dateTo < dateFrom}
+                helperText={dateFrom && dateTo && dateTo < dateFrom ? "Date To is before Date From" : undefined}
               />
             </Grid>
 

@@ -47,7 +47,7 @@ import {
 import { usePermission } from "@/auth/permissions";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 // Import tijaero components
 import {
@@ -92,12 +92,12 @@ const APPROVAL_STATUS_FILTER_OPTIONS = [
 ];
 
 // Helper component for info rows
-const InfoRow = ({ label, value }: { label: string; value: string | number }) => (
+const InfoRow = ({ label, value }: { label: string; value: ReactNode }) => (
   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.5 }}>
     <Typography variant="body2" color="text.secondary">
       {label}:
     </Typography>
-    <Typography variant="body2" fontWeight={500}>
+    <Typography variant="body2" fontWeight={500} component="div">
       {value}
     </Typography>
   </Box>
@@ -599,12 +599,10 @@ export default function SalesTrackPage() {
                     <InfoRow
                       label="Status"
                       value={
-                        <Box component="span" sx={{ display: "inline-flex" }}>
-                          <TStatusChip
-                            status={selectedOrder.approval_status || "pending_approval"}
-                            statusMap="invoice"
-                          />
-                        </Box> as any
+                        <TStatusChip
+                          status={selectedOrder.approval_status || "pending_approval"}
+                          statusMap="invoice"
+                        />
                       }
                     />
                     {selectedOrder.remarks && (

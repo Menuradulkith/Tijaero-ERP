@@ -193,22 +193,26 @@ def test_dashboard_scoped_and_cached_per_scope(db, superclient, make_user, api, 
     assert stats["sales"]["total_orders"] == 0
 
 
-def test_legacy_reports_branch_scope_and_validation(make_user, api, make_branch):
+def test_reports_branch_scope_and_validation(make_user, api, make_branch):
     own, other = make_branch(), make_branch()
     _u, token = make_user(
-        permissions=[P.REPORTING_SALES_VIEW, P.REPORTING_FINANCE_VIEW, P.REPORTING_BRANCH_SUMMARY_VIEW,
+        permissions=[P.REPORTING_SALES_VIEW, P.REPORTING_BRANCH_SUMMARY_VIEW,
                      P.REPORTING_BRANCH_SUMMARY_GENERATE],
         branches=[own],
     )
     c = api(token)
     span = {"start_date": "2020-01-01", "end_date": str(date.today())}
-    r = c.post(f"{API}/reporting/sales", json=span)
-    assert r.status_code == 200 and r.json()["total_orders"] == 0
-    assert c.post(f"{API}/reporting/sales", json={**span, "branch_code": other.branch_code}).status_code == 403
-    assert c.post(f"{API}/reporting/sales", json={"start_date": "2026-02-01", "end_date": "2026-01-01"}).status_code == 422
-    assert c.post(f"{API}/reporting/finance", json={**span, "report_type": "bogus"}).status_code == 422
-    r = c.post(f"{API}/reporting/finance", json={**span, "report_type": "summary"})
+
+    def run_sales(params):
+        return c.post(f"{API}/reporting/center/reports/sales.summary/run", json={"params": params})
+
+    center_span = {"date_from": span["start_date"], "date_to": span["end_date"]}
+    r = run_sales(center_span)
     assert r.status_code == 200, r.text
+    orders = next(m["value"] for m in r.json()["metrics"] if m["label"] == "Orders")
+    assert orders == 0
+    assert run_sales({**center_span, "branch_code": other.branch_code}).status_code == 403
+    assert run_sales({"date_from": "2026-02-01", "date_to": "2026-01-01"}).status_code == 422
     assert {b["branch_code"] for b in c.get(f"{API}/reporting/branches").json()} <= {own.branch_code}
     r = c.get(f"{API}/reporting/branch-summary", params={**span, "branch_codes": other.branch_code})
     assert r.status_code == 403

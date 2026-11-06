@@ -266,22 +266,6 @@ def update_customer_contact_person(
     return service.contact_person_service.update_contact(db, customer_id, contact_id, payload, current_user.id)
 
 
-@router.delete(
-    "/{customer_id}/contact-persons/{contact_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete Customer Contact Person",
-    dependencies=[Depends(require_permission(*Permissions.CUSTOMER_UPDATE))],
-)
-def delete_customer_contact_person(
-    customer_id: RowId,
-    contact_id: RowId,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
-):
-    service.contact_person_service.delete_contact(db, customer_id, contact_id)
-    return None
-
-
 from datetime import date
 
 from app.modules.customers.credit_service import customer_credit_service

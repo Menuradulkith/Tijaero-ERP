@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Enum as SQLEnum, ForeignKey, Date, Boolean, TIMESTAMP, Numeric, BigInteger, func, Table
+from sqlalchemy import Column, Integer, String, Text, Enum as SQLEnum, ForeignKey, Date, Boolean, TIMESTAMP, Numeric, BigInteger, Index, func, Table
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from app.common.base_models import AuditMixin
@@ -124,6 +124,8 @@ class CustomerContactPerson(Base, AuditMixin):
     email = Column(String(75))
     phone = Column(String(20))
     is_primary = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Contact persons are never deleted, only deactivated.
+    active = Column(Boolean, nullable=False, default=True, server_default="true")
 
     customer = relationship("Customer", back_populates="contact_persons")
 
@@ -229,6 +231,10 @@ class CustomerCuponCodes(Base, AuditMixin):
     product = relationship("Product", foreign_keys=[limit_validity_product_id], back_populates="cupon_codes")
     invoices = relationship("Invoice", back_populates="cupon")
     usages = relationship("CouponUsage", back_populates="coupon", cascade="all, delete-orphan")
+
+
+# POS lookup is case-insensitive, so "X" and "x" must be one coupon (one usage limit).
+Index("uq_customer_cupon_codes_upper", func.upper(CustomerCuponCodes.cupon_code), unique=True)
 
 
 class CouponUsage(Base, AuditMixin):

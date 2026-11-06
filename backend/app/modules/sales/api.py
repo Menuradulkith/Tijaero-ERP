@@ -668,6 +668,26 @@ def settle_credit_payment(
     )
 
 
+@router.post(
+    "/settle-payments",
+    response_model=schemas.CreditPaymentBatchResponse,
+    summary="Settle Credit Payments (multiple rows, all or nothing)",
+)
+def settle_credit_payments(
+    payload: schemas.CreditPaymentBatchCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.SALES_ORDER_UPDATE)),
+):
+    """
+    Record several payment rows (split methods and/or several credit invoices) in one transaction.
+    If any row is refused, none of them is posted.
+    """
+    for invoice_id in {p.invoice_id for p in payload.payments}:
+        _scope_invoice(db, current_user, invoice_id)
+    results = service.sales_service.settle_credit_payments(db, payload.payments, current_user.id)
+    return {"results": results}
+
+
 @router.get(
     "/{invoice_id}/payment-history",
     response_model=List[schemas.InvoicePaymentHistory],

@@ -103,6 +103,7 @@ export interface CustomerRef {
 export interface EmployeeRef {
   id: number;
   employee_id: string;
+  user_id?: number | null;
   first_name: string;
   last_name: string;
   full_name: string;

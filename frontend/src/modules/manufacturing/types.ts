@@ -8,6 +8,17 @@ export type BOMStatus = "draft" | "active" | "archived";
 export type OperationStatus = "pending" | "in_progress" | "completed";
 export type IssueMethod = "manual" | "backflush";
 export type Priority = "low" | "normal" | "high" | "urgent";
+export type ScrapReason = "burnt" | "damaged" | "quality_fail" | "expired" | "machine_fault" | "other";
+export const SCRAP_REASONS: { value: ScrapReason; label: string }[] = [
+  { value: "burnt", label: "Burnt / over-cooked" },
+  { value: "damaged", label: "Damaged" },
+  { value: "quality_fail", label: "Failed quality" },
+  { value: "expired", label: "Expired" },
+  { value: "machine_fault", label: "Machine fault" },
+  { value: "other", label: "Other" },
+];
+/** none | on_hold | passed | failed | partly_passed */
+export type QcStatus = "none" | "on_hold" | "passed" | "failed" | "partly_passed";
 
 export const PRODUCTION_ORDER_STATUS_OPTIONS: { value: ProductionOrderStatus; label: string }[] = [
   { value: "draft", label: "Draft" },
@@ -44,6 +55,10 @@ export interface WorkCenter {
   labor_rate_per_hour: Dec;
   overhead_rate_per_hour: Dec;
   active: boolean;
+  /** Outside work: another company does this step (costed per unit on the BOM operation). */
+  is_outside: boolean;
+  supplier_id?: number | null;
+  supplier_name?: string | null;
   open_load_minutes: Dec;
   open_operations: number;
   created_at?: string;
@@ -61,6 +76,8 @@ export interface WorkCenterInput {
   labor_rate_per_hour: number;
   overhead_rate_per_hour: number;
   active: boolean;
+  is_outside: boolean;
+  supplier_id?: number | null;
 }
 
 // ─────────────────────────── BOMs ───────────────────────────
@@ -92,6 +109,20 @@ export interface BOMOperation {
   description?: string | null;
   labor_cost: Dec;
   overhead_cost: Dec;
+  is_outside: boolean;
+  outside_unit_cost: Dec;
+  outside_cost: Dec;
+}
+
+export interface BOMByProduct {
+  id: number;
+  product_id: number;
+  product_name?: string | null;
+  product_code?: string | null;
+  unit_of_measure?: string | null;
+  quantity: Dec;
+  unit_cost: Dec;
+  line_value: Dec;
 }
 
 export interface BOM {
@@ -107,15 +138,21 @@ export interface BOM {
   status: BOMStatus;
   is_default: boolean;
   description?: string | null;
+  /** An order may produce up to this % more than planned. */
+  overproduction_pct: Dec;
   item_count: number;
   operation_count: number;
   material_cost: Dec;
   labor_cost: Dec;
   overhead_cost: Dec;
+  outside_cost: Dec;
+  /** Value of the by-products, taken off the main product's cost. */
+  byproduct_value: Dec;
   total_cost: Dec;
   unit_cost: Dec;
   items: BOMItem[];
   operations: BOMOperation[];
+  by_products: BOMByProduct[];
   created_at?: string;
   updated_at?: string;
 }
@@ -136,6 +173,13 @@ export interface BOMOperationInput {
   setup_minutes: number;
   run_minutes: number;
   description?: string | null;
+  /** Outside work centers: the subcontractor's price per unit. */
+  outside_unit_cost: number;
+}
+
+export interface BOMByProductInput {
+  product_id: number;
+  quantity: number;
 }
 
 export interface BOMInput {
@@ -143,8 +187,10 @@ export interface BOMInput {
   version: string;
   output_quantity: number;
   description?: string | null;
+  overproduction_pct: number;
   items: BOMItemInput[];
   operations: BOMOperationInput[];
+  by_products: BOMByProductInput[];
 }
 
 export type BOMUpdateInput = Partial<Omit<BOMInput, "product_id">>;
@@ -184,6 +230,24 @@ export interface OrderOperation {
   overhead_rate_per_hour: Dec;
   started_at?: string | null;
   completed_at?: string | null;
+  is_outside: boolean;
+  supplier_id?: number | null;
+  supplier_name?: string | null;
+  outside_unit_cost: Dec;
+  outside_quantity: number;
+}
+
+export interface OrderByProduct {
+  id: number;
+  product_id: number;
+  product_name?: string | null;
+  product_code?: string | null;
+  unit_of_measure?: string | null;
+  quantity_per_unit: Dec;
+  /** At the good units recorded so far */
+  expected_quantity: number;
+  received_quantity: number;
+  unit_cost: Dec;
 }
 
 export interface ProductionOrder {
@@ -204,6 +268,14 @@ export interface ProductionOrder {
   produced_quantity: number;
   scrapped_quantity: number;
   progress_pct: Dec;
+  overproduction_pct: Dec;
+  /** Most good + scrap units the order can take (planned + tolerance). */
+  max_quantity: number;
+  /** good / (good + scrap); null until something is recorded */
+  yield_pct?: Dec | null;
+  scrap_value: Dec;
+  /** Good units waiting for a quality decision */
+  qc_on_hold_quantity: number;
   planned_start_date: string;
   planned_end_date: string;
   actual_start_at?: string | null;
@@ -226,6 +298,7 @@ export interface ProductionOrder {
   actual_material_cost: Dec;
   actual_labor_cost: Dec;
   actual_overhead_cost: Dec;
+  actual_outside_cost: Dec;
   actual_total_cost: Dec;
   output_value: Dec;
   wip_balance: Dec;
@@ -239,6 +312,7 @@ export interface ProductionOrder {
   updated_at?: string;
   materials: OrderMaterial[];
   operations: OrderOperation[];
+  by_products: OrderByProduct[];
 }
 
 export interface ProductionOrderPage {
@@ -277,6 +351,28 @@ export interface OutputInput {
   serial_numbers?: string[] | null;
   location_id?: number | null;
   remark?: string | null;
+  /** Required when scrap_quantity > 0 */
+  scrap_reason?: ScrapReason | null;
+  by_products?: { byproduct_id: number; quantity: number }[];
+}
+
+export interface QcDecisionInput {
+  output_id: number;
+  passed_quantity: number;
+  failed_quantity: number;
+  /** Required when units fail */
+  remark?: string | null;
+}
+
+export interface OutsideReceiptInput {
+  operation_id: number;
+  quantity: number;
+  /** Defaults to quantity x the operation's per-unit price */
+  amount?: number | null;
+  bill_reference?: string | null;
+  remark?: string | null;
+  /** Also raise a pending expense for the subcontractor's bill */
+  create_expense: boolean;
 }
 
 export interface TimeLogInput {
@@ -321,6 +417,40 @@ export interface ProductionOutput {
   remark?: string | null;
   serial_numbers: string[];
   created_by_name?: string | null;
+  scrap_reason?: ScrapReason | null;
+  qc_status: QcStatus;
+  qc_passed_quantity: number;
+  qc_failed_quantity: number;
+  by_products?: { byproduct_id: number; product_id: number; product_name?: string | null; quantity: number; unit_cost: string; value: string }[] | null;
+  byproduct_value: Dec;
+}
+
+export interface OutsideReceipt {
+  id: number;
+  operation_id: number;
+  operation_name?: string | null;
+  supplier_id?: number | null;
+  supplier_name?: string | null;
+  quantity: number;
+  amount: Dec;
+  bill_reference?: string | null;
+  expense_id?: number | null;
+  expense_no?: string | null;
+  receipt_date: string;
+  remark?: string | null;
+  created_by_name?: string | null;
+}
+
+export interface QcResult {
+  id: number;
+  output_id: number;
+  batch_no?: string | null;
+  passed_quantity: number;
+  failed_quantity: number;
+  failed_value: Dec;
+  remark?: string | null;
+  decided_at: string;
+  created_by_name?: string | null;
 }
 
 export interface TimeLog {
@@ -347,6 +477,35 @@ export interface OrderActivity {
   materials: MaterialTransaction[];
   outputs: ProductionOutput[];
   time_logs: TimeLog[];
+  outside_receipts: OutsideReceipt[];
+  qc_results: QcResult[];
+}
+
+// ─────────────────────────── batch traceability ───────────────────────────
+export interface TraceLot {
+  product_id: number;
+  product_name?: string | null;
+  product_code?: string | null;
+  batch_no?: string | null;
+  expiry_date?: string | null;
+  quantity: number;
+}
+
+export interface TraceOrder {
+  order_id: number;
+  order_no: string;
+  branch_code: string;
+  product_name?: string | null;
+  status: ProductionOrderStatus;
+  finished_batches: TraceLot[];
+  components: TraceLot[];
+}
+
+export interface TraceResult {
+  batch_no: string;
+  /** "finished": made here; "component": used as a raw material */
+  found_as: ("finished" | "component")[];
+  orders: TraceOrder[];
 }
 
 // ─────────────────────────── shop floor / planning ───────────────────────────
@@ -374,6 +533,8 @@ export interface JobCard {
   completed_quantity: number;
   status: OperationStatus;
   started_at?: string | null;
+  /** Done by a subcontractor: no time logging here */
+  is_outside?: boolean;
 }
 
 export interface Operator {

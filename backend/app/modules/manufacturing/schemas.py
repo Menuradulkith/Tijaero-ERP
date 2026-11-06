@@ -32,6 +32,24 @@ Minutes = Annotated[Decimal, Field(ge=0, le=Decimal("1000000"), decimal_places=4
 
 Priority = Literal["low", "normal", "high", "urgent"]
 IssueMethod = Literal["manual", "backflush"]
+ScrapReason = Literal["burnt", "damaged", "quality_fail", "expired", "machine_fault", "other"]
+Pct = Annotated[Decimal, Field(ge=0, le=100, decimal_places=2)]
+
+PLAN_DAYS_BACK = 365
+PLAN_DAYS_AHEAD = 730
+
+
+def _check_plan_window(start: Optional[date], end: Optional[date]) -> None:
+    from datetime import timedelta
+    from app.core import timezone as tz
+
+    today = tz.today()
+    if start is not None and start < today - timedelta(days=PLAN_DAYS_BACK):
+        raise ValueError("The planned start date can be at most a year in the past")
+    if end is not None and end > today + timedelta(days=PLAN_DAYS_AHEAD):
+        raise ValueError("The planned end date can be at most two years ahead")
+    if start is not None and end is not None and end < start:
+        raise ValueError("Planned end date cannot be before the planned start date")
 
 
 class _Out(BaseModel):
@@ -50,6 +68,9 @@ class WorkCenterIn(BaseModel):
     labor_rate_per_hour: Money = Decimal("0")
     overhead_rate_per_hour: Money = Decimal("0")
     active: bool = True
+    # Outside work: another company does this step (charged per unit, not by time)
+    is_outside: bool = False
+    supplier_id: OptId = None
 
 
 class WorkCenterUpdate(BaseModel):
@@ -63,6 +84,8 @@ class WorkCenterUpdate(BaseModel):
     labor_rate_per_hour: Optional[Money] = None
     overhead_rate_per_hour: Optional[Money] = None
     active: Optional[bool] = None
+    is_outside: Optional[bool] = None
+    supplier_id: OptId = None
 
 
 class WorkCenterOut(_Out):
@@ -77,6 +100,9 @@ class WorkCenterOut(_Out):
     labor_rate_per_hour: Decimal
     overhead_rate_per_hour: Decimal
     active: bool
+    is_outside: bool = False
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
     # Open load: planned minutes not yet booked on released / in-progress orders
     open_load_minutes: Decimal = Decimal("0")
     open_operations: int = 0
@@ -101,6 +127,14 @@ class BOMOperationIn(BaseModel):
     setup_minutes: Minutes = Decimal("0")
     run_minutes: Minutes = Decimal("0")
     description: OptStr(2000) = None
+    # Outside work centers: the subcontractor's price per unit
+    outside_unit_cost: Money = Decimal("0")
+
+
+class BOMByProductIn(BaseModel):
+    product_id: Id
+    # Per output_quantity of the BOM, like the components
+    quantity: Decimal = Field(..., gt=0, le=Decimal("1000000"), decimal_places=4)
 
 
 class BOMIn(BaseModel):
@@ -108,17 +142,21 @@ class BOMIn(BaseModel):
     version: ReqStr(20) = "1"
     output_quantity: Decimal = Field(Decimal("1"), gt=0, le=Decimal("1000000"), decimal_places=4)
     description: OptStr(2000) = None
+    overproduction_pct: Pct = Decimal("0")
     items: List[BOMItemIn] = Field(..., min_length=1, max_length=500)
     operations: List[BOMOperationIn] = Field(default_factory=list, max_length=200)
+    by_products: List[BOMByProductIn] = Field(default_factory=list, max_length=20)
 
 
 class BOMUpdate(BaseModel):
     version: Optional[ReqStr(20)] = None
     output_quantity: Optional[Decimal] = Field(None, gt=0, le=Decimal("1000000"), decimal_places=4)
     description: OptStr(2000) = None
+    overproduction_pct: Optional[Pct] = None
     # When given, these replace the BOM's lines
     items: Optional[List[BOMItemIn]] = Field(None, min_length=1, max_length=500)
     operations: Optional[List[BOMOperationIn]] = Field(None, max_length=200)
+    by_products: Optional[List[BOMByProductIn]] = Field(None, max_length=20)
 
 
 class BOMItemOut(_Out):
@@ -149,6 +187,20 @@ class BOMOperationOut(_Out):
     description: Optional[str] = None
     labor_cost: Decimal = Decimal("0")
     overhead_cost: Decimal = Decimal("0")
+    is_outside: bool = False
+    outside_unit_cost: Decimal = Decimal("0")
+    outside_cost: Decimal = Decimal("0")
+
+
+class BOMByProductOut(_Out):
+    id: int
+    product_id: int
+    product_name: Optional[str] = None
+    product_code: Optional[str] = None
+    unit_of_measure: Optional[str] = None
+    quantity: Decimal
+    unit_cost: Decimal = Decimal("0")
+    line_value: Decimal = Decimal("0")
 
 
 class BOMOut(_Out):
@@ -164,16 +216,20 @@ class BOMOut(_Out):
     status: str
     is_default: bool
     description: Optional[str] = None
+    overproduction_pct: Decimal = Decimal("0")
     item_count: int = 0
     operation_count: int = 0
-    # Cost roll-up for output_quantity units
+    # Cost roll-up for output_quantity units (total = material + labour + overhead + outside - by-products)
     material_cost: Decimal = Decimal("0")
     labor_cost: Decimal = Decimal("0")
     overhead_cost: Decimal = Decimal("0")
+    outside_cost: Decimal = Decimal("0")
+    byproduct_value: Decimal = Decimal("0")
     total_cost: Decimal = Decimal("0")
     unit_cost: Decimal = Decimal("0")
     items: List[BOMItemOut] = []
     operations: List[BOMOperationOut] = []
+    by_products: List[BOMByProductOut] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -197,8 +253,7 @@ class ProductionOrderIn(BaseModel):
 
     @model_validator(mode="after")
     def _dates(self):
-        if self.planned_end_date < self.planned_start_date:
-            raise ValueError("Planned end date cannot be before the planned start date")
+        _check_plan_window(self.planned_start_date, self.planned_end_date)
         return self
 
 
@@ -211,6 +266,11 @@ class ProductionOrderUpdate(BaseModel):
     priority: Optional[Priority] = None
     source_reference: OptStr(100) = None
     remark: OptStr(2000) = None
+
+    @model_validator(mode="after")
+    def _dates(self):
+        _check_plan_window(self.planned_start_date, self.planned_end_date)
+        return self
 
 
 class OrderMaterialOut(_Out):
@@ -247,6 +307,23 @@ class OrderOperationOut(_Out):
     overhead_rate_per_hour: Decimal
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    is_outside: bool = False
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
+    outside_unit_cost: Decimal = Decimal("0")
+    outside_quantity: int = 0
+
+
+class OrderByProductOut(_Out):
+    id: int
+    product_id: int
+    product_name: Optional[str] = None
+    product_code: Optional[str] = None
+    unit_of_measure: Optional[str] = None
+    quantity_per_unit: Decimal
+    expected_quantity: int = 0
+    received_quantity: int
+    unit_cost: Decimal
 
 
 class ProductionOrderOut(_Out):
@@ -267,6 +344,15 @@ class ProductionOrderOut(_Out):
     produced_quantity: int
     scrapped_quantity: int
     progress_pct: Decimal = Decimal("0")
+    overproduction_pct: Decimal = Decimal("0")
+    # Most good + scrap units the order can still take (planned + tolerance)
+    max_quantity: int = 0
+    # good / (good + scrap), None until something is recorded
+    yield_pct: Optional[Decimal] = None
+    # Scrap at the order's standard unit cost (already inside the variance)
+    scrap_value: Decimal = Decimal("0")
+    # Good units still waiting for a quality decision
+    qc_on_hold_quantity: int = 0
     planned_start_date: date
     planned_end_date: date
     actual_start_at: Optional[datetime] = None
@@ -289,6 +375,7 @@ class ProductionOrderOut(_Out):
     actual_material_cost: Decimal
     actual_labor_cost: Decimal
     actual_overhead_cost: Decimal
+    actual_outside_cost: Decimal = Decimal("0")
     actual_total_cost: Decimal = Decimal("0")
     output_value: Decimal
     wip_balance: Decimal = Decimal("0")
@@ -303,6 +390,7 @@ class ProductionOrderOut(_Out):
     updated_at: Optional[datetime] = None
     materials: List[OrderMaterialOut] = []
     operations: List[OrderOperationOut] = []
+    by_products: List[OrderByProductOut] = []
 
 
 class ProductionOrderPage(BaseModel):
@@ -336,12 +424,55 @@ class OutputIn(BaseModel):
     serial_numbers: Optional[List[ReqStr(100)]] = Field(None, max_length=10_000)
     location_id: OptId = None
     remark: OptStr(255) = None
+    # Required when scrap_quantity > 0
+    scrap_reason: Optional[ScrapReason] = None
+    # By-products actually received with this output (expected amounts are on the order)
+    by_products: List["ByProductReceiptIn"] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
     def _something(self):
-        if self.quantity == 0 and self.scrap_quantity == 0:
+        if self.quantity == 0 and self.scrap_quantity == 0 and not any(b.quantity for b in self.by_products):
             raise ValueError("Enter a good or a scrap quantity")
+        if self.scrap_quantity and not self.scrap_reason:
+            raise ValueError("Choose why the units were scrapped")
         return self
+
+
+class ByProductReceiptIn(BaseModel):
+    byproduct_id: Id
+    quantity: int = Field(..., ge=0, le=1_000_000)
+
+
+class CompleteIn(BaseModel):
+    # Operations with no time logged get their planned time (pro rata to the units done).
+    # Turn off when nobody did those steps or their cost should not be absorbed.
+    book_planned_time: bool = True
+
+
+class QcDecisionIn(BaseModel):
+    output_id: Id
+    passed_quantity: int = Field(0, ge=0, le=1_000_000)
+    failed_quantity: int = Field(0, ge=0, le=1_000_000)
+    remark: OptStr(500) = None
+
+    @model_validator(mode="after")
+    def _some(self):
+        if self.passed_quantity == 0 and self.failed_quantity == 0:
+            raise ValueError("Enter how many units passed or failed")
+        if self.failed_quantity and not self.remark:
+            raise ValueError("Say why the units failed")
+        return self
+
+
+class OutsideReceiptIn(BaseModel):
+    operation_id: Id
+    quantity: Qty
+    # Defaults to quantity x the operation's per-unit price
+    amount: Optional[Money] = None
+    bill_reference: OptStr(200) = None
+    remark: OptStr(255) = None
+    # Also raise a pending expense for the subcontractor's bill
+    create_expense: bool = True
 
 
 class TimeLogIn(BaseModel):
@@ -395,6 +526,12 @@ class OutputOut(_Out):
     remark: Optional[str] = None
     serial_numbers: List[str] = []
     created_by_name: Optional[str] = None
+    scrap_reason: Optional[str] = None
+    qc_status: str = "none"
+    qc_passed_quantity: int = 0
+    qc_failed_quantity: int = 0
+    by_products: Optional[list] = None
+    byproduct_value: Decimal = Decimal("0")
 
 
 class TimeLogOut(_Out):
@@ -417,10 +554,66 @@ class TimeLogOut(_Out):
     created_by_name: Optional[str] = None
 
 
+class OutsideReceiptOut(_Out):
+    id: int
+    operation_id: int
+    operation_name: Optional[str] = None
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
+    quantity: int
+    amount: Decimal
+    bill_reference: Optional[str] = None
+    expense_id: Optional[int] = None
+    expense_no: Optional[str] = None
+    receipt_date: datetime
+    remark: Optional[str] = None
+    created_by_name: Optional[str] = None
+
+
+class QcResultOut(_Out):
+    id: int
+    output_id: int
+    batch_no: Optional[str] = None
+    passed_quantity: int
+    failed_quantity: int
+    failed_value: Decimal
+    remark: Optional[str] = None
+    decided_at: datetime
+    created_by_name: Optional[str] = None
+
+
 class OrderActivityOut(BaseModel):
     materials: List[MaterialTransactionOut]
     outputs: List[OutputOut]
     time_logs: List[TimeLogOut]
+    outside_receipts: List[OutsideReceiptOut] = []
+    qc_results: List[QcResultOut] = []
+
+
+class TraceLot(BaseModel):
+    product_id: int
+    product_name: Optional[str] = None
+    product_code: Optional[str] = None
+    batch_no: Optional[str] = None
+    expiry_date: Optional[date] = None
+    quantity: int
+
+
+class TraceOrder(BaseModel):
+    order_id: int
+    order_no: str
+    branch_code: str
+    product_name: Optional[str] = None
+    status: str
+    finished_batches: List[TraceLot]
+    components: List[TraceLot]
+
+
+class TraceOut(BaseModel):
+    batch_no: str
+    # "finished": the batch was produced here; "component": it was used as a raw material
+    found_as: List[str]
+    orders: List[TraceOrder]
 
 
 # ═══════════════════════════ job cards / MRP / dashboard ═══════════════════════════
@@ -448,6 +641,8 @@ class JobCardOut(BaseModel):
     completed_quantity: int
     status: str
     started_at: Optional[datetime] = None
+    # Done by a subcontractor: no time logging, record outside work on the order
+    is_outside: bool = False
 
 
 class MrpDemandSource(BaseModel):
@@ -515,8 +710,7 @@ class MrpProduceLineIn(BaseModel):
 
     @model_validator(mode="after")
     def _dates(self):
-        if self.planned_end_date < self.planned_start_date:
-            raise ValueError("Planned end date cannot be before the planned start date")
+        _check_plan_window(self.planned_start_date, self.planned_end_date)
         return self
 
 
@@ -539,6 +733,11 @@ class FromQuoteIn(BaseModel):
     planned_end_date: Optional[date] = None
     priority: Priority = "normal"
     remark: OptStr(2000) = None
+
+    @model_validator(mode="after")
+    def _dates(self):
+        _check_plan_window(self.planned_start_date, self.planned_end_date)
+        return self
 
 
 class QuoteDemandOut(BaseModel):
@@ -644,3 +843,6 @@ class ManufacturingDashboardOut(BaseModel):
     monthly_output: List[MonthlyOutput]
     upcoming_orders: List[ProductionOrderOut]
     late_order_list: List[ProductionOrderOut]
+
+
+OutputIn.model_rebuild()

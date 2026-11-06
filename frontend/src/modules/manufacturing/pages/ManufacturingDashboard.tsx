@@ -57,6 +57,7 @@ import { useReferenceData, BranchRef } from "@/hooks";
 import { planningApi } from "@/modules/manufacturing/api";
 import type { ProductionOrder } from "@/modules/manufacturing/types";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { formatDate, formatDateTimeReadable } from "@/utils/formatters";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "#94a3b8",
@@ -75,6 +76,8 @@ const STATUS_LABELS: Record<string, string> = {
   closed: "Closed",
   cancelled: "Cancelled",
 };
+
+const SUBTITLE = "Production orders, work-center load and material shortages";
 
 const orderLink = (id: number) => `/manufacturing/orders?order=${id}`;
 
@@ -125,7 +128,10 @@ export default function ManufacturingDashboard() {
   if (isError) {
     return (
       <Box sx={{ p: 3 }}>
-        <Typography variant="h5" fontWeight={700} sx={{ mb: 2 }}>Manufacturing Dashboard</Typography>
+        <Box sx={{ mb: 2.5 }}>
+          <Typography variant="h5" fontWeight={700}>Manufacturing Dashboard</Typography>
+          <Typography variant="caption" color="text.secondary">{SUBTITLE}</Typography>
+        </Box>
         <Alert
           severity="error"
           action={
@@ -158,7 +164,7 @@ export default function ManufacturingDashboard() {
             <ListItemText
               primary={`${o.order_no} · ${o.product_name || ""}`}
               secondary={`${o.produced_quantity}/${o.planned_quantity} ${o.unit_of_measure || ""} · due ${
-                o.planned_end_date ? format(new Date(o.planned_end_date), "MMM dd, yyyy") : "—"
+                o.planned_end_date ? formatDate(o.planned_end_date) : "—"
               }`}
               primaryTypographyProps={{ variant: "body2", fontWeight: 600, noWrap: true }}
               secondaryTypographyProps={{ variant: "caption" }}
@@ -177,7 +183,7 @@ export default function ManufacturingDashboard() {
         overflow: "auto",
         background: theme.palette.mode === "dark"
           ? `linear-gradient(180deg, ${theme.palette.background.default} 0%, ${theme.palette.background.paper} 280px)`
-          : "linear-gradient(180deg, #eef4ff 0%, #ffffff 280px)",
+          : "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
       })}
     >
       {/* Header */}
@@ -190,9 +196,9 @@ export default function ManufacturingDashboard() {
       >
         <Box>
           <Typography variant="h5" fontWeight={700}>Manufacturing Dashboard</Typography>
-          {branchName && (
-            <Typography variant="caption" color="text.secondary">{branchName}</Typography>
-          )}
+          <Typography variant="caption" color="text.secondary">
+            {branchName ? `${SUBTITLE} · ${branchName}` : SUBTITLE}
+          </Typography>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           <Autocomplete
@@ -383,7 +389,7 @@ export default function ManufacturingDashboard() {
         color="text.secondary"
         sx={{ display: "block", textAlign: "right", mt: 2 }}
       >
-        Last updated {format(new Date(), "MMM dd, yyyy HH:mm")}
+        Last updated {formatDateTimeReadable(new Date())}
       </Typography>
     </Box>
   );

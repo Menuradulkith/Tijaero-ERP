@@ -36,10 +36,10 @@ export interface ToastOptions {
   id?: string;
 }
 
-// Default options
+// Bottom-center: the Save/Cancel toolbar sits top-right and the assistant button bottom-right
 const defaultOptions: ToastOptions = {
   duration: 4000,
-  position: "top-right",
+  position: "bottom-center",
 };
 
 /**

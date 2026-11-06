@@ -23,8 +23,8 @@ export interface CustomerSupportCreate {
   contact_person: string;
   branch_code: string;
   assigned_user_id: number;
-  customer_id?: number;
-  invoice_id?: number;
+  customer_id?: number | null;
+  invoice_id?: number | null;
 }
 
 // CS Job Item Types

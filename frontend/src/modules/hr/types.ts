@@ -567,7 +567,12 @@ export interface Employee {
   full_name?: string;
   email?: string;
   occupation?: string;
+  status?: string;
 }
+
+// Same as the server's LIVE_STATUSES: only these may get new leave, attendance, assets, loans
+export const isLiveEmployee = (e: Pick<Employee, "status">) =>
+  ["active", "probation", "notice_period"].includes(e.status ?? "active");
 
 export interface EmployeeCreate {
   user_id: number;

@@ -1,7 +1,7 @@
 from typing import Annotated
-from pydantic import StringConstraints
-from pydantic import BaseModel, Field
-from datetime import date, datetime
+from pydantic import BeforeValidator, StringConstraints
+from pydantic import BaseModel, Field, field_validator, model_validator
+from datetime import date, datetime, timedelta
 from typing import Optional, List
 from decimal import Decimal
 
@@ -11,6 +11,21 @@ from app.core.money import MoneyIn, PositiveMoneyIn
 # Create/update (input) models cap money at MAX_MONEY and reject NaN/Infinity;
 # the *Base and response models stay lenient so legacy rows still serialise.
 from app.common.enums import DocumentStatus, PaymentStatus, ExpenseStatus
+
+
+def _blank_to_none(v):
+    if isinstance(v, str):
+        return v.strip() or None
+    return v
+
+
+def OptText(n: int):
+    """Optional input text: trimmed, blank -> None, at most n characters."""
+    return Annotated[Optional[Annotated[str, StringConstraints(max_length=n)]], BeforeValidator(_blank_to_none)]
+
+
+# Optional, but when sent it must hold more than spaces.
+NonBlankName = Optional[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]]
 
 class BankDepositBase(BaseModel):
     deposits_amount: Decimal
@@ -23,6 +38,10 @@ class BankDepositBase(BaseModel):
 class BankDepositCreate(BankDepositBase):
     deposits_amount: PositiveMoneyIn
     user_id: Optional[int] = None
+    remarks: OptText(1000) = None
+    bank_name: OptText(20) = None
+    payment_for: OptText(500) = None
+    invoice_no: OptText(200) = None
 
 class BankDeposit(BankDepositBase, TijaeroBaseSchema):
     id: int
@@ -49,6 +68,9 @@ class CardPayment(CardPaymentBase, TijaeroBaseSchema):
     id: int
     date_time: datetime
 
+CHEQUE_DATE_WINDOW_DAYS = 366
+
+
 class ChequePaymentBase(BaseModel):
     cheque_number: str
     branch_code: str
@@ -63,6 +85,22 @@ class ChequePaymentBase(BaseModel):
 
 class ChequePaymentCreate(ChequePaymentBase):
     amount: PositiveMoneyIn
+    cheque_number: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
+    from_party: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)] = Field(alias="from")
+    bank: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
+    remark: OptText(255) = None
+    payment_for: OptText(500) = None
+    invoice_no: OptText(200) = None
+
+    @field_validator("cheque_date", "deposit_date")
+    @classmethod
+    def _date_window(cls, v, info):
+        # Post-dated cheques are normal, but a cheque is stale long before a year has passed.
+        today = date.today()
+        if v < today - timedelta(days=CHEQUE_DATE_WINDOW_DAYS) or v > today + timedelta(days=CHEQUE_DATE_WINDOW_DAYS):
+            label = "Cheque date" if info.field_name == "cheque_date" else "Deposit date"
+            raise ValueError(f"{label} must be within one year of today")
+        return v
 
 class ChequePayment(ChequePaymentBase, TijaeroBaseSchema):
     id: int
@@ -128,6 +166,11 @@ class ExpenseBase(BaseModel):
 
 class ExpenseCreate(ExpenseBase):
     expense_amount: PositiveMoneyIn
+    vendor_name: NonBlankName = None
+    description: OptText(2000) = None
+    receipt_number: OptText(200) = None
+    remarks: OptText(2000) = None
+    bill_reference: OptText(200) = None
 
 class ExpenseUpdate(BaseModel):
     expense_type: Optional[str] = None
@@ -135,13 +178,13 @@ class ExpenseUpdate(BaseModel):
     expenses_method: Optional[str] = None
     expense_amount: Optional[PositiveMoneyIn] = None
     expense_date: Optional[date] = None
-    vendor_name: Optional[str] = None
-    description: Optional[str] = None
-    receipt_number: Optional[str] = None
+    vendor_name: NonBlankName = None
+    description: OptText(2000) = None
+    receipt_number: OptText(200) = None
     receipt_image: Optional[str] = None
     invoice_attachment: Optional[str] = None
-    remarks: Optional[str] = None
-    bill_reference: Optional[str] = None
+    remarks: OptText(2000) = None
+    bill_reference: OptText(200) = None
     account_code: Optional[str] = None
     cost_center: Optional[str] = None
 
@@ -167,10 +210,17 @@ class ExpenseReject(BaseModel):
     rejection_reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 class ExpensePayment(BaseModel):
-    payment_method: str
-    payment_reference: Optional[str] = None
+    payment_method: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
+    payment_reference: OptText(200) = None
     payment_date: Optional[date] = None
     remarks: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _reference_required(self):
+        method = self.payment_method.lower().replace(" ", "_")
+        if method in ("bank_transfer", "cheque") and not self.payment_reference:
+            raise ValueError("Payment reference is required for bank transfer and cheque payments")
+        return self
 
 class ExpenseRecord(BaseModel):
     account_code: str

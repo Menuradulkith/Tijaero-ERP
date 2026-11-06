@@ -285,7 +285,7 @@ class CouponService:
     def get_coupon_by_code(self, db: Session, coupon_code: str) -> Optional[CustomerCuponCodes]:
         """Get a coupon by its code/barcode"""
         coupon = db.query(CustomerCuponCodes).filter(
-            CustomerCuponCodes.cupon_code == coupon_code
+            func.upper(CustomerCuponCodes.cupon_code) == (coupon_code or "").strip().upper()
         ).first()
         if coupon:
             coupon.usage_count = db.query(func.count(CouponUsage.id)).filter(
@@ -682,11 +682,23 @@ class VoucherService:
             CustomerGiftVoucher.barcode_no == barcode_no
         ).first()
     
+    @staticmethod
+    def _ensure_invoice_exists(db: Session, invoice_no: Optional[str]) -> None:
+        if not invoice_no:
+            return
+        from app.modules.sales.models import Invoice
+        if not db.query(Invoice.id).filter(Invoice.invoice_no == invoice_no).first():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invoice '{invoice_no}' was not found",
+            )
+
     def create_voucher(self, db: Session, voucher_data: schemas.GiftVoucherCreate, user_id: Optional[int] = None) -> CustomerGiftVoucher:
         """Create a new gift voucher"""
         if voucher_data.branch_code:
             from app.common.branch_validation import validate_branch_is_active
             validate_branch_is_active(db, voucher_data.branch_code)
+        self._ensure_invoice_exists(db, voucher_data.purchased_invoice_no)
         # Advisory lock to serialise concurrent voucher creation with same barcode
         from sqlalchemy import text
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"voucher_barcode_{voucher_data.barcode_no}"})
@@ -967,7 +979,9 @@ class VoucherService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"A {voucher.status} voucher cannot be changed to '{voucher_data.status}'.",
             )
-        
+        if voucher_data.purchased_invoice_no != voucher.purchased_invoice_no:
+            self._ensure_invoice_exists(db, voucher_data.purchased_invoice_no)
+
         update_data = voucher_data.model_dump(exclude_unset=True)
         update_data.pop("amount", None)
         for key, value in update_data.items():

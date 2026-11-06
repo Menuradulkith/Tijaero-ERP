@@ -127,7 +127,7 @@ class ItemReceiveNote(Base, AuditMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     item_transfer_note_id = Column(
-        Integer, ForeignKey("item_transfer_note.id"), nullable=False
+        Integer, ForeignKey("item_transfer_note.id"), nullable=False, unique=True
     )
     received_approval_status = Column(SmallInteger, nullable=False, default=0)
     received_note = Column(String(355))

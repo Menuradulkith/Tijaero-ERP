@@ -47,6 +47,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import Integer, cast, func, or_, text
 from sqlalchemy.orm import Session
 
+from app.common.db_errors import sanitize_db_error
 from app.core import timezone as tz
 
 from .posting_rules import PostingRuleResolver, voucher_type_for_prefix
@@ -283,6 +284,8 @@ class GLPostingService:
         even if the caller's transaction later rolls back.
         """
         from app.db.session import SessionLocal
+
+        error_message = sanitize_db_error(error_message) or ""
 
         payload = json.dumps(
             [
@@ -884,7 +887,7 @@ class GLPostingService:
             return
         failure.attempts = (failure.attempts or 1) + 1
         failure.error_code = error_code or failure.error_code
-        failure.error_message = error_message or failure.error_message
+        failure.error_message = sanitize_db_error(error_message) or failure.error_message
         failure.last_attempt_at = tz.now()
         self.db.commit()
 

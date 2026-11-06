@@ -68,6 +68,13 @@ const periodOptions = [
 
 const monoRight = { fontFamily: "monospace", pr: 3 } as const;
 
+// Amounts are signed per section: contra lines (Sales Returns, discounts) come back negative and
+// are shown as deductions, so the listed lines add up to the section total.
+const fmtSigned = (value: number | string) => {
+  const n = Number(value);
+  return n < 0 ? `(${fmtLKR(-n)})` : fmtLKR(n);
+};
+
 // ─── Statement table: sections with accounts, then a subtotal ──────────────
 
 function StatementTable({
@@ -115,7 +122,7 @@ function StatementTable({
                     </TableCell>
                     <TableCell>{item.account_name}</TableCell>
                     <TableCell align="right" sx={monoRight}>
-                      {fmtLKR(Math.abs(Number(item.amount)))}
+                      {fmtSigned(item.amount)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -123,7 +130,7 @@ function StatementTable({
                   <TableCell />
                   <TableCell>Total {section.section_name}</TableCell>
                   <TableCell align="right" sx={{ ...monoRight, color: isExpense ? "error.main" : "success.main" }}>
-                    {fmtLKR(Math.abs(Number(section.total)))}
+                    {fmtSigned(section.total)}
                   </TableCell>
                 </TableRow>
               </>
@@ -205,8 +212,8 @@ export default function IncomeStatementPage() {
     const lines: string[][] = [["Account Code", "Account Name", `Amount (${currencySymbol})`]];
     const addSection = (s: IncomeStatementSection) => {
       lines.push([`--- ${s.section_name} ---`, "", ""]);
-      s.items.forEach((i) => lines.push([i.account_code, i.account_name, Math.abs(Number(i.amount)).toFixed(2)]));
-      lines.push(["", `Total ${s.section_name}`, Math.abs(Number(s.total)).toFixed(2)]);
+      s.items.forEach((i) => lines.push([i.account_code, i.account_name, Number(i.amount).toFixed(2)]));
+      lines.push(["", `Total ${s.section_name}`, Number(s.total).toFixed(2)]);
     };
     addSection(report.revenue);
     addSection(report.cost_of_sales);
@@ -233,8 +240,8 @@ export default function IncomeStatementPage() {
     const sectionHtml = (s: IncomeStatementSection, isExp = false) =>
       s.items.length
         ? `<tr><td colspan="3" style="font-weight:700;padding-top:12px;color:#1976d2">${escapeHtml(s.section_name)}</td></tr>` +
-          s.items.map((i) => `<tr><td style="padding-left:24px;font-family:monospace;color:#888">${escapeHtml(i.account_code)}</td><td>${escapeHtml(i.account_name)}</td><td style="text-align:right">${fmtLKR(Math.abs(Number(i.amount)))}</td></tr>`).join("") +
-          `<tr style="border-top:1px solid #ccc"><td></td><td style="font-weight:600">Total ${escapeHtml(s.section_name)}</td><td style="text-align:right;font-weight:700;color:${isExp ? "#c62828" : "#2e7d32"}">${fmtLKR(Math.abs(Number(s.total)))}</td></tr>`
+          s.items.map((i) => `<tr><td style="padding-left:24px;font-family:monospace;color:#888">${escapeHtml(i.account_code)}</td><td>${escapeHtml(i.account_name)}</td><td style="text-align:right">${fmtSigned(i.amount)}</td></tr>`).join("") +
+          `<tr style="border-top:1px solid #ccc"><td></td><td style="font-weight:600">Total ${escapeHtml(s.section_name)}</td><td style="text-align:right;font-weight:700;color:${isExp ? "#c62828" : "#2e7d32"}">${fmtSigned(s.total)}</td></tr>`
         : "";
 
     const subtotalRow = (label: string, val: number, bold = false) =>

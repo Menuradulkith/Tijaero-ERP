@@ -12,6 +12,7 @@ from app.auth.dependencies import (
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.utils.csv_export import build_csv_response
+from app.common.validators import ensure_date_range
 from . import schemas, service, models
 
 
@@ -579,6 +580,7 @@ def get_cashbook(
     - Expenses
     - Bank deposits (transfers to bank)
     """
+    ensure_date_range(date_from, date_to)
     scoped_branch = _enforce_branch_scope(branch_code, user_branches)
     cashbook_service = service.CashbookService(db)
     
@@ -603,6 +605,7 @@ def get_cashbook_summary(
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Get cashbook summary statistics only (without full entry list)"""
+    ensure_date_range(date_from, date_to)
     scoped_branch = _enforce_branch_scope(branch_code, user_branches)
     cashbook_service = service.CashbookService(db)
     
@@ -766,6 +769,7 @@ def export_cashbook_csv(
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Export cashbook entries to CSV."""
+    ensure_date_range(date_from, date_to)
     scoped_branch = _enforce_branch_scope(branch_code, user_branches)
     cashbook_svc = service.CashbookService(db)
     filters = schemas.CashbookFilter(

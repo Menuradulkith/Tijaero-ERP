@@ -107,6 +107,16 @@ const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: 
 
 const FORM_STEPS = ["Transfer Information", "Scan & Transfer Items"];
 
+// Same window as the API: from the 1st of this month last year to the 1st of this month next year
+const transferDateError = (value: string): string | null => {
+  if (!value) return null;
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const lo = `${now.getFullYear() - 1}-${pad(now.getMonth() + 1)}-01`;
+  const hi = `${now.getFullYear() + 1}-${pad(now.getMonth() + 1)}-01`;
+  return value < lo || value > hi ? "Transfer date must be within a year of today" : null;
+};
+
 const INITIAL_FORM_DATA: ItemTransferNoteCreate = {
   item_transfer_note: "",
   created_date: new Date().toISOString().split("T")[0],
@@ -450,13 +460,13 @@ export default function ItemTransferNotesPage() {
 
   // Add a quantity of a batch/none product (checked against stock at the source location).
   const handleAddLot = useCallback(async () => {
-    const quantity = Math.floor(Number(lotQuantity));
+    const quantity = Number(lotQuantity);
     if (!lotProductId) {
       setLotError('Select a product');
       return;
     }
-    if (!quantity || quantity < 1) {
-      setLotError('Enter a quantity of at least 1');
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      setLotError('Enter a whole quantity of at least 1');
       return;
     }
     if (!formData.from_location_id) {
@@ -681,9 +691,11 @@ export default function ItemTransferNotesPage() {
   };
 
   // Validation
+  const dateError = transferDateError(formData.created_date);
   // When creating, ITN number is auto-generated (shown in UI but not stored in formData), so use nextITNNumber
   const effectiveITNNumber = isCreating ? nextITNNumber : formData.item_transfer_note;
-  const isStep1Valid = effectiveITNNumber && 
+  const isStep1Valid = effectiveITNNumber &&
+    !dateError &&
     formData.from_location_id > 0 && 
     formData.to_location_id > 0 &&
     formData.from_location_id !== formData.to_location_id &&
@@ -962,6 +974,8 @@ export default function ItemTransferNotesPage() {
                     disabled={!isCreating && !isEditing}
                     InputLabelProps={{ shrink: true }}
                     required
+                    error={(isCreating || isEditing) && Boolean(dateError)}
+                    helperText={isCreating || isEditing ? dateError ?? undefined : undefined}
                   />
                   <TextField
                     select

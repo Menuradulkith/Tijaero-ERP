@@ -1,9 +1,10 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
+from pydantic import BaseModel, BeforeValidator, Field
+from typing import Annotated, Optional, List
 from datetime import date, datetime
 from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema
+from app.common.validators import warranty_months
 from app.common.enums import StockStatus, AssetStatus
 
 
@@ -44,6 +45,7 @@ class SalesStockCreate(SalesStockBase):
     good_received_note_id: int
     purchasing_order_items_id: int
     quantity: int = Field(default=1, ge=1)
+    warranty_month: Annotated[Optional[str], BeforeValidator(warranty_months)] = None
 
 class SalesStock(SalesStockBase, TijaeroBaseSchema):
     id: int

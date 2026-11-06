@@ -29,6 +29,13 @@
       "runtimeArgs": ["/c", "set VITE_API_URL=http://localhost:8021/api/v1&& npm run dev --prefix frontend -- --port 3001 --strictPort"],
       "port": 3001,
       "autoPort": false
+    },
+    {
+      "name": "frontend-5173",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set VITE_API_URL=http://localhost:8021/api/v1&& npm run dev --prefix frontend -- --port 5173 --strictPort"],
+      "port": 5173,
+      "autoPort": false
     }
   ]
 }

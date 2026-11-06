@@ -27,6 +27,7 @@ from app.auth.dependencies import (
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.utils.csv_export import build_csv_response
+from app.common.validators import ensure_date_range
 from . import accounting_schemas as schemas
 from .accounting_service import (
     ChartOfAccountsService,
@@ -453,6 +454,7 @@ def list_gl_entries(
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """List general ledger entries with filters."""
+    ensure_date_range(date_from, date_to)
     if branch_code and user_branches is not None and branch_code not in user_branches:
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
     items, total = GeneralLedgerService(db).list_gl_entries(schemas.GLListFilter(
@@ -513,6 +515,7 @@ def get_account_ledger(
 ):
     """Get all GL entries for a specific account with running balance
     (a branch-limited user sees only their branches' rows)."""
+    ensure_date_range(date_from, date_to)
     return GeneralLedgerService(db).get_account_ledger(
         account_id=account_id,
         date_from=date_from,
@@ -536,6 +539,7 @@ def get_income_statement(
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Generate Income Statement (Profit & Loss) report (optionally for one branch)."""
+    ensure_date_range(date_from, date_to)
     branch_code, branch_codes = _report_branch_scope(branch_code, user_branches)
     return GeneralLedgerService(db).get_income_statement(
         fiscal_year=fiscal_year,
@@ -606,12 +610,16 @@ def list_posting_failures(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """List automatic GL postings that failed and are awaiting retry."""
+    if branch_code and user_branches is not None and branch_code not in user_branches:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
     return GLPostingFailureService(db).list_failures(
         status=status_filter,
         source_module=source_module,
         branch_code=branch_code,
+        branch_codes=user_branches,
         skip=skip,
         limit=limit,
     )
@@ -624,6 +632,7 @@ def retry_posting_failure(
     current_user: User = Depends(get_current_active_user),
 ):
     """Re-attempt a failed GL posting using its stored payload."""
+    _ensure_failure_in_scope(db, current_user, failure_id)
     return GLPostingFailureService(db).retry(failure_id, user_id=current_user.id)
 
 
@@ -634,7 +643,16 @@ def ignore_posting_failure(
     current_user: User = Depends(get_current_active_user),
 ):
     """Mark a failed GL posting as ignored (it will no longer be retried)."""
+    _ensure_failure_in_scope(db, current_user, failure_id)
     return GLPostingFailureService(db).ignore(failure_id, user_id=current_user.id)
+
+
+def _ensure_failure_in_scope(db: Session, current_user: User, failure_id: int) -> None:
+    from app.modules.finance.accounting_models import GLPostingFailure
+
+    branch = db.query(GLPostingFailure.branch_code).filter(GLPostingFailure.id == failure_id).scalar()
+    if branch and not validate_branch_access(current_user, branch):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Posting failure not found")
 
 
 @router.post("/reports/year-end-close", response_model=schemas.YearEndCloseResponse, dependencies=[Depends(require_permission(*Permissions.ACCOUNTING_PERIOD_UPDATE))])
@@ -1005,11 +1023,13 @@ def list_cost_centers(active_only: bool = False, db: Session = Depends(get_db)):
 
 @router.post("/cost-centers", response_model=schemas.CostCenterResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
 def create_cost_center(data: schemas.CostCenterCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    _check_branch(db, current_user, data.branch_code)
     return CostCenterService(db).create(data, user_id=current_user.id)
 
 
 @router.put("/cost-centers/{cc_id}", response_model=schemas.CostCenterResponse, dependencies=[Depends(require_permission(*Permissions.CHART_OF_ACCOUNTS_UPDATE))])
 def update_cost_center(cc_id: int, data: schemas.CostCenterUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    _check_branch(db, current_user, data.branch_code)
     return CostCenterService(db).update(cc_id, data, user_id=current_user.id)
 
 
@@ -1123,8 +1143,14 @@ def reverse_depreciation_run(run_id: int, db: Session = Depends(get_db), current
 # =============================================================================
 
 @router.get("/recurring-journals", response_model=List[schemas.RecurringJournalResponse], dependencies=[Depends(require_permission(*Permissions.JOURNAL_ENTRY_VIEW))])
-def list_recurring_journals(db: Session = Depends(get_db)):
-    return RecurringJournalService(db).list_templates()
+def list_recurring_journals(
+    db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
+):
+    templates = RecurringJournalService(db).list_templates()
+    if user_branches is None:
+        return templates
+    return [t for t in templates if not t.branch_code or t.branch_code in user_branches]
 
 
 @router.post("/recurring-journals", response_model=schemas.RecurringJournalResponse, status_code=status.HTTP_201_CREATED, dependencies=_JE_CREATE)
@@ -1178,11 +1204,13 @@ def list_bank_accounts(db: Session = Depends(get_db)):
 @router.post("/bank-accounts", response_model=schemas.BankAccountResponse, status_code=status.HTTP_201_CREATED, dependencies=_BANK_SETUP)
 def create_bank_account(data: schemas.BankAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     """Add a bank account. Without account_id a new GL account is created under 1000 Cash & Bank."""
+    _check_branch(db, current_user, data.branch_code)
     return BankReconciliationService(db).create_account(data, user_id=current_user.id)
 
 
 @router.put("/bank-accounts/{account_id}", response_model=schemas.BankAccountResponse, dependencies=_BANK_SETUP)
 def update_bank_account(account_id: int, data: schemas.BankAccountUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    _check_branch(db, current_user, data.branch_code)
     return BankReconciliationService(db).update_account(account_id, data, user_id=current_user.id)
 
 

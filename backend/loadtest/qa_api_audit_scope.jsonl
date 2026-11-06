@@ -1,0 +1,16 @@
+{"phase": "scope", "kind": "list", "path": "/api/v1/purchasing/credit-settlements", "foreign_rows": 10, "branches": ["QA-E2E", "QAFFFBA4", "QAX238AAC"], "sev": "High"}
+{"phase": "scope", "kind": "list", "path": "/api/v1/purchasing/payments/report", "foreign_rows": 36, "branches": ["QA-BR-B", "QA-E2E", "QAFFFBA4", "QAWFB101", "QAX238AAC"], "sev": "High"}
+{"phase": "scope", "kind": "list", "path": "/api/v1/purchasing/outstanding-documents", "foreign_rows": 18, "branches": ["QA-BR-B", "QA-BR-I", "QA-BR-L", "QA-E2E", "QAFFFBA4"], "sev": "High"}
+{"phase": "scope", "kind": "list", "path": "/api/v1/purchasing/eligible-advance-pos", "foreign_rows": 17, "branches": ["123", "QA-BR-F", "QA-BR-H", "QA-BR-I", "QA-BR-J"], "sev": "High"}
+{"phase": "scope", "kind": "list", "path": "/api/v1/purchasing/supplier-advances", "foreign_rows": 11, "branches": ["QA-E2E", "QAFFFBA4", "QAWFB101", "QAX238AAC", "QAY2D62E"], "sev": "High"}
+{"phase": "scope", "kind": "list", "path": "/api/v1/finance/accounting/posting-failures", "foreign_rows": 1, "branches": ["QAA1103A"], "sev": "High"}
+{"phase": "scope", "kind": "list", "path": "/api/v1/finance/accounting/cost-centers", "foreign_rows": 5, "branches": ["NOPE-BR", "QA-B1", "ZZQA"], "sev": "High"}
+{"phase": "scope", "kind": "list", "path": "/api/v1/finance/accounting/recurring-journals", "foreign_rows": 1, "branches": ["QA-BR-B"], "sev": "High"}
+{"phase": "scope", "kind": "list", "path": "/api/v1/finance/accounting/bank-accounts", "foreign_rows": 4, "branches": ["   ", "<img src=x onerror=alert(1)>\"'><script>alert(1)</script>", "ZZQA"], "sev": "High"}
+{"phase": "scope", "kind": "list", "path": "/api/v1/hr/sales-commissions/summaries", "foreign_rows": 63, "branches": ["123", "QA-B1", "QA-B2", "QA-BR-B", "QA-BR-C"], "sev": "High"}
+{"phase": "scope", "kind": "by-id", "path": "/api/v1/hr/sales-commissions/summaries/{summary_id}", "id": 346, "branch": "123", "sev": "High"}
+{"phase": "scope", "kind": "list", "path": "/api/v1/common/locations", "foreign_rows": 37, "branches": ["123", "QA-B2", "QA-BR-B", "QA-BR-L", "QA-BR-M"], "sev": "High"}
+{"phase": "scope", "kind": "by-id", "path": "/api/v1/common/locations/{location_id}", "id": 9298, "branch": "QA-C31", "sev": "High"}
+{"phase": "scope", "kind": "list", "path": "/api/v1/branches/", "foreign_rows": 65, "branches": ["123", "QA-B1", "QA-B2", "QA-BR-B", "QA-BR-C"], "sev": "High"}
+{"phase": "scope", "kind": "by-id", "path": "/api/v1/branches/{branch_id}", "id": 2961, "branch": "123", "sev": "High"}
+{"phase": "scope", "user": "qa-scope-65008", "group_id": 8661, "branch": "QA-BR-A"}

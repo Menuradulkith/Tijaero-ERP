@@ -429,8 +429,6 @@ class SupplierPaymentMethodService:
         self, supplier_id: int, data: schemas.SupplierPaymentMethodCreate
     ) -> models.SupplierPaymentMethod:
         supplier = self._ensure_supplier(supplier_id)
-        if not supplier.active:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot add a payment method to an inactive supplier.")
         return self.repo.create(supplier_id, data)
 
     def update_payment_method(
@@ -497,8 +495,6 @@ class SupplierContactPersonService:
         self, supplier_id: int, data: schemas.SupplierContactPersonCreate
     ) -> models.SupplierContactPerson:
         supplier = self._ensure_supplier(supplier_id)
-        if not supplier.active:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot add a contact person to an inactive supplier.")
         self._check_duplicate_fields(data)
         return self.repo.create(supplier_id, data)
 
@@ -558,8 +554,6 @@ class SupplierProductService:
         self, supplier_id: int, data: schemas.SupplierProductCreate
     ) -> models.SupplierProduct:
         supplier = self._ensure_supplier(supplier_id)
-        if not supplier.active:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot add a product mapping to an inactive supplier.")
         self._ensure_product(data.product_id)
         if self.repo.find_by_pair(supplier_id, data.product_id):
             raise HTTPException(
@@ -3485,9 +3479,11 @@ class SupplierCreditsSettleService:
     def list_settlements(self, skip: int = 0, limit: int = 100) -> List[models.SupplierCreditsSettle]:
         return self.repo.get_all(skip, limit)
     
-    def list_settlements_with_transactions(self, skip: int = 0, limit: int = 100) -> List[schemas.SupplierCreditsSettleWithTransactions]:
+    def list_settlements_with_transactions(
+        self, skip: int = 0, limit: int = 100, branch_codes: Optional[List[str]] = None
+    ) -> List[schemas.SupplierCreditsSettleWithTransactions]:
         """List settlements with eagerly loaded transactions (batch query, no N+1)."""
-        settlements = self.repo.get_all(skip, limit)
+        settlements = self.repo.get_all(skip, limit, branch_codes=branch_codes)
         if not settlements:
             return []
         
@@ -3973,7 +3969,7 @@ class SupplierPaymentService:
 
         return self.repo.update(payment_id, schemas.SupplierPaymentUpdate.model_construct(**fields))
     
-    def verify_payment(self, payment_id: int, verified_by: int) -> models.SupplierPayment:
+    def verify_payment(self, payment_id: int, verified_by: int, maker_checker: bool = True) -> models.SupplierPayment:
         # Row lock: parallel verifies queue here, so only the first sees "pending".
         payment = self.db.query(models.SupplierPayment).filter(
             models.SupplierPayment.id == payment_id
@@ -3988,6 +3984,11 @@ class SupplierPaymentService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot verify payment with status '{payment.status}'"
+            )
+        if maker_checker and verified_by and payment.created_by == verified_by:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot verify a supplier payment you created",
             )
         
         result = self.repo.verify(payment_id, verified_by)
@@ -4126,6 +4127,28 @@ class SupplierPaymentService:
         return self.repo.get_by_supplier(supplier_id, skip, limit)
 
 
+def po_advance_remaining(db: Session, po_id: int) -> Decimal:
+    """PO total (incl. line tax) less the advances already paid against it, net of returns."""
+    from sqlalchemy import func
+
+    POI = models.PurchasingOrderItems
+    total = db.query(
+        func.coalesce(
+            func.sum(POI.quantity * POI.unit_price * (1 + func.coalesce(POI.tax_rate, 0) / 100)), 0
+        )
+    ).filter(POI.purchasingorders_id == po_id).scalar() or 0
+    advanced = db.query(
+        func.coalesce(
+            func.sum(
+                models.SupplierAdvancePayment.original_amount
+                - func.coalesce(models.SupplierAdvancePayment.returned_amount, 0)
+            ),
+            0,
+        )
+    ).filter(models.SupplierAdvancePayment.purchasing_order_id == po_id).scalar() or 0
+    return (Decimal(str(total)) - Decimal(str(advanced))).quantize(Decimal("0.01"))
+
+
 class SupplierAdvancePaymentService:
     """
     Service for Supplier Advance Payments
@@ -4194,6 +4217,18 @@ class SupplierAdvancePaymentService:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Advance payment cannot be created after GRN is generated for this purchase order"
+                )
+
+            # The PO row lock above serialises concurrent advances on the same PO.
+            remaining = po_advance_remaining(self.db, order.id)
+            amount = Decimal(str(data.original_amount))
+            if amount - remaining > Decimal("0.005"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Advance amount cannot exceed PO remaining amount: "
+                        f"Rs. {max(remaining, Decimal('0')):,.2f}"
+                    ),
                 )
         
         advance = self.repo.create(data, created_by)

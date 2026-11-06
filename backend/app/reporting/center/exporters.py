@@ -66,6 +66,16 @@ def _csv_safe(value: Any) -> Any:
     return value
 
 
+def totals_row(t, cell) -> list:
+    """The totals row: each totalled column's total through `cell(value, column)`, and the
+    "Total" label in the first column without a total (never over a total)."""
+    label_at = next((i for i, c in enumerate(t.columns) if c.key not in t.totals), None)
+    return [
+        "Total" if i == label_at else (cell(t.totals[c.key], c) if c.key in t.totals else "")
+        for i, c in enumerate(t.columns)
+    ]
+
+
 def to_csv(result: ReportResult, table_key: Optional[str] = None) -> bytes:
     t = next((t for t in result.tables if t.key == table_key), None) or (result.tables[0] if result.tables else None)
     buf = io.StringIO()
@@ -75,7 +85,7 @@ def to_csv(result: ReportResult, table_key: Optional[str] = None) -> bytes:
         for r in t.rows:
             writer.writerow([_csv_safe(_plain_cell(r.get(c.key), c)) for c in t.columns])
         if t.totals:
-            writer.writerow([("Total" if i == 0 else _plain_cell(t.totals.get(c.key), c)) for i, c in enumerate(t.columns)])
+            writer.writerow(totals_row(t, _plain_cell))
     return ("﻿" + buf.getvalue()).encode("utf-8")  # BOM so Excel reads UTF-8
 
 
@@ -125,7 +135,7 @@ def to_xlsx(report: ReportDef, params: dict, result: ReportResult, title: Option
         for r in t.rows:
             sh.append([_xl(_csv_safe(r.get(c.key)) if c.type == "text" else r.get(c.key)) for c in t.columns])
         if t.totals:
-            sh.append([("Total" if i == 0 else _xl(t.totals.get(c.key))) for i, c in enumerate(t.columns)])
+            sh.append([None if v == "" else v for v in totals_row(t, lambda v, _c: _xl(v))])
             for cell in sh[sh.max_row]:
                 cell.font = Font(bold=True)
         for i, c in enumerate(t.columns, start=1):
@@ -216,10 +226,7 @@ def to_html(report: ReportDef, params: dict, result: ReportResult, company: dict
     for t in result.tables:
         cols = [{"label": c.label, "numeric": c.type in _NUMERIC} for c in t.columns]
         rows = [[_display(r.get(c.key), c) for c in t.columns] for r in t.rows]
-        totals = (
-            [("Total" if i == 0 else _display(t.totals.get(c.key), c)) for i, c in enumerate(t.columns)]
-            if t.totals else None
-        )
+        totals = totals_row(t, _display) if t.totals else None
         tables.append({"title": t.title, "columns": cols, "rows": rows, "totals": totals})
     metric_cols = {"money": "money", "number": "number", "int": "int", "percent": "percent"}
     metrics = [

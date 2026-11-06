@@ -26,6 +26,24 @@ import { usePermission } from "@/auth/permissions";
 import { handleApiError } from "@/utils/errorHandling";
 import { WarrantyClaimCreate } from "@/modules/support/types";
 
+const TYPE_OPTIONS = [
+  { value: "repair", label: "Repair" },
+  { value: "replace", label: "Replace" },
+  { value: "refund", label: "Refund" },
+];
+
+const STATUS_OPTIONS = [
+  { value: "open", label: "Open" },
+  { value: "in_progress", label: "In progress" },
+  { value: "sent_to_supplier", label: "Sent to supplier" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
+const NO_ORDER = "" as unknown as number;
+
 export default function WarrantyClaimsPage() {
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
@@ -44,11 +62,11 @@ export default function WarrantyClaimsPage() {
   const { control, handleSubmit, reset } = useForm<WarrantyClaimCreate>({
     defaultValues: {
       warranty_type: "",
-      warranty_status: "",
+      warranty_status: "open",
       product_barcode_old_code: "",
       product_barcode_new_code: "",
       comment: "",
-      order_id: 0,
+      order_id: NO_ORDER,
       supplier_warrenty_claims: false,
     },
   });
@@ -181,9 +199,11 @@ export default function WarrantyClaimsPage() {
     setEditingId(null);
     reset({
       warranty_type: "",
-      warranty_status: "",
+      warranty_status: "open",
       product_barcode_old_code: "",
-      order_id: 0,
+      product_barcode_new_code: "",
+      comment: "",
+      order_id: NO_ORDER,
       supplier_warrenty_claims: false,
     });
     setOpenDialog(true);
@@ -244,12 +264,15 @@ export default function WarrantyClaimsPage() {
         submitText={editingId ? "Update" : "Create"}
         isSubmitting={createMutation.isPending || updateMutation.isPending}
         maxWidth="sm"
+        noValidate
       >
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
           <TFormField
             name="warranty_type"
             control={control}
             label="Warranty Type"
+            fieldType="select"
+            options={TYPE_OPTIONS}
             required
             rules={{ required: "Warranty type is required" }}
           />
@@ -257,6 +280,8 @@ export default function WarrantyClaimsPage() {
             name="warranty_status"
             control={control}
             label="Status"
+            fieldType="select"
+            options={STATUS_OPTIONS}
             required
             rules={{ required: "Status is required" }}
           />
@@ -280,9 +305,10 @@ export default function WarrantyClaimsPage() {
             <TFormField
               name="order_id"
               control={control}
-              label="Order ID"
+              label="Sales Order ID"
               fieldType="number"
               required
+              helperText="The order the claimed unit was sold on; the old barcode must be on it"
               rules={{ required: "Order ID is required", min: { value: 1, message: "Must be at least 1" } }}
             />
           </Box>

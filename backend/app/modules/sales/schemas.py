@@ -417,6 +417,12 @@ class CreditPaymentCreate(BaseModel):
     # General
     remarks: OptText(1000) = None
 
+class CreditPaymentBatchItem(CreditPaymentCreate):
+    invoice_id: int = Field(..., ge=1, le=INT4_MAX)
+
+class CreditPaymentBatchCreate(BaseModel):
+    payments: List[CreditPaymentBatchItem] = Field(..., min_length=1, max_length=200)
+
 class CreditPaymentResponse(BaseModel):
     invoice_id: int
     payment_amount: float
@@ -425,6 +431,9 @@ class CreditPaymentResponse(BaseModel):
     payment_status: str
     settlement_record_id: int
     message: str
+
+class CreditPaymentBatchResponse(BaseModel):
+    results: List[CreditPaymentResponse]
 
 class InvoicePaymentHistory(BaseModel):
     id: int
@@ -498,13 +507,14 @@ class PaymentCardCreate(PaymentCardBase):
     card_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)] = Field(..., description="Card name (e.g., Visa, Mastercard)")
     card_type: str = Field(..., pattern="^(credit|debit)$", description="Card type: credit or debit")
     service_charge_percent: Percent100 = Field(default=0, description="Service charge percentage")
+    description: Optional[str] = Field(None, max_length=1000)
 
 
 class PaymentCardUpdate(BaseModel):
     card_name: Optional[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]] = None
     card_type: Optional[str] = Field(None, pattern="^(credit|debit)$")
     service_charge_percent: OptPercent100 = None
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=1000)
     active: Optional[bool] = None
 
 

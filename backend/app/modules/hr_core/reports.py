@@ -124,8 +124,18 @@ def attrition(db: Session, allowed_branches, year: int) -> dict:
         Employee.last_working_date.isnot(None), Employee.last_working_date.between(start, end)), allowed_branches)
     leavers = left_q.all()
     joined = _scope(db.query(func.count(Employee.id)).filter(Employee.date_of_joining.between(start, end)), allowed_branches).scalar() or 0
-    live_now = _scope(db.query(func.count(Employee.id)).filter(Employee.status.in_(LIVE_STATUSES)), allowed_branches).scalar() or 0
-    opening = max(live_now - joined + len(leavers), 0)
+
+    def headcount_on(day: date) -> int:
+        """Employees on the books at the end of ``day``: joined by then and not yet gone.
+        Former employees with no last working date can't be placed in time and are left out."""
+        return _scope(db.query(func.count(Employee.id)).filter(
+            or_(Employee.date_of_joining.is_(None), Employee.date_of_joining <= day),
+            or_(Employee.last_working_date > day,
+                Employee.last_working_date.is_(None) & Employee.status.in_(LIVE_STATUSES)),
+        ), allowed_branches).scalar() or 0
+
+    opening = headcount_on(start - timedelta(days=1))
+    live_now = headcount_on(min(end, tz.today()))
     avg = (opening + live_now) / 2 or 1
     by_type: dict = {}
     for e, _ in leavers:

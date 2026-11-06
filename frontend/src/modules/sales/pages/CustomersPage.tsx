@@ -35,6 +35,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   TChip,
   ActionToolbar,
+  continueOrReveal,
   DetailPanelHeader,
   EmptyState,
   FormSection,
@@ -145,8 +146,9 @@ const INITIAL_FORM_DATA: CustomerCreate = {
   credit_days: 0,
   max_credit_limit: 0,
   default_currency: undefined,
-  active: true,
-  is_customer_agent: false,
+  // No defaults: the user must pick Status and Agent on the General tab.
+  active: undefined,
+  is_customer_agent: undefined,
   commission_rate: 0,
 };
 
@@ -229,6 +231,8 @@ export default function CustomersPage() {
   const [filterAgent, setFilterAgent] = useState<string | null>(null);
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<CustomerSection>("general");
+  // The customer just created in this session: it is walked through the remaining tabs with Next.
+  const [justCreatedId, setJustCreatedId] = useState<number | null>(null);
   // Delivery address is optional: blank means "same as payment address".
   const [deliverySameAsPayment, setDeliverySameAsPayment] = useState(true);
   // Contact persons entered while creating a company; saved right after the
@@ -332,6 +336,7 @@ export default function CustomersPage() {
       // Reset state first to avoid "unsaved changes" prompt
       setIsCreating(false);
       setIsEditing(false);
+      setJustCreatedId(newCustomer.id);
       setTimeout(() => handleSelectCustomer(newCustomer), 0);
     },
   });
@@ -424,7 +429,9 @@ export default function CustomersPage() {
     formData.mobile_contact_number &&
     isValidPhone(formData.mobile_contact_number) &&
     isValidPhone(formData.home_contact_number) &&
-    !phonesMatch
+    !phonesMatch &&
+    formData.active !== undefined &&
+    formData.is_customer_agent !== undefined
   );
   const isAddressValid = !!(
     formData.billing_address_line1?.trim() &&
@@ -494,9 +501,11 @@ export default function CustomersPage() {
 
   // Whether we're showing a single customer's detail view (selected or
   // being created) instead of the browse table.
-  // "Next" while creating appears once General's mandatory fields are filled; the other tabs are optional.
+  // "Next" (only after the first save) validates the tab being left (highlighting what is missing) before moving on.
   const nextCustomerTab = detailTabs[detailTabs.findIndex((t) => t.id === currentSection) + 1];
-  const canGoNext = !!nextCustomerTab && (currentSection !== "general" || isGeneralValid);
+  const prevCustomerTab = detailTabs[detailTabs.findIndex((t) => t.id === currentSection) - 1];
+  const currentSectionValid =
+    currentSection === "general" ? isGeneralValid : currentSection === "address" ? isAddressValid : true;
 
   const isCustomerDetailMode = !!selectedCustomer || isCreating;
 
@@ -689,7 +698,7 @@ export default function CustomersPage() {
         tabsSlot={
           (selectedCustomer || isCreating) && (
             <TTabs
-              tabs={detailTabs.map((t) => (isCreating && t.id !== "general" ? { ...t, disabled: !isGeneralValid } : t))}
+              tabs={detailTabs.map((t) => (isCreating && t.id !== "general" ? { ...t, disabled: true } : t))}
               activeTab={currentSection}
               onChange={(id) => setActiveSection(id as CustomerSection)}
               appearance="segmented"
@@ -726,7 +735,16 @@ export default function CustomersPage() {
         onNew={handleNewCustomer}
         onDuplicate={handleDuplicate}
         onSave={handleSave}
-        onNext={canGoNext ? () => setActiveSection(nextCustomerTab.id) : undefined}
+        onBack={
+          prevCustomerTab && !isCreating && selectedCustomer?.id === justCreatedId
+            ? () => setActiveSection(prevCustomerTab.id)
+            : undefined
+        }
+        onNext={
+          nextCustomerTab && !isCreating && selectedCustomer?.id === justCreatedId
+            ? () => continueOrReveal(currentSectionValid, () => setActiveSection(nextCustomerTab.id))
+            : undefined
+        }
         onCancel={handleCancelCustomer}
         onEdit={handleStartEdit}
       />
@@ -867,6 +885,49 @@ export default function CustomersPage() {
                   </MenuItem>
                 ))}
               </TextField>
+              <TextField
+                select
+                label="Status"
+                size="small"
+                required
+                value={formData.active === undefined ? "" : formData.active ? "active" : "inactive"}
+                onChange={(e) => setFormData({ ...formData, active: e.target.value === "active" })}
+                disabled={isDisabled}
+              >
+                <MenuItem value="active">Active</MenuItem>
+                <MenuItem value="inactive">Inactive</MenuItem>
+              </TextField>
+              <TextField
+                select
+                label="Agent"
+                size="small"
+                required
+                value={formData.is_customer_agent === undefined ? "" : formData.is_customer_agent ? "yes" : "no"}
+                onChange={(e) =>
+                  setFormData({ ...formData, is_customer_agent: e.target.value === "yes" })
+                }
+                disabled={isDisabled}
+              >
+                <MenuItem value="yes">Yes</MenuItem>
+                <MenuItem value="no">No</MenuItem>
+              </TextField>
+              {formData.is_customer_agent && (
+                <TextField
+                  label="Default Commission Rate (%)"
+                  size="small"
+                  type="number"
+                  value={formData.commission_rate || 0}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      commission_rate: parseFloat(e.target.value) || 0,
+                    })
+                  }
+                  disabled={isDisabled}
+                  inputProps={{ min: 0, max: 100, step: 0.01 }}
+                  helperText="Default commission percentage for this agent"
+                />
+              )}
             </FormSection>
 
             {/* Contact Information */}
@@ -1227,53 +1288,6 @@ export default function CustomersPage() {
                   ),
                 }}
               />
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.active ?? true}
-                      onChange={(e) =>
-                        setFormData({ ...formData, active: e.target.checked })
-                      }
-                      disabled={!isPaymentEditable}
-                    />
-                  }
-                  label="Active"
-                />
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.is_customer_agent}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          is_customer_agent: e.target.checked,
-                        })
-                      }
-                      disabled={!isPaymentEditable}
-                    />
-                  }
-                  label="Agent"
-                />
-              </Box>
-              {formData.is_customer_agent && (
-                <TextField
-                  label="Default Commission Rate (%)"
-                  size="small"
-                  type="number"
-                  value={formData.commission_rate || 0}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      commission_rate: parseFloat(e.target.value) || 0,
-                    })
-                  }
-                  disabled={!isPaymentEditable}
-                  inputProps={{ min: 0, max: 100, step: 0.01 }}
-                  helperText="Default commission percentage for this agent"
-                  sx={{ mt: 1 }}
-                />
-              )}
             </FormSection>
             </TTabPanel>
           </>

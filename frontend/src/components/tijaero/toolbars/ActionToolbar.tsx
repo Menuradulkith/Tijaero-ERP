@@ -20,6 +20,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import NextIcon from "@mui/icons-material/NavigateNext";
+import BackIcon from "@mui/icons-material/NavigateBefore";
 import SaveIcon from "@mui/icons-material/Save";
 import CancelIcon from "@mui/icons-material/Cancel";
 import EditIcon from "@mui/icons-material/Edit";
@@ -43,7 +44,9 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
   onDuplicate,
   onDelete,
   onSave,
+  onInvalidSave,
   onNext,
+  onBack,
   onCancel,
   onEdit,
   startActions,
@@ -63,6 +66,7 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
   const handleSaveClick = () => {
     if (!canSave) {
       revealRequiredFields();
+      onInvalidSave?.();
       return;
     }
     onSave?.();
@@ -92,6 +96,19 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
         ...sx,
       }}
     >
+      {/* Back (previous tab) — far left of the same row */}
+      {onBack && (
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<BackIcon />}
+          onClick={onBack}
+          disabled={isSaving}
+        >
+          Back
+        </Button>
+      )}
+
       {/* Custom Start Actions */}
       {startActions}
 
@@ -137,9 +154,43 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
 
       {/* Save/Cancel (Edit/Create Mode) — pushed to the right edge of the
           toolbar. */}
-      {(isEditing || isCreating) && (
+      {(isEditing || isCreating || onNext) && (
         <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
-          {isCreating && onNext && (
+          {(isEditing || isCreating) && onSave && (
+            <Tooltip title={isSaving ? "Saving..." : "Save"}>
+              <span>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  aria-label="Save"
+                  onClick={handleSaveClick}
+                  disabled={isSaving}
+                  sx={{ minWidth: 36, px: 1 }}
+                >
+                  <SaveIcon fontSize="small" />
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+          {(isEditing || isCreating) && onCancel && (
+            <Tooltip title="Cancel">
+              <span>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="error"
+                  aria-label="Cancel"
+                  onClick={onCancel}
+                  disabled={isSaving}
+                  sx={{ minWidth: 36, px: 1 }}
+                >
+                  <CancelIcon fontSize="small" />
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+          {onNext && (
             <Button
               size="small"
               variant="outlined"
@@ -148,30 +199,6 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
               disabled={isSaving}
             >
               Next
-            </Button>
-          )}
-          {onSave && (
-            <Button
-              size="small"
-              variant="contained"
-              color="success"
-              startIcon={<SaveIcon />}
-              onClick={handleSaveClick}
-              disabled={isSaving}
-            >
-              {isSaving ? "Saving..." : "Save"}
-            </Button>
-          )}
-          {onCancel && (
-            <Button
-              size="small"
-              variant="contained"
-              color="error"
-              startIcon={<CancelIcon />}
-              onClick={onCancel}
-              disabled={isSaving}
-            >
-              Cancel
             </Button>
           )}
         </Box>

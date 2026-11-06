@@ -172,7 +172,7 @@ class TestProductionOrderLifecycle:
         o = svc.log_time(o["id"], s.TimeLogIn(operation_id=op_id, minutes=D(120), completed_quantity=4), uid)
         assert o["actual_labor_cost"] == D("120.00") and o["actual_overhead_cost"] == D("60.00")
 
-        o = svc.record_output(o["id"], s.OutputIn(quantity=4, scrap_quantity=1, batch_no="T-1"), uid)
+        o = svc.record_output(o["id"], s.OutputIn(quantity=4, scrap_quantity=1, scrap_reason="burnt", batch_no="T-1"), uid)
         # backflush for 5 units done: ceil(8 x 1.1 x 5) = 44 screws
         assert _free(db, plant["screw"], plant["branch"]) == 156
         assert o["produced_quantity"] == 4 and o["scrapped_quantity"] == 1
@@ -198,7 +198,7 @@ class TestProductionOrderLifecycle:
         o = svc.release(_order(db, plant, qty=2)["id"], uid)
         with pytest.raises(HTTPException) as exc:
             svc.record_output(o["id"], s.OutputIn(quantity=3), uid)
-        assert "Only 2 more good unit(s)" in exc.value.detail
+        assert "Only 2 more unit(s), good and scrap together" in exc.value.detail
 
     def test_shortage_blocks_the_issue_and_nothing_moves(self, db, plant):
         svc, uid = ProductionOrderService(db), plant["user"].id

@@ -110,6 +110,7 @@ def _build_summary(db: Session, start_date: date, end_date: date, branch_code: s
         .filter(
             SaleReturn.branch_code == branch_code,
             SaleReturn.added_date.between(start_date, end_date),
+            SaleReturn.status == "processed",  # pending/approved returns refunded nothing yet
         )
         .all()
     )
@@ -130,27 +131,29 @@ def _build_summary(db: Session, start_date: date, end_date: date, branch_code: s
         .filter(
             PurchasingOrder.branch_code == branch_code,
             PurchasingOrder.purchasing_order_date.between(start_date, end_date),
+            PurchasingOrder.status.notin_(("cancelled", "rejected")),
         )
         .all()
     )
-    
+
     po_total_value = _d(0)
     po_by_status: dict = {}
     po_details = []
+    # Every order's value in one query (was one query per order).
+    po_values = dict(
+        db.query(
+            PurchasingOrderItems.purchasingorders_id,
+            func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price),
+        )
+        .filter(PurchasingOrderItems.purchasingorders_id.in_([po.id for po in pos] or [0]))
+        .group_by(PurchasingOrderItems.purchasingorders_id)
+        .all()
+    )
 
     for po in pos:
         st = po.status or "unknown"
         po_by_status[st] = po_by_status.get(st, 0) + 1
-        
-        val = _d(
-            db.query(
-                func.coalesce(
-                    func.sum(PurchasingOrderItems.quantity * PurchasingOrderItems.unit_price), 0
-                )
-            )
-            .filter(PurchasingOrderItems.purchasingorders_id == po.id)
-            .scalar()
-        )
+        val = _d(po_values.get(po.id))
         po_total_value += val
         
         po_details.append({
@@ -165,6 +168,7 @@ def _build_summary(db: Session, start_date: date, end_date: date, branch_code: s
         .filter(
             BankDeposits.branch_code == branch_code,
             cast(BankDeposits.created_date, Date).between(start_date, end_date),
+            func.coalesce(BankDeposits.status, "") != "rejected",
         )
         .all()
     )
@@ -248,7 +252,8 @@ def _build_summary(db: Session, start_date: date, end_date: date, branch_code: s
         db.query(Expenses)
         .filter(
             Expenses.branch_code == branch_code,
-            Expenses.expense_date.between(start_date, end_date)
+            Expenses.expense_date.between(start_date, end_date),
+            Expenses.status.notin_(("rejected", "cancelled")),
         )
         .all()
     )
@@ -269,7 +274,8 @@ def _build_summary(db: Session, start_date: date, end_date: date, branch_code: s
         db.query(Vouchers)
         .filter(
             Vouchers.branch_code == branch_code,
-            cast(Vouchers.created_date, Date).between(start_date, end_date)
+            cast(Vouchers.created_date, Date).between(start_date, end_date),
+            func.coalesce(Vouchers.status, "active").notin_(("cancelled", "void", "rejected")),
         )
         .all()
     )

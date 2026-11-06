@@ -70,6 +70,8 @@ export interface TFormDialogProps {
   showCloseButton?: boolean;
   /** Form content padding */
   contentPadding?: number;
+  /** Skip the browser's built-in checks; set when every field validates through react-hook-form (TFormField) */
+  noValidate?: boolean;
 }
 
 export const TFormDialog: React.FC<TFormDialogProps> = ({
@@ -90,6 +92,7 @@ export const TFormDialog: React.FC<TFormDialogProps> = ({
   disableBackdropClick = false,
   showCloseButton = true,
   contentPadding = 2,
+  noValidate = false,
 }) => {
   // Grid template columns
   const gridTemplateColumns = {
@@ -121,7 +124,7 @@ export const TFormDialog: React.FC<TFormDialogProps> = ({
         sx: { borderRadius: 2 },
       }}
     >
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} noValidate={noValidate}>
         {/* Dialog Header */}
         <DialogTitle
           sx={{

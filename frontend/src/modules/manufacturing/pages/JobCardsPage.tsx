@@ -13,10 +13,6 @@ import {
   Box,
   Button,
   Checkbox,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   FormControlLabel,
   IconButton,
   InputAdornment,
@@ -29,16 +25,18 @@ import {
 } from "@mui/material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
+  FormSection,
   MasterDetailLayout,
   TBranchFilter,
   TChip,
   TDataGrid,
   type TDataGridColumn,
   TPrintPreviewDialog,
+  TSidePanel,
   TStatusChip,
   useCrudMutation,
 } from "@/components/tijaero";
@@ -49,6 +47,9 @@ import type { JobCard, Operator, TimeLogInput } from "@/modules/manufacturing/ty
 import { formatDate } from "@/utils/formatters";
 
 type JobCardRow = JobCard & { id: number };
+
+// Outside (subcontracted) operations are charged per unit by the supplier, so no time is booked on them.
+const canBookTime = (c: JobCard) => c.status !== "completed" && !c.is_outside;
 
 const fmtHours = (minutes: number | string) => `${(Number(minutes) / 60).toFixed(1)} h`;
 
@@ -133,6 +134,8 @@ export default function JobCardsPage() {
   // ── Log time dialog ──
   const [logCard, setLogCard] = useState<JobCard | null>(null);
   const [form, setForm] = useState<TimeForm>(EMPTY_FORM);
+  // In-flight guard so a double click can never book the same time twice
+  const logBusyRef = useRef(false);
 
   const openLog = (card: JobCard) => {
     setForm(EMPTY_FORM);
@@ -163,7 +166,7 @@ export default function JobCardsPage() {
       : !!form.start_time && !!form.end_time && new Date(form.end_time) > new Date(form.start_time);
 
   const handleLog = () => {
-    if (!logCard || !minutesValid) return;
+    if (!logCard || !minutesValid || logMutation.isPending || logBusyRef.current) return;
     const data: TimeLogInput = {
       operation_id: logCard.operation_id,
       employee_id: form.employee_id,
@@ -174,7 +177,8 @@ export default function JobCardsPage() {
         ? { minutes: Number(form.minutes) }
         : { start_time: form.start_time, end_time: form.end_time }),
     };
-    logMutation.mutate({ id: logCard.order_id, data });
+    logBusyRef.current = true;
+    logMutation.mutate({ id: logCard.order_id, data }, { onSettled: () => { logBusyRef.current = false; } });
   };
 
   const columns: TDataGridColumn<JobCardRow>[] = useMemo(
@@ -204,7 +208,12 @@ export default function JobCardsPage() {
         header: "Operation",
         flex: 1,
         minWidth: 160,
-        renderCell: (params: GridRenderCellParams<JobCardRow>) => `${params.row.sequence} · ${params.row.name}`,
+        renderCell: (params: GridRenderCellParams<JobCardRow>) => (
+          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+            <Typography variant="body2" noWrap>{`${params.row.sequence} · ${params.row.name}`}</Typography>
+            {params.row.is_outside && <TChip label="Outside" size="small" variant="outlined" />}
+          </Stack>
+        ),
       },
       {
         field: "work_center_code",
@@ -281,7 +290,7 @@ export default function JobCardsPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<JobCardRow>) => (
           <Box>
-            {canLogTime && params.row.status !== "completed" && (
+            {canLogTime && canBookTime(params.row) && (
               <Tooltip title="Log time">
                 <IconButton size="small" onClick={(e) => { e.stopPropagation(); openLog(params.row); }}>
                   <AccessTimeIcon fontSize="small" color="primary" />
@@ -329,7 +338,7 @@ export default function JobCardsPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 190, flexShrink: 0 }}
+              sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
             />
             <TextField
               select
@@ -368,7 +377,7 @@ export default function JobCardsPage() {
               rows={rows}
               columns={columns}
               loading={isLoading}
-              onRowClick={(row) => (canLogTime && row.status !== "completed" ? openLog(row) : undefined)}
+              onRowClick={(row) => (canLogTime && canBookTime(row) ? openLog(row) : undefined)}
               pageSizeOptions={[10, 25, 50, 100]}
               pageSize={25}
               emptyMessage={loadFailed ? "Could not load job cards. Use refresh to try again." : "No open operations — release a production order to put its operations on the shop floor"}
@@ -389,18 +398,23 @@ export default function JobCardsPage() {
         />
       )}
 
-      {/* Log time dialog */}
-      <Dialog open={!!logCard} onClose={() => setLogCard(null)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          Log Time
-          {logCard && (
-            <Typography variant="body2" color="text.secondary">
-              {logCard.order_no} · {logCard.sequence} {logCard.name} ({logCard.work_center_code})
-            </Typography>
-          )}
-        </DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={2}>
+      {/* Log time side panel */}
+      <TSidePanel
+        open={!!logCard}
+        onClose={() => { if (!logMutation.isPending) setLogCard(null); }}
+        title="Log Time"
+        submitText="Log Time"
+        isSubmitting={logMutation.isPending}
+        submitDisabled={!minutesValid || logMutation.isPending}
+        onSubmit={handleLog}
+      >
+        {logCard && (
+          <Typography variant="body2" color="text.secondary">
+            {logCard.order_no} · {logCard.sequence} {logCard.name}
+            {logCard.work_center_code ? ` (${logCard.work_center_code})` : ""}
+          </Typography>
+        )}
+        <FormSection title="Time" columns={1} isLast>
             <Autocomplete<Operator>
               size="small"
               options={operators}
@@ -480,15 +494,8 @@ export default function JobCardsPage() {
               onChange={(e) => setForm({ ...form, remark: e.target.value })}
               inputProps={{ maxLength: 255 }}
             />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setLogCard(null)}>Cancel</Button>
-          <Button variant="contained" onClick={handleLog} disabled={!minutesValid || logMutation.isPending}>
-            Log Time
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </FormSection>
+      </TSidePanel>
     </>
   );
 }

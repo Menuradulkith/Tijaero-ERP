@@ -6,6 +6,10 @@
  * units of a product. Draft BOMs are editable; activating one makes it usable
  * on production orders, and a change to an active BOM is made as a new version.
  * The cost roll-up can be pushed to the product's cost price (standard cost).
+ * Operations on an outside work center are costed at the supplier's price per
+ * unit; by-products (bread crumbs, coconut poonac) are valued and taken off the
+ * main product's cost. Over-production tolerance lets an order make a little
+ * more than planned when yields vary.
  */
 
 import { useCurrencyStore } from "@/state/currencyStore";
@@ -26,10 +30,6 @@ import {
   Autocomplete,
   Box,
   Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -64,8 +64,10 @@ import {
   TDataGrid,
   type TDataGridColumn,
   TRemarkField,
+  TSidePanel,
   TStatusChip,
   TStatusFilter,
+  TTabs,
   useCrudMutation,
   useMasterDetailState,
   useTConfirmDialog,
@@ -88,6 +90,7 @@ interface BOMFormData {
   version: string;
   output_quantity: number;
   description: string;
+  overproduction_pct: number;
 }
 
 const INITIAL_FORM_DATA: BOMFormData = {
@@ -95,6 +98,7 @@ const INITIAL_FORM_DATA: BOMFormData = {
   version: "1",
   output_quantity: 1,
   description: "",
+  overproduction_pct: 0,
 };
 
 const resetFormFromBOM = (bom: BOM): BOMFormData => ({
@@ -102,6 +106,7 @@ const resetFormFromBOM = (bom: BOM): BOMFormData => ({
   version: bom.version,
   output_quantity: Number(bom.output_quantity),
   description: bom.description || "",
+  overproduction_pct: Number(bom.overproduction_pct) || 0,
 });
 
 interface ItemLine {
@@ -126,11 +131,24 @@ interface OperationLine {
   setup_minutes: number;
   run_minutes: number;
   description: string;
+  /** Outside work centers only: the supplier's price per unit */
+  outside_unit_cost: number;
   work_center_code?: string | null;
   work_center_name?: string | null;
 }
 
-const linesFromBOM = (bom: BOM): { items: ItemLine[]; operations: OperationLine[] } => ({
+interface ByProductLine {
+  _id: string;
+  product_id: number;
+  quantity: number;
+  product_name?: string | null;
+  product_code?: string | null;
+  unit_of_measure?: string | null;
+}
+
+type DetailSection = "overview" | "components" | "operations" | "byproducts";
+
+const linesFromBOM = (bom: BOM): { items: ItemLine[]; operations: OperationLine[]; byProducts: ByProductLine[] } => ({
   items: bom.items.map((i) => ({
     _id: `item-${i.id}`,
     product_id: i.product_id,
@@ -151,8 +169,17 @@ const linesFromBOM = (bom: BOM): { items: ItemLine[]; operations: OperationLine[
     setup_minutes: Number(o.setup_minutes),
     run_minutes: Number(o.run_minutes),
     description: o.description || "",
+    outside_unit_cost: Number(o.outside_unit_cost) || 0,
     work_center_code: o.work_center_code,
     work_center_name: o.work_center_name,
+  })),
+  byProducts: (bom.by_products || []).map((b) => ({
+    _id: `bp-${b.id}`,
+    product_id: b.product_id,
+    quantity: Number(b.quantity),
+    product_name: b.product_name,
+    product_code: b.product_code,
+    unit_of_measure: b.unit_of_measure,
   })),
 });
 
@@ -167,6 +194,12 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const operationMinutes = (op: OperationLine, units: number, wc?: WorkCenter) =>
   round2((op.setup_minutes + op.run_minutes * units) / ((Number(wc?.efficiency_pct) || 100) / 100));
 
+const BOM_STATUS_COLOR: Record<BOM["status"], "default" | "success" | "warning"> = {
+  draft: "default",
+  active: "success",
+  archived: "warning",
+};
+
 type BOMRow = BOM & {
   product_display: string;
   output_num: number;
@@ -180,6 +213,8 @@ export default function BOMsPage() {
 
   const [itemLines, setItemLines] = useState<ItemLine[]>([]);
   const [operationLines, setOperationLines] = useState<OperationLine[]>([]);
+  const [byProductLines, setByProductLines] = useState<ByProductLine[]>([]);
+  const [section, setSection] = useState<DetailSection>("overview");
   const [linesDirty, setLinesDirty] = useState(false);
   const [bomDetail, setBomDetail] = useState<BOM | null>(null);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -187,7 +222,7 @@ export default function BOMsPage() {
 
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
-  const [versionDialogOpen, setVersionDialogOpen] = useState(false);
+  const [versionPanelOpen, setVersionPanelOpen] = useState(false);
   const [newVersion, setNewVersion] = useState("");
 
   const {
@@ -217,7 +252,7 @@ export default function BOMsPage() {
       confirmColor: "warning",
     }),
     extraDirty: linesDirty,
-    onDiscard: () => { setItemLines([]); setOperationLines([]); setLinesDirty(false); setBomDetail(null); },
+    onDiscard: () => { setItemLines([]); setOperationLines([]); setByProductLines([]); setLinesDirty(false); setBomDetail(null); },
   });
 
   const { data: referenceData } = useReferenceData(["products"], { productsLimit: 2000 });
@@ -252,6 +287,7 @@ export default function BOMsPage() {
     setBomDetail(bom);
     setItemLines(lines.items);
     setOperationLines(lines.operations);
+    setByProductLines(lines.byProducts);
     setLinesDirty(false);
   }, []);
 
@@ -263,7 +299,9 @@ export default function BOMsPage() {
     setBomDetail(null);
     setItemLines([]);
     setOperationLines([]);
+    setByProductLines([]);
     setLinesDirty(false);
+    setSection("overview");
     try {
       const detail = await bomsApi.getById(bom.id);
       if (latestRequestRef.current !== bom.id) return;
@@ -388,12 +426,24 @@ export default function BOMsPage() {
   const addOperation = () => {
     setOperationLines((prev) => [
       ...prev,
-      { _id: `new-${Date.now()}`, name: "", work_center_id: 0, setup_minutes: 0, run_minutes: 0, description: "" },
+      { _id: `new-${Date.now()}`, name: "", work_center_id: 0, setup_minutes: 0, run_minutes: 0, description: "", outside_unit_cost: 0 },
     ]);
     setLinesDirty(true);
   };
   const removeOperation = (id: string) => {
     setOperationLines((prev) => prev.filter((l) => l._id !== id));
+    setLinesDirty(true);
+  };
+  const updateByProduct = (id: string, patch: Partial<ByProductLine>) => {
+    setByProductLines((prev) => prev.map((l) => (l._id === id ? { ...l, ...patch } : l)));
+    setLinesDirty(true);
+  };
+  const addByProduct = () => {
+    setByProductLines((prev) => [...prev, { _id: `new-${Date.now()}`, product_id: 0, quantity: 1 }]);
+    setLinesDirty(true);
+  };
+  const removeByProduct = (id: string) => {
+    setByProductLines((prev) => prev.filter((l) => l._id !== id));
     setLinesDirty(true);
   };
 
@@ -408,15 +458,30 @@ export default function BOMsPage() {
   const itemLineCost = (line: ItemLine) =>
     round2(line.quantity * (1 + line.scrap_pct / 100) * itemUnitCost(line));
 
+  // Outside work centers charge per unit, not by time; their minutes still give lead time.
   const operationCosts = useCallback((line: OperationLine, units: number) => {
     const wc = workCenterById.get(line.work_center_id);
     const minutes = operationMinutes(line, units, wc);
+    if (wc?.is_outside) {
+      return { minutes, outside: true, labor: 0, overhead: 0, outsideCost: round2((line.outside_unit_cost || 0) * units) };
+    }
     return {
       minutes,
+      outside: false,
       labor: round2((minutes / 60) * (Number(wc?.labor_rate_per_hour) || 0)),
       overhead: round2((minutes / 60) * (Number(wc?.overhead_rate_per_hour) || 0)),
+      outsideCost: 0,
     };
   }, [workCenterById]);
+
+  // By-product unit value: the saved BOM's figure until the product is changed,
+  // otherwise the product's current cost price.
+  const byProductUnitCost = useCallback((line: ByProductLine) => {
+    const saved = bomDetail?.by_products?.find((b) => `bp-${b.id}` === line._id);
+    if (saved && saved.product_id === line.product_id) return Number(saved.unit_cost);
+    return Number(productById.get(line.product_id)?.cost_price) || 0;
+  }, [bomDetail, productById]);
+  const byProductValue = (line: ByProductLine) => round2(line.quantity * byProductUnitCost(line));
 
   // Live roll-up while editing; the server's figures when viewing.
   const rollup = useMemo(() => {
@@ -425,6 +490,8 @@ export default function BOMsPage() {
         material: Number(bomDetail.material_cost),
         labor: Number(bomDetail.labor_cost),
         overhead: Number(bomDetail.overhead_cost),
+        outside: Number(bomDetail.outside_cost) || 0,
+        byproduct: Number(bomDetail.byproduct_value) || 0,
         total: Number(bomDetail.total_cost),
         unit: Number(bomDetail.unit_cost),
       };
@@ -433,14 +500,21 @@ export default function BOMsPage() {
     const material = round2(itemLines.reduce((sum, l) => sum + itemLineCost(l), 0));
     let labor = 0;
     let overhead = 0;
+    let outside = 0;
     operationLines.forEach((op) => {
       const c = operationCosts(op, units);
       labor += c.labor;
       overhead += c.overhead;
+      outside += c.outsideCost;
     });
-    const total = round2(material + labor + overhead);
-    return { material, labor: round2(labor), overhead: round2(overhead), total, unit: round2(total / units) };
-  }, [editable, bomDetail, itemLines, operationLines, formData.output_quantity, operationCosts]); // eslint-disable-line react-hooks/exhaustive-deps
+    const byproduct = round2(byProductLines.reduce((sum, l) => sum + byProductValue(l), 0));
+    // Same rule as the server: by-products reduce the cost, never below zero
+    const total = round2(Math.max(material + labor + overhead + outside - byproduct, 0));
+    return {
+      material, labor: round2(labor), overhead: round2(overhead), outside: round2(outside), byproduct,
+      total, unit: round2(total / units),
+    };
+  }, [editable, bomDetail, itemLines, operationLines, byProductLines, formData.output_quantity, operationCosts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const productCostPrice = bomDetail
     ? Number(bomDetail.product_cost_price)
@@ -460,14 +534,28 @@ export default function BOMsPage() {
       l.product_id > 0 && l.product_id !== formData.product_id && l.quantity > 0 && l.scrap_pct >= 0 && l.scrap_pct < 100
     );
   const operationsValid = operationLines.every(
-    (o) => !!o.name.trim() && o.work_center_id > 0 && o.setup_minutes >= 0 && o.run_minutes >= 0
+    (o) => !!o.name.trim() && o.work_center_id > 0 && o.setup_minutes >= 0 && o.run_minutes >= 0 && o.outside_unit_cost >= 0
   );
+  const componentIds = useMemo(() => new Set(itemLines.map((l) => l.product_id).filter(Boolean)), [itemLines]);
+  const duplicateByProduct = useMemo(() => {
+    const ids = byProductLines.map((l) => l.product_id).filter(Boolean);
+    return ids.length !== new Set(ids).size;
+  }, [byProductLines]);
+  const byProductClash = byProductLines.some((l) => l.product_id > 0 && componentIds.has(l.product_id));
+  const byProductsValid =
+    byProductLines.length <= 20 &&
+    !duplicateByProduct &&
+    !byProductClash &&
+    byProductLines.every((l) => l.product_id > 0 && l.product_id !== formData.product_id && l.quantity > 0);
+  const overproductionValid = formData.overproduction_pct >= 0 && formData.overproduction_pct <= 100;
   const isFormValid =
     formData.product_id > 0 &&
     !!formData.version.trim() &&
     formData.output_quantity > 0 &&
+    overproductionValid &&
     itemsValid &&
-    operationsValid;
+    operationsValid &&
+    byProductsValid;
 
   // ─── mutations ─────────────────────────────────────────────────────────
   // BOM changes also change the production-order BOM picker, MRP and order costing
@@ -520,7 +608,7 @@ export default function BOMsPage() {
     invalidateQueryKeys: invalidate,
     successMessage: "New draft version created",
     errorMessage: "Failed to create new version",
-    onSuccess: (bom) => { setVersionDialogOpen(false); showSaved(bom); },
+    onSuccess: (bom) => { setVersionPanelOpen(false); showSaved(bom); },
   });
   const updateCostMutation = useCrudMutation({
     mutationFn: bomsApi.updateProductCost,
@@ -546,6 +634,15 @@ export default function BOMsPage() {
     activateMutation.isPending || setDefaultMutation.isPending || archiveMutation.isPending ||
     copyMutation.isPending || updateCostMutation.isPending;
 
+  // One in-flight guard for the status actions, so a double click (or a click
+  // while a confirmation is resolving) cannot fire the same action twice.
+  const actingRef = useRef(false);
+  const guardAction = useCallback((start: (settle: { onSettled: () => void }) => void) => {
+    if (actingRef.current) return;
+    actingRef.current = true;
+    start({ onSettled: () => { actingRef.current = false; } });
+  }, []);
+
   // Blocks a second Save click before the first one has settled.
   const savingRef = useRef(false);
 
@@ -566,7 +663,10 @@ export default function BOMsPage() {
       setup_minutes: o.setup_minutes,
       run_minutes: o.run_minutes,
       description: o.description.trim() || null,
+      // Only an outside work center charges per unit
+      outside_unit_cost: workCenterById.get(o.work_center_id)?.is_outside ? o.outside_unit_cost : 0,
     }));
+    const by_products = byProductLines.map((b) => ({ product_id: b.product_id, quantity: b.quantity }));
     savingRef.current = true;
     const settle = { onSettled: () => { savingRef.current = false; } };
     if (isCreating) {
@@ -575,8 +675,10 @@ export default function BOMsPage() {
         version: formData.version.trim(),
         output_quantity: formData.output_quantity,
         description: formData.description.trim() || null,
+        overproduction_pct: formData.overproduction_pct,
         items,
         operations,
+        by_products,
       };
       createMutation.mutate(payload, settle);
     } else if (selectedBOM) {
@@ -584,22 +686,26 @@ export default function BOMsPage() {
         version: formData.version.trim(),
         output_quantity: formData.output_quantity,
         description: formData.description.trim() || null,
+        overproduction_pct: formData.overproduction_pct,
         items,
         operations,
+        by_products,
       };
       updateMutation.mutate({ id: selectedBOM.id, data: payload }, settle);
     } else {
       savingRef.current = false;
     }
-  }, [itemLines, operationLines, isCreating, selectedBOM, formData, createMutation, updateMutation]);
+  }, [itemLines, operationLines, byProductLines, workCenterById, isCreating, selectedBOM, formData, createMutation, updateMutation]);
 
   const handleNew = useCallback(() => {
     handleNewBase();
     setBomDetail(null);
     setItemLines([]);
     setOperationLines([]);
+    setByProductLines([]);
     setLinesDirty(false);
     setTouched({});
+    setSection("overview");
   }, [handleNewBase]);
 
   const handleStartEdit = useCallback(() => {
@@ -616,6 +722,7 @@ export default function BOMsPage() {
       setSelectedBOM(null);
       setItemLines([]);
       setOperationLines([]);
+      setByProductLines([]);
     } else {
       handleCancelBase(rows);
       if (bomDetail) applyDetail(bomDetail);
@@ -641,19 +748,26 @@ export default function BOMsPage() {
       confirmText: "Delete",
       confirmColor: "error",
     });
-    if (confirmed) deleteMutation.mutate(selectedBOM.id);
-  }, [selectedBOM, confirmDialog, deleteMutation]);
+    if (confirmed) guardAction((settle) => deleteMutation.mutate(selectedBOM.id, settle));
+  }, [selectedBOM, confirmDialog, deleteMutation, guardAction]);
 
   const handleActivate = useCallback(async () => {
-    if (!selectedBOM) return;
+    if (!selectedBOM || actingRef.current) return;
     const confirmed = await confirmDialog.confirm({
       title: "Activate BOM",
-      message: `Activate ${selectedBOM.bom_no}? An active BOM can be used on production orders and can no longer be edited — changes are made as a new version.`,
+      message:
+        `Activate ${selectedBOM.bom_no}? An active BOM can be used on production orders and can no longer be edited — changes are made as a new version.\n\n` +
+        `If the product is serial-tracked and has no stock yet, it is switched to batch tracking, so production output is received as batches.`,
       confirmText: "Activate",
       confirmColor: "primary",
     });
-    if (confirmed) activateMutation.mutate(selectedBOM.id);
-  }, [selectedBOM, confirmDialog, activateMutation]);
+    if (confirmed) guardAction((settle) => activateMutation.mutate(selectedBOM.id, settle));
+  }, [selectedBOM, confirmDialog, activateMutation, guardAction]);
+
+  const handleSetDefault = useCallback(() => {
+    if (!selectedBOM) return;
+    guardAction((settle) => setDefaultMutation.mutate(selectedBOM.id, settle));
+  }, [selectedBOM, setDefaultMutation, guardAction]);
 
   const handleArchive = useCallback(async () => {
     if (!selectedBOM) return;
@@ -663,29 +777,30 @@ export default function BOMsPage() {
       confirmText: "Archive",
       confirmColor: "warning",
     });
-    if (confirmed) archiveMutation.mutate(selectedBOM.id);
-  }, [selectedBOM, confirmDialog, archiveMutation]);
+    if (confirmed) guardAction((settle) => archiveMutation.mutate(selectedBOM.id, settle));
+  }, [selectedBOM, confirmDialog, archiveMutation, guardAction]);
 
   const handleUpdateCost = useCallback(async () => {
-    if (!selectedBOM || !bomDetail) return;
+    if (!selectedBOM || !bomDetail || actingRef.current) return;
     const confirmed = await confirmDialog.confirm({
       title: "Update Product Cost",
       message:
-        `Set the cost price of "${bomDetail.product_name}" to the rolled-up unit cost ` +
-        `${currencySymbol} ${fmtLKR(Number(bomDetail.unit_cost))} (currently ${currencySymbol} ${fmtLKR(Number(bomDetail.product_cost_price))})?\n\n` +
-        `This overwrites the product's cost price, which values finished-goods receipts from production ` +
-        `and the cost of goods sold on future sales.`,
+        `Update the cost of "${bomDetail.product_name}" from the BOM roll-up?\n\n` +
+        `Current product cost: ${currencySymbol} ${fmtLKR(Number(bomDetail.product_cost_price))}\n` +
+        `New unit cost: ${currencySymbol} ${fmtLKR(Number(bomDetail.unit_cost))}\n\n` +
+        `This overwrites the product's cost price and the cost on all of the product's active price tiers. ` +
+        `It values finished-goods receipts from production and the cost of goods sold on future sales.`,
       confirmText: "Update Cost",
       confirmColor: "warning",
     });
-    if (confirmed) updateCostMutation.mutate(selectedBOM.id);
-  }, [selectedBOM, bomDetail, confirmDialog, updateCostMutation, currencySymbol]);
+    if (confirmed) guardAction((settle) => updateCostMutation.mutate(selectedBOM.id, settle));
+  }, [selectedBOM, bomDetail, confirmDialog, updateCostMutation, currencySymbol, guardAction]);
 
-  const openVersionDialog = () => {
+  const openVersionPanel = () => {
     const current = selectedBOM?.version || "";
     const asNumber = parseInt(current, 10);
     setNewVersion(!isNaN(asNumber) && String(asNumber) === current ? String(asNumber + 1) : "");
-    setVersionDialogOpen(true);
+    setVersionPanelOpen(true);
   };
 
   const isDetailMode = !!selectedBOM || isCreating;
@@ -699,6 +814,15 @@ export default function BOMsPage() {
   const activeWorkCenters = useMemo(() => workCenters.filter((w) => w.active), [workCenters]);
 
   const productLabel = (p?: ProductRef | null) => (p ? `${p.name} (${p.item_code})` : "");
+
+  // Section tabs; while editing, a tab with a problem is flagged so it is not missed.
+  const flag = (ok: boolean) => (editable && !ok ? " (!)" : "");
+  const sectionTabs = [
+    { id: "overview", label: `Overview${flag(formData.product_id > 0 && !!formData.version.trim() && formData.output_quantity > 0 && overproductionValid)}` },
+    { id: "components", label: `Components (${itemLines.length})${flag(itemsValid)}` },
+    { id: "operations", label: `Operations (${operationLines.length})${flag(operationsValid)}` },
+    { id: "byproducts", label: `By-products (${byProductLines.length})${flag(byProductsValid)}` },
+  ];
 
   const tablePanel = (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -726,7 +850,7 @@ export default function BOMsPage() {
         </Button>
       )}
       {canUpdate && selectedBOM.status === "active" && !selectedBOM.is_default && (
-        <Button size="small" variant="outlined" startIcon={<StarIcon />} onClick={() => setDefaultMutation.mutate(selectedBOM.id)} disabled={isActing}>
+        <Button size="small" variant="outlined" startIcon={<StarIcon />} onClick={handleSetDefault} disabled={isActing}>
           Set as Default
         </Button>
       )}
@@ -736,7 +860,7 @@ export default function BOMsPage() {
         </Button>
       )}
       {canCreate && (
-        <Button size="small" variant="outlined" startIcon={<ContentCopyIcon />} onClick={openVersionDialog} disabled={isActing}>
+        <Button size="small" variant="outlined" startIcon={<ContentCopyIcon />} onClick={openVersionPanel} disabled={isActing}>
           New Version
         </Button>
       )}
@@ -761,6 +885,26 @@ export default function BOMsPage() {
         isCreating={isCreating}
         createTitle="New Bill of Materials"
         noSelectionTitle="Select a BOM"
+        chips={
+          selectedBOM && !isCreating
+            ? [
+                { label: BOM_STATUS_OPTIONS.find((o) => o.value === selectedBOM.status)?.label || selectedBOM.status, color: BOM_STATUS_COLOR[selectedBOM.status] },
+                ...(selectedBOM.is_default ? [{ label: "Default", color: "warning" as const }] : []),
+                { label: `v${selectedBOM.version}`, variant: "outlined" as const },
+              ]
+            : undefined
+        }
+        tabsSlot={
+          <TTabs
+            tabs={sectionTabs}
+            activeTab={section}
+            onChange={(id) => setSection(id as DetailSection)}
+            appearance="segmented"
+            variant="scrollable"
+            showDivider={false}
+            sx={{ mx: 2, my: 1 }}
+          />
+        }
       />
 
       <ActionToolbar
@@ -794,6 +938,7 @@ export default function BOMsPage() {
               </Alert>
             )}
 
+            {section === "overview" && (
             <FormSection title="BOM Information" columns={3}>
               <TextField label="BOM No" size="small" value={isCreating ? "Auto-generated" : selectedBOM?.bom_no || ""} disabled />
               <Autocomplete
@@ -818,10 +963,22 @@ export default function BOMsPage() {
                   />
                 )}
               />
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                {selectedBOM && <TStatusChip status={selectedBOM.status} statusMap="bomStatus" />}
-                {selectedBOM?.is_default && <TChip label="Default" size="small" color="warning" icon={<StarIcon fontSize="small" />} />}
-              </Box>
+              <TextField
+                label="Over-production Tolerance"
+                size="small"
+                type="number"
+                value={formData.overproduction_pct}
+                onChange={(e) => setFormData({ ...formData, overproduction_pct: numberOrZero(e.target.value) })}
+                disabled={!editable}
+                inputProps={{ min: 0, max: 100, step: 0.5 }}
+                InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+                error={!overproductionValid}
+                helperText={
+                  !overproductionValid
+                    ? "Between 0 and 100"
+                    : "An order may produce up to this % more than planned (yields vary in food / herbal work)"
+                }
+              />
               <TextField
                 label="Version"
                 size="small"
@@ -854,8 +1011,11 @@ export default function BOMsPage() {
                 disabled={!editable}
               />
             </FormSection>
+            )}
 
             {/* ─── Components ─── */}
+            {section === "components" && (
+            <>
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
               <Typography variant="subtitle1" fontWeight="bold">Components</Typography>
               {editable && (
@@ -971,8 +1131,12 @@ export default function BOMsPage() {
                 </TableBody>
               </Table>
             </Paper>
+            </>
+            )}
 
             {/* ─── Operations / routing ─── */}
+            {section === "operations" && (
+            <>
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
               <Typography variant="subtitle1" fontWeight="bold">Operations / Routing</Typography>
               {editable && (
@@ -989,15 +1153,17 @@ export default function BOMsPage() {
                     <TableCell align="right" sx={{ width: 110 }}>Setup (min)</TableCell>
                     <TableCell align="right" sx={{ width: 120 }}>Run (min/unit)</TableCell>
                     <TableCell align="right" sx={{ width: 110 }}>Planned (min)</TableCell>
+                    <TableCell align="right" sx={{ width: 130 }}>{`Outside price / unit (${currencySymbol})`}</TableCell>
                     <TableCell align="right" sx={{ width: 120 }}>{`Labour (${currencySymbol})`}</TableCell>
                     <TableCell align="right" sx={{ width: 120 }}>{`Overhead (${currencySymbol})`}</TableCell>
+                    <TableCell align="right" sx={{ width: 120 }}>{`Outside (${currencySymbol})`}</TableCell>
                     {editable && <TableCell sx={{ width: 44 }} />}
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {operationLines.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={editable ? 9 : 8} sx={modernTableStyles.emptyCell}>
+                      <TableCell colSpan={editable ? 11 : 10} sx={modernTableStyles.emptyCell}>
                         {editable ? "Optional: add the routing steps and the work centers that perform them" : "No operations"}
                       </TableCell>
                     </TableRow>
@@ -1007,6 +1173,8 @@ export default function BOMsPage() {
                       const savedOp = !editable ? bomDetail?.operations.find((o) => `op-${o.id}` === op._id) : undefined;
                       const costs = operationCosts(op, formData.output_quantity || 1);
                       const wcOptions = wc && !wc.active ? [wc, ...activeWorkCenters] : activeWorkCenters;
+                      // Viewing: the server's flag; editing: the chosen work center's
+                      const isOutsideOp = savedOp ? savedOp.is_outside : !!wc?.is_outside;
                       return (
                         <TableRow key={op._id} sx={{ ...modernTableStyles.bodyRow, ...(index % 2 === 1 && { bgcolor: "grey.25" }) }}>
                           <TableCell>{(index + 1) * 10}</TableCell>
@@ -1030,7 +1198,14 @@ export default function BOMsPage() {
                                 sx={{ minWidth: 200 }}
                               />
                             ) : (
-                              `${op.work_center_code || wc?.code || ""} - ${op.work_center_name || wc?.name || ""}`
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                <span>{`${op.work_center_code || wc?.code || ""} - ${op.work_center_name || wc?.name || ""}`}</span>
+                                {isOutsideOp && (
+                                  <Tooltip title={wc?.supplier_name ? `Done by ${wc.supplier_name}` : "Done by another company"}>
+                                    <span><TChip label="Outside" size="small" color="secondary" variant="outlined" /></span>
+                                  </Tooltip>
+                                )}
+                              </Box>
                             )}
                           </TableCell>
                           <TableCell align="right">
@@ -1048,8 +1223,24 @@ export default function BOMsPage() {
                             ) : Number(op.run_minutes).toLocaleString()}
                           </TableCell>
                           <TableCell align="right">{costs.minutes.toLocaleString()}</TableCell>
-                          <TableCell align="right">{fmtLKR(savedOp ? Number(savedOp.labor_cost) : costs.labor)}</TableCell>
-                          <TableCell align="right">{fmtLKR(savedOp ? Number(savedOp.overhead_cost) : costs.overhead)}</TableCell>
+                          <TableCell align="right">
+                            {editable ? (
+                              <Tooltip title={isOutsideOp ? "" : "Only for an outside work center"}>
+                                <span>
+                                  <TextField size="small" type="number"
+                                    value={isOutsideOp ? op.outside_unit_cost : ""}
+                                    onChange={(e) => updateOperation(op._id, { outside_unit_cost: numberOrZero(e.target.value) })}
+                                    disabled={!isOutsideOp}
+                                    inputProps={{ min: 0, step: 0.01 }}
+                                    error={isOutsideOp && op.outside_unit_cost < 0}
+                                    sx={{ width: 110 }} />
+                                </span>
+                              </Tooltip>
+                            ) : isOutsideOp ? fmtLKR(Number(op.outside_unit_cost)) : "-"}
+                          </TableCell>
+                          <TableCell align="right">{isOutsideOp ? "-" : fmtLKR(savedOp ? Number(savedOp.labor_cost) : costs.labor)}</TableCell>
+                          <TableCell align="right">{isOutsideOp ? "-" : fmtLKR(savedOp ? Number(savedOp.overhead_cost) : costs.overhead)}</TableCell>
+                          <TableCell align="right">{isOutsideOp ? fmtLKR(savedOp ? Number(savedOp.outside_cost) : costs.outsideCost) : "-"}</TableCell>
                           {editable && (
                             <TableCell>
                               <IconButton size="small" color="error" onClick={() => removeOperation(op._id)}>
@@ -1064,6 +1255,109 @@ export default function BOMsPage() {
                 </TableBody>
               </Table>
             </Paper>
+            {operationLines.some((o) => workCenterById.get(o.work_center_id)?.is_outside) && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: -1, mb: 2 }}>
+                Outside operations are charged at the supplier&apos;s price per unit; their setup and run minutes only count towards lead time.
+              </Typography>
+            )}
+            </>
+            )}
+
+            {/* ─── By-products ─── */}
+            {section === "byproducts" && (
+            <>
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+              <Box>
+                <Typography variant="subtitle1" fontWeight="bold">By-products</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Side products made with the main product (e.g. bread crumbs, coconut poonac). They are received into stock and their value is taken off the main product&apos;s cost.
+                </Typography>
+              </Box>
+              {editable && (
+                <Button size="small" startIcon={<AddIcon />} onClick={addByProduct} disabled={byProductLines.length >= 20}>Add By-product</Button>
+              )}
+            </Box>
+            {editable && duplicateByProduct && (
+              <Alert severity="error" sx={{ mb: 1 }}>Each by-product can appear only once.</Alert>
+            )}
+            {editable && byProductClash && (
+              <Alert severity="error" sx={{ mb: 1 }}>A component cannot also be a by-product of the same BOM.</Alert>
+            )}
+            <Paper variant="outlined" sx={{ overflow: "hidden", borderRadius: 3, mb: 2 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={modernTableStyles.headerRow}>
+                    <TableCell sx={{ width: 40 }}>#</TableCell>
+                    <TableCell>By-product</TableCell>
+                    <TableCell align="right" sx={{ width: 160 }}>{`Qty per ${formData.output_quantity || 1} output`}</TableCell>
+                    <TableCell align="right" sx={{ width: 130 }}>{`Unit Cost (${currencySymbol})`}</TableCell>
+                    <TableCell align="right" sx={{ width: 130 }}>{`Value (${currencySymbol})`}</TableCell>
+                    {editable && <TableCell sx={{ width: 44 }} />}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {byProductLines.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={editable ? 6 : 5} sx={modernTableStyles.emptyCell}>
+                        {editable ? "Optional: add side products this BOM also makes" : "No by-products"}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    byProductLines.map((line, index) => {
+                      const product = productById.get(line.product_id);
+                      const invalidProduct = !line.product_id || componentIds.has(line.product_id);
+                      return (
+                        <TableRow key={line._id} sx={{ ...modernTableStyles.bodyRow, ...(index % 2 === 1 && { bgcolor: "grey.25" }) }}>
+                          <TableCell>{index + 1}</TableCell>
+                          <TableCell>
+                            {editable ? (
+                              <Autocomplete
+                                size="small"
+                                options={componentOptions}
+                                getOptionLabel={productLabel}
+                                value={product || null}
+                                onChange={(_, p) => updateByProduct(line._id, { product_id: p?.id || 0, product_name: p?.name, product_code: p?.item_code, unit_of_measure: p?.unit_of_measure })}
+                                isOptionEqualToValue={(o, v) => o.id === v.id}
+                                renderInput={(params) => (
+                                  <TextField {...params} placeholder="Select by-product" error={invalidProduct} />
+                                )}
+                                sx={{ minWidth: 240 }}
+                              />
+                            ) : (
+                              <Box>
+                                <Typography variant="body2">{line.product_name || product?.name || `#${line.product_id}`}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {line.product_code || product?.item_code}
+                                  {line.unit_of_measure ? ` · ${line.unit_of_measure}` : ""}
+                                </Typography>
+                              </Box>
+                            )}
+                          </TableCell>
+                          <TableCell align="right">
+                            {editable ? (
+                              <TextField size="small" type="number" value={line.quantity}
+                                onChange={(e) => updateByProduct(line._id, { quantity: numberOrZero(e.target.value) })}
+                                inputProps={{ min: 0.0001, step: 0.5 }} error={line.quantity <= 0} sx={{ width: 110 }} />
+                            ) : Number(line.quantity).toLocaleString()}
+                          </TableCell>
+                          <TableCell align="right">{fmtLKR(byProductUnitCost(line))}</TableCell>
+                          <TableCell align="right">{fmtLKR(byProductValue(line))}</TableCell>
+                          {editable && (
+                            <TableCell>
+                              <IconButton size="small" color="error" onClick={() => removeByProduct(line._id)}>
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </Paper>
+            </>
+            )}
 
             {/* ─── Cost roll-up ─── */}
             <FormSection title={`Cost Roll-up (for ${formData.output_quantity || 1} unit${formData.output_quantity === 1 ? "" : "s"})`} columns={3}>
@@ -1078,6 +1372,16 @@ export default function BOMsPage() {
               <Box>
                 <Typography variant="caption" color="text.secondary">Overhead</Typography>
                 <Typography variant="body2" fontWeight={600}>{currencySymbol} {fmtLKR(rollup.overhead)}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Outside work</Typography>
+                <Typography variant="body2" fontWeight={600}>{currencySymbol} {fmtLKR(rollup.outside)}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Less: By-products</Typography>
+                <Typography variant="body2" fontWeight={600} color={rollup.byproduct > 0 ? "success.main" : undefined}>
+                  {rollup.byproduct > 0 ? "- " : ""}{currencySymbol} {fmtLKR(rollup.byproduct)}
+                </Typography>
               </Box>
               <Box>
                 <Typography variant="caption" color="text.secondary">Total Cost</Typography>
@@ -1106,7 +1410,7 @@ export default function BOMsPage() {
               </Box>
             </FormSection>
 
-            {selectedBOM && !editable && (
+            {section === "overview" && selectedBOM && !editable && (
               <FormSection
                 title="Activity History"
                 columns={2}
@@ -1157,7 +1461,7 @@ export default function BOMsPage() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 230, flexShrink: 0 }}
+                sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
               />
               <Box sx={{ width: 160, flexShrink: 0 }}>
                 <TStatusFilter options={BOM_STATUS_OPTIONS} value={filterStatus} onChange={setFilterStatus} label="" placeholder="All Statuses" size="small" />
@@ -1187,18 +1491,26 @@ export default function BOMsPage() {
       />
       <TConfirmDialog {...confirmDialog.dialogProps} />
 
-      {/* New version prompt */}
-      <Dialog open={versionDialogOpen} onClose={() => setVersionDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>New BOM Version</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Copies {selectedBOM?.bom_no} (v{selectedBOM?.version}) with all its components and operations into a new draft.
+      {/* New version */}
+      <TSidePanel
+        open={versionPanelOpen}
+        onClose={() => { if (!copyMutation.isPending) setVersionPanelOpen(false); }}
+        title="New BOM Version"
+        submitText="Create Version"
+        isSubmitting={copyMutation.isPending}
+        submitDisabled={!newVersion.trim() || copyMutation.isPending}
+        onSubmit={submitCopy}
+      >
+        <FormSection title="Version" columns={1} isLast>
+          <Typography variant="body2" color="text.secondary">
+            Copies {selectedBOM?.bom_no} (v{selectedBOM?.version}) with all its components, operations and by-products into a new draft.
           </Typography>
           <TextField
             autoFocus
             fullWidth
             size="small"
             label="Version"
+            required
             value={newVersion}
             onChange={(e) => setNewVersion(e.target.value)}
             inputProps={{ maxLength: 20 }}
@@ -1209,18 +1521,8 @@ export default function BOMsPage() {
               }
             }}
           />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setVersionDialogOpen(false)} disabled={copyMutation.isPending}>Cancel</Button>
-          <Button
-            variant="contained"
-            disabled={!newVersion.trim() || copyMutation.isPending}
-            onClick={submitCopy}
-          >
-            Create Version
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </FormSection>
+      </TSidePanel>
 
       <TActivityHistoryPanel
         open={activityHistoryOpen}

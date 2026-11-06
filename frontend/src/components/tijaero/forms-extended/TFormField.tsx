@@ -314,7 +314,7 @@ export function TFormField<T extends FieldValues = FieldValues>({
                 }}
                 onChange={(e) => {
                   const val = e.target.value;
-                  field.onChange(val === "" ? "" : Number(val));
+                  field.onChange(val === "" ? null : Number(val));
                 }}
                 sx={containerSx}
               />

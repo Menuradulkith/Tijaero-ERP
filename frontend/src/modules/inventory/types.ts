@@ -82,12 +82,18 @@ export interface Product {
   tracking_type: "serial" | "batch" | "none";
   over_receipt_tolerance_pct?: number;  // % a PO line may be over-received
   under_receipt_tolerance_pct?: number;  // % short at which a PO line counts as fully received
+  /** Manufacturing: a produced batch expires this many days after production (null = no expiry). */
+  shelf_life_days?: number | null;
+  /** Manufacturing: production output stays frozen until it passes a quality check. */
+  requires_qc?: boolean;
   description?: string;
   website_active: boolean;
   website_price?: number;
   selling_price?: number;  // Selling price for sales stock
   active: boolean;
   cost_price: number;
+  /** VAT/tax % added to this product's purchase order lines. */
+  tax_rate?: number;
   category_id: number;
   items_brand_id: number;
   image_url?: string;
@@ -163,12 +169,15 @@ export interface ProductCreate {
   tracking_type?: string;
   over_receipt_tolerance_pct?: number;
   under_receipt_tolerance_pct?: number;
+  shelf_life_days?: number | null;
+  requires_qc?: boolean;
   description?: string;
   website_active?: boolean;
   website_price?: number;
   selling_price?: number;  // Selling price for sales stock
   active?: boolean;
   cost_price?: number;
+  tax_rate?: number;
   category_id: number;
   items_brand_id: number;
   image_url?: string;
@@ -184,12 +193,16 @@ export interface ProductUpdate {
   tracking_type?: string;
   over_receipt_tolerance_pct?: number;
   under_receipt_tolerance_pct?: number;
+  // null clears the shelf life
+  shelf_life_days?: number | null;
+  requires_qc?: boolean;
   description?: string;
   website_active?: boolean;
   website_price?: number;
   selling_price?: number;  // Selling price for sales stock
   active?: boolean;
   cost_price?: number;
+  tax_rate?: number;
   category_id?: number;
   items_brand_id?: number;
   // No image_url: the upload/remove image endpoints are its only writers, so

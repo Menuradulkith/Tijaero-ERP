@@ -83,7 +83,7 @@ function ThemedApp() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <App />
-      <Toaster position="top-right" />
+      <Toaster position="bottom-center" />
     </ThemeProvider>
   );
 }

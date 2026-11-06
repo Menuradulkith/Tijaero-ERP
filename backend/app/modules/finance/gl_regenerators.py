@@ -391,6 +391,12 @@ _register("MfgTimeLog", None, _simple((_M, "MfgTimeLog"), "Time log",
 _register("MfgOutput", None, _simple((_M, "MfgProductionOutput"), "Production output",
           lambda db, o, uid: _mfg(db).post_output(o, uid)),
           lookup_marker=_marker("MfgOutput ID: {id}"))
+_register("MfgOutsideReceipt", None, _simple((_M, "MfgOutsideReceipt"), "Outside work receipt",
+          lambda db, o, uid: _mfg(db).post_outside_receipt(o, uid)),
+          lookup_marker=_marker("MfgOutsideReceipt ID: {id}"))
+_register("MfgQcResult", None, _simple((_M, "MfgQcResult"), "Quality decision",
+          lambda db, o, uid: _mfg(db).post_qc_failure(o, uid)),
+          lookup_marker=_marker("MfgQcResult ID: {id}"))
 _register("ProductionOrder", "Production Variance", _simple((_M, "MfgProductionOrder"), "Production order",
           lambda db, o, uid: _mfg(db).post_variance(o, uid)),
           lookup_marker=lambda _rid: "Production Variance")

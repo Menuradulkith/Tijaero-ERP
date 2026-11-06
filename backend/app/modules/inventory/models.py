@@ -52,6 +52,8 @@ class SalesStock(Base, AuditMixin):
     production_order_id = Column(Integer, ForeignKey("mfg_production_orders.id"), nullable=True, index=True)
     # Set while the units are consumed by (issued to) a production order
     consumed_by_production_order_id = Column(Integer, ForeignKey("mfg_production_orders.id"), nullable=True, index=True)
+    # The output receipt that created this row (batch traceability, quality hold)
+    production_output_id = Column(Integer, ForeignKey("mfg_production_outputs.id"), nullable=True, index=True)
     warranty_month = Column(String(30), nullable=True)  
     status = Column(String(50), nullable=False, default="available", index=True)  
     is_active = Column(Boolean, nullable=False, default=True)  

@@ -63,8 +63,35 @@ class CustomerSupportService:
         if not _in_scope(self.user, branch_code):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
 
+    def _check_refs(self, ticket: schemas.CustomerSupportCreate) -> None:
+        """Name the field when an id points at nothing, and keep a ticket's invoice in its branch."""
+        from app.auth.models import User
+        from app.modules.customers.models import Customer
+        from app.modules.sales.models import Invoice
+
+        def bad(detail: str):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+        if not self.db.query(User.id).filter(User.id == ticket.assigned_user_id, User.is_active.is_(True)).first():
+            bad(f"Assigned user {ticket.assigned_user_id} not found or inactive")
+        if ticket.customer_id is not None and not self.db.query(Customer.id).filter(Customer.id == ticket.customer_id).first():
+            bad(f"Customer {ticket.customer_id} not found")
+        if ticket.invoice_id is not None:
+            invoice = (
+                self.db.query(Invoice.invoice_no, Invoice.branch_code, Invoice.customer_id)
+                .filter(Invoice.id == ticket.invoice_id)
+                .first()
+            )
+            if not invoice or not _in_scope(self.user, invoice.branch_code):
+                bad(f"Invoice {ticket.invoice_id} not found")
+            if invoice.branch_code != ticket.branch_code:
+                bad(f"Invoice {invoice.invoice_no} belongs to branch {invoice.branch_code}, not {ticket.branch_code}")
+            if ticket.customer_id is not None and invoice.customer_id != ticket.customer_id:
+                bad(f"Invoice {invoice.invoice_no} belongs to another customer")
+
     def create_support_ticket(self, ticket: schemas.CustomerSupportCreate) -> CustomerSupport:
         self._check_branch(ticket.branch_code)
+        self._check_refs(ticket)
         # Generate job number
         job_number = self._get_next_ticket_number(ticket.branch_code)
         # Create ticket with auto-generated job number
@@ -117,6 +144,7 @@ class CustomerSupportService:
         db_ticket = self.get_support_ticket(ticket_id)
         if ticket.branch_code != db_ticket.branch_code:
             self._check_branch(ticket.branch_code)
+        self._check_refs(ticket)
         for key, value in ticket.model_dump(exclude={"job_number"}).items():
             setattr(db_ticket, key, value)
         self.db.commit()
@@ -146,8 +174,23 @@ class CSJobItemService:
     def _ticket(self, ticket_id: int) -> CustomerSupport:
         return CustomerSupportService(self.db, self.user).get_support_ticket(ticket_id)
 
+    def _check_refs(self, item: schemas.CSJobItemCreate) -> None:
+        from app.modules.products.models import Product
+
+        if not self.db.query(Product.id).filter(Product.id == item.product_id).first():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Product {item.product_id} not found")
+        if item.warrent_claim_id is not None:
+            try:
+                WarrantyClaimService(self.db, self.user).get_warranty_claim(item.warrent_claim_id)
+            except HTTPException:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Warranty claim {item.warrent_claim_id} not found",
+                )
+
     def create_job_item(self, item: schemas.CSJobItemCreate) -> CSJobItem:
         self._ticket(item.customer_support_id)
+        self._check_refs(item)
         db_item = CSJobItem(**item.model_dump(), date=tz.now())
         self.db.add(db_item)
         self.db.commit()
@@ -174,6 +217,7 @@ class CSJobItemService:
         db_item = self.get_job_item(item_id)
         if item.customer_support_id != db_item.customer_support_id:
             self._ticket(item.customer_support_id)
+        self._check_refs(item)
         for key, value in item.model_dump().items():
             setattr(db_item, key, value)
         self.db.commit()
@@ -248,8 +292,38 @@ class WarrantyClaimService:
         if not order or not _in_scope(self.user, order.branch_code):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Sales order {order_id} not found")
 
+    def _check_barcode_on_order(self, order_id: int, code: str) -> None:
+        """The claimed unit must have been sold on the order: its serial, the stock unit's
+        serial or batch, or the product's item code for untracked goods."""
+        from sqlalchemy import or_
+        from app.modules.inventory.models import SalesStock
+        from app.modules.products.models import Product
+        from app.modules.sales.models import InvoiceItems
+
+        found = (
+            self.db.query(InvoiceItems.id)
+            .outerjoin(SalesStock, SalesStock.id == InvoiceItems.sales_stock_id)
+            .join(Product, Product.id == InvoiceItems.product_id)
+            .filter(
+                InvoiceItems.invoice_id == order_id,
+                or_(
+                    InvoiceItems.barcode == code,
+                    SalesStock.barcode == code,
+                    SalesStock.batch_no == code,
+                    Product.item_code == code,
+                ),
+            )
+            .first()
+        )
+        if not found:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Barcode {code} was not sold on sales order {order_id}",
+            )
+
     def create_warranty_claim(self, claim: schemas.WarrantyClaimCreate) -> WarrantyClaims:
         self._check_order(claim.order_id)
+        self._check_barcode_on_order(claim.order_id, claim.product_barcode_old_code)
         db_claim = WarrantyClaims(**claim.model_dump(), created_date=tz.now())
         self.db.add(db_claim)
         self.db.commit()
@@ -287,6 +361,8 @@ class WarrantyClaimService:
         db_claim = self.get_warranty_claim(claim_id)
         if claim.order_id != db_claim.order_id:
             self._check_order(claim.order_id)
+        if (claim.order_id, claim.product_barcode_old_code) != (db_claim.order_id, db_claim.product_barcode_old_code):
+            self._check_barcode_on_order(claim.order_id, claim.product_barcode_old_code)
         for key, value in claim.model_dump().items():
             setattr(db_claim, key, value)
         self.db.commit()

@@ -1,5 +1,6 @@
 import csv
 import io
+from datetime import date
 from typing import List, Optional
 
 from app.auth.dependencies import (
@@ -287,8 +288,8 @@ def get_paginated_sales_stock(
     search: Optional[str] = None,
     brand_id: Optional[int] = None,
     location_id: Optional[int] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),

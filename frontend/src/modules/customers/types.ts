@@ -486,6 +486,7 @@ export interface CustomerContactPerson {
   email?: string;
   phone?: string;
   is_primary: boolean;
+  active?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -497,6 +498,7 @@ export interface CustomerContactPersonCreate {
   email?: string;
   phone?: string;
   is_primary?: boolean;
+  active?: boolean;
 }
 
 export type CustomerContactPersonUpdate = Partial<CustomerContactPersonCreate>;

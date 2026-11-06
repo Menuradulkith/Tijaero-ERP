@@ -52,6 +52,7 @@ import {
   MasterDetailLayout,
   DetailPanelHeader,
   ActionToolbar,
+  continueOrReveal,
   FormSection,
   EmptyState,
   useMasterDetailState,
@@ -398,6 +399,8 @@ export default function SuppliersPage() {
   // is a real option, "Due on Receipt"). Existing suppliers always have a
   // real saved value, so this is set true whenever one is selected.
   const [paymentTermsChosen, setPaymentTermsChosen] = useState(false);
+  // The supplier just created in this session: it is walked through the remaining tabs with Next.
+  const [justCreatedId, setJustCreatedId] = useState<number | null>(null);
 
   const { data: countryRefData } = useReferenceData(["countries", "currencies"]);
   const countries: CountryRef[] = countryRefData?.countries || [];
@@ -1149,6 +1152,7 @@ export default function SuppliersPage() {
       setDraftLogoFile(null);
       setIsCreating(false);
       setIsEditing(false);
+      setJustCreatedId(newSupplier.id);
       // newSupplier is the response from before the logo/contact/payment
       // drafts above were flushed against its id, so it doesn't reflect them
       // yet (e.g. logo_path is still null even though the upload above just
@@ -1396,7 +1400,9 @@ export default function SuppliersPage() {
     formData.country_id &&
     formData.email &&
     emailRegex.test(formData.email) &&
-    !leadTimeMissingUnit
+    !leadTimeMissingUnit &&
+    formData.lead_time_days != null &&
+    !!leadTimeUnit
   );
   const isAddressValid = !!(
     formData.billing_address_line1?.trim() &&
@@ -1425,9 +1431,11 @@ export default function SuppliersPage() {
 
   // Whether we're showing a single supplier's detail view (selected or being
   // created) instead of the browse table.
-  // "Next" while creating appears once General's mandatory fields are filled; the other tabs are optional.
+  // "Next" (only after the first save) validates the tab being left (highlighting what is missing) before moving on.
   const nextSupplierTab = SUPPLIER_DETAIL_TABS[SUPPLIER_DETAIL_TABS.findIndex((t) => t.id === activeSection) + 1];
-  const canGoNext = !!nextSupplierTab && (activeSection !== "general" || isGeneralValid);
+  const prevSupplierTab = SUPPLIER_DETAIL_TABS[SUPPLIER_DETAIL_TABS.findIndex((t) => t.id === activeSection) - 1];
+  const currentSectionValid =
+    activeSection === "general" ? isGeneralValid : activeSection === "address" ? isAddressValid : true;
 
   const isSupplierDetailMode = !!selectedSupplier || isCreating;
 
@@ -1487,7 +1495,7 @@ export default function SuppliersPage() {
         tabsSlot={
           (selectedSupplier || isCreating) && (
             <TTabs
-              tabs={SUPPLIER_DETAIL_TABS.map((t) => (isCreating && t.id !== "general" ? { ...t, disabled: !isGeneralValid } : t))}
+              tabs={SUPPLIER_DETAIL_TABS.map((t) => (isCreating && t.id !== "general" ? { ...t, disabled: true } : t))}
               activeTab={activeSection}
               onChange={(id) => setActiveSection(id as typeof activeSection)}
               appearance="segmented"
@@ -1507,7 +1515,19 @@ export default function SuppliersPage() {
         onNew={canCreateSupplier ? handleNewSupplier : undefined}
         onDuplicate={handleDuplicate}
         onSave={handleSave}
-        onNext={canGoNext ? () => setActiveSection(nextSupplierTab.id as typeof activeSection) : undefined}
+        onBack={
+          prevSupplierTab && !isCreating && selectedSupplier?.id === justCreatedId
+            ? () => setActiveSection(prevSupplierTab.id as typeof activeSection)
+            : undefined
+        }
+        onNext={
+          nextSupplierTab && !isCreating && selectedSupplier?.id === justCreatedId
+            ? () =>
+                continueOrReveal(currentSectionValid, () =>
+                  setActiveSection(nextSupplierTab.id as typeof activeSection),
+                )
+            : undefined
+        }
         onCancel={handleCancelSupplier}
         onEdit={canUpdateSupplier ? handleStartEdit : undefined}
       />
@@ -1655,6 +1675,7 @@ export default function SuppliersPage() {
                     });
                   }}
                   disabled={!isEditing && !isCreating}
+                  required
                   inputProps={{ min: 0 }}
                   sx={{ flex: 1 }}
                 />
@@ -1673,7 +1694,7 @@ export default function SuppliersPage() {
                     setPendingLeadTime("");
                   }}
                   disabled={!isEditing && !isCreating}
-                  required={leadTimeMissingUnit}
+                  required
                   error={leadTimeMissingUnit}
                   helperText={leadTimeMissingUnit ? "Select a unit for the lead time" : undefined}
                   InputLabelProps={{ shrink: true }}

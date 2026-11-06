@@ -1,5 +1,5 @@
 from pydantic import BaseModel, BeforeValidator, EmailStr, Field, StringConstraints, field_validator, field_serializer, model_validator
-from app.common.validators import normalize_phone_number
+from app.common.validators import normalize_phone_number, warranty_months
 from datetime import date, datetime, timedelta
 from typing import Annotated, Generic, Literal, Optional, List, TypeVar
 from decimal import Decimal
@@ -10,6 +10,7 @@ from app.common.enums import PurchaseOrderStatus, DocumentStatus, SupplierTaxAre
 
 
 T = TypeVar("T")
+WarrantyMonths = Annotated[Optional[str], BeforeValidator(warranty_months)]
 
 
 class Page(BaseModel, Generic[T]):
@@ -46,8 +47,16 @@ def ReqStr(n: int):
     return Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=n)]
 
 
-def OptStr(n: int):
-    return Annotated[Optional[Annotated[str, StringConstraints(max_length=n)]], BeforeValidator(_blank_to_none)]
+def OptStr(n: int, pattern: Optional[str] = None):
+    return Annotated[
+        Optional[Annotated[str, StringConstraints(max_length=n, pattern=pattern)]],
+        BeforeValidator(_blank_to_none),
+    ]
+
+
+# Same rules as the customer ID card / passport fields.
+IdCardNumber = OptStr(12, pattern=r"^[A-Za-z0-9-]{4,12}$")
+PassportNo = OptStr(50, pattern=r"^[A-Za-z0-9-]{4,50}$")
 
 
 Text255 = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
@@ -287,8 +296,8 @@ class SupplierContactPersonInputBase(BaseModel):
     occupation: OptStr(255) = None
     gender: OptStr(30) = None
     birthdate: Optional[date] = None
-    id_card_number: OptStr(12) = None
-    passport_no: OptStr(50) = None
+    id_card_number: IdCardNumber = None
+    passport_no: PassportNo = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     active: bool = True
@@ -325,8 +334,8 @@ class SupplierContactPersonUpdate(BaseModel):
     occupation: OptStr(255) = None
     gender: OptStr(30) = None
     birthdate: Optional[date] = None
-    id_card_number: OptStr(12) = None
-    passport_no: OptStr(50) = None
+    id_card_number: IdCardNumber = None
+    passport_no: PassportNo = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
 
@@ -617,6 +626,7 @@ class PurchasingOrderItemCreate(BaseModel):
 
 class PurchasingOrderItem(PurchasingOrderItemBase, TijaeroBaseSchema):
     id: int
+    tax_rate: Decimal = Decimal("0")
     purchasingorders_id: int
     created_date: date
     added_date: datetime
@@ -721,6 +731,8 @@ class PurchasingOrder(PurchasingOrderBase, TijaeroBaseSchema):
     updated_by_name: Optional[str] = None
     status: PurchaseOrderStatus = PurchaseOrderStatus.PENDING
     total_amount: Decimal = Decimal("0.00")
+    subtotal_amount: Decimal = Decimal("0.00")
+    tax_amount: Decimal = Decimal("0.00")
     paid_amount: Decimal = Decimal("0.00")
     # Derived from line items (see PurchasingOrder.total_quantity on the
     # model) — shown as a browse-table column.
@@ -873,6 +885,7 @@ class PurchasingReturnBase(BaseModel):
         return v
 
 class PurchasingReturnCreate(PurchasingReturnBase):
+    remark: OptStr(2000) = None  # comment
     items: List[PurchasingReturnItemCreate] = Field(..., min_length=1)  # a return without items is meaningless
     require_approval: bool = False
 
@@ -900,9 +913,9 @@ class PurchasingReturnWithItems(PurchasingReturn):
     items: List[PurchasingReturnItem] = []
 
 class BarcodeValidationRequest(BaseModel):
-    barcode: str
-    grn_id: int
-    branch_code: str
+    barcode: str = Field(..., min_length=1, max_length=255)
+    grn_id: int = Field(..., ge=1, le=2_147_483_647)
+    branch_code: str = Field(..., min_length=1, max_length=200)
 
 class BarcodeValidationResponse(BaseModel):
     valid: bool
@@ -919,10 +932,10 @@ class BarcodeValidationResponse(BaseModel):
 
 
 class LotReturnValidationRequest(BaseModel):
-    grn_id: int
-    sales_stock_id: int
-    quantity: int = Field(..., ge=1)
-    branch_code: Optional[str] = None  # the returning branch: the lot must be stocked there
+    grn_id: int = Field(..., ge=1, le=2_147_483_647)
+    sales_stock_id: int = Field(..., ge=1, le=2_147_483_647)
+    quantity: int = Field(..., ge=1, le=1_000_000)
+    branch_code: Optional[str] = Field(None, max_length=200)  # the returning branch: the lot must be stocked there
 
 
 class LotReturnValidationResponse(BaseModel):
@@ -984,14 +997,27 @@ class GoodReceivedNoteBase(BaseModel):
     good_received_locations_id: int
     purchasingorders_id: int
 
+_VEHICLE_NO_RE = re.compile(r"[A-Za-z0-9 \-]+")
+
+
+def _check_vehicle_no(v):
+    if isinstance(v, str):
+        v = v.strip()
+        if not v:
+            return None
+        if not _VEHICLE_NO_RE.fullmatch(v):
+            raise ValueError("Vehicle No may only contain letters, digits, spaces and dashes")
+    return v
+
+
 class GoodReceivedNoteCreate(GoodReceivedNoteBase):
-    pass
+    _v_vehicle_no = field_validator("vehicle_no")(_check_vehicle_no)
 
 
 class GRNReceiveUnit(BaseModel):
     """One accepted serial unit."""
     barcode: str = Field(..., min_length=1, max_length=200)
-    warranty_month: Optional[str] = Field(default=None, max_length=30)
+    warranty_month: WarrantyMonths = None
 
 
 class GRNReceiveLine(BaseModel):
@@ -1002,7 +1028,7 @@ class GRNReceiveLine(BaseModel):
     quantity: int = Field(default=0, ge=0, le=1_000_000)
     batch_no: Optional[str] = Field(default=None, max_length=100)
     expiry_date: Optional[date] = None
-    warranty_month: Optional[str] = Field(default=None, max_length=30)
+    warranty_month: WarrantyMonths = None
     rejected_quantity: int = Field(default=0, ge=0, le=1_000_000)
     rejection_reason: Optional[str] = Field(default=None, max_length=500)
 
@@ -1010,6 +1036,8 @@ class GRNReceiveLine(BaseModel):
 class GoodReceivedNoteReceive(GoodReceivedNoteBase):
     """A complete receipt - header + every line - posted in ONE transaction."""
     lines: List[GRNReceiveLine] = Field(..., min_length=1, max_length=500)
+
+    _v_vehicle_no = field_validator("vehicle_no")(_check_vehicle_no)
 
     @field_validator("good_received_date", "supplier_invoice_date")
     @classmethod
@@ -1169,6 +1197,18 @@ def _required_text(value):
     return v
 
 
+PAYMENT_METHODS_NEEDING_REFERENCE = ("bank_transfer", "bank", "cheque")
+
+
+def _check_payment_reference(model):
+    """Trim reference_number (blank -> None); bank transfers and cheques must carry one."""
+    ref = (model.reference_number or "").strip() or None
+    model.reference_number = ref
+    if ref is None and model.payment_method in PAYMENT_METHODS_NEEDING_REFERENCE:
+        raise ValueError("Reference number is required for bank transfer and cheque payments")
+    return model
+
+
 class SupplierCreditsSettleTransactionBase(BaseModel):
     payment_method: str
     cheque_date: date
@@ -1277,6 +1317,7 @@ class SupplierPaymentBase(BaseModel):
 class SupplierPaymentCreate(SupplierPaymentBase):
     purchasing_order_id: Optional[int] = Field(None, ge=1)
     payment_amount: PositiveMoneyInput
+    reference_number: Optional[str] = Field(None, max_length=300)
 
     @field_validator("payment_method")
     @classmethod
@@ -1287,6 +1328,10 @@ class SupplierPaymentCreate(SupplierPaymentBase):
     @classmethod
     def _text(cls, v):
         return _required_text(v)
+
+    @model_validator(mode="after")
+    def _reference(self):
+        return _check_payment_reference(self)
 
 
 class SupplierPaymentUpdate(BaseModel):
@@ -1408,6 +1453,7 @@ class SupplierAdvancePaymentWithApplications(SupplierAdvancePayment):
 class SupplierAdvancePaymentListFilter(BaseModel):
     supplier_id: Optional[int] = None
     branch_code: Optional[str] = None
+    branch_codes: Optional[List[str]] = None
     is_fully_applied: Optional[bool] = None
     date_from: Optional[date] = None
     date_to: Optional[date] = None

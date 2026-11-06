@@ -3,7 +3,7 @@ from typing import Annotated, Optional
 
 from app.common.base_schemas import TijaeroBaseSchema
 from app.common.validators import normalize_phone_number
-from pydantic import BaseModel, EmailStr, Field, StringConstraints, field_validator
+from pydantic import BaseModel, BeforeValidator, EmailStr, Field, StringConstraints, field_validator
 
 # Name/code must carry real content: trimmed (so "X " == "X"), non-blank, and
 # within the String(255) column so an over-long value is a 422, not a DB 500.
@@ -40,13 +40,24 @@ class BranchBase(BaseModel):
     active: bool = True
 
 
+def _blank_to_none(v):
+    if isinstance(v, str):
+        return v.strip() or None
+    return v
+
+
+def _OptText(n: int):
+    """Optional input text: trimmed, blank -> None, at most n characters."""
+    return Annotated[Optional[Annotated[str, StringConstraints(max_length=n)]], BeforeValidator(_blank_to_none)]
+
+
 class _AddressInput(BaseModel):
-    address: Optional[str] = Field(None, max_length=1000)
-    address_line1: Optional[str] = Field(None, max_length=255)
-    address_line2: Optional[str] = Field(None, max_length=255)
-    city: Optional[str] = Field(None, max_length=120)
-    state: Optional[str] = Field(None, max_length=120)
-    postal_code: Optional[str] = Field(None, max_length=20)
+    address: _OptText(1000) = None
+    address_line1: _OptText(255) = None
+    address_line2: _OptText(255) = None
+    city: _OptText(120) = None
+    state: _OptText(120) = None
+    postal_code: _OptText(20) = None
 
 
 class BranchCreate(_AddressInput):

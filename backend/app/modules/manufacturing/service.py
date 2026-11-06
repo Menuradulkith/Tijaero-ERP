@@ -8,6 +8,12 @@ Lifecycle (ProductionOrderStatus):
 
 Quantities on stock rows are whole units, so a BOM line's requirement for an order is
 rounded up: ceil(quantity per unit x (1 + scrap %) x units).
+
+Sri Lankan additions (s130): an order may produce up to ``overproduction_pct`` more than
+planned (good + scrap together); scrap needs a reason; a finished batch gets its expiry from
+the product's shelf life; output of a ``requires_qc`` product is held (stock status frozen)
+until a quality decision; outside operations are done by a subcontractor and costed per unit;
+a BOM can yield by-products. Expired component lots are never issued.
 """
 from __future__ import annotations
 
@@ -106,8 +112,10 @@ def _location_names(db: Session, ids: Iterable[Optional[int]]) -> Dict[int, str]
 
 
 def _free_stock_filter(product_ids, branch_codes: Optional[List[str]]):
+    # Expired lots are not free stock: they are never issued, nor counted as supply
     f = [SalesStock.product_id.in_(product_ids), SalesStock.status == StockStatus.AVAILABLE,
-         SalesStock.is_active.is_(True), SalesStock.reserved_for_quote_item_id.is_(None)]
+         SalesStock.is_active.is_(True), SalesStock.reserved_for_quote_item_id.is_(None),
+         or_(SalesStock.expiry_date.is_(None), SalesStock.expiry_date >= tz.today())]
     if branch_codes is not None:
         f.append(SalesStock.branch_code.in_(branch_codes))
     return f
@@ -124,6 +132,25 @@ def free_stock(db: Session, product_ids: Iterable[int], branch_codes: Optional[L
     return {pid: int(q) for pid, q in rows}
 
 
+def _max_units(order: m.MfgProductionOrder) -> int:
+    """Good + scrap units the order can take: planned plus the over-production tolerance."""
+    return int(D(order.planned_quantity) * (1 + D(str(order.overproduction_pct or 0)) / 100))
+
+
+def _supplier_names(db: Session, ids: Iterable[Optional[int]]) -> Dict[int, str]:
+    from app.modules.purchasing.models import Supplier
+    ids = {i for i in ids if i}
+    if not ids:
+        return {}
+    return {sid: name for sid, name in db.query(Supplier.id, Supplier.company_name).filter(Supplier.id.in_(ids))}
+
+
+def _lots(rows) -> List[dict]:
+    return [dict(stock_id=r.id, batch_no=r.batch_no, barcode=r.barcode,
+                 expiry_date=r.expiry_date.isoformat() if r.expiry_date else None, quantity=r.quantity or 0)
+            for r in rows]
+
+
 def _active_bom_products(db: Session, product_ids: Iterable[int]) -> set:
     product_ids = list(set(product_ids))
     if not product_ids:
@@ -132,12 +159,23 @@ def _active_bom_products(db: Session, product_ids: Iterable[int]) -> set:
             .filter(m.MfgBOM.product_id.in_(product_ids), m.MfgBOM.status == BOMStatus.ACTIVE).distinct()}
 
 
+def _planned_outside(order: m.MfgProductionOrder) -> Decimal:
+    """Planned outside work: per-unit price x planned units on every outside operation."""
+    return _money(sum((D(str(op.outside_unit_cost or 0)) * order.planned_quantity
+                       for op in order.operations if op.is_outside), D("0")))
+
+
+def _actual_cost(order: m.MfgProductionOrder) -> Decimal:
+    return _money(D(str(order.actual_material_cost)) + D(str(order.actual_labor_cost))
+                  + D(str(order.actual_overhead_cost)) + D(str(order.actual_outside_cost or 0)))
+
+
 # ═══════════════════════════ work centers ═══════════════════════════
 class WorkCenterService:
     def __init__(self, db: Session):
         self.db = db
 
-    def _load(self, ids=None) -> Dict[int, tuple]:
+    def _load(self, ids=None, branch_codes: Optional[List[str]] = None) -> Dict[int, tuple]:
         q = (self.db.query(m.MfgProductionOrderOperation.work_center_id,
                            func.sum(func.greatest(m.MfgProductionOrderOperation.planned_minutes
                                                   - m.MfgProductionOrderOperation.actual_minutes, 0)),
@@ -147,12 +185,15 @@ class WorkCenterService:
                      m.MfgProductionOrderOperation.status != "completed"))
         if ids is not None:
             q = q.filter(m.MfgProductionOrderOperation.work_center_id.in_(ids))
+        if branch_codes is not None:
+            q = q.filter(m.MfgProductionOrder.branch_code.in_(branch_codes))
         return {wc: (D(str(mins or 0)), int(n)) for wc, mins, n in q.group_by(m.MfgProductionOrderOperation.work_center_id)}
 
     def _out(self, wc: m.MfgWorkCenter, load: Dict[int, tuple]) -> dict:
         data = s.WorkCenterOut.model_validate(wc).model_dump()
         mins, n = load.get(wc.id, (D("0"), 0))
-        data.update(open_load_minutes=mins.quantize(CENT), open_operations=n)
+        data.update(open_load_minutes=mins.quantize(CENT), open_operations=n,
+                    supplier_name=_supplier_names(self.db, [wc.supplier_id]).get(wc.supplier_id))
         return data
 
     def list(self, q: Optional[str] = None, active: Optional[bool] = None,
@@ -189,8 +230,13 @@ class WorkCenterService:
         if branch_code and not self.db.query(Branch.id).filter(Branch.branch_code == branch_code).first():
             raise _bad(f"Branch '{branch_code}' does not exist")
 
+    def _check_supplier(self, supplier_id: Optional[int]):
+        if supplier_id and not _supplier_names(self.db, [supplier_id]):
+            raise _bad(f"Supplier #{supplier_id} does not exist")
+
     def create(self, data: s.WorkCenterIn, user_id: int) -> dict:
         self._check(data.code, data.branch_code)
+        self._check_supplier(data.supplier_id)
         wc = m.MfgWorkCenter(**data.model_dump(), created_by=user_id, updated_by=user_id)
         self.db.add(wc)
         self.db.flush()
@@ -206,6 +252,7 @@ class WorkCenterService:
         if "name" in changes and changes["name"] is None:
             changes.pop("name")
         self._check(changes.get("code"), changes.get("branch_code"), exclude_id=wc.id)
+        self._check_supplier(changes.get("supplier_id"))
         for k, v in changes.items():
             setattr(wc, k, v)
         wc.updated_by = user_id
@@ -233,7 +280,7 @@ class BOMService:
     def _query(self):
         return self.db.query(m.MfgBOM).options(
             selectinload(m.MfgBOM.items).selectinload(m.MfgBOMItem.product).selectinload(Product.price_tiers),
-            selectinload(m.MfgBOM.operations))
+            selectinload(m.MfgBOM.operations), selectinload(m.MfgBOM.by_products))
 
     def get(self, bom_id: int) -> m.MfgBOM:
         bom = self._query().filter(m.MfgBOM.id == bom_id).first()
@@ -259,24 +306,44 @@ class BOMService:
                 quantity=i.quantity, scrap_pct=i.scrap_pct, issue_method=i.issue_method, remark=i.remark,
                 unit_cost=_money(cost), line_cost=line, is_manufactured=i.product_id in manufactured,
             ))
-        labor = overhead = D("0")
+        labor = overhead = outside = D("0")
         ops = []
         for o in bom.operations:
             wc = o.work_center
-            mins = _op_minutes(o.setup_minutes, o.run_minutes, out_qty, wc.efficiency_pct if wc else 100)
-            lc = _rate_cost(mins, wc.labor_rate_per_hour if wc else 0)
-            oc = _rate_cost(mins, wc.overhead_rate_per_hour if wc else 0)
+            is_outside = bool(wc and wc.is_outside)
+            if is_outside:   # a subcontractor charges per unit, not by time
+                lc = oc = D("0")
+                xc = _money(D(str(o.outside_unit_cost or 0)) * out_qty)
+            else:
+                mins = _op_minutes(o.setup_minutes, o.run_minutes, out_qty, wc.efficiency_pct if wc else 100)
+                lc = _rate_cost(mins, wc.labor_rate_per_hour if wc else 0)
+                oc = _rate_cost(mins, wc.overhead_rate_per_hour if wc else 0)
+                xc = D("0")
             labor += lc
             overhead += oc
+            outside += xc
             ops.append(dict(
                 id=o.id, sequence=o.sequence, name=o.name, work_center_id=o.work_center_id,
                 work_center_code=wc.code if wc else None, work_center_name=wc.name if wc else None,
                 setup_minutes=o.setup_minutes, run_minutes=o.run_minutes, description=o.description,
-                labor_cost=lc, overhead_cost=oc,
+                labor_cost=lc, overhead_cost=oc, is_outside=is_outside,
+                outside_unit_cost=o.outside_unit_cost or D("0"), outside_cost=xc,
             ))
-        total = _money(material + labor + overhead)
-        return dict(items=items, operations=ops, material_cost=_money(material), labor_cost=_money(labor),
-                    overhead_cost=_money(overhead), total_cost=total, unit_cost=_money(total / out_qty))
+        byproducts, by_value = [], D("0")
+        for b in bom.by_products:
+            cost = standard_cost(b.product)
+            value = _money(D(str(b.quantity)) * cost)
+            by_value += value
+            byproducts.append(dict(
+                id=b.id, product_id=b.product_id, product_name=b.product.name if b.product else None,
+                product_code=b.product.item_code if b.product else None,
+                unit_of_measure=b.product.unit_of_measure if b.product else None,
+                quantity=b.quantity, unit_cost=cost, line_value=value))
+        # By-products carry their own cost, so the main product costs that much less
+        total = _money(max(material + labor + overhead + outside - by_value, D("0")))
+        return dict(items=items, operations=ops, by_products=byproducts, material_cost=_money(material),
+                    labor_cost=_money(labor), overhead_cost=_money(overhead), outside_cost=_money(outside),
+                    byproduct_value=_money(by_value), total_cost=total, unit_cost=_money(total / out_qty))
 
     def _out(self, bom: m.MfgBOM, with_lines: bool = True) -> dict:
         r = self.rollup(bom)
@@ -287,14 +354,15 @@ class BOMService:
             unit_of_measure=p.unit_of_measure if p else None,
             product_cost_price=standard_cost(p),
             version=bom.version, output_quantity=bom.output_quantity, status=bom.status,
-            is_default=bom.is_default, description=bom.description,
+            is_default=bom.is_default, description=bom.description, overproduction_pct=bom.overproduction_pct,
             item_count=len(bom.items), operation_count=len(bom.operations),
             material_cost=r["material_cost"], labor_cost=r["labor_cost"], overhead_cost=r["overhead_cost"],
+            outside_cost=r["outside_cost"], byproduct_value=r["byproduct_value"],
             total_cost=r["total_cost"], unit_cost=r["unit_cost"],
             created_at=bom.created_at, updated_at=bom.updated_at,
         )
         if with_lines:
-            data.update(items=r["items"], operations=r["operations"])
+            data.update(items=r["items"], operations=r["operations"], by_products=r["by_products"])
         return data
 
     def list(self, q: Optional[str] = None, status_: Optional[str] = None, product_id: Optional[int] = None) -> List[dict]:
@@ -318,7 +386,19 @@ class BOMService:
             raise _bad(f"{label} #{product_id} does not exist")
         return p
 
-    def _validate_lines(self, product_id: int, items: List[s.BOMItemIn], operations: List[s.BOMOperationIn]):
+    def _validate_lines(self, product_id: int, items: List[s.BOMItemIn], operations: List[s.BOMOperationIn],
+                        by_products: Optional[List[s.BOMByProductIn]] = None):
+        by_ids = [b.product_id for b in by_products or []]
+        if len(set(by_ids)) != len(by_ids):
+            raise _bad("Each by-product can appear only once in a BOM")
+        for pid in by_ids:
+            if pid == product_id:
+                raise _bad("The product a BOM makes cannot also be its by-product")
+            if pid in {i.product_id for i in items}:
+                raise _bad("A component cannot also be a by-product of the same BOM")
+            bp = self._product(pid, "By-product")
+            if not bp.active:
+                raise _bad(f"By-product '{bp.name}' is inactive")
         seen = set()
         for i in items:
             if i.product_id == product_id:
@@ -343,9 +423,13 @@ class BOMService:
             q = q.filter(m.MfgBOM.id != exclude_id)
         return q.first() is not None
 
-    def _set_lines(self, bom: m.MfgBOM, items: List[s.BOMItemIn], operations: List[s.BOMOperationIn], user_id: int):
+    def _set_lines(self, bom: m.MfgBOM, items: List[s.BOMItemIn], operations: List[s.BOMOperationIn], user_id: int,
+                   by_products: Optional[List[s.BOMByProductIn]] = None):
         bom.items = [m.MfgBOMItem(**i.model_dump(), created_by=user_id, updated_by=user_id) for i in items]
         bom.operations = [m.MfgBOMOperation(**o.model_dump(), created_by=user_id, updated_by=user_id) for o in operations]
+        if by_products is not None:
+            bom.by_products = [m.MfgBOMByProduct(**b.model_dump(), created_by=user_id, updated_by=user_id)
+                               for b in by_products]
 
     def _cycle_check(self, bom: m.MfgBOM):
         """Refuse a BOM whose components (through their active BOMs) lead back to its product."""
@@ -368,16 +452,16 @@ class BOMService:
         product = self._product(data.product_id)
         if not product.active:
             raise _bad(f"Product '{product.name}' is inactive")
-        self._validate_lines(product.id, data.items, data.operations)
+        self._validate_lines(product.id, data.items, data.operations, data.by_products)
         if self._version_taken(product.id, data.version):
             raise _bad(f"'{product.name}' already has a BOM version '{data.version}'")
         bom = m.MfgBOM(
             bom_no=next_document_number(self.db, m.MfgBOM.bom_no, "BOM-", 6),
             product_id=product.id, version=data.version, output_quantity=data.output_quantity,
             description=data.description, status=BOMStatus.DRAFT, is_default=False,
-            created_by=user_id, updated_by=user_id,
+            overproduction_pct=data.overproduction_pct, created_by=user_id, updated_by=user_id,
         )
-        self._set_lines(bom, data.items, data.operations, user_id)
+        self._set_lines(bom, data.items, data.operations, user_id, data.by_products)
         self.db.add(bom)
         self.db.flush()
         log_audit(self.db, user_id, "create", "bom", bom.id, {"bom_no": bom.bom_no, "version": bom.version})
@@ -397,12 +481,16 @@ class BOMService:
             bom.output_quantity = changes["output_quantity"]
         if "description" in changes:
             bom.description = changes["description"]
-        if data.items is not None or data.operations is not None:
+        if changes.get("overproduction_pct") is not None:
+            bom.overproduction_pct = changes["overproduction_pct"]
+        if data.items is not None or data.operations is not None or data.by_products is not None:
             items = data.items if data.items is not None else [s.BOMItemIn.model_validate(i, from_attributes=True) for i in bom.items]
             ops = data.operations if data.operations is not None else [
                 s.BOMOperationIn.model_validate(o, from_attributes=True) for o in bom.operations]
-            self._validate_lines(bom.product_id, items, ops)
-            self._set_lines(bom, items, ops, user_id)
+            bys = data.by_products if data.by_products is not None else [
+                s.BOMByProductIn.model_validate(b, from_attributes=True) for b in bom.by_products]
+            self._validate_lines(bom.product_id, items, ops, bys)
+            self._set_lines(bom, items, ops, user_id, bys)
         bom.updated_by = user_id
         log_audit(self.db, user_id, "update", "bom", bom.id, {"fields": sorted(changes)})
         self.db.commit()
@@ -415,6 +503,7 @@ class BOMService:
         if not bom.items:
             raise _bad("A BOM needs at least one component")
         self._cycle_check(bom)
+        self._batch_tracking_for_new_product(bom.product, user_id)
         bom.status = BOMStatus.ACTIVE
         has_default = self.db.query(m.MfgBOM.id).filter(
             m.MfgBOM.product_id == bom.product_id, m.MfgBOM.status == BOMStatus.ACTIVE,
@@ -424,6 +513,18 @@ class BOMService:
         log_audit(self.db, user_id, "activate", "bom", bom.id, {"is_default": bom.is_default})
         self.db.commit()
         return self.get_out(bom.id)
+
+    def _batch_tracking_for_new_product(self, product: Product, user_id: int) -> None:
+        """Products are serial-tracked by default, which would make one stock row per bun or
+        bottle. A product that gets its first active BOM and has never had stock moves to
+        batch tracking (batch = production order, with an expiry date)."""
+        if (product.tracking_type or TrackingType.SERIAL) != TrackingType.SERIAL:
+            return
+        if self.db.query(SalesStock.id).filter(SalesStock.product_id == product.id).first():
+            return   # tracking is locked once a product has stock rows
+        product.tracking_type = TrackingType.BATCH
+        log_audit(self.db, user_id, "update", "products", product.id,
+                  {"tracking_type": ["serial", "batch"], "reason": "first active BOM"})
 
     def set_default(self, bom_id: int, user_id: int) -> dict:
         bom = self.get(bom_id)
@@ -457,11 +558,12 @@ class BOMService:
             bom_no=next_document_number(self.db, m.MfgBOM.bom_no, "BOM-", 6),
             product_id=src.product_id, version=data.version, output_quantity=src.output_quantity,
             description=src.description, status=BOMStatus.DRAFT, is_default=False,
-            created_by=user_id, updated_by=user_id,
+            overproduction_pct=src.overproduction_pct, created_by=user_id, updated_by=user_id,
         )
         self._set_lines(new,
                         [s.BOMItemIn.model_validate(i, from_attributes=True) for i in src.items],
-                        [s.BOMOperationIn.model_validate(o, from_attributes=True) for o in src.operations], user_id)
+                        [s.BOMOperationIn.model_validate(o, from_attributes=True) for o in src.operations], user_id,
+                        [s.BOMByProductIn.model_validate(b, from_attributes=True) for b in src.by_products])
         self.db.add(new)
         self.db.flush()
         log_audit(self.db, user_id, "copy", "bom", new.id, {"from": src.bom_no})
@@ -508,7 +610,8 @@ class ProductionOrderService:
     # ---- reads ----
     def _query(self):
         return self.db.query(m.MfgProductionOrder).options(
-            selectinload(m.MfgProductionOrder.materials), selectinload(m.MfgProductionOrder.operations))
+            selectinload(m.MfgProductionOrder.materials), selectinload(m.MfgProductionOrder.operations),
+            selectinload(m.MfgProductionOrder.by_products))
 
     def get(self, order_id: int, lock: bool = False) -> m.MfgProductionOrder:
         if lock:
@@ -526,9 +629,11 @@ class ProductionOrderService:
         names = names if names is not None else _user_names(self.db, [o.created_by, o.released_by])
         locations = locations if locations is not None else _location_names(self.db, [o.location_id])
         bom = (boms or {}).get(o.bom_id) or (o.bom if detail or boms is None else None)
-        planned_total = _money(D(str(o.planned_material_cost)) + D(str(o.planned_labor_cost)) + D(str(o.planned_overhead_cost)))
-        actual_total = _money(D(str(o.actual_material_cost)) + D(str(o.actual_labor_cost)) + D(str(o.actual_overhead_cost)))
+        planned_total = _money(D(str(o.planned_material_cost)) + D(str(o.planned_labor_cost))
+                               + D(str(o.planned_overhead_cost)) + _planned_outside(o))
+        actual_total = _actual_cost(o)
         done = o.produced_quantity or 0
+        scrap = o.scrapped_quantity or 0
         data = dict(
             id=o.id, order_no=o.order_no, product_id=o.product_id,
             product_name=p.name if p else None, product_code=p.item_code if p else None,
@@ -537,6 +642,10 @@ class ProductionOrderService:
             branch_code=o.branch_code, location_id=o.location_id, location_name=locations.get(o.location_id),
             planned_quantity=o.planned_quantity, produced_quantity=done, scrapped_quantity=o.scrapped_quantity or 0,
             progress_pct=(D(done) * 100 / D(o.planned_quantity)).quantize(D("0.1")) if o.planned_quantity else D("0"),
+            overproduction_pct=o.overproduction_pct or D("0"), max_quantity=_max_units(o),
+            yield_pct=(D(done) * 100 / D(done + scrap)).quantize(D("0.1")) if done + scrap else None,
+            scrap_value=_money(D(str(o.standard_unit_cost or 0)) * scrap),
+            qc_on_hold_quantity=self._on_hold(o.id),
             planned_start_date=o.planned_start_date, planned_end_date=o.planned_end_date,
             actual_start_at=o.actual_start_at, actual_end_at=o.actual_end_at,
             priority=o.priority, status=o.status,
@@ -547,7 +656,8 @@ class ProductionOrderService:
             planned_material_cost=o.planned_material_cost, planned_labor_cost=o.planned_labor_cost,
             planned_overhead_cost=o.planned_overhead_cost, planned_total_cost=planned_total,
             actual_material_cost=o.actual_material_cost, actual_labor_cost=o.actual_labor_cost,
-            actual_overhead_cost=o.actual_overhead_cost, actual_total_cost=actual_total,
+            actual_overhead_cost=o.actual_overhead_cost, actual_outside_cost=o.actual_outside_cost or D("0"),
+            actual_total_cost=actual_total,
             output_value=o.output_value,
             wip_balance=D("0") if o.status == PS.CLOSED else _money(actual_total - D(str(o.output_value))),
             variance_amount=o.variance_amount,
@@ -582,6 +692,7 @@ class ProductionOrderService:
                 data["material_status"] = "issued"
             else:
                 data["material_status"] = "shortage" if short and not partial else ("partial" if short else "ready")
+            suppliers = _supplier_names(self.db, [op.supplier_id for op in o.operations])
             data["operations"] = [dict(
                 id=op.id, sequence=op.sequence, name=op.name, work_center_id=op.work_center_id,
                 work_center_code=op.work_center.code if op.work_center else None,
@@ -590,8 +701,23 @@ class ProductionOrderService:
                 completed_quantity=op.completed_quantity, status=op.status,
                 labor_rate_per_hour=op.labor_rate_per_hour, overhead_rate_per_hour=op.overhead_rate_per_hour,
                 started_at=op.started_at, completed_at=op.completed_at,
+                is_outside=op.is_outside, supplier_id=op.supplier_id, supplier_name=suppliers.get(op.supplier_id),
+                outside_unit_cost=op.outside_unit_cost or D("0"), outside_quantity=op.outside_quantity or 0,
             ) for op in o.operations]
+            data["by_products"] = [dict(
+                id=b.id, product_id=b.product_id, product_name=b.product.name if b.product else None,
+                product_code=b.product.item_code if b.product else None,
+                unit_of_measure=b.product.unit_of_measure if b.product else None,
+                quantity_per_unit=b.quantity_per_unit,
+                expected_quantity=int(D(str(b.quantity_per_unit)) * D(done)),
+                received_quantity=b.received_quantity, unit_cost=b.unit_cost) for b in o.by_products]
         return data
+
+    def _on_hold(self, order_id: int) -> int:
+        q = (self.db.query(func.coalesce(func.sum(m.MfgProductionOutput.quantity - m.MfgProductionOutput.qc_passed_quantity
+                                                  - m.MfgProductionOutput.qc_failed_quantity), 0))
+             .filter(m.MfgProductionOutput.order_id == order_id, m.MfgProductionOutput.qc_status.in_(("on_hold", "partly_passed"))))
+        return int(q.scalar() or 0)
 
     def _quote_ref(self, o: m.MfgProductionOrder) -> dict:
         if not o.quote_item_id or not o.quote_item:
@@ -668,14 +794,25 @@ class ProductionOrderService:
         for o in bom.operations:
             wc = o.work_center
             mins = _op_minutes(o.setup_minutes, o.run_minutes, units, wc.efficiency_pct)
-            labor += _rate_cost(mins, wc.labor_rate_per_hour)
-            overhead += _rate_cost(mins, wc.overhead_rate_per_hour)
+            if wc.is_outside:   # the subcontractor's per-unit price, no time-based cost
+                lrate = orate = D("0")
+            else:
+                lrate, orate = wc.labor_rate_per_hour, wc.overhead_rate_per_hour
+                labor += _rate_cost(mins, lrate)
+                overhead += _rate_cost(mins, orate)
             ops.append(m.MfgProductionOrderOperation(
                 sequence=o.sequence, name=o.name, work_center_id=o.work_center_id, planned_minutes=mins,
-                labor_rate_per_hour=wc.labor_rate_per_hour, overhead_rate_per_hour=wc.overhead_rate_per_hour,
+                labor_rate_per_hour=lrate, overhead_rate_per_hour=orate,
+                is_outside=bool(wc.is_outside), supplier_id=wc.supplier_id if wc.is_outside else None,
+                outside_unit_cost=o.outside_unit_cost if wc.is_outside else 0,
                 created_by=user_id, updated_by=user_id))
         order.materials = mats
         order.operations = ops
+        order.by_products = [m.MfgProductionOrderByProduct(
+            product_id=b.product_id, quantity_per_unit=(D(str(b.quantity)) / out_qty).quantize(D("0.000001")),
+            received_quantity=0, unit_cost=standard_cost(b.product), created_by=user_id, updated_by=user_id)
+            for b in bom.by_products]
+        order.overproduction_pct = bom.overproduction_pct or 0
         order.planned_material_cost = _money(mat_cost)
         order.planned_labor_cost = _money(labor)
         order.planned_overhead_cost = _money(overhead)
@@ -847,7 +984,11 @@ class ProductionOrderService:
         bom = self._resolve_bom(order.product_id, order.bom_id)
         # Costs and rates are fixed at release
         self._build_lines(order, bom, user_id)
-        planned_total = D(str(order.planned_material_cost)) + D(str(order.planned_labor_cost)) + D(str(order.planned_overhead_cost))
+        self.db.flush()
+        planned_total = (D(str(order.planned_material_cost)) + D(str(order.planned_labor_cost))
+                         + D(str(order.planned_overhead_cost)) + _planned_outside(order)
+                         - sum((D(str(b.quantity_per_unit)) * order.planned_quantity * D(str(b.unit_cost))
+                                for b in order.by_products), D("0")))
         std = standard_cost(order.product)
         order.standard_unit_cost = std if std > 0 else _money(planned_total / order.planned_quantity)
         order.status = PS.RELEASED
@@ -891,14 +1032,15 @@ class ProductionOrderService:
             row.is_active = False
             row.consumed_by_production_order_id = order.id
         mat.issued_quantity += qty
-        return self._txn(order, mat, txn_type, qty, user_id, remark)
+        return self._txn(order, mat, txn_type, qty, user_id, remark, lots=_lots(taken))
 
-    def _txn(self, order, mat, txn_type: str, qty: int, user_id: int, remark: Optional[str]) -> m.MfgMaterialTransaction:
+    def _txn(self, order, mat, txn_type: str, qty: int, user_id: int, remark: Optional[str],
+             lots: Optional[List[dict]] = None) -> m.MfgMaterialTransaction:
         total = _money(D(str(mat.unit_cost)) * qty)
         txn = m.MfgMaterialTransaction(
             order_id=order.id, material_id=mat.id, product_id=mat.product_id, transaction_type=txn_type,
             quantity=qty, unit_cost=mat.unit_cost, total_cost=total, branch_code=order.branch_code,
-            transaction_date=tz.now(), remark=remark, created_by=user_id, updated_by=user_id,
+            transaction_date=tz.now(), remark=remark, lots=lots, created_by=user_id, updated_by=user_id,
         )
         self.db.add(txn)
         self.db.flush()
@@ -949,7 +1091,7 @@ class ProductionOrderService:
                 row.is_active = True
                 row.consumed_by_production_order_id = None
             mat.issued_quantity -= line.quantity
-            self._txn(order, mat, "return", line.quantity, user_id, data.remark)
+            self._txn(order, mat, "return", line.quantity, user_id, data.remark, lots=_lots(taken))
         log_audit(self.db, user_id, "return_materials", "production_order", order.id,
                   {"lines": [[l.material_id, l.quantity] for l in data.lines]})
         self.db.commit()
@@ -973,7 +1115,8 @@ class ProductionOrderService:
                 raise _bad("Serial numbers must be unique")
         else:
             start = (self.db.query(func.count(SalesStock.id))
-                     .filter(SalesStock.production_order_id == order.id, SalesStock.barcode.isnot(None)).scalar() or 0)
+                     .filter(SalesStock.production_order_id == order.id, SalesStock.barcode.isnot(None),
+                             SalesStock.product_id == order.product_id).scalar() or 0)
             serials = [f"{order.order_no}-{start + n:04d}" for n in range(1, qty + 1)]
         clash = (self.db.query(SalesStock.barcode).filter(SalesStock.barcode.in_(serials)).first()
                  or self.db.query(CompanyAssets.barcode).filter(CompanyAssets.barcode.in_(serials)).first())
@@ -984,12 +1127,13 @@ class ProductionOrderService:
     def record_output(self, order_id: int, data: s.OutputIn, user_id: int) -> dict:
         order = self.get(order_id, lock=True)
         self._ensure_running(order, "record output")
-        if order.produced_quantity + data.quantity > order.planned_quantity:
-            left = order.planned_quantity - order.produced_quantity
-            raise _bad(f"Only {left} more good unit(s) can be recorded on this order (planned {order.planned_quantity})")
-        if order.scrapped_quantity + data.scrap_quantity > order.planned_quantity:
-            left = max(order.planned_quantity - order.scrapped_quantity, 0)
-            raise _bad(f"Only {left} more scrap unit(s) can be recorded on this order (planned {order.planned_quantity})")
+        cap = _max_units(order)
+        recorded = order.produced_quantity + order.scrapped_quantity
+        if recorded + data.quantity + data.scrap_quantity > cap:
+            extra = f" incl. {order.overproduction_pct}% over-production" if order.overproduction_pct else ""
+            raise _bad(f"Only {max(cap - recorded, 0)} more unit(s), good and scrap together, can be recorded on this "
+                       f"order (planned {order.planned_quantity}{extra})")
+        by_lines = self._by_product_lines(order, data.by_products)
         tracking = order.product.tracking_type or TrackingType.SERIAL
         if data.serial_numbers and (tracking != TrackingType.SERIAL or not data.quantity):
             # MFG-06: never drop what the user typed
@@ -1001,23 +1145,33 @@ class ProductionOrderService:
         self._backflush(order, units_done, user_id)
 
         now = tz.now()
+        expiry = data.expiry_date
+        if expiry is None and order.product.shelf_life_days:
+            expiry = now.date() + timedelta(days=order.product.shelf_life_days)
+        held = bool(order.product.requires_qc) and data.quantity > 0
         output = m.MfgProductionOutput(
             order_id=order.id, quantity=data.quantity, scrap_quantity=data.scrap_quantity,
-            batch_no=data.batch_no, expiry_date=data.expiry_date, unit_cost=order.standard_unit_cost,
+            scrap_reason=data.scrap_reason if data.scrap_quantity else None,
+            batch_no=data.batch_no, expiry_date=expiry, unit_cost=order.standard_unit_cost,
             total_value=_money(D(str(order.standard_unit_cost)) * data.quantity), location_id=location_id,
-            receipt_date=now, remark=data.remark, created_by=user_id, updated_by=user_id,
+            receipt_date=now, remark=data.remark, qc_status="on_hold" if held else "none",
+            created_by=user_id, updated_by=user_id,
         )
         self.db.add(output)
         self.db.flush()
         output.order = order
+        base = dict(branch_code=order.branch_code, location_id=location_id, production_order_id=order.id,
+                    production_output_id=output.id, is_active=True, added_date=now,
+                    created_by=user_id, updated_by=user_id)
         if data.quantity:
-            # Make-to-order output is reserved for the quotation line, the rest is free stock
-            to_reserve = self._units_to_reserve(order, data.quantity)
-            base = dict(product_id=order.product_id, branch_code=order.branch_code, location_id=location_id,
-                        production_order_id=order.id, is_active=True,
-                        added_date=now, created_by=user_id, updated_by=user_id)
+            # Make-to-order output is reserved for the quotation line, the rest is free stock.
+            # Output waiting for a quality check is frozen; it is reserved / freed when it passes.
+            to_reserve = 0 if held else self._units_to_reserve(order, data.quantity)
+            base = dict(base, product_id=order.product_id)
 
             def _status(reserved: bool) -> dict:
+                if held:
+                    return dict(status=StockStatus.FROZEN)
                 return (dict(status=StockStatus.RESERVED, reserved_for_quote_item_id=order.quote_item_id) if reserved
                         else dict(status=StockStatus.AVAILABLE))
 
@@ -1026,16 +1180,17 @@ class ProductionOrderService:
                     self.db.add(SalesStock(barcode=serial, quantity=1, **base, **_status(n < to_reserve)))
             else:
                 batch = (data.batch_no or order.order_no) if tracking == TrackingType.BATCH else None
-                expiry = data.expiry_date if tracking == TrackingType.BATCH else None
+                row_expiry = expiry if tracking == TrackingType.BATCH else None
                 for qty, reserved in ((to_reserve, True), (data.quantity - to_reserve, False)):
                     if qty > 0:
-                        self.db.add(SalesStock(barcode=None, quantity=qty, batch_no=batch, expiry_date=expiry,
+                        self.db.add(SalesStock(barcode=None, quantity=qty, batch_no=batch, expiry_date=row_expiry,
                                                **base, **_status(reserved)))
                 if tracking == TrackingType.BATCH and not output.batch_no:
                     output.batch_no = batch
+        self._receive_by_products(order, output, by_lines, {k: v for k, v in base.items() if k != "product_id"})
         order.produced_quantity += data.quantity
         order.scrapped_quantity += data.scrap_quantity
-        order.output_value = _money(D(str(order.output_value)) + D(str(output.total_value)))
+        order.output_value = _money(D(str(order.output_value)) + D(str(output.total_value)) + D(str(output.byproduct_value)))
         try:
             self.db.flush()
         except IntegrityError:
@@ -1043,9 +1198,156 @@ class ProductionOrderService:
             raise _bad("A serial number is already in use")
         self.gl.post_output(output, user_id)
         log_audit(self.db, user_id, "record_output", "production_order", order.id,
-                  {"quantity": data.quantity, "scrap": data.scrap_quantity, "output_id": output.id})
+                  {"quantity": data.quantity, "scrap": data.scrap_quantity, "scrap_reason": output.scrap_reason,
+                   "output_id": output.id, "qc_hold": held, "by_products": output.by_products})
         self.db.commit()
         return self.get_out(order.id)
+
+    # ---- by-products ----
+    def _by_product_lines(self, order: m.MfgProductionOrder, lines: List[s.ByProductReceiptIn]) -> List[tuple]:
+        ids = [x.byproduct_id for x in lines]
+        if len(set(ids)) != len(ids):
+            raise _bad("Each by-product can appear only once per output")
+        out = []
+        for x in lines:
+            bp = next((b for b in order.by_products if b.id == x.byproduct_id), None)
+            if not bp:
+                raise _bad(f"By-product line #{x.byproduct_id} is not on this order")
+            if x.quantity:
+                out.append((bp, x.quantity))
+        return out
+
+    def _receive_by_products(self, order: m.MfgProductionOrder, output: m.MfgProductionOutput,
+                             lines: List[tuple], base: dict) -> None:
+        """By-products go into stock as a batch of the order (serial products as plain rows),
+        valued at their standard cost fixed at release."""
+        received, value = [], D("0")
+        for bp, qty in lines:
+            tracking = bp.product.tracking_type or TrackingType.SERIAL
+            batch = order.order_no if tracking == TrackingType.BATCH else None
+            expiry = (output.receipt_date.date() + timedelta(days=bp.product.shelf_life_days)
+                      if batch and bp.product.shelf_life_days else None)
+            if tracking == TrackingType.SERIAL:
+                start = (self.db.query(func.count(SalesStock.id))
+                         .filter(SalesStock.production_order_id == order.id, SalesStock.product_id == bp.product_id).scalar() or 0)
+                for n in range(1, qty + 1):
+                    self.db.add(SalesStock(product_id=bp.product_id, barcode=f"{order.order_no}-BP{bp.id}-{start + n:04d}",
+                                           quantity=1, status=StockStatus.AVAILABLE, **base))
+            else:
+                self.db.add(SalesStock(product_id=bp.product_id, barcode=None, quantity=qty, batch_no=batch,
+                                       expiry_date=expiry, status=StockStatus.AVAILABLE, **base))
+            line_value = _money(D(str(bp.unit_cost)) * qty)
+            value += line_value
+            bp.received_quantity += qty
+            received.append(dict(byproduct_id=bp.id, product_id=bp.product_id,
+                                 product_name=bp.product.name if bp.product else None, quantity=qty,
+                                 unit_cost=str(bp.unit_cost), value=str(line_value)))
+        output.by_products = received or None
+        output.byproduct_value = _money(value)
+
+    # ---- quality hold ----
+    def qc_decision(self, order_id: int, data: s.QcDecisionIn, user_id: int) -> dict:
+        """Pass and/or fail held units of one output: passed units become available (or are
+        reserved for the order's quotation line), failed units are written off."""
+        order = self.get(order_id, lock=True)
+        output = (self.db.query(m.MfgProductionOutput)
+                  .filter(m.MfgProductionOutput.id == data.output_id, m.MfgProductionOutput.order_id == order.id)
+                  .with_for_update().first())
+        if not output:
+            raise _bad("That output is not on this order")
+        if output.qc_status not in ("on_hold", "partly_passed"):
+            raise _bad("This output is not waiting for a quality check")
+        waiting = output.quantity - output.qc_passed_quantity - output.qc_failed_quantity
+        if data.passed_quantity + data.failed_quantity > waiting:
+            raise _bad(f"Only {waiting} unit(s) of this output are still on hold")
+        rows = (self.db.query(SalesStock)
+                .filter(SalesStock.production_output_id == output.id, SalesStock.product_id == order.product_id,
+                        SalesStock.status == StockStatus.FROZEN)
+                .order_by(SalesStock.id).with_for_update().all())
+        failed_rows = take_units(self.db, rows, data.failed_quantity) if data.failed_quantity else []
+        if units_in(failed_rows) < data.failed_quantity:
+            raise _bad("The held stock of this output has been changed; reload and try again")
+        for row in failed_rows:
+            row.status = StockStatus.DAMAGED
+            row.is_active = False
+        left = [r for r in rows if r.status == StockStatus.FROZEN]
+        passed_rows = take_units(self.db, left, data.passed_quantity) if data.passed_quantity else []
+        for row in passed_rows:
+            row.status = StockStatus.AVAILABLE
+        # Make-to-order: passed units go to the quotation line first
+        for row in take_units(self.db, passed_rows, self._units_to_reserve(order, data.passed_quantity)):
+            row.status = StockStatus.RESERVED
+            row.reserved_for_quote_item_id = order.quote_item_id
+        output.qc_passed_quantity += data.passed_quantity
+        output.qc_failed_quantity += data.failed_quantity
+        done = output.qc_passed_quantity + output.qc_failed_quantity >= output.quantity
+        output.qc_status = (("passed" if output.qc_failed_quantity == 0 else "failed" if output.qc_passed_quantity == 0
+                             else "partly_passed") if done else "partly_passed")
+        result = m.MfgQcResult(
+            output_id=output.id, order_id=order.id, passed_quantity=data.passed_quantity,
+            failed_quantity=data.failed_quantity, failed_value=_money(D(str(output.unit_cost)) * data.failed_quantity),
+            remark=data.remark, decided_at=tz.now(), created_by=user_id, updated_by=user_id)
+        self.db.add(result)
+        self.db.flush()
+        result.order, result.output = order, output
+        self.gl.post_qc_failure(result, user_id)
+        log_audit(self.db, user_id, "qc_decision", "production_order", order.id,
+                  {"output_id": output.id, "passed": data.passed_quantity, "failed": data.failed_quantity})
+        self.db.commit()
+        return self.get_out(order.id)
+
+    # ---- outside work ----
+    def receive_outside_work(self, order_id: int, data: s.OutsideReceiptIn, user_id: int) -> dict:
+        """A subcontractor finished units of an outside operation: WIP takes the agreed price
+        (Dr 1230 / Cr 5040) and, when asked, a pending expense is raised for their bill."""
+        order = self.get(order_id, lock=True)
+        self._ensure_running(order, "record outside work")
+        op = next((x for x in order.operations if x.id == data.operation_id), None)
+        if not op:
+            raise _bad("That operation is not on this order")
+        if not op.is_outside:
+            raise _bad(f"Operation '{op.name}' is done in-house; log time on it instead")
+        cap = _max_units(order)
+        if op.outside_quantity + data.quantity > cap:
+            raise _bad(f"Only {max(cap - op.outside_quantity, 0)} more unit(s) can come back from "
+                       f"'{op.name}' (order quantity {cap})")
+        amount = data.amount if data.amount is not None else _money(D(str(op.outside_unit_cost)) * data.quantity)
+        now = tz.now()
+        rec = m.MfgOutsideReceipt(
+            order_id=order.id, operation_id=op.id, supplier_id=op.supplier_id, quantity=data.quantity, amount=amount,
+            bill_reference=data.bill_reference, receipt_date=now, remark=data.remark,
+            created_by=user_id, updated_by=user_id)
+        self.db.add(rec)
+        self.db.flush()
+        rec.order, rec.operation = order, op
+        op.outside_quantity += data.quantity
+        op.completed_quantity += data.quantity
+        if op.status == "pending":
+            op.status, op.started_at = "in_progress", now
+        if op.outside_quantity >= order.planned_quantity:
+            op.status, op.completed_at = "completed", now
+        order.actual_outside_cost = _money(D(str(order.actual_outside_cost or 0)) + D(str(amount)))
+        self.gl.post_outside_receipt(rec, user_id)
+        log_audit(self.db, user_id, "outside_work", "production_order", order.id,
+                  {"operation": op.name, "quantity": data.quantity, "amount": str(amount)})
+        if data.create_expense and D(str(amount)) > 0:
+            rec.expense_id = self._outside_expense(order, op, rec, user_id)   # commits
+        self.db.commit()
+        return self.get_out(order.id)
+
+    def _outside_expense(self, order, op, rec, user_id: int) -> int:
+        """The subcontractor's bill as a pending expense on 5040, where it meets the cost absorbed
+        into WIP: what is left on 5040 is the price difference."""
+        from app.modules.finance import schemas as fs
+        from app.modules.finance.service import ExpenseService
+        supplier = _supplier_names(self.db, [op.supplier_id]).get(op.supplier_id)
+        exp = ExpenseService(self.db).create_expense(fs.ExpenseCreate(
+            expense_category="outside_work", expenses_method="cash", expense_amount=rec.amount,
+            expense_date=rec.receipt_date.date(), vendor_name=supplier, branch_code=order.branch_code,
+            bill_reference=rec.bill_reference, account_code="5040",
+            description=f"Outside work '{op.name}' on {order.order_no}: {rec.quantity} unit(s)",
+            remarks=rec.remark), submitted_by=user_id)
+        return exp.id
 
     def log_time(self, order_id: int, data: s.TimeLogIn, user_id: int) -> dict:
         order = self.get(order_id, lock=True)
@@ -1055,7 +1357,9 @@ class ProductionOrderService:
             raise _bad("That operation is not on this order")
         if op.status == "completed":
             raise _bad(f"Operation '{op.name}' is already completed")
-        limit = max(order.planned_quantity, order.produced_quantity + order.scrapped_quantity)
+        if op.is_outside:
+            raise _bad(f"Operation '{op.name}' is done by a subcontractor; record the outside work instead")
+        limit = max(_max_units(order), order.produced_quantity + order.scrapped_quantity)
         if op.completed_quantity + data.completed_quantity > limit:
             raise _bad(f"Only {max(limit - op.completed_quantity, 0)} more unit(s) can be completed on "
                        f"operation '{op.name}' (order quantity {limit})")
@@ -1097,9 +1401,10 @@ class ProductionOrderService:
         self.gl.post_time_log(log, user_id)
         return log
 
-    def complete(self, order_id: int, user_id: int) -> dict:
-        """Finish the order: operations with no time booked get their planned time
-        (pro rata to the units done), every operation is marked completed."""
+    def complete(self, order_id: int, user_id: int, book_planned_time: bool = True) -> dict:
+        """Finish the order: every operation is marked completed. With ``book_planned_time``,
+        in-house operations with no time booked get their planned time (pro rata to the units
+        done); without it nothing is absorbed for them."""
         order = self.get(order_id, lock=True)
         if order.status not in ACTIVE_STATUSES:
             raise _bad("Only a released or in-progress order can be completed")
@@ -1111,7 +1416,7 @@ class ProductionOrderService:
         for op in order.operations:
             if op.status == "completed":
                 continue
-            if D(str(op.actual_minutes)) == 0 and D(str(op.planned_minutes)) > 0:
+            if book_planned_time and not op.is_outside and D(str(op.actual_minutes)) == 0 and D(str(op.planned_minutes)) > 0:
                 self._add_time(order, op, (D(str(op.planned_minutes)) * share).quantize(CENT), done, user_id,
                                remark="Planned time booked on completion", is_auto=True)
             op.status = "completed"
@@ -1120,7 +1425,8 @@ class ProductionOrderService:
         order.actual_start_at = order.actual_start_at or now
         order.actual_end_at = now
         log_audit(self.db, user_id, "complete", "production_order", order.id,
-                  {"produced": order.produced_quantity, "scrapped": order.scrapped_quantity})
+                  {"produced": order.produced_quantity, "scrapped": order.scrapped_quantity,
+                   "book_planned_time": book_planned_time})
         self.db.commit()
         return self.get_out(order.id)
 
@@ -1128,8 +1434,7 @@ class ProductionOrderService:
         order = self.get(order_id, lock=True)
         if order.status != PS.COMPLETED:
             raise _bad("Only a completed order can be closed")
-        actual = D(str(order.actual_material_cost)) + D(str(order.actual_labor_cost)) + D(str(order.actual_overhead_cost))
-        order.variance_amount = _money(actual - D(str(order.output_value)))
+        order.variance_amount = _money(_actual_cost(order) - D(str(order.output_value)))
         order.status = PS.CLOSED
         order.closed_by = user_id
         order.closed_at = tz.now()
@@ -1167,10 +1472,22 @@ class ProductionOrderService:
         names = _user_names(self.db, [x.created_by for x in [*txns, *outputs, *logs]])
         locations = _location_names(self.db, [o.location_id for o in outputs])
         serials = defaultdict(list)
-        for barcode, added in (self.db.query(SalesStock.barcode, SalesStock.added_date)
-                               .filter(SalesStock.production_order_id == order.id, SalesStock.barcode.isnot(None))
-                               .order_by(SalesStock.id)):
-            serials[added].append(barcode)
+        for barcode, out_id in (self.db.query(SalesStock.barcode, SalesStock.production_output_id)
+                                .filter(SalesStock.production_order_id == order.id, SalesStock.barcode.isnot(None),
+                                        SalesStock.product_id == order.product_id)
+                                .order_by(SalesStock.id)):
+            serials[out_id].append(barcode)
+        receipts = (self.db.query(m.MfgOutsideReceipt).filter(m.MfgOutsideReceipt.order_id == order.id)
+                    .order_by(m.MfgOutsideReceipt.id.desc()).all())
+        qc = (self.db.query(m.MfgQcResult).filter(m.MfgQcResult.order_id == order.id)
+              .order_by(m.MfgQcResult.id.desc()).all())
+        names.update(_user_names(self.db, [x.created_by for x in [*receipts, *qc]]))
+        suppliers = _supplier_names(self.db, [r.supplier_id for r in receipts])
+        expense_nos = {}
+        if any(r.expense_id for r in receipts):
+            from app.modules.finance.models import Expenses
+            expense_nos = dict(self.db.query(Expenses.id, Expenses.expenses_no)
+                               .filter(Expenses.id.in_([r.expense_id for r in receipts if r.expense_id])))
         employees = {}
         emp_ids = {l.employee_id for l in logs if l.employee_id}
         if emp_ids:
@@ -1189,8 +1506,10 @@ class ProductionOrderService:
                 id=o.id, order_id=o.order_id, quantity=o.quantity, scrap_quantity=o.scrap_quantity,
                 batch_no=o.batch_no, expiry_date=o.expiry_date, unit_cost=o.unit_cost, total_value=o.total_value,
                 location_id=o.location_id, location_name=locations.get(o.location_id), receipt_date=o.receipt_date,
-                remark=o.remark, serial_numbers=serials.get(o.receipt_date, []),
-                created_by_name=names.get(o.created_by)) for o in outputs],
+                remark=o.remark, serial_numbers=serials.get(o.id, []),
+                created_by_name=names.get(o.created_by), scrap_reason=o.scrap_reason, qc_status=o.qc_status,
+                qc_passed_quantity=o.qc_passed_quantity, qc_failed_quantity=o.qc_failed_quantity,
+                by_products=o.by_products, byproduct_value=o.byproduct_value) for o in outputs],
             time_logs=[dict(
                 id=l.id, order_id=l.order_id, operation_id=l.operation_id,
                 operation_name=l.operation.name if l.operation else None,
@@ -1199,7 +1518,81 @@ class ProductionOrderService:
                 end_time=l.end_time, minutes=l.minutes, completed_quantity=l.completed_quantity,
                 labor_cost=l.labor_cost, overhead_cost=l.overhead_cost, is_auto=l.is_auto, remark=l.remark,
                 created_at=l.created_at, created_by_name=names.get(l.created_by)) for l in logs],
+            outside_receipts=[dict(
+                id=r.id, operation_id=r.operation_id, operation_name=r.operation.name if r.operation else None,
+                supplier_id=r.supplier_id, supplier_name=suppliers.get(r.supplier_id), quantity=r.quantity,
+                amount=r.amount, bill_reference=r.bill_reference, expense_id=r.expense_id,
+                expense_no=expense_nos.get(r.expense_id), receipt_date=r.receipt_date, remark=r.remark,
+                created_by_name=names.get(r.created_by)) for r in receipts],
+            qc_results=[dict(
+                id=q.id, output_id=q.output_id, batch_no=q.output.batch_no if q.output else None,
+                passed_quantity=q.passed_quantity, failed_quantity=q.failed_quantity, failed_value=q.failed_value,
+                remark=q.remark, decided_at=q.decided_at, created_by_name=names.get(q.created_by)) for q in qc],
         )
+
+    # ---- traceability ----
+    def trace(self, batch_no: str, branch_codes: Optional[List[str]] = None) -> dict:
+        """Where a batch came from and where it went: as a finished batch, the orders that made it
+        and the component lots they used; as a component lot, the orders that used it and the
+        finished batches they made (for a recall)."""
+        key = batch_no.strip()
+        O = m.MfgProductionOrder
+        made = {oid for (oid,) in self.db.query(SalesStock.production_order_id)
+                .filter(SalesStock.production_order_id.isnot(None), func.lower(SalesStock.batch_no) == key.lower()).distinct()}
+        made |= {oid for (oid,) in self.db.query(m.MfgProductionOutput.order_id)
+                 .filter(func.lower(m.MfgProductionOutput.batch_no) == key.lower()).distinct()}
+        used = set()
+        for oid, lots in (self.db.query(m.MfgMaterialTransaction.order_id, m.MfgMaterialTransaction.lots)
+                          .filter(m.MfgMaterialTransaction.lots.isnot(None))):
+            if any((l.get("batch_no") or "").lower() == key.lower() or (l.get("barcode") or "").lower() == key.lower()
+                   for l in lots or []):
+                used.add(oid)
+        # Issues made before lots were recorded on the transaction: the consumed stock rows still say which order took them
+        used |= {oid for (oid,) in self.db.query(SalesStock.consumed_by_production_order_id)
+                 .filter(SalesStock.consumed_by_production_order_id.isnot(None),
+                         or_(func.lower(SalesStock.batch_no) == key.lower(), func.lower(SalesStock.barcode) == key.lower()))
+                 .distinct()}
+        ids = made | used
+        q = self.db.query(O).filter(O.id.in_(ids)) if ids else None
+        if q is not None and branch_codes is not None:
+            q = q.filter(O.branch_code.in_(branch_codes))
+        orders = q.order_by(O.id).all() if q is not None else []
+        out = []
+        for o in orders:
+            comps: Dict[tuple, int] = defaultdict(int)
+            for t in self.db.query(m.MfgMaterialTransaction).filter(m.MfgMaterialTransaction.order_id == o.id):
+                sign = -1 if t.transaction_type == "return" else 1
+                for l in t.lots or []:
+                    comps[(t.product_id, l.get("batch_no") or l.get("barcode"), l.get("expiry_date"))] += sign * int(l.get("quantity") or 0)
+            if not comps:   # older orders: what is still consumed by the order
+                for pid, b, bc, exp, qty in (self.db.query(SalesStock.product_id, SalesStock.batch_no, SalesStock.barcode,
+                                                           SalesStock.expiry_date, func.sum(SalesStock.quantity))
+                                             .filter(SalesStock.consumed_by_production_order_id == o.id)
+                                             .group_by(SalesStock.product_id, SalesStock.batch_no, SalesStock.barcode,
+                                                       SalesStock.expiry_date)):
+                    comps[(pid, b or bc, exp.isoformat() if exp else None)] += int(qty or 0)
+            products = {p.id: p for p in self.db.query(Product).filter(
+                Product.id.in_({k[0] for k in comps} | {o.product_id}))} if comps or o.product_id else {}
+            finished: Dict[tuple, int] = defaultdict(int)
+            for pid, b, exp, qty in (self.db.query(SalesStock.product_id, SalesStock.batch_no, SalesStock.expiry_date,
+                                                   func.sum(SalesStock.quantity))
+                                     .filter(SalesStock.production_order_id == o.id)
+                                     .group_by(SalesStock.product_id, SalesStock.batch_no, SalesStock.expiry_date)):
+                finished[(pid, b, exp)] += int(qty or 0)
+            products.update({p.id: p for p in self.db.query(Product).filter(Product.id.in_({k[0] for k in finished}))})
+
+            def _lot(pid, b, exp, qty):
+                p = products.get(pid)
+                return dict(product_id=pid, product_name=p.name if p else None, product_code=p.item_code if p else None,
+                            batch_no=b, expiry_date=exp, quantity=qty)
+            out.append(dict(
+                order_id=o.id, order_no=o.order_no, branch_code=o.branch_code,
+                product_name=o.product.name if o.product else None, status=o.status,
+                finished_batches=[_lot(*k, v) for k, v in finished.items() if v],
+                components=[_lot(*k, v) for k, v in comps.items() if v > 0]))
+        found = (["finished"] if made & {o["order_id"] for o in out} else []) + \
+                (["component"] if used & {o["order_id"] for o in out} else [])
+        return dict(batch_no=key, found_as=found, orders=out)
 
 
 # ═══════════════════════════ job cards / MRP / dashboard ═══════════════════════════
@@ -1231,7 +1624,7 @@ class PlanningService:
             work_center_code=op.work_center.code if op.work_center else None,
             work_center_name=op.work_center.name if op.work_center else None, planned_minutes=op.planned_minutes,
             actual_minutes=op.actual_minutes, completed_quantity=op.completed_quantity, status=op.status,
-            started_at=op.started_at,
+            started_at=op.started_at, is_outside=op.is_outside,
         ) for op, o in rows]
 
     def dashboard(self, branch_codes: Optional[List[str]] = None) -> dict:
@@ -1243,7 +1636,8 @@ class PlanningService:
         late = (self.db.query(func.count(O.id))
                 .filter(*scope, O.status.in_(OPEN_STATUSES), O.planned_end_date < today).scalar() or 0)
         wip = (self.db.query(func.coalesce(func.sum(
-            O.actual_material_cost + O.actual_labor_cost + O.actual_overhead_cost - O.output_value), 0))
+            O.actual_material_cost + O.actual_labor_cost + O.actual_overhead_cost + O.actual_outside_cost
+            - O.output_value), 0))
             .filter(*scope, O.status.in_((PS.RELEASED, PS.IN_PROGRESS, PS.COMPLETED))).scalar())
 
         Out = m.MfgProductionOutput
@@ -1271,8 +1665,11 @@ class PlanningService:
                             O.closed_at >= datetime.combine(month_start, datetime.min.time())).scalar())
 
         wc_service = WorkCenterService(self.db)
-        load = wc_service._load()
-        wcs = self.db.query(m.MfgWorkCenter).filter(m.MfgWorkCenter.active.is_(True)).order_by(m.MfgWorkCenter.code).all()
+        load = wc_service._load(branch_codes=branch_codes)
+        wc_q = self.db.query(m.MfgWorkCenter).filter(m.MfgWorkCenter.active.is_(True))
+        if branch_codes is not None:   # centers not tied to a branch are shared by every branch
+            wc_q = wc_q.filter(or_(m.MfgWorkCenter.branch_code.is_(None), m.MfgWorkCenter.branch_code.in_(branch_codes)))
+        wcs = wc_q.order_by(m.MfgWorkCenter.code).all()
         wc_load = []
         for wc in wcs:
             mins, n = load.get(wc.id, (D("0"), 0))

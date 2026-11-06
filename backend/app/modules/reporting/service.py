@@ -285,13 +285,14 @@ class ReportingService:
         # deposits made on the last day are kept.
         day_after_end = request.end_date + timedelta(days=1)
 
-        # Bank deposits
+        # Bank deposits (a rejected deposit never reached the bank)
         bank_deposits = (
             self.db.query(func.sum(BankDeposits.deposits_amount))
             .filter(
                 and_(
                     BankDeposits.created_date >= request.start_date,
                     BankDeposits.created_date < day_after_end,
+                    func.coalesce(BankDeposits.status, "") != "rejected",
                     *_in(BankDeposits.branch_code, self.branch_codes),
                 )
             )
@@ -318,13 +319,14 @@ class ReportingService:
             or 0
         )
 
-        # Cheque payments
+        # Cheque payments (bounced cheques were never received)
         cheque_payments = (
             self.db.query(func.sum(ChequePayments.amount))
             .filter(
                 and_(
                     ChequePayments.cheque_date >= request.start_date,
                     ChequePayments.cheque_date <= request.end_date,
+                    func.coalesce(ChequePayments.status, "") != "bounced",
                     *_in(ChequePayments.branch_code, self.branch_codes),
                 )
             )
@@ -339,6 +341,7 @@ class ReportingService:
                 and_(
                     Expenses.created_date >= request.start_date,
                     Expenses.created_date <= request.end_date,
+                    Expenses.status.notin_(("rejected", "cancelled")),
                     *_in(Expenses.branch_code, self.branch_codes),
                 )
             )
@@ -379,6 +382,7 @@ class ReportingService:
                 and_(
                     Expenses.created_date >= request.start_date,
                     Expenses.created_date <= request.end_date,
+                    Expenses.status.notin_(("rejected", "cancelled")),
                     *_in(Expenses.branch_code, self.branch_codes),
                 )
             )
@@ -392,8 +396,10 @@ class ReportingService:
         ]
 
         # Monthly summary
+        # By year and month, so a range spanning two years doesn't merge Jan 2025 with Jan 2026.
         monthly_data = (
             self.db.query(
+                extract("year", BankDeposits.created_date).label("year"),
                 extract("month", BankDeposits.created_date).label("month"),
                 func.sum(BankDeposits.deposits_amount).label("income"),
             )
@@ -401,15 +407,17 @@ class ReportingService:
                 and_(
                     BankDeposits.created_date >= request.start_date,
                     BankDeposits.created_date < day_after_end,
+                    func.coalesce(BankDeposits.status, "") != "rejected",
                     *_in(BankDeposits.branch_code, self.branch_codes),
                 )
             )
-            .group_by("month")
+            .group_by("year", "month")
+            .order_by("year", "month")
             .all()
         )
 
         monthly_summary = [
-            {"month": int(m.month), "income": float(m.income or 0)}
+            {"month": f"{int(m.year)}-{int(m.month):02d}", "income": float(m.income or 0)}
             for m in monthly_data
         ]
 
@@ -602,7 +610,18 @@ class ReportingService:
         )
 
         # Receive notes
-        total_receives = self.db.query(func.count(ItemReceiveNote.id)).scalar() or 0
+        # Receive notes in the period (timestamp column: keep the last day), on the transfer's branch.
+        total_receives = (
+            self.db.query(func.count(ItemReceiveNote.id))
+            .join(ItemTransferNote, ItemTransferNote.id == ItemReceiveNote.item_transfer_note_id)
+            .filter(
+                ItemReceiveNote.recieved_date >= request.start_date,
+                ItemReceiveNote.recieved_date < request.end_date + timedelta(days=1),
+                *_in(ItemTransferNote.branch_code, self.branch_codes),
+            )
+            .scalar()
+            or 0
+        )
 
         # Pending approvals
         pending_approvals = (
@@ -667,6 +686,7 @@ class ReportingService:
                     CustomerSupport.date >= request.start_date,
                     CustomerSupport.date <= request.end_date,
                     *_in(CustomerSupport.branch_code, self.branch_codes),
+                    *([CustomerSupport.branch_code == request.branch_code] if request.branch_code else []),
                 )
             )
             .group_by(CustomerSupport.job_type)

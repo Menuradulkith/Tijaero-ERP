@@ -3,7 +3,10 @@
     material issue / backflush   Dr 1230 WIP                 Cr 1210 Inventory
     material return              Dr 1210 Inventory           Cr 1230 WIP
     job-card time                Dr 1230 WIP                 Cr 5040 Labour & Overhead Absorbed
-    output receipt               Dr 1210 Inventory           Cr 1230 WIP      (standard unit cost)
+    output receipt               Dr 1210 Inventory           Cr 1230 WIP      (standard unit cost, plus by-products)
+    outside work received        Dr 1230 WIP                 Cr 5040 Absorbed (the subcontractor's per-unit price;
+                                                                               their bill is an expense on 5040)
+    quality check failed         Dr 5030 Production Variance Cr 1210 Inventory (held units written off)
     order close                  Dr/Cr 5030 Production Variance  Cr/Dr 1230 WIP  (what is left in WIP)
 
 Every hook derives its lines from the source document, so the regenerators in
@@ -32,6 +35,8 @@ REF_MATERIAL = "MfgMaterialTxn"
 REF_TIME = "MfgTimeLog"
 REF_OUTPUT = "MfgOutput"
 REF_ORDER = "ProductionOrder"
+REF_OUTSIDE = "MfgOutsideReceipt"
+REF_QC = "MfgQcResult"
 VARIANCE_MARKER = "Production Variance"
 
 
@@ -100,7 +105,7 @@ class ManufacturingGL:
         )
 
     def post_output(self, output, user_id: int) -> Optional[JournalEntry]:
-        amount = Decimal(str(output.total_value or 0))
+        amount = Decimal(str(output.total_value or 0)) + Decimal(str(output.byproduct_value or 0))
         if amount <= 0:
             return None
         order = output.order
@@ -109,6 +114,30 @@ class ManufacturingGL:
             reference_type=REF_OUTPUT, reference_id=output.id, reference_no=order.order_no,
             lines=_pair(ACCT_INVENTORY, ACCT_WIP, amount, desc), entry_date=output.receipt_date.date(),
             description=f"{desc} | MfgOutput ID: {output.id}", branch_code=order.branch_code, user_id=user_id,
+        )
+
+    def post_outside_receipt(self, rec, user_id: int) -> Optional[JournalEntry]:
+        amount = Decimal(str(rec.amount or 0))
+        if amount <= 0:
+            return None
+        order = rec.order
+        desc = f"Outside work on {order.order_no} ({rec.operation.name})"
+        return self._post(
+            reference_type=REF_OUTSIDE, reference_id=rec.id, reference_no=order.order_no,
+            lines=_pair(ACCT_WIP, ACCT_ABSORBED, amount, desc), entry_date=rec.receipt_date.date(),
+            description=f"{desc} | MfgOutsideReceipt ID: {rec.id}", branch_code=order.branch_code, user_id=user_id,
+        )
+
+    def post_qc_failure(self, result, user_id: int) -> Optional[JournalEntry]:
+        amount = Decimal(str(result.failed_value or 0))
+        if amount <= 0:
+            return None
+        order = result.order
+        desc = f"Quality check failed on {order.order_no}: {result.failed_quantity} unit(s) written off"
+        return self._post(
+            reference_type=REF_QC, reference_id=result.id, reference_no=order.order_no,
+            lines=_pair(ACCT_PRODUCTION_VARIANCE, ACCT_INVENTORY, amount, desc), entry_date=result.decided_at.date(),
+            description=f"{desc} | MfgQcResult ID: {result.id}", branch_code=order.branch_code, user_id=user_id,
         )
 
     def post_variance(self, order, user_id: int) -> Optional[JournalEntry]:

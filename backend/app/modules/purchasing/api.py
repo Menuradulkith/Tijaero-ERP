@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from app.auth.dependencies import (
     get_current_user,
+    get_user_branch_codes,
     get_user_branch_filter,
     validate_branch_access,
 )
@@ -650,27 +651,6 @@ def update_supplier_product(
     return service.SupplierProductService(db).update_mapping(supplier_id, mapping_id, payload)
 
 
-@router.delete(
-    "/suppliers/{supplier_id}/products/{mapping_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def delete_supplier_product(
-    supplier_id: RowId,
-    mapping_id: RowId,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_any_permission(
-            Permissions.SUPPLIER_CREATE,
-            Permissions.SUPPLIER_UPDATE,
-            Permissions.PRODUCT_CREATE,
-            Permissions.PRODUCT_UPDATE,
-        )
-    ),
-):
-    service.SupplierProductService(db).delete_mapping(supplier_id, mapping_id)
-    return None
-
-
 @router.get(
     "/orders/daily-limit/{branch_code}",
     response_model=schemas.DailyPOLimitCheck,
@@ -1215,8 +1195,8 @@ def list_purchase_returns(
         None, description="Filter by status: draft, pending, approved, rejected"
     ),
     branch_code: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
@@ -1474,16 +1454,14 @@ def get_grn_items(grn_id: int, db: Session = Depends(get_db), current_user: User
 )
 def list_grns(
     branch_code: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    from datetime import date as date_type
-
     # Apply branch-based access control
     if branch_code:
         if user_branches is not None and branch_code not in user_branches:
@@ -1499,8 +1477,8 @@ def list_grns(
     filters = schemas.GoodReceivedNoteListFilter(
         branch_code=filter_branch,
         branch_codes=user_branches,  # Pass list of allowed branches for filtering
-        date_from=date_type.fromisoformat(date_from) if date_from else None,
-        date_to=date_type.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit,
     )
@@ -1636,10 +1614,11 @@ def list_credit_settlements(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """List all credit settlements with transactions (eagerly loaded)"""
     settle_service = service.SupplierCreditsSettleService(db)
-    return settle_service.list_settlements_with_transactions(skip, limit)
+    return settle_service.list_settlements_with_transactions(skip, limit, branch_codes=user_branches)
 
 
 @router.get(
@@ -1767,12 +1746,13 @@ def get_payment_report(
     supplier_id: Optional[int] = Query(None, description="Filter by supplier"),
     branch_code: Optional[str] = Query(None, description="Filter by branch"),
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """Consolidated payment report across all suppliers and payment types."""
     from .credit_service import supplier_credit_service
     return supplier_credit_service.get_payment_report(
         db, date_from=date_from, date_to=date_to,
-        supplier_id=supplier_id, branch_code=branch_code,
+        supplier_id=supplier_id, branch_codes=_aging_branch_scope(branch_code, user_branches),
     )
 
 
@@ -1785,11 +1765,12 @@ def get_outstanding_documents(
     supplier_id: Optional[int] = Query(None, description="Filter by supplier"),
     branch_code: Optional[str] = Query(None, description="Filter by branch"),
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """All unpaid/partial GRNs across all suppliers."""
     from .credit_service import supplier_credit_service
     return supplier_credit_service.get_outstanding_documents(
-        db, supplier_id=supplier_id, branch_code=branch_code,
+        db, supplier_id=supplier_id, branch_codes=_aging_branch_scope(branch_code, user_branches),
     )
 
 
@@ -1895,15 +1876,13 @@ def list_supplier_payments(
     payment_method: Optional[str] = None,
     payment_for: Optional[str] = None,
     status: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from datetime import date as date_type
-
     if branch_code and not validate_branch_access(current_user, branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch_code}")
     allowed_branches = None if current_user.is_superuser else [b.branch_code for b in current_user.branches]
@@ -1916,8 +1895,8 @@ def list_supplier_payments(
         payment_method=payment_method,
         payment_for=payment_for,
         status=status,
-        date_from=date_type.fromisoformat(date_from) if date_from else None,
-        date_to=date_type.fromisoformat(date_to) if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit,
     )
@@ -1952,7 +1931,9 @@ def verify_supplier_payment(
 ):
     _ensure_row_branch(db, current_user, SupplierPayment, payment_id)
     payment_service = service.SupplierPaymentService(db)
-    return payment_service.verify_payment(payment_id, verified_by=current_user.id)
+    return payment_service.verify_payment(
+        payment_id, verified_by=current_user.id, maker_checker=not current_user.is_superuser,
+    )
 
 
 @router.post(
@@ -2039,7 +2020,7 @@ def get_eligible_advance_pos(
             PO.first_suppliers_id,
             PO.branch_code,
             func.coalesce(
-                func.sum(POI.quantity * POI.unit_price), 0
+                func.sum(POI.quantity * POI.unit_price * (1 + func.coalesce(POI.tax_rate, 0) / 100)), 0
             ).label("total_amount"),
         )
         .outerjoin(POI, POI.purchasingorders_id == PO.id)
@@ -2047,9 +2028,10 @@ def get_eligible_advance_pos(
             PO.status == "approved",
             ~grn_exists,
         )
-        .group_by(PO.id, PO.purchasing_order_no, PO.first_suppliers_id, PO.branch_code)
-        .all()
     )
+    if not current_user.is_superuser:
+        pos = pos.filter(PO.branch_code.in_(get_user_branch_codes(current_user)))
+    pos = pos.group_by(PO.id, PO.purchasing_order_no, PO.first_suppliers_id, PO.branch_code).all()
 
     # Supplier name lookup
     supplier_ids = list({row.first_suppliers_id for row in pos})
@@ -2069,13 +2051,7 @@ def get_eligible_advance_pos(
         total = float(row.total_amount)
         if total <= 0:
             continue
-        # Subtract existing advances for this PO
-        existing_advance = db.query(
-            func.coalesce(func.sum(SupplierAdvancePayment.original_amount), 0)
-        ).filter(
-            SupplierAdvancePayment.purchasing_order_id == row.id
-        ).scalar() or 0
-        remaining = total - float(existing_advance)
+        remaining = float(service.po_advance_remaining(db, row.id))
         if remaining <= 0:
             continue
         result.append({
@@ -2130,24 +2106,21 @@ def list_supplier_advances(
     supplier_id: Optional[int] = None,
     branch_code: Optional[str] = None,
     is_fully_applied: Optional[bool] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db),
+    user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
     """List all supplier advance payments with optional filters"""
-    from datetime import datetime
-
     advance_service = service.SupplierAdvancePaymentService(db)
     filters = schemas.SupplierAdvancePaymentListFilter(
         supplier_id=supplier_id,
-        branch_code=branch_code,
+        branch_codes=_aging_branch_scope(branch_code, user_branches),
         is_fully_applied=is_fully_applied,
-        date_from=(
-            datetime.strptime(date_from, "%Y-%m-%d").date() if date_from else None
-        ),
-        date_to=datetime.strptime(date_to, "%Y-%m-%d").date() if date_to else None,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit,
     )
@@ -2369,10 +2342,7 @@ def export_po_csv(
         ]
     )
     for order in pos:
-        total_amount = sum(
-            (item.quantity or 0) * (item.unit_price or 0)
-            for item in (order.items or [])
-        )
+        total_amount = order.total_amount
         paid_amount = sum(
             (payment.payment_amount or 0) for payment in (order.payments or [])
         )

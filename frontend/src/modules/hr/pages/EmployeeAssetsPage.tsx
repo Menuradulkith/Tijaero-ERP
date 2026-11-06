@@ -32,7 +32,7 @@ import { usePermission } from "@/auth/permissions";
 import { employeeAssetsApi, employeesApi } from "@/modules/hr/api";
 import { companyAssetsApi } from "@/modules/inventory/api";
 import { formatDateTimeReadable } from "@/utils/formatters";
-import type { EmployeeAsset, EmployeeAssetCreate } from "@/modules/hr/types";
+import { isLiveEmployee, type EmployeeAsset, type EmployeeAssetCreate } from "@/modules/hr/types";
 
 const INITIAL_FORM: EmployeeAssetCreate = {
   employee_id: "",
@@ -277,7 +277,7 @@ export default function EmployeeAssetsPage() {
           <>
             <FormSection title="Assignment Details" columns={2}>
               <TextField label="Employee" size="small" select value={formData.employee_id} onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })} disabled={isDisabled || !isCreating} required>
-                {(employees || []).map((emp) => (
+                {(employees || []).filter((emp) => isLiveEmployee(emp) || emp.employee_id === formData.employee_id).map((emp) => (
                   <MenuItem key={emp.id} value={emp.employee_id}>{emp.full_name ? `${emp.full_name} (${emp.employee_id})` : emp.employee_id}</MenuItem>
                 ))}
               </TextField>

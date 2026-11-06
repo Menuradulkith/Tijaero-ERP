@@ -49,11 +49,13 @@ def _png() -> bytes:
 
 
 class TestSupplierFindings:
-    def test_mapping_on_inactive_supplier_is_400(self, superclient, supplier):  # #7
+    def test_mapping_on_inactive_supplier_is_not_blocked(self, superclient, supplier):  # #7 (superseded)
+        # Inner data of an inactive supplier stays editable: the supplier being inactive is no
+        # longer a reason to reject a product mapping (other validation may still apply).
         sid = supplier["id"]
         assert superclient.patch(f"{S}/suppliers/{sid}", json={"active": False}).status_code == 200
         r = superclient.post(f"{S}/suppliers/{sid}/products", json={"product_id": 1, "cost_price": 1})
-        assert r.status_code == 400 and "inactive" in r.json()["detail"]
+        assert not (r.status_code == 400 and "inactive" in str(r.json().get("detail", "")))
 
     @pytest.mark.parametrize("body,field", [
         ({"company_name": None}, "company_name"), ({"mobile_contact_number": None}, "mobile_contact_number"),

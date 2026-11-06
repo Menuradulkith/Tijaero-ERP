@@ -1,8 +1,9 @@
-from pydantic import BaseModel, Field, StringConstraints, field_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 from datetime import date, datetime
 from typing import Annotated, Optional, List
 
 from app.common.base_schemas import TijaeroBaseSchema
+from app.core import timezone as tz
 
 
 def _text(max_length: int, required: bool = True):
@@ -25,8 +26,18 @@ class CustomerSupportBase(BaseModel):
     customer_id: Optional[Id] = None
     invoice_id: Optional[Id] = None
 
+EARLIEST_TICKET_DATE = date(2000, 1, 1)
+
+
 class CustomerSupportCreate(CustomerSupportBase):
-    pass
+    @field_validator("date")
+    @classmethod
+    def _date_in_range(cls, v: date) -> date:
+        if v > tz.today():
+            raise ValueError("The ticket date cannot be in the future")
+        if v < EARLIEST_TICKET_DATE:
+            raise ValueError("The ticket date is too far in the past")
+        return v
 
 class CustomerSupport(CustomerSupportBase, TijaeroBaseSchema):
     id: int
@@ -79,7 +90,18 @@ class CustomerCallLogBase(BaseModel):
     customer_support_id: Id
 
 class CustomerCallLogCreate(CustomerCallLogBase):
-    pass
+    @field_validator("contact_person", "comment")
+    @classmethod
+    def _blank_is_none(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return v.strip() or None
+
+    @model_validator(mode="after")
+    def _something_logged(self):
+        if not self.contact_person and not self.comment:
+            raise ValueError("Enter the contact person or a comment for the call")
+        return self
 
 class CustomerCallLog(CustomerCallLogBase, TijaeroBaseSchema):
     id: int
@@ -99,8 +121,26 @@ class WarrantyClaimBase(BaseModel):
     order_id: Id
     supplier_warrenty_claims: bool = False
 
+WARRANTY_TYPES = ("repair", "replace", "refund")
+WARRANTY_STATUSES = ("open", "in_progress", "sent_to_supplier", "approved", "rejected", "completed", "cancelled")
+
+
 class WarrantyClaimCreate(WarrantyClaimBase):
-    pass
+    @field_validator("warranty_type")
+    @classmethod
+    def _known_type(cls, v: str) -> str:
+        v = v.lower().replace(" ", "_")
+        if v not in WARRANTY_TYPES:
+            raise ValueError(f"must be one of: {', '.join(WARRANTY_TYPES)}")
+        return v
+
+    @field_validator("warranty_status")
+    @classmethod
+    def _known_status(cls, v: str) -> str:
+        v = v.lower().replace(" ", "_")
+        if v not in WARRANTY_STATUSES:
+            raise ValueError(f"must be one of: {', '.join(WARRANTY_STATUSES)}")
+        return v
 
 class WarrantyClaim(WarrantyClaimBase, TijaeroBaseSchema):
     id: int

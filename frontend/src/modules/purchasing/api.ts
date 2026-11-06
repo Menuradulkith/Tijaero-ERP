@@ -272,9 +272,6 @@ export const suppliersApi = {
     return response.data;
   },
 
-  deleteProduct: async (supplierId: number, mappingId: number) => {
-    await apiClient.delete(`/purchasing/suppliers/${supplierId}/products/${mappingId}`);
-  },
 };
 
 // Purchase Orders API

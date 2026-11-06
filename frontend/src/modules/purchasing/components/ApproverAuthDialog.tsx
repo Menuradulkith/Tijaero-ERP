@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -28,24 +28,36 @@ export default function ApproverAuthDialog({
 }: ApproverAuthDialogProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  // Blocks a second submit before the parent's `loading` flag arrives.
+  const submittedRef = useRef(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittedRef.current || loading) return;
     if (!username.trim() || !password.trim()) return;
+    submittedRef.current = true;
+    window.setTimeout(() => {
+      submittedRef.current = false;
+    }, 1500);
     onSubmit(username, password);
   };
 
-  // Reset fields when opened
   React.useEffect(() => {
     if (open) {
       setUsername("");
       setPassword("");
+      submittedRef.current = false;
     }
   }, [open]);
 
+  React.useEffect(() => {
+    if (!loading) submittedRef.current = false;
+  }, [loading]);
+
   return (
     <Dialog open={open} onClose={loading ? undefined : onClose} maxWidth="sm" fullWidth>
-      <form onSubmit={handleSubmit}>
+      {/* The approver must type their own credentials: the browser's saved login must never fill these. */}
+      <form onSubmit={handleSubmit} autoComplete="off">
         <DialogTitle>{title}</DialogTitle>
         <DialogContent>
           <Box sx={{ mb: 2, mt: 1 }}>
@@ -57,6 +69,9 @@ export default function ApproverAuthDialog({
               margin="dense"
               label="Approver Username"
               type="text"
+              name="approver-id"
+              autoComplete="off"
+              inputProps={{ autoComplete: "off", "data-lpignore": "true", "data-1p-ignore": "true" }}
               fullWidth
               variant="outlined"
               value={username}
@@ -69,6 +84,9 @@ export default function ApproverAuthDialog({
               margin="dense"
               label="Password (or Passcode)"
               type="password"
+              name="approver-secret"
+              autoComplete="new-password"
+              inputProps={{ autoComplete: "new-password", "data-lpignore": "true", "data-1p-ignore": "true" }}
               fullWidth
               variant="outlined"
               value={password}

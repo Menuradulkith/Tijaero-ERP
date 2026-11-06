@@ -21,7 +21,7 @@ from typing import Any, Callable, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth.models import User
+from app.auth.models import Branch, User
 from app.auth.rbac import user_has_permission
 from app.core import timezone as tz
 
@@ -47,7 +47,8 @@ class Param:
     label: str
     type: str = "text"
     required: bool = False
-    # A value, or one of: "today", "month_start", "year_start", "current_year", "last_month_start", "last_month_end".
+    # A value, or one of: "today", "month_start", "year_start", "current_year", "current_month",
+    # "last_month_start", "last_month_end".
     default: Any = None
     options: tuple[tuple[str, str], ...] = ()  # (value, label) for "select"
     min: Optional[int] = None
@@ -183,6 +184,8 @@ def _resolve_default(value: Any) -> Any:
         return date(today.year, 1, 1)
     if value == "current_year":
         return today.year
+    if value == "current_month":
+        return today.month
     if value in ("last_month_start", "last_month_end"):
         y, m = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
         return date(y, m, 1) if value == "last_month_start" else date(y, m, calendar.monthrange(y, m)[1])
@@ -262,6 +265,10 @@ def execute(ctx: RunContext, report: ReportDef, raw_params: Optional[dict]) -> t
             detail=f"Permission denied. Required: {report.permission[0]}:{report.permission[1]}",
         )
     params = parse_params(report, raw_params)
+    for p in report.params:
+        code = params.get(p.key) if p.type == "branch" else None
+        if code and not ctx.db.query(Branch.id).filter(Branch.branch_code == code).first():
+            raise HTTPException(status_code=422, detail=f"Branch {code} not found")
     with localcontext() as dctx:
         dctx.prec = DECIMAL_PRECISION
         result = report.run(ctx, params)

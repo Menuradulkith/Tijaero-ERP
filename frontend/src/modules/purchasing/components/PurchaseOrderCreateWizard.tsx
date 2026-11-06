@@ -52,8 +52,10 @@ import { useReferenceData } from "@/hooks";
 import { productsApi } from "@/modules/inventory/api";
 import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import { EntityLink, EntityPeekButton } from "@/components/tijaero/peek";
+import LineAmountField, { lineAmountError } from "@/modules/purchasing/components/LineAmountField";
 import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
 import { addWorkingDays } from "@/modules/purchasing/utils/workingDays";
+import { UNTAXED_SUPPLIER_AREAS } from "@/modules/purchasing/types";
 import type {
   PurchasingOrderBatchResponse,
   PurchasingOrderCreate,
@@ -258,7 +260,9 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
   const isProductsStepValid =
     !!branchCode &&
     lines.length > 0 &&
-    lines.every((l) => l.product_id > 0 && l.quantity > 0 && l.supplier_id > 0);
+    lines.every(
+      (l) => l.product_id > 0 && !lineAmountError(l.quantity, true) && l.supplier_id > 0 && !lineAmountError(l.unit_price),
+    );
 
   // ── Step 2: Review & Confirm — group by supplier ──────────────────────
   const supplierGroups = useMemo(() => {
@@ -269,13 +273,20 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
       bucket.push(line);
       groups.set(line.supplier_id, bucket);
     }
-    return Array.from(groups.entries()).map(([supplierId, groupLines]) => ({
-      supplier: suppliers?.find((s) => s.id === supplierId),
-      supplierId,
-      lines: groupLines,
-      total: groupLines.reduce((sum, l) => sum + l.quantity * l.unit_price, 0),
-    }));
-  }, [lines, suppliers]);
+    return Array.from(groups.entries()).map(([supplierId, groupLines]) => {
+      const supplier = suppliers?.find((s) => s.id === supplierId);
+      const subtotal = groupLines.reduce((sum, l) => sum + l.quantity * l.unit_price, 0);
+      // Same rule as the server: the product's tax %, none for a supplier on an untaxed tax area.
+      const untaxed = !!supplier?.tax_area && UNTAXED_SUPPLIER_AREAS.includes(supplier.tax_area);
+      const tax = untaxed
+        ? 0
+        : groupLines.reduce((sum, l) => {
+            const rate = Number((products.find((p: any) => p.id === l.product_id) as any)?.tax_rate ?? 0);
+            return sum + Math.round(l.quantity * l.unit_price * rate) / 100;
+          }, 0);
+      return { supplier, supplierId, lines: groupLines, subtotal, tax, total: subtotal + tax };
+    });
+  }, [lines, suppliers, products]);
 
   // Each PO's expected delivery date is not entered here: it is estimated as the order date + the
   // supplier's lead time in working days (re-based on the approval date when the PO is approved).
@@ -283,6 +294,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     leadTimeDays && leadTimeDays > 0 ? addWorkingDays(TODAY_STR, leadTimeDays) : null;
 
   const grandTotal = useMemo(() => supplierGroups.reduce((sum, g) => sum + g.total, 0), [supplierGroups]);
+  const grandTax = useMemo(() => supplierGroups.reduce((sum, g) => sum + g.tax, 0), [supplierGroups]);
 
   const isReviewStepValid = supplierGroups.length > 0;
 
@@ -545,15 +557,10 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
-                          <TextField
-                            size="small"
-                            type="number"
+                          <LineAmountField
+                            integer
                             value={line.quantity}
-                            onChange={(e) =>
-                              handleUpdateLine(line._id, { quantity: parseInt(e.target.value) || 0 })
-                            }
-                            inputProps={{ min: 1 }}
-                            sx={{ width: 80 }}
+                            onChange={(quantity) => handleUpdateLine(line._id, { quantity })}
                           />
                         </TableCell>
                         <TableCell>
@@ -615,7 +622,20 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                           />
                         </TableCell>
                         <TableCell align="right">
-                          {line.supplier_id ? fmtLKR(line.unit_price) : "-"}
+                          {line.supplier_id ? (
+                            lineAmountError(line.unit_price) ? (
+                              <Typography variant="body2" color="error">
+                                {fmtLKR(line.unit_price)}
+                                <Typography component="span" variant="caption" display="block">
+                                  No cost price for this supplier
+                                </Typography>
+                              </Typography>
+                            ) : (
+                              fmtLKR(line.unit_price)
+                            )
+                          ) : (
+                            "-"
+                          )}
                         </TableCell>
                         <TableCell>
                           <TextField
@@ -691,6 +711,18 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                         <TableCell align="right">{fmtLKR(l.quantity * l.unit_price)}</TableCell>
                       </TableRow>
                     ))}
+                    {group.tax > 0 && (
+                      <>
+                        <TableRow>
+                          <TableCell colSpan={7} align="right">Subtotal:</TableCell>
+                          <TableCell align="right">{fmtLKR(group.subtotal)}</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={7} align="right">VAT / Tax:</TableCell>
+                          <TableCell align="right">{fmtLKR(group.tax)}</TableCell>
+                        </TableRow>
+                      </>
+                    )}
                     <TableRow sx={modernTableStyles.footerRow}>
                       <TableCell colSpan={7} align="right">
                         <Typography fontWeight="bold">Group Total:</Typography>
@@ -705,6 +737,12 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
             </TFormSection>
           ))}
 
+          {grandTax > 0 && (
+            <Paper variant="outlined" sx={{ p: 2, display: "flex", justifyContent: "space-between", borderRadius: 2 }}>
+              <Typography>Total VAT / Tax (included below)</Typography>
+              <Typography>{fmtLKR(grandTax)}</Typography>
+            </Paper>
+          )}
           <Paper variant="outlined" sx={{ p: 2, display: "flex", justifyContent: "space-between", borderRadius: 2 }}>
             <Typography fontWeight="bold">Grand Total</Typography>
             <Typography fontWeight="bold">{fmtLKR(grandTotal)}</Typography>
