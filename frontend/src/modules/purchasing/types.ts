@@ -805,6 +805,8 @@ export interface SupplierPayment {
   created_date: string;
   created_by?: number;
   // Loaded from relationships
+  created_by_name?: string | null;
+  verified_by_name?: string | null;
   supplier_name?: string;
   po_no?: string;
 }

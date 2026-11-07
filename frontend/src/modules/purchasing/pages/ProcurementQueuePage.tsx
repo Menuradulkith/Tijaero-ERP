@@ -84,9 +84,10 @@ interface SupplierSettings {
 }
 
 const groupKey = (supplierId: number, quoteId: number) => `${supplierId}:${quoteId}`;
-const todayIso = () => new Date().toISOString().split("T")[0];
+const todayIso = () => todayISO();
 import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
 import { addWorkingDays } from "@/modules/purchasing/utils/workingDays";
+import { todayISO, localDateISO } from "@/utils/formatters";
 
 export default function ProcurementQueuePage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
@@ -186,7 +187,7 @@ export default function ProcurementQueuePage() {
     if (supplier?.average_lead_time_days == null) return orderDate;
     const base = new Date(`${orderDate}T00:00:00`);
     base.setDate(base.getDate() + Math.round(supplier.average_lead_time_days));
-    return base.toISOString().split("T")[0];
+    return localDateISO(base);
   };
 
   // The Order Date is set per supplier, since one supplier can have several queued

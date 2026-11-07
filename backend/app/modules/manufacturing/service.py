@@ -1062,9 +1062,14 @@ class ProductionOrderService:
         ids = [line.material_id for line in data.lines]
         if len(set(ids)) != len(ids):
             raise _bad("Each material line can appear only once per issue; combine the quantities")
-        # Issuing more than required is allowed on purpose (the surplus is returned with return-materials)
+        # Up to what the most the order may produce (planned + over-production tolerance) needs;
+        # a surplus within that is returned with return-materials.
         for line in data.lines:
             mat = self._material(order, line.material_id)
+            cap = max(mat.required_quantity, _units_needed(mat.quantity_per_unit, mat.scrap_pct, _max_units(order)))
+            if mat.issued_quantity + line.quantity > cap:
+                raise _bad(f"'{mat.product.name}' can be issued up to {cap} unit(s) on this order "
+                           f"({mat.issued_quantity} already issued); the BOM's over-production tolerance sets the limit")
             self._consume(order, mat, line.quantity, "issue", user_id, data.remark)
         log_audit(self.db, user_id, "issue_materials", "production_order", order.id,
                   {"lines": [[l.material_id, l.quantity] for l in data.lines]})

@@ -1428,6 +1428,15 @@ class GeneralLedgerService:
             query = query.filter(GeneralLedger.reference_type == filters.reference_type)
         if filters.reference_no:
             query = query.filter(GeneralLedger.reference_no.ilike(f"%{filters.reference_no}%"))
+        if filters.reference and filters.reference.strip():
+            # A document number: the GL row's own reference, or the journal
+            # entry it came from (JE-…). Branch scope above still applies.
+            ref = f"%{filters.reference.strip()}%"
+            je_ids = self.db.query(JournalEntry.id).filter(JournalEntry.journal_entry_no.ilike(ref))
+            query = query.filter(or_(
+                GeneralLedger.reference_no.ilike(ref),
+                GeneralLedger.journal_entry_id.in_(je_ids),
+            ))
         if filters.search:
             s = f"%{filters.search}%"
             query = query.filter(or_(

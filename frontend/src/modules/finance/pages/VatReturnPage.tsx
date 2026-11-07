@@ -6,13 +6,14 @@
  * line, checks the totals against the VAT accounts in the GL, and settles the
  * period (moves the net VAT to "VAT due to tax authority").
  *
- * Same layout as the other report pages: period in the header row, the settle
- * action next to refresh, sections below.
+ * Same layout as the other report pages: period in the header row, sections
+ * below. The summary leads with what is still to pay (the amount Settle would
+ * clear); the Settle button sits with the settlement section at the bottom.
  */
 
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import CloseIcon from "@mui/icons-material/Close";
-import { Alert, Box, Button, CircularProgress, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Typography } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -28,8 +29,10 @@ import {
   handleApiError,
   showSuccessToast,
   useConfirmDialog,
+  TDatePicker,
 } from "@/components/tijaero";
 import { vatReturnApi } from "@/modules/finance/api";
+import { displayDate, localDateISO, startOfMonthISO, todayISO } from "@/utils/formatters";
 import { submitOnce } from "@/modules/finance/submitOnce";
 import type { TaxTransaction, VatReturnLine, VatSettlement } from "@/modules/finance/types";
 import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
@@ -37,13 +40,11 @@ import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
 const fmt = (v: number | string | null | undefined) =>
   Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const iso = (d: Date) => {
-  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
+const monthStart = () => startOfMonthISO();
+const monthEnd = () => {
+  const t = new Date();
+  return localDateISO(new Date(t.getFullYear(), t.getMonth() + 1, 0));
 };
-const today = new Date();
-const MONTH_START = iso(new Date(today.getFullYear(), today.getMonth(), 1));
-const MONTH_END = iso(new Date(today.getFullYear(), today.getMonth() + 1, 0));
 
 const DIRECTION_LABEL = { output: "VAT on sales (output VAT)", input: "VAT on purchases (input VAT)" } as const;
 
@@ -78,8 +79,8 @@ export default function VatReturnPage() {
   const queryClient = useQueryClient();
   const confirmDialog = useConfirmDialog();
   const canSettle = usePermission("accounting_periods", "update");
-  const [dateFrom, setDateFrom] = useState(MONTH_START);
-  const [dateTo, setDateTo] = useState(MONTH_END);
+  const [dateFrom, setDateFrom] = useState(monthStart);
+  const [dateTo, setDateTo] = useState(monthEnd);
   const [drill, setDrill] = useState<VatReturnLine | null>(null);
 
   const valid = !!dateFrom && !!dateTo && dateFrom <= dateTo;
@@ -117,13 +118,21 @@ export default function VatReturnPage() {
 
   const unsettledNet = data ? Number(data.unsettled_output_tax) - Number(data.unsettled_input_tax) : 0;
   const hasUnsettled = !!data && (Number(data.unsettled_output_tax) !== 0 || Number(data.unsettled_input_tax) !== 0);
+  const todayStr = todayISO();
+  const periodNotEnded = dateTo > todayStr;
+  // Why Settle is greyed out (null = it can be pressed).
+  const settleBlockedReason = !hasUnsettled
+    ? `Nothing to settle: all VAT up to ${displayDate(dateTo)} is already settled.`
+    : periodNotEnded
+      ? `The period runs until ${displayDate(dateTo)}, which has not ended yet. Settle once it has ended, or set the "to" date to today or earlier.`
+      : null;
 
   const handleSettle = async () => {
     if (!data) return;
     const ok = await confirmDialog.confirm({
-      title: `Settle VAT up to ${dateTo}?`,
+      title: `Settle VAT up to ${displayDate(dateTo)}?`,
       message:
-        `All VAT not yet settled up to ${dateTo} (from any earlier date too) is cleared: ` +
+        `All VAT not yet settled up to ${displayDate(dateTo)} (from any earlier date too) is cleared: ` +
         `VAT on sales ${fmt(data.unsettled_output_tax)} minus VAT on purchases ${fmt(data.unsettled_input_tax)} = ` +
         `${fmt(Math.abs(unsettledNet))} ${unsettledNet >= 0 ? "to pay to" : "to claim back from"} the tax authority. ` +
         `This posts a journal entry and marks those rows as settled.`,
@@ -161,7 +170,7 @@ export default function VatReturnPage() {
   ];
 
   const txnColumns: TDataGridColumn<TaxTransaction>[] = [
-    { field: "transaction_date", header: "Date", width: 120 },
+    { field: "transaction_date", header: "Date", width: 120, renderCell: (p) => displayDate(p.row.transaction_date) },
     {
       field: "reference_no",
       header: "Document",
@@ -192,7 +201,7 @@ export default function VatReturnPage() {
 
   const settlementColumns: TDataGridColumn<VatSettlement>[] = [
     { field: "settlement_no", header: "Settlement", minWidth: 150, flex: 1 },
-    { field: "date_to", header: "Up to", width: 120 },
+    { field: "date_to", header: "Up to", width: 120, renderCell: (p) => displayDate(p.row.date_to) },
     amountCol("output_tax", "Sales VAT"),
     amountCol("input_tax", "Purchase VAT"),
     {
@@ -211,40 +220,24 @@ export default function VatReturnPage() {
       title="VAT Return"
       titleSlot={
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
-          <TextField
-            type="date"
+          <TDatePicker
             size="small"
             value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
+            onChange={(v) => setDateFrom(v ?? "")}
             inputProps={{ "aria-label": "From date" }}
             sx={{ width: 150, flexShrink: 0 }}
           />
           <Typography variant="body2" color="text.secondary">
             to
           </Typography>
-          <TextField
-            type="date"
+          <TDatePicker
             size="small"
             value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
+            onChange={(v) => setDateTo(v ?? "")}
             inputProps={{ "aria-label": "To date" }}
             sx={{ width: 150, flexShrink: 0 }}
           />
         </Box>
-      }
-      headerActions={
-        canSettle && data ? (
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={settle.isPending ? <CircularProgress size={16} /> : <AccountBalanceIcon />}
-            disabled={!hasUnsettled || settle.isPending}
-            onClick={handleSettle}
-            sx={{ mr: 1 }}
-          >
-            Settle VAT up to {dateTo}
-          </Button>
-        ) : undefined
       }
       onRefresh={valid ? () => refetch() : undefined}
       isLoading={isFetching}
@@ -264,13 +257,21 @@ export default function VatReturnPage() {
         {data && (
           <>
             <FormSection title="Summary" columns={3}>
-              <Figure label="VAT on sales (output)" value={data.output_tax} hint="Charged to customers" />
-              <Figure label="VAT on purchases (input)" value={data.input_tax} hint="Paid to suppliers, claimable" />
               <Figure
-                label={net >= 0 ? "VAT to pay" : "VAT to claim back"}
-                value={Math.abs(net)}
-                hint="Sales VAT − purchase VAT"
-                color={net >= 0 ? "error.main" : "success.main"}
+                label={unsettledNet >= 0 ? "VAT to pay (not yet settled)" : "VAT to claim back (not yet settled)"}
+                value={Math.abs(unsettledNet)}
+                hint={`Everything unsettled up to ${displayDate(dateTo)}, including earlier months`}
+                color={unsettledNet > 0 ? "error.main" : unsettledNet < 0 ? "success.main" : undefined}
+              />
+              <Figure
+                label="VAT on sales in this period"
+                value={data.output_tax}
+                hint={`Charged to customers, ${displayDate(dateFrom)} – ${displayDate(dateTo)}`}
+              />
+              <Figure
+                label="VAT on purchases in this period"
+                value={data.input_tax}
+                hint={`Paid to suppliers, claimable · net ${fmt(Math.abs(net))} ${net >= 0 ? "to pay" : "to claim"}`}
               />
             </FormSection>
 
@@ -333,13 +334,40 @@ export default function VatReturnPage() {
             <FormSection title="Settlement" columns={1} isLast>
               <Typography variant="body2" color="text.secondary">
                 {hasUnsettled
-                  ? `Not yet settled up to ${dateTo}: sales VAT ${fmt(data.unsettled_output_tax)}, purchase VAT ${fmt(
+                  ? `Not yet settled up to ${displayDate(dateTo)}: sales VAT ${fmt(data.unsettled_output_tax)}, purchase VAT ${fmt(
                       data.unsettled_input_tax
                     )} → ${fmt(Math.abs(unsettledNet))} ${unsettledNet >= 0 ? "to pay" : "to claim back"}.`
-                  : `All VAT up to ${dateTo} is settled.`}{" "}
+                  : `All VAT up to ${displayDate(dateTo)} is settled.`}{" "}
                 Settling moves it to “VAT due to tax authority”; record the actual payment to the tax authority from
                 that account.
               </Typography>
+              {canSettle && (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", my: 1 }}>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    startIcon={settle.isPending ? <CircularProgress size={16} /> : <AccountBalanceIcon />}
+                    disabled={!!settleBlockedReason || settle.isPending}
+                    onClick={handleSettle}
+                  >
+                    Settle VAT up to {displayDate(dateTo)}
+                  </Button>
+                  {settleBlockedReason && (
+                    <Typography variant="caption" color="text.secondary">
+                      {settleBlockedReason}
+                    </Typography>
+                  )}
+                  {periodNotEnded && hasUnsettled && (
+                    <Button
+                      size="small"
+                      onClick={() => setDateTo(todayStr < dateFrom ? dateFrom : todayStr)}
+                      sx={{ textTransform: "none" }}
+                    >
+                      Use today as the end date
+                    </Button>
+                  )}
+                </Box>
+              )}
               {settlements.length > 0 && (
                 <TDataGrid<VatSettlement>
                   rows={settlements}

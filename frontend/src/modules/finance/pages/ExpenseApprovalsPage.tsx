@@ -25,7 +25,6 @@ import {
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -33,7 +32,6 @@ import {
   EmptyState,
   EXPENSE_CATEGORIES,
   EXPENSE_TYPES,
-  EXPENSES_METHOD,
   fmtLKR,
   FormSection,
   getStatusProps,
@@ -59,8 +57,19 @@ import { useReferenceData } from "@/hooks";
 import { usePermission } from "@/auth/permissions";
 import { useAuthStore } from "@/state/authStore";
 import { expensesApi } from "@/modules/finance/api";
-import type { Expense } from "@/modules/finance/types";
+import type { Expense as ExpenseBase } from "@/modules/finance/types";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { displayDate } from "@/utils/formatters";
+
+// The API adds the people's names next to their user ids.
+type Expense = ExpenseBase & { submitted_by_name?: string | null; approved_by_name?: string | null };
+
+/** "07 Nov 2026 14:05": the ERP's date format plus the time. */
+const displayDateTime = (v?: string | null) => {
+  const d = v ? new Date(v) : null;
+  if (!d || isNaN(d.getTime())) return "";
+  return `${displayDate(d)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -218,8 +227,6 @@ export default function ExpenseApprovalsPage() {
 
   const getCategoryLabel = (val: string) =>
     EXPENSE_CATEGORIES.find((c) => c.value === val)?.label || val;
-  const getMethodLabel = (val: string) =>
-    EXPENSES_METHOD.find((m) => m.value === val)?.label || val;
 
   // ─── Master Panel ──────────────────────────────────────────────────────────
 
@@ -304,7 +311,7 @@ export default function ExpenseApprovalsPage() {
 
   // ─── Detail Panel ──────────────────────────────────────────────────────────
 
-  const detail = expenseDetail || selectedExpense;
+  const detail = (expenseDetail || selectedExpense) as Expense | null;
 
   const detailPanel = (
     <Box
@@ -317,7 +324,8 @@ export default function ExpenseApprovalsPage() {
     >
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Finance" },
+          { label: "Finance", href: "/finance" },
+          { label: "Approvals", href: "/finance/approvals" },
           { label: "Expense Approvals", href: "/finance/approvals/expense-approvals" },
           ...(detail ? [{ label: detail.expenses_no }] : []),
         ]}
@@ -391,9 +399,8 @@ export default function ExpenseApprovalsPage() {
             {detail.status === "approved" && (
               <Alert severity="success" sx={{ mb: 2 }}>
                 Approved
-                {detail.approved_by && ` by ${detail.approved_by}`}
-                {detail.approved_date &&
-                  ` on ${format(new Date(detail.approved_date), "dd MMM yyyy HH:mm")}`}
+                {detail.approved_by && ` by ${detail.approved_by_name || `user #${detail.approved_by}`}`}
+                {detail.approved_date && ` on ${displayDateTime(detail.approved_date)}`}
               </Alert>
             )}
 
@@ -421,25 +428,15 @@ export default function ExpenseApprovalsPage() {
                 disabled
               />
               <TextField
-                label="Method"
-                size="small"
-                value={getMethodLabel(detail.expenses_method)}
-                disabled
-              />
-              <TextField
                 label={`Amount (${currencySymbol})`}
                 size="small"
                 value={fmtLKR(detail.expense_amount)}
                 disabled
               />
               <TextField
-                label="Expense Date"
+                label="Bill Date"
                 size="small"
-                value={
-                  detail.expense_date
-                    ? format(new Date(detail.expense_date), "dd MMM yyyy")
-                    : "N/A"
-                }
+                value={displayDate(detail.expense_date) || "N/A"}
                 disabled
               />
             </FormSection>
@@ -501,17 +498,13 @@ export default function ExpenseApprovalsPage() {
               <TextField
                 label="Submitted By"
                 size="small"
-                value={detail.submitted_by || "N/A"}
+                value={detail.submitted_by_name || (detail.submitted_by ? `User #${detail.submitted_by}` : "N/A")}
                 disabled
               />
               <TextField
                 label="Created"
                 size="small"
-                value={
-                  detail.created_date
-                    ? format(new Date(detail.created_date), "dd MMM yyyy")
-                    : "N/A"
-                }
+                value={displayDate(detail.created_date) || "N/A"}
                 disabled
               />
             </FormSection>
@@ -536,9 +529,9 @@ export default function ExpenseApprovalsPage() {
               </Box>
               {detail.approved_by && (
                 <TextField
-                  label="Approved By"
+                  label={detail.status === "rejected" ? "Rejected By" : "Approved By"}
                   size="small"
-                  value={detail.approved_by}
+                  value={detail.approved_by_name || `User #${detail.approved_by}`}
                   disabled
                 />
               )}
@@ -684,6 +677,8 @@ export default function ExpenseApprovalsPage() {
           submit: "Expense submitted",
           approve: "Expense approved",
           reject: "Expense rejected",
+          pay: "Expense paid",
+          record: "Recorded in accounts",
         }}
       />
     </>

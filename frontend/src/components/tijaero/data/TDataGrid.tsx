@@ -43,7 +43,7 @@ import {
   useGridApiContext,
   useGridSelector,
 } from "@mui/x-data-grid";
-import { Box, Button, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Tooltip, Typography } from "@mui/material";
+import { Box, Button, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import DensityMediumIcon from "@mui/icons-material/DensityMedium";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
@@ -79,6 +79,66 @@ export interface TDataGridColumn<R extends GridValidRowModel = GridValidRowModel
   headerAlign?: "left" | "center" | "right";
   /** Hide column */
   hide?: boolean;
+  /**
+   * Phones (< 600px) only. true = hide this column on a phone, false = always
+   * keep it. Unset = automatic: the first two columns, amounts, numbers,
+   * statuses and actions stay; other columns are hidden (the user can still
+   * show them from "Show or hide columns").
+   */
+  hideOnMobile?: boolean;
+}
+
+// Columns that carry money stay visible on a phone even when their type is
+// not "currency" (many pages render amounts with a custom renderCell).
+const AMOUNT_FIELD = /amount|balance|total|debit|credit|paid|due|price|value|cost|net/i;
+// Columns that go first on a phone: where / what kind, not which or how much.
+const LOW_PRIORITY_FIELD = /branch|category|type|method|warehouse|department|location/i;
+const DATE_FIELD = /(^|_)date$|_at$|^date/i;
+
+/**
+ * Phone priority of a column: lower shows further left, null = hidden.
+ * identifier (first column) -> amounts -> status -> first date -> actions.
+ */
+function phoneRanks<R extends GridValidRowModel>(columns: TDataGridColumn<R>[]): Map<string, number | null> {
+  const visible = columns.filter((c) => !c.hide);
+  const ranks = new Map<string, number | null>();
+  let dateSeen = false;
+  visible.forEach((c, i) => {
+    const isDate = c.type === "date" || c.type === "datetime" || DATE_FIELD.test(c.field);
+    const isAmount = c.type === "currency" || (!isDate && AMOUNT_FIELD.test(c.field) && !LOW_PRIORITY_FIELD.test(c.field));
+    let rank: number | null;
+    if (c.hideOnMobile === true) rank = null;
+    else if (i === 0) rank = 0;
+    else if (isAmount) rank = 1;
+    else if (c.type === "status" || c.field === "status") rank = 2;
+    else if (isDate && !dateSeen) rank = 3;
+    else if (c.type === "number") rank = 4;
+    else if (i === 1 && !LOW_PRIORITY_FIELD.test(c.field)) rank = 5;
+    else if (c.field === "actions" || c.field === "view" || !c.header) rank = 9;
+    else rank = c.hideOnMobile === false ? 6 : null;
+    if (isDate && rank === 3) dateSeen = true;
+    ranks.set(c.field, rank);
+  });
+  return ranks;
+}
+
+/** Columns hidden by default on a phone; see TDataGridColumn.hideOnMobile. */
+function phoneHiddenModel<R extends GridValidRowModel>(columns: TDataGridColumn<R>[]): GridColumnVisibilityModel {
+  const model: GridColumnVisibilityModel = {};
+  phoneRanks(columns).forEach((rank, field) => {
+    if (rank === null) model[field] = false;
+  });
+  return model;
+}
+
+/** Column order on a phone: identifier, amounts, status, date, then the rest. */
+function phoneOrder<R extends GridValidRowModel>(columns: TDataGridColumn<R>[]): TDataGridColumn<R>[] {
+  const ranks = phoneRanks(columns);
+  const r = (c: TDataGridColumn<R>) => ranks.get(c.field) ?? 99;
+  return columns
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => r(a.c) - r(b.c) || a.i - b.i)
+    .map(({ c }) => c);
 }
 
 export interface TDataGridProps<R extends GridValidRowModel = GridValidRowModel> {
@@ -302,8 +362,11 @@ const formatCurrency = (value: unknown): string => {
 const formatDate = (value: unknown, includeTime = false): string => {
   if (!value) return "-";
   try {
-    const date = new Date(String(value));
-    return format(date, includeTime ? "MMM dd, yyyy HH:mm" : "MMM dd, yyyy");
+    const raw = String(value);
+    // A plain calendar date (2026-11-07) is that day, not UTC midnight shifted.
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T00:00:00`) : new Date(raw);
+    // One date format across the ERP: 07 Nov 2026 (03/11 vs 11/03 is ambiguous).
+    return format(date, includeTime ? "dd MMM yyyy HH:mm" : "dd MMM yyyy");
   } catch {
     return "-";
   }
@@ -440,10 +503,6 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
   const paginationModel = serverPagination?.paginationModel ?? localPagination;
   const setPaginationModel = serverPagination?.onPaginationModelChange ?? setLocalPagination;
 
-  const gridColumns = React.useMemo(
-    () => columns.filter(c => !c.hide).map(toGridColDef),
-    [columns]
-  );
 
   // Per-user table preferences (density, hidden columns), remembered in this
   // browser. The key is fixed at mount so it doesn't drift if the page
@@ -466,7 +525,32 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
     setTDensity(next);
     writeStored(`${prefsKey}:density`, next);
   };
+  // On a phone, low-priority columns start hidden so the amounts fit on screen
+  // (the grid still scrolls sideways). What the user changes there is kept
+  // for this visit only, so it never rewrites their desktop column choices.
+  const theme = useTheme();
+  const isPhone = useMediaQuery(theme.breakpoints.down("sm"));
+  const [phoneVisibilityModel, setPhoneVisibilityModel] = React.useState<GridColumnVisibilityModel | null>(null);
+  const effectiveVisibilityModel = React.useMemo(
+    () => (isPhone ? phoneVisibilityModel ?? { ...columnVisibilityModel, ...phoneHiddenModel(columns) } : columnVisibilityModel),
+    // Keyed on the field list, not the array: pages often pass a new columns
+    // array every render, and a new model object each time would reset the grid.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isPhone, phoneVisibilityModel, columnVisibilityModel, fieldsKey]
+  );
+
+  // On a phone the important columns also move to the left, so the amount
+  // shows next to the number without scrolling sideways.
+  const gridColumns = React.useMemo(
+    () => (isPhone ? phoneOrder(columns) : columns).filter(c => !c.hide).map(toGridColDef),
+    [columns, isPhone]
+  );
+
   const handleColumnVisibilityChange = (model: GridColumnVisibilityModel) => {
+    if (isPhone) {
+      setPhoneVisibilityModel(model);
+      return;
+    }
     setColumnVisibilityModel(model);
     writeStored(`${prefsKey}:columns`, model);
   };
@@ -564,7 +648,7 @@ export function TDataGrid<R extends GridValidRowModel = GridValidRowModel>({
           checkboxSelection={selectionMode === "multiple"}
           rowSelectionModel={selectedRows}
           onRowSelectionModelChange={onSelectionChange}
-          columnVisibilityModel={columnVisibilityModel}
+          columnVisibilityModel={effectiveVisibilityModel}
           onColumnVisibilityModelChange={handleColumnVisibilityChange}
           onRowClick={onRowClick ? handleRowClick : undefined}
           getRowId={getRowId}

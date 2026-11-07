@@ -24,6 +24,8 @@ import {
   type TDataGridColumn,
   TRemarkField,
   TSearchableSelect,
+  useRecordParam,
+  TDatePicker,
 } from "@/components/tijaero";
 import { handleApiError } from "@/utils/errorHandling";
 import { useReferenceData } from "@/hooks";
@@ -31,22 +33,27 @@ import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CancelIcon from "@mui/icons-material/Cancel";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import SearchIcon from "@mui/icons-material/Search";
 import {
+  Alert,
   Box,
   Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
   InputAdornment,
   LinearProgress,
+  Menu,
   MenuItem,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { displayDate, formatCurrency, todayISO } from "@/utils/formatters";
 import { useMemo, useRef, useState } from "react";
 import { pettyCashApi } from "../api";
 import {
@@ -59,6 +66,18 @@ import {
 
 const fmt = (v: number | string | null | undefined) =>
   Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const categoryLabel = (code?: string | null) =>
+  (code && EXPENSE_CATEGORIES.find((c) => c.value === code)?.label) ||
+  (code ? code.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()) : "-");
+
+// Older expenses stored "<category_code> expense" as the description; show what
+// the user typed (purpose) instead.
+const txnDescription = (t: PettyCashTransaction) => {
+  const d = (t.description || "").trim();
+  const isCodeText = !d || /^[a-z0-9_]+ expense$/.test(d);
+  return (isCodeText ? t.purpose || d : d) || "-";
+};
 
 const STATUS_OPTIONS = [
   { value: "active", label: "Active", color: "success" as const },
@@ -95,7 +114,7 @@ export default function PettyCashPage() {
   const emptyFund = (): Partial<PettyCashFundCreate> => ({
     branch_code: filteredBranches[0]?.branch_code || "MAIN",
     opening_balance: 0,
-    opened_date: format(new Date(), "yyyy-MM-dd"),
+    opened_date: todayISO(),
   });
   const [formData, setFormData] = useState<Partial<PettyCashFundCreate>>(emptyFund);
 
@@ -103,19 +122,20 @@ export default function PettyCashPage() {
     petty_cash_id: selectedFundId || 0,
     amount: 0,
     expense_type: "office_supplies",
-    transaction_date: format(new Date(), "yyyy-MM-dd"),
+    transaction_date: todayISO(),
   });
 
   const [replenishData, setReplenishData] = useState<Partial<PettyCashReplenishCreate>>({
     petty_cash_id: selectedFundId || 0,
     amount: 0,
-    transaction_date: format(new Date(), "yyyy-MM-dd"),
+    transaction_date: todayISO(),
   });
 
   const [closingBalance, setClosingBalance] = useState(0);
+  const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
   // Field messages in the expense / replenish dialogs show after the first submit attempt.
   const [dialogTried, setDialogTried] = useState(false);
-  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const todayStr = todayISO();
   const MAX_AMOUNT = 999999999.99;
   const dateProblem = (d?: string) =>
     !d ? "Enter the transaction date" : d > todayStr ? "The date cannot be in the future" : null;
@@ -226,7 +246,7 @@ export default function PettyCashPage() {
         petty_cash_id: selectedFundId || 0,
         amount: 0,
         expense_type: "office_supplies",
-        transaction_date: format(new Date(), "yyyy-MM-dd"),
+        transaction_date: todayISO(),
       });
       setShowExpenseDialog(false);
     } catch (error: any) {
@@ -256,7 +276,7 @@ export default function PettyCashPage() {
       setReplenishData({
         petty_cash_id: selectedFundId || 0,
         amount: 0,
-        transaction_date: format(new Date(), "yyyy-MM-dd"),
+        transaction_date: todayISO(),
       });
       setShowReplenishDialog(false);
     } catch (error: any) {
@@ -302,6 +322,21 @@ export default function PettyCashPage() {
   };
 
   const detailMode = creating || !!selectedFundId;
+
+  // Open fund lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam<PettyCashFund>({
+    current: selectedFundId,
+    creating,
+    items: fundsData?.items as PettyCashFund[] | undefined,
+    loading: isLoadingFunds,
+    fetchById: (id) => pettyCashApi.getFundDetails(Number(id)) as Promise<PettyCashFund>,
+    onOpen: (f) => {
+      setCreating(false);
+      setSelectedFundId(f.id);
+    },
+    onClose: back,
+    onNew: canCreate ? () => { setFormData(emptyFund()); setCreating(true); } : undefined,
+  });
   const createValid = !!formData.branch_code && !!formData.opening_balance && formData.opening_balance > 0;
 
   const columns: TDataGridColumn<PettyCashFund>[] = [
@@ -314,13 +349,15 @@ export default function PettyCashPage() {
     { field: "status", header: "Status", width: 120, type: "status", statusMap: "financeDocument" },
   ];
 
+  // Money out shows as "−350.00" on one line (Rs. is in the header), so the
+  // Balance column still fits next to it at 1440 px.
   const txnColumns: TDataGridColumn<PettyCashTransaction>[] = [
-    { field: "transaction_date", header: "Date", width: 120, type: "date" },
-    { field: "transaction_no", header: "Transaction No", minWidth: 150, flex: 1 },
+    { field: "transaction_date", header: "Date", width: 110, type: "date" },
+    { field: "transaction_no", header: "Transaction No", minWidth: 140, flex: 1 },
     {
       field: "transaction_type",
       header: "Type",
-      width: 130,
+      width: 125,
       renderCell: (p) => (
         <Typography
           variant="body2"
@@ -333,31 +370,41 @@ export default function PettyCashPage() {
     {
       field: "description",
       header: "Description",
-      minWidth: 200,
+      minWidth: 160,
       flex: 1.5,
-      renderCell: (p) => p.row.description || p.row.purpose || "-",
+      renderCell: (p) => txnDescription(p.row),
     },
-    { field: "recipient_name", header: "Recipient", minWidth: 140, flex: 1 },
+    {
+      field: "expense_type",
+      header: "Category",
+      minWidth: 120,
+      flex: 0.8,
+      renderCell: (p) => (p.row.transaction_type === "expense" ? categoryLabel(p.row.expense_type) : "-"),
+    },
+    { field: "recipient_name", header: "Recipient", minWidth: 120, flex: 0.8 },
     {
       field: "amount",
-      header: "Amount",
-      width: 140,
+      header: "Amount (Rs.)",
+      width: 125,
       align: "right",
       headerAlign: "right",
       renderCell: (p) => (
-        <Box component="span" sx={{ color: p.row.transaction_type === "expense" ? "error.main" : "success.main" }}>
-          {p.row.transaction_type === "expense" ? "-" : "+"}
-          <TCurrency value={p.row.amount} />
+        <Box
+          component="span"
+          sx={{ whiteSpace: "nowrap", color: p.row.transaction_type === "expense" ? "error.main" : "success.main" }}
+        >
+          {p.row.transaction_type === "expense" ? "−" : "+"}
+          {fmt(p.row.amount)}
         </Box>
       ),
     },
     {
       field: "balance_after",
-      header: "Balance",
-      width: 140,
+      header: "Balance (Rs.)",
+      width: 125,
       align: "right",
       headerAlign: "right",
-      renderCell: (p) => <TCurrency value={p.row.balance_after} />,
+      renderCell: (p) => <Box component="span" sx={{ whiteSpace: "nowrap" }}>{fmt(p.row.balance_after)}</Box>,
     },
   ];
 
@@ -387,13 +434,11 @@ export default function PettyCashPage() {
           onChange={(e) => setFormData({ ...formData, opening_balance: e.target.value === "" ? 0 : parseFloat(e.target.value) })}
           inputProps={{ step: "0.01", min: "0", max: MAX_AMOUNT }}
         />
-        <TextField
+        <TDatePicker
           label="Opened Date"
-          type="date"
           size="small"
           value={formData.opened_date || ""}
-          onChange={(e) => setFormData({ ...formData, opened_date: e.target.value })}
-          InputLabelProps={{ shrink: true }}
+          onChange={(v) => setFormData({ ...formData, opened_date: v ?? "" })}
         />
       </FormSection>
       <FormSection title="Remarks" columns={1}>
@@ -416,7 +461,7 @@ export default function PettyCashPage() {
       <FormSection title="Fund Information" columns={3}>
         <TextField label="Fund No" size="small" value={fund.petty_cash_no} disabled />
         <TextField label="Branch" size="small" value={fund.branch_code ?? ""} disabled />
-        <TextField label="Opened Date" size="small" value={fund.opened_date ?? ""} disabled />
+        <TextField label="Opened Date" size="small" value={displayDate(fund.opened_date)} disabled />
         <TextField label="Opening Balance" size="small" value={fmt(fund.opening_balance)} disabled />
         <TextField label="Current Balance" size="small" value={fmt(fund.current_balance)} disabled />
         {fund.status === "closed" && (
@@ -428,7 +473,7 @@ export default function PettyCashPage() {
           />
         )}
         {fund.status === "closed" && (
-          <TextField label="Closed Date" size="small" value={fund.closed_date ?? ""} disabled />
+          <TextField label="Closed Date" size="small" value={displayDate(fund.closed_date)} disabled />
         )}
       </FormSection>
       {fund.remarks && (
@@ -474,9 +519,9 @@ export default function PettyCashPage() {
             <>
               <Button
                 size="small"
-                variant="outlined"
+                variant="contained"
                 onClick={() => {
-                  setExpenseData({ ...expenseData, petty_cash_id: selectedFundId || 0 });
+                  setExpenseData({ ...expenseData, petty_cash_id: selectedFundId || 0, transaction_date: todayISO() });
                   setDialogTried(false);
                   setShowExpenseDialog(true);
                 }}
@@ -488,24 +533,36 @@ export default function PettyCashPage() {
                 variant="outlined"
                 color="success"
                 onClick={() => {
-                  setReplenishData({ ...replenishData, petty_cash_id: selectedFundId || 0 });
+                  setReplenishData({ ...replenishData, petty_cash_id: selectedFundId || 0, transaction_date: todayISO() });
                   setDialogTried(false);
                   setShowReplenishDialog(true);
                 }}
               >
                 Replenish
               </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                color="error"
-                onClick={() => {
-                  setClosingBalance(fund.current_balance);
-                  setShowReconcileDialog(true);
-                }}
-              >
-                Close Fund
-              </Button>
+              {/* Closing the fund is rare and final: kept behind a menu, away from the daily buttons. */}
+              <Tooltip title="More actions">
+                <IconButton
+                  size="small"
+                  aria-label="More actions"
+                  onClick={(e) => setMoreAnchor(e.currentTarget)}
+                  sx={{ ml: 2 }}
+                >
+                  <MoreVertIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Menu anchorEl={moreAnchor} open={!!moreAnchor} onClose={() => setMoreAnchor(null)}>
+                <MenuItem
+                  onClick={() => {
+                    setMoreAnchor(null);
+                    setClosingBalance(fund.current_balance);
+                    setShowReconcileDialog(true);
+                  }}
+                  sx={{ color: "error.main" }}
+                >
+                  Count cash &amp; close fund…
+                </MenuItem>
+              </Menu>
             </>
           ) : undefined
         }
@@ -541,6 +598,14 @@ export default function PettyCashPage() {
             </Button>
           ) : (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+              <Box sx={{ flexShrink: 0 }}>
+                <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2 }}>
+                  Petty Cash
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Small cash kept at a branch for daily expenses
+                </Typography>
+              </Box>
               <TextField
                 size="small"
                 placeholder="Search funds..."
@@ -617,6 +682,15 @@ export default function PettyCashPage() {
       >
         <DialogTitle>Record Expense</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
+          <Alert
+            severity={(expenseData.amount || 0) > Number(fund?.current_balance || 0) ? "error" : "info"}
+            variant="outlined"
+            sx={{ mt: 1 }}
+          >
+            Available {formatCurrency(Number(fund?.current_balance || 0))}
+            {(expenseData.amount || 0) > 0 &&
+              ` · left after this: ${formatCurrency(Number(fund?.current_balance || 0) - (expenseData.amount || 0))}`}
+          </Alert>
           <TextField
             fullWidth
             label="Amount"
@@ -638,7 +712,7 @@ export default function PettyCashPage() {
           <TextField
             select
             fullWidth
-            label="Expense Type"
+            label="Category"
             value={expenseData.expense_type || "office_supplies"}
             onChange={(e) => setExpenseData({ ...expenseData, expense_type: e.target.value })}
             margin="normal"
@@ -697,20 +771,18 @@ export default function PettyCashPage() {
             margin="normal"
           />
 
-          <TextField
+          <TDatePicker
             fullWidth
             label="Transaction Date"
-            type="date"
             required
             value={expenseData.transaction_date || ""}
-            onChange={(e) =>
+            onChange={(v) =>
               setExpenseData({
                 ...expenseData,
-                transaction_date: e.target.value,
+                transaction_date: v ?? "",
               })
             }
             margin="normal"
-            InputLabelProps={{ shrink: true }}
             inputProps={{ max: todayStr }}
             error={dialogTried && !!expenseErrors.date}
             helperText={dialogTried ? expenseErrors.date : undefined}
@@ -752,6 +824,11 @@ export default function PettyCashPage() {
       >
         <DialogTitle>Replenish Petty Cash Fund</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
+          <Alert severity="info" variant="outlined" sx={{ mt: 1 }}>
+            Available {formatCurrency(Number(fund?.current_balance || 0))}
+            {(replenishData.amount || 0) > 0 &&
+              ` · after topping up: ${formatCurrency(Number(fund?.current_balance || 0) + (replenishData.amount || 0))}`}
+          </Alert>
           <TextField
             fullWidth
             label="Replenishment Amount"
@@ -770,20 +847,18 @@ export default function PettyCashPage() {
             helperText={dialogTried ? replenishErrors.amount : undefined}
           />
 
-          <TextField
+          <TDatePicker
             fullWidth
             label="Transaction Date"
-            type="date"
             required
             value={replenishData.transaction_date || ""}
-            onChange={(e) =>
+            onChange={(v) =>
               setReplenishData({
                 ...replenishData,
-                transaction_date: e.target.value,
+                transaction_date: v ?? "",
               })
             }
             margin="normal"
-            InputLabelProps={{ shrink: true }}
             inputProps={{ max: todayStr }}
             error={dialogTried && !!replenishErrors.date}
             helperText={dialogTried ? replenishErrors.date : undefined}

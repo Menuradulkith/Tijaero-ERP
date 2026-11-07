@@ -37,6 +37,7 @@ import type { BranchDailySummary, BranchOption } from "@/modules/reporting/types
 import { toCsv, type CsvValue } from "@/modules/reporting/csv";
 
 import { TChip } from "@/components/tijaero";
+import { todayISO, formatDateTimeReadable } from "@/utils/formatters";
 const fmt = (n: number) =>
   new Intl.NumberFormat("en-LK", {
     style: "currency",
@@ -44,7 +45,7 @@ const fmt = (n: number) =>
     minimumFractionDigits: 2,
   }).format(n);
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayISO();
 
 // ─── Export to CSV Helper ──────────────────────────────────────────────────
 function exportToCsv(data: BranchDailySummary[], startDate: string, endDate: string) {
@@ -560,7 +561,7 @@ export default function BranchSummaryPage() {
           <Box sx={{ display: "none", "@media print": { display: "block" }, mb: 2 }}>
             <Typography variant="h5" fontWeight={700}>Branch Summary Report — {startDate} to {endDate}</Typography>
             <Typography variant="body2" color="text.secondary">
-              {allBranches ? "All Branches" : selectedCodes.join(", ")} · Generated {new Date().toLocaleString("en-LK")}
+              {allBranches ? "All Branches" : selectedCodes.join(", ")} · Generated {formatDateTimeReadable(new Date())}
             </Typography>
             <Divider sx={{ my: 1 }} />
           </Box>

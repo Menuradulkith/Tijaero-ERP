@@ -1,4 +1,5 @@
 import type { ColumnType } from "./center-api";
+import { displayDate, formatDateTimeReadable } from "@/utils/formatters";
 
 export const NUMERIC_COLUMN_TYPES: ColumnType[] = ["int", "number", "money", "percent"];
 
@@ -16,9 +17,9 @@ export function formatValue(value: unknown, type: ColumnType): string {
     case "bool":
       return value ? "Yes" : "No";
     case "date":
-      return String(value).slice(0, 10);
+      return displayDate(String(value).slice(0, 10)) || String(value);
     case "datetime":
-      return String(value).replace("T", " ").slice(0, 16);
+      return formatDateTimeReadable(String(value)) || String(value);
     default:
       return String(value);
   }

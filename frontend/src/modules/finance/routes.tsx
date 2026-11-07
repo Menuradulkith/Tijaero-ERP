@@ -105,6 +105,14 @@ export default function FinanceRoutes() {
       <Route path="vat-return" element={<ProtectedRoute resource="general_ledger" action="view"><VatReturnPage /></ProtectedRoute>} />
       <Route path="accounting-setup" element={<ProtectedRoute resource="chart_of_accounts" action="view"><AccountingSetupPage /></ProtectedRoute>} />
       <Route path="posting-failures" element={<ProtectedRoute resource="journal_entries" action="view"><PostingFailuresPage /></ProtectedRoute>} />
+      {/* Old links (bookmarks, other screens) go to the page's current address */}
+      <Route path="expense-approvals" element={<Navigate to="/finance/approvals/expense-approvals" replace />} />
+      <Route path="supplier-payment-report" element={<Navigate to="/finance/supplier-payments/report" replace />} />
+      <Route path="customer-payment-report" element={<Navigate to="/finance/customer-payments/report" replace />} />
+      <Route path="cash-payments" element={<Navigate to="/finance/customer-payment-methods/cash-payments" replace />} />
+      <Route path="credit-payments" element={<Navigate to="/finance/customer-payment-methods/credit-payments" replace />} />
+      <Route path="customer-advance-payments" element={<Navigate to="/finance/advance-payments/customer" replace />} />
+      <Route path="supplier-advance-payments" element={<Navigate to="/finance/advance-payments/supplier" replace />} />
       <Route path="*" element={<Navigate to="." replace />} />
     </Routes>
   );

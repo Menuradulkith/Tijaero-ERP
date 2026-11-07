@@ -350,4 +350,6 @@ export interface UseMasterDetailStateReturn<T extends BaseEntity, TCreate> {
   handleCancel: (filteredItems: T[]) => void;
   handleStartEdit: () => void;
   resetToItem: (item: T) => void;
+  /** Open an item without the unsaved-changes prompt (the caller already asked). */
+  openItem: (item: T) => void;
 }

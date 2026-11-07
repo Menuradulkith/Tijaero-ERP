@@ -20,7 +20,7 @@ import {
   showSuccessToast,
   showErrorToast,
 } from "@/components/tijaero";
-import { formatDateTime } from "@/utils/formatters";
+import { formatDateTime, todayISO } from "@/utils/formatters";
 import { supportTicketsApi } from "@/modules/support/api";
 import { CustomerSupportCreate } from "@/modules/support/types";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
@@ -68,7 +68,7 @@ export default function SupportTicketsPage() {
     defaultValues: {
       job_number: "",
       job_type: "",
-      date: new Date().toISOString().split("T")[0],
+      date: todayISO(),
       job_description: "",
       contact_person: "",
       branch_code: "",
@@ -211,7 +211,7 @@ export default function SupportTicketsPage() {
     reset({
       job_number: "",
       job_type: "",
-      date: new Date().toISOString().split("T")[0],
+      date: todayISO(),
       contact_person: "",
       branch_code: getDefaultBranchCode || "",
       assigned_user_id: NO_USER,
@@ -335,7 +335,7 @@ export default function SupportTicketsPage() {
             rules={{
               required: "Date is required",
               validate: (v) =>
-                String(v) <= new Date().toISOString().split("T")[0] || "The ticket date cannot be in the future",
+                String(v) <= todayISO() || "The ticket date cannot be in the future",
             }}
           />
           <Box sx={{ gridColumn: "span 2" }}>

@@ -14,6 +14,11 @@ const ICON_NAV_WIDTH = 48;
 export default function MainLayout() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  // Phones (< 600px): no always-visible icon rail, so pages get the full
+  // width. The header menu button opens the sidebar drawer instead (and
+  // index.html sets --icon-nav-width to 0 at this width).
+  const isPhone = useMediaQuery(theme.breakpoints.down("sm"));
+  const iconNavWidth = isPhone ? 0 : ICON_NAV_WIDTH;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const isDirty = useFormGuardStore((s) => s.isDirty);
@@ -56,16 +61,18 @@ export default function MainLayout() {
 
       <Box className="no-print" sx={{ "@media print": { display: "none" } }}>
         {/* Icon navigation rail on far left */}
-        <IconNav
-          width={ICON_NAV_WIDTH}
-          sidebarOpen={!sidebarCollapsed}
-          onToggleSidebar={handleSidebarCollapse}
-        />
+        {!isPhone && (
+          <IconNav
+            width={ICON_NAV_WIDTH}
+            sidebarOpen={!sidebarCollapsed}
+            onToggleSidebar={handleSidebarCollapse}
+          />
+        )}
 
         <Header
           onMenuClick={handleDrawerToggle}
           drawerWidth={effectiveDrawerWidth}
-          iconNavWidth={ICON_NAV_WIDTH}
+          iconNavWidth={iconNavWidth}
         />
 
         {/* Sidebar is fixed position, rendered outside flex flow */}
@@ -74,7 +81,7 @@ export default function MainLayout() {
           mobileOpen={mobileOpen}
           onDrawerToggle={handleDrawerToggle}
           isMobile={isMobile}
-          iconNavWidth={ICON_NAV_WIDTH}
+          iconNavWidth={iconNavWidth}
           collapsed={!isMobile && sidebarCollapsed}
         />
       </Box>

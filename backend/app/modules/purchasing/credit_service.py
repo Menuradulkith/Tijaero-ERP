@@ -299,6 +299,11 @@ class SupplierCreditService:
             "credit_days": supplier.credit_days or 0,
             "max_credit_limit": supplier.max_credit_limit,
             "left_credit_amount": computed_left_credit,
+            # "We owe this supplier": the one figure the Supplier Payments page
+            # shows in its list, header and summary (= calculate_amount_owed,
+            # which agrees with the payables ledger). Non-credit POs not yet
+            # received are plans, not debts, so they stay out of it.
+            "amount_owed": combined_credit_outstanding,
             "credit_outstanding": combined_credit_outstanding,
             "non_credit_outstanding": non_credit_outstanding,
             "total_outstanding": total_outstanding,

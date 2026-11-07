@@ -108,6 +108,7 @@ import { quotationApi } from "../quotation-api";
 import { useCurrencyStore } from "@/state/currencyStore";
 import InvoiceDetailsDialog from "../components/InvoiceDetailsDialog";
 import { Invoice, InvoiceCreate, PaymentCard } from "../types";
+import { todayISO } from "@/utils/formatters";
 
 const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
   const year = new Date().getFullYear();
@@ -185,7 +186,7 @@ interface SplitPaymentRow {
 const makeSplitRow = (method = "cash", amount = 0): SplitPaymentRow => ({
   id: Date.now().toString() + Math.random().toString(36).slice(2),
   method, amount,
-  cheque_number: "", cheque_bank: "", cheque_date: new Date().toISOString().split("T")[0],
+  cheque_number: "", cheque_bank: "", cheque_date: todayISO(),
   card_ref_number: "", card_holder_name: "", card_id: null,
   bank_name: "", bank_transfer_ref: "",
   credit_terms: "30 days",
@@ -335,7 +336,7 @@ export default function SalesPage() {
     // Cheque payment details
     cheque_number: "",
     cheque_bank: "",
-    cheque_date: new Date().toISOString().split("T")[0],
+    cheque_date: todayISO(),
     // Card payment details
     card_ref_number: "",
     card_holder_name: "",
@@ -1166,7 +1167,7 @@ export default function SalesPage() {
     setPaymentDetails({
       cheque_number: "",
       cheque_bank: "",
-      cheque_date: new Date().toISOString().split("T")[0],
+      cheque_date: todayISO(),
       card_ref_number: "",
       card_holder_name: "",
       bank_transfer_ref: "",
@@ -1226,7 +1227,7 @@ export default function SalesPage() {
     setPaymentDetails({
       cheque_number: "",
       cheque_bank: "",
-      cheque_date: new Date().toISOString().split("T")[0],
+      cheque_date: todayISO(),
       card_ref_number: "",
       card_holder_name: "",
       bank_transfer_ref: "",

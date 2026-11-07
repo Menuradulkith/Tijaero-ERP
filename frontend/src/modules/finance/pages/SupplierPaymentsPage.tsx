@@ -23,6 +23,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   Box,
   TextField,
@@ -77,6 +78,8 @@ import {
   fmtLKR,
   getPaymentTermsLabel,
   TRemarkField,
+  useRecordParam,
+  TDatePicker,
 } from "@/components/tijaero";
 
 import {
@@ -104,6 +107,9 @@ import {
 import { useReferenceData } from "@/hooks";
 import { usePermission } from "@/auth/permissions";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { displayDate, todayISO } from "@/utils/formatters";
+import { bankReconciliationApi, postingRulesApi } from "@/modules/finance/api";
+import { bankOverdraftWarning } from "@/modules/finance/bankBalance";
 import {
   Supplier,
   SupplierPaymentAccount,
@@ -119,7 +125,8 @@ import CancelIcon from "@mui/icons-material/Cancel";
 //   monthly_instalment = total_amount / duration_months
 //   months_elapsed = min(floor((today - invoice_date) / 30), duration_months)
 //   expected_cumulative = monthly_instalment * months_elapsed
-//   result = expected_cumulative - paid_amount   (negative = paid ahead)
+//   result = expected_cumulative - paid_amount, never below 0 (paid ahead or
+//            settled shows 0) and never above what is still owed
 function calcMonthlyInstalmentOutstanding(doc: {
   payment_type: string;
   date: string;
@@ -128,9 +135,11 @@ function calcMonthlyInstalmentOutstanding(doc: {
   paid_amount: number;
 }): number | null {
   if (doc.payment_type !== "credit") return null;
-  const invoiceDate = new Date(doc.date);
-  const dueDate = new Date(doc.due_date);
-  const today = new Date();
+  // Local calendar days on both sides (a bare "YYYY-MM-DD" parses as UTC midnight).
+  const day = (v: string) => { const [y, m, d] = v.slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d); };
+  const invoiceDate = day(doc.date);
+  const dueDate = day(doc.due_date);
+  const today = day(todayISO());
   const durationDays = Math.round(
     (dueDate.getTime() - invoiceDate.getTime()) / 86_400_000
   );
@@ -144,7 +153,9 @@ function calcMonthlyInstalmentOutstanding(doc: {
     durationMonths
   );
   const expectedCumulative = monthlyInstalment * monthsElapsed;
-  return expectedCumulative - doc.paid_amount;
+  const stillOwed = Math.max(0, doc.total_amount - doc.paid_amount);
+  const behind = Math.round((expectedCumulative - doc.paid_amount) * 100) / 100;
+  return Math.min(Math.max(0, behind), stillOwed);
 }
 
 // Configuration
@@ -205,6 +216,7 @@ interface OutstandingDocument {
   po_id: number;
   po_no: string;
   invoice_no: string | null;
+  supplier_invoice_no?: string | null;
   date: string;
   due_date: string;
   status: string;
@@ -222,6 +234,26 @@ interface OutstandingDocument {
   branch_code: string;
   has_grn?: boolean;
   grn_id?: number | null;
+}
+
+// The bill's own number (PI-… / GRN-…) first, so two bills on one PO can be told
+// apart; the supplier's bill number and the PO underneath.
+function DocumentRef({ doc }: { doc: OutstandingDocument }) {
+  const main = doc.invoice_no || doc.po_no;
+  const extra = [
+    doc.supplier_invoice_no ? `Supplier bill ${doc.supplier_invoice_no}` : null,
+    doc.po_no && doc.po_no !== main ? doc.po_no : null,
+  ].filter(Boolean).join(" · ");
+  return (
+    <Box>
+      <Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>{main}</Typography>
+      {extra && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+          {extra}
+        </Typography>
+      )}
+    </Box>
+  );
 }
 
 // Payment allocation line
@@ -280,8 +312,8 @@ export default function SupplierPaymentsPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodCode>("bank_transfer");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [bankName, setBankName] = useState("");
-  const [chequeDate, setChequeDate] = useState(new Date().toISOString().split("T")[0]);
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split("T")[0]);
+  const [chequeDate, setChequeDate] = useState(todayISO());
+  const [paymentDate, setPaymentDate] = useState(todayISO());
   const [remarks, setRemarks] = useState("");
 
   // Previous payment suggestions (populated when a supplier is selected)
@@ -392,8 +424,9 @@ export default function SupplierPaymentsPage() {
       .map((inv) => ({
       id: inv.id,
       po_id: 0,
-      po_no: inv.po_nos || inv.invoice_no,  // Show PO numbers if available, fallback to invoice no
+      po_no: inv.po_nos || "",  // secondary: the PO(s) the bill belongs to
       invoice_no: inv.invoice_no,
+      supplier_invoice_no: inv.supplier_invoice_no,
       date: inv.supplier_invoice_date,
       due_date: inv.due_date,
       status: inv.status,
@@ -431,7 +464,8 @@ export default function SupplierPaymentsPage() {
       const query = documentSearchQuery.toLowerCase().trim();
       filtered = filtered.filter((d) => 
         d.po_no?.toLowerCase().includes(query) ||
-        d.invoice_no?.toLowerCase().includes(query)
+        d.invoice_no?.toLowerCase().includes(query) ||
+        d.supplier_invoice_no?.toLowerCase().includes(query)
       );
     }
 
@@ -452,6 +486,13 @@ export default function SupplierPaymentsPage() {
   const nonCreditPurchaseCount = useMemo(
     () => purchaseDocuments.filter((d) => d.payment_type === "non_credit").length,
     [purchaseDocuments]
+  );
+
+  // "We owe this supplier": one figure from the backend's ledger-consistent
+  // calculator, shown in the list, the header and the summary alike.
+  const amountOwed = Number(
+    (paymentStatus as (SupplierPaymentStatusData & { amount_owed?: number }) | null)?.amount_owed
+      ?? paymentStatus?.credit_outstanding ?? 0
   );
 
   // Calculate totals
@@ -496,6 +537,32 @@ export default function SupplierPaymentsPage() {
   const totalPaymentAmount = useMemo(() => {
     return paymentLines.reduce((sum, line) => sum + line.allocated_amount, 0);
   }, [paymentLines]);
+
+  // A bank or cheque payment leaves from the company's main bank account (the
+  // "Bank account" posting rule). Paying more than it holds is allowed
+  // (overdraft) but the user is warned. Users who cannot see bank accounts
+  // or the posting rules simply get no warning.
+  const isBankPayment = paymentMethod !== "cash";
+  const { data: companyBankAccounts } = useQuery({
+    queryKey: ["bank-accounts"],
+    queryFn: bankReconciliationApi.listAccounts,
+    enabled: isBankPayment && totalPaymentAmount > 0,
+    retry: false,
+  });
+  const { data: postingRules } = useQuery({
+    queryKey: ["posting-rules"],
+    queryFn: postingRulesApi.getAll,
+    enabled: isBankPayment && totalPaymentAmount > 0,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+  const overdraftWarning = useMemo(() => {
+    if (!isBankPayment || !companyBankAccounts || !postingRules) return null;
+    const rule = postingRules.posting_types.find((r) => r.code === "BANK");
+    const code = (rule?.account ?? rule?.default_account)?.account_code;
+    const bank = companyBankAccounts.find((b) => b.is_active && b.account_code === code);
+    return bankOverdraftWarning(bank, totalPaymentAmount, currencySymbol);
+  }, [isBankPayment, companyBankAccounts, postingRules, totalPaymentAmount, currencySymbol]);
 
   // Filtered suppliers
   const filteredSuppliers = useMemo(() => {
@@ -596,8 +663,8 @@ export default function SupplierPaymentsPage() {
     setPaymentMethod("bank_transfer");
     setReferenceNumber("");
     setBankName("");
-    setChequeDate(new Date().toISOString().split("T")[0]);
-    setPaymentDate(new Date().toISOString().split("T")[0]);
+    setChequeDate(todayISO());
+    setPaymentDate(todayISO());
     setRemarks("");
   };
 
@@ -917,7 +984,8 @@ export default function SupplierPaymentsPage() {
       }
       renderItem={(supplier, isSelected) => {
         const usage = getCreditUsage(supplier);
-        const outstanding = supplier.max_credit_limit - (supplier.left_credit_amount ?? supplier.max_credit_limit);
+        // Only the selected supplier shows this line; it uses the same figure as the header.
+        const outstanding = isSelected && paymentStatus?.supplier_id === supplier.id ? amountOwed : 0;
         return (
           <SelectableListItem
             key={supplier.id}
@@ -970,7 +1038,7 @@ export default function SupplierPaymentsPage() {
                     )}
                     {outstanding > 0 && (
                       <Typography variant="caption" color="warning.main">
-                        Outstanding: {currencySymbol} {fmtLKR(outstanding)}
+                        We owe: {currencySymbol} {fmtLKR(outstanding)}
                       </Typography>
                     )}
                   </>
@@ -1055,7 +1123,7 @@ export default function SupplierPaymentsPage() {
               <Grid item xs={6} sm={3}>
                 <Card variant="outlined">
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
-                    <Typography variant="caption" color="text.secondary">Available</Typography>
+                    <Typography variant="caption" color="text.secondary">Credit still available</Typography>
                     <Typography variant="h6" color="success.main">
                       {currencySymbol} {fmtLKR(paymentStatus?.left_credit_amount || 0)}
                     </Typography>
@@ -1065,9 +1133,9 @@ export default function SupplierPaymentsPage() {
               <Grid item xs={6} sm={3}>
                 <Card variant="outlined">
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
-                    <Typography variant="caption">Credit Outstanding</Typography>
+                    <Typography variant="caption">We owe this supplier</Typography>
                     <Typography variant="h6" color="warning.dark">
-                      {currencySymbol} {fmtLKR(paymentStatus?.credit_outstanding || 0)}
+                      {currencySymbol} {fmtLKR(amountOwed)}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -1081,7 +1149,7 @@ export default function SupplierPaymentsPage() {
         {/* Outstanding Summary */}
         <Typography variant="subtitle1" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <AccountBalanceIcon fontSize="small" />
-          Outstanding Summary
+          Unpaid Bills
         </Typography>
 
         {loadingStatus ? (
@@ -1093,7 +1161,7 @@ export default function SupplierPaymentsPage() {
             <Grid item xs={6} sm={3}>
               <Card variant="outlined">
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
-                  <Typography variant="caption" color="text.secondary">Open Documents</Typography>
+                  <Typography variant="caption" color="text.secondary">Unpaid bills</Typography>
                   <Typography variant="h5" color="primary.main">
                     {outstandingDocuments.length}
                   </Typography>
@@ -1103,9 +1171,9 @@ export default function SupplierPaymentsPage() {
             <Grid item xs={6} sm={3}>
               <Card variant="outlined">
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
-                  <Typography variant="caption">Total Outstanding</Typography>
+                  <Typography variant="caption">We owe this supplier</Typography>
                   <Typography variant="h6" color="warning.dark">
-                    {currencySymbol} {fmtLKR(totalOutstanding)}
+                    {currencySymbol} {fmtLKR(amountOwed)}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1113,7 +1181,7 @@ export default function SupplierPaymentsPage() {
             <Grid item xs={6} sm={3}>
               <Card variant="outlined">
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
-                  <Typography variant="caption">Overdue Documents</Typography>
+                  <Typography variant="caption">Overdue bills</Typography>
                   <Typography variant="h5" color={overdueDocuments.length > 0 ? "error.dark" : "success.dark"}>
                     {overdueDocuments.length}
                   </Typography>
@@ -1123,7 +1191,7 @@ export default function SupplierPaymentsPage() {
             <Grid item xs={6} sm={3}>
               <Card variant="outlined">
                 <CardContent sx={{ textAlign: "center", py: 1.5 }}>
-                  <Typography variant="caption">Overdue Amount</Typography>
+                  <Typography variant="caption">Overdue amount</Typography>
                   <Typography variant="h6" color={overdueDocuments.length > 0 ? "error.dark" : "text.secondary"}>
                     {currencySymbol} {fmtLKR(overdueDocuments.reduce((sum, d) => sum + d.remaining_amount, 0))}
                   </Typography>
@@ -1138,14 +1206,34 @@ export default function SupplierPaymentsPage() {
       <Paper sx={{ p: 2 }}>
         <Typography variant="subtitle1" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <DescriptionIcon fontSize="small" />
-          Outstanding Documents
+          Unpaid Bills
         </Typography>
+        {(() => {
+          const filtered = paymentTypeTab !== "all" || selectedBranch !== "all" || !!documentSearchQuery.trim();
+          if (filtered && outstandingDocuments.length > 0) {
+            return (
+              <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
+                The bills shown come to {currencySymbol} {fmtLKR(totalOutstanding)}.
+              </Typography>
+            );
+          }
+          if (!filtered && amountOwed - totalOutstanding > 0.005) {
+            return (
+              <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
+                These bills come to {currencySymbol} {fmtLKR(totalOutstanding)}. The other{" "}
+                {currencySymbol} {fmtLKR(amountOwed - totalOutstanding)} we owe is for goods received
+                that have no supplier bill yet.
+              </Typography>
+            );
+          }
+          return null;
+        })()}
 
         {/* Filters Section */}
         <TFilterPanel>
           {/* PO/Document Search */}
           <TextField
-            placeholder="Search PO, Invoice..."
+            placeholder="Search bill or PO number..."
             size="small"
             value={documentSearchQuery}
             onChange={(e) => setDocumentSearchQuery(e.target.value)}
@@ -1162,6 +1250,7 @@ export default function SupplierPaymentsPage() {
           {/* Branch Filter */}
           <Autocomplete
             options={[{ branch_code: "all", branch_name: "All Branches" }, ...branches]}
+            isOptionEqualToValue={(option, value) => option.branch_code === value.branch_code}
             getOptionLabel={(option) =>
               option.branch_code === "all"
                 ? option.branch_name
@@ -1206,7 +1295,7 @@ export default function SupplierPaymentsPage() {
 
         {outstandingDocuments.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-            No outstanding documents for this supplier
+            No unpaid bills for this supplier
           </Typography>
         ) : (
           <TableContainer sx={{ maxHeight: 350 }}>
@@ -1214,7 +1303,7 @@ export default function SupplierPaymentsPage() {
               <TableHead>
                 <TableRow>
                   <TableCell>Type</TableCell>
-                  <TableCell>Invoice / PO</TableCell>
+                  <TableCell>Bill (PO)</TableCell>
                   <TableCell>Date</TableCell>
                   {showDueDateColumn && <TableCell>Due Date</TableCell>}
                   <TableCell align="right">Amount ({currencySymbol})</TableCell>
@@ -1238,21 +1327,14 @@ export default function SupplierPaymentsPage() {
                       />
                     </TableCell>
                     <TableCell>
-                      <Box>
-                        <Typography variant="body2">{doc.invoice_no}</Typography>
-                        {doc.po_no && doc.po_no !== doc.invoice_no && (
-                          <Typography variant="caption" color="text.secondary">
-                            {doc.po_no}
-                          </Typography>
-                        )}
-                      </Box>
+                      <DocumentRef doc={doc} />
                     </TableCell>
-                    <TableCell>{new Date(doc.date).toLocaleDateString()}</TableCell>
+                    <TableCell>{displayDate(doc.date)}</TableCell>
                     {showDueDateColumn && (
                       <TableCell>
                         {doc.payment_type === "credit" ? (
                           <Typography color={doc.is_overdue ? "error" : "text.primary"}>
-                            {new Date(doc.due_date).toLocaleDateString()}
+                            {displayDate(doc.due_date)}
                           </Typography>
                         ) : (
                           <Typography color="text.secondary">-</Typography>
@@ -1289,9 +1371,9 @@ export default function SupplierPaymentsPage() {
                         return (
                           <Typography
                             fontWeight="bold"
-                            color={mio < 0 ? "success.main" : mio === 0 ? "text.secondary" : "error.main"}
+                            color={mio === 0 ? "text.secondary" : "error.main"}
                           >
-                            {mio < 0 ? `-${currencySymbol} ${fmtLKR(Math.abs(mio))}` : `${currencySymbol} ${fmtLKR(mio)}`}
+                            {`${currencySymbol} ${fmtLKR(mio)}`}
                           </Typography>
                         );
                       })()}
@@ -1347,6 +1429,7 @@ export default function SupplierPaymentsPage() {
         {/* Branch Filter */}
         <Autocomplete
           options={[{ branch_code: "all", branch_name: "All Branches" }, ...branches]}
+            isOptionEqualToValue={(option, value) => option.branch_code === value.branch_code}
           getOptionLabel={(option) =>
             option.branch_code === "all"
               ? option.branch_name
@@ -1443,7 +1526,7 @@ export default function SupplierPaymentsPage() {
                 <TableRow>
                   {!useFIFO && <TableCell padding="checkbox" />}
                   <TableCell>Type</TableCell>
-                  <TableCell>Document</TableCell>
+                  <TableCell>Bill (PO)</TableCell>
                   {showDueDateColumn && <TableCell>Due Date</TableCell>}
                   <TableCell align="right">Total</TableCell>
                   <TableCell align="right">Outstanding</TableCell>
@@ -1473,15 +1556,13 @@ export default function SupplierPaymentsPage() {
                     />
                   </TableCell>
                   <TableCell>
-                    <Box>
-                      <Typography variant="body2">{doc.po_no}</Typography>
-                    </Box>
+                    <DocumentRef doc={doc} />
                   </TableCell>
                   {showDueDateColumn && (
                     <TableCell>
                       {doc.payment_type === "credit" ? (
                         <Typography color={doc.is_overdue ? "error" : "text.primary"}>
-                          {new Date(doc.due_date).toLocaleDateString()}
+                          {displayDate(doc.due_date)}
                         </Typography>
                       ) : (
                         <Typography color="text.secondary">-</Typography>
@@ -1505,9 +1586,9 @@ export default function SupplierPaymentsPage() {
                       return (
                         <Typography
                           fontWeight="bold"
-                          color={mio < 0 ? "success.main" : mio === 0 ? "text.secondary" : "error.main"}
+                          color={mio === 0 ? "text.secondary" : "error.main"}
                         >
-                          {mio < 0 ? `-${currencySymbol} ${fmtLKR(Math.abs(mio))}` : `${currencySymbol} ${fmtLKR(mio)}`}
+                          {`${currencySymbol} ${fmtLKR(mio)}`}
                         </Typography>
                       );
                     })()}
@@ -1594,7 +1675,7 @@ export default function SupplierPaymentsPage() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Document</TableCell>
+                <TableCell>Bill (PO)</TableCell>
                 <TableCell>Type</TableCell>
                 <TableCell align="right">Outstanding</TableCell>
                 <TableCell align="right" sx={{ width: 150 }}>Payment Amount</TableCell>
@@ -1606,7 +1687,7 @@ export default function SupplierPaymentsPage() {
                 return (
                   <TableRow key={line.id}>
                     <TableCell>
-                      <Typography variant="body2">{line.document.po_no}</Typography>
+                      <DocumentRef doc={line.document} />
                     </TableCell>
                     <TableCell>
                       <TChip
@@ -1701,13 +1782,14 @@ export default function SupplierPaymentsPage() {
             </MenuItem>
           ))}
         </TextField>
-        <TextField
+        <TDatePicker
           label="Payment Date"
           size="small"
-          type="date"
           value={paymentDate}
-          onChange={(e) => setPaymentDate(e.target.value)}
-          InputLabelProps={{ shrink: true }}
+          onChange={(v) => setPaymentDate(v ?? "")}
+          inputProps={{ max: todayISO() }}
+          error={paymentDate > todayISO()}
+          helperText={paymentDate > todayISO() ? "Can't be a future date" : undefined}
         />
         <TextField
           label={paymentMethod === "cheque" ? "Cheque Number" : "Reference Number"}
@@ -1733,13 +1815,11 @@ export default function SupplierPaymentsPage() {
                 />
               )}
             />
-            <TextField
+            <TDatePicker
               label="Cheque Date"
               size="small"
-              type="date"
               value={chequeDate}
-              onChange={(e) => setChequeDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
+              onChange={(v) => setChequeDate(v ?? "")}
             />
           </>
         )}
@@ -1766,6 +1846,11 @@ export default function SupplierPaymentsPage() {
             value={bankName}
             onChange={(e) => setBankName(e.target.value)}
           />
+        )}
+        {overdraftWarning && (
+          <Alert severity="warning" sx={{ gridColumn: "1 / -1" }}>
+            {overdraftWarning}
+          </Alert>
         )}
       </FormSection>
 
@@ -1819,7 +1904,7 @@ export default function SupplierPaymentsPage() {
           </Grid>
           <Grid item xs={12} sm={6}>
             <Typography variant="caption" color="text.secondary">Payment Date</Typography>
-            <Typography variant="body1">{new Date(paymentDate).toLocaleDateString()}</Typography>
+            <Typography variant="body1">{displayDate(paymentDate)}</Typography>
           </Grid>
           <Grid item xs={12} sm={6}>
             <Typography variant="caption" color="text.secondary">Payment Method</Typography>
@@ -1845,7 +1930,7 @@ export default function SupplierPaymentsPage() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Document</TableCell>
+                <TableCell>Bill (PO)</TableCell>
                 <TableCell>Type</TableCell>
                 <TableCell align="right">Outstanding ({currencySymbol})</TableCell>
                 <TableCell align="right">Payment ({currencySymbol})</TableCell>
@@ -1859,9 +1944,7 @@ export default function SupplierPaymentsPage() {
                 return (
                   <TableRow key={line.id}>
                     <TableCell>
-                      <Box>
-                        <Typography variant="body2">{line.document.po_no}</Typography>
-                      </Box>
+                      <DocumentRef doc={line.document} />
                     </TableCell>
                     <TableCell>
                       <TChip
@@ -1964,9 +2047,9 @@ export default function SupplierPaymentsPage() {
         chips={
           selectedSupplier && viewMode === "overview"
             ? [
-              { label: `${outstandingDocuments.length} Open Docs`, variant: "outlined" as const },
-              ...(totalOutstanding > 0
-                ? [{ label: `${currencySymbol} ${fmtLKR(totalOutstanding)} Outstanding`, color: "warning" as const }]
+              { label: `${outstandingDocuments.length} unpaid bills`, variant: "outlined" as const },
+              ...(amountOwed > 0
+                ? [{ label: `We owe ${currencySymbol} ${fmtLKR(amountOwed)}`, color: "warning" as const }]
                 : []),
             ]
             : viewMode !== "overview"
@@ -2050,6 +2133,17 @@ export default function SupplierPaymentsPage() {
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </Box>
   );
+
+  // Shown supplier lives in ?supplier= (replace, no history entry) so it can be shared as a link.
+  useRecordParam({
+    param: "supplier",
+    history: "replace",
+    current: selectedSupplier?.id,
+    items: suppliers,
+    loading,
+    onOpen: handleSelectSupplier,
+    onClose: () => undefined,
+  });
 
   return (
     <MasterDetailLayout

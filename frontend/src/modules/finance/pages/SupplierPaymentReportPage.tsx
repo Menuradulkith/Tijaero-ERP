@@ -46,6 +46,7 @@ import {
   handleApiError,
   modernTableStyles,
   showErrorToast,
+  TDatePicker,
 } from "@/components/tijaero";
 import {
   supplierPaymentsApi,
@@ -61,6 +62,7 @@ import { useReferenceData } from "@/hooks";
 import type { Supplier } from "@/modules/purchasing/types";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { escapeHtml } from "@/utils/escapeHtml";
+import { todayISO, localDateISO, displayDate, formatDateTimeReadable } from "@/utils/formatters";
 
 type SortDir = "asc" | "desc";
 type HistSortField = "date" | "supplier_name" | "type" | "amount" | "invoice_no";
@@ -73,9 +75,9 @@ export default function SupplierPaymentReportPage() {
   const defaultFrom = useMemo(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 3);
-    return d.toISOString().split("T")[0];
+    return localDateISO(d);
   }, []);
-  const defaultTo = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const defaultTo = useMemo(() => todayISO(), []);
 
   const [activeTab, setActiveTab] = useState(0);
 
@@ -257,12 +259,12 @@ export default function SupplierPaymentReportPage() {
           <td style="font-family:monospace">${escapeHtml(i.invoice_no)}</td>
           <td>${escapeHtml(i.supplier_name || "")}</td>
           <td>${escapeHtml(i.supplier_invoice_no || "-")}</td>
-          <td>${i.supplier_invoice_date ? new Date(i.supplier_invoice_date).toLocaleDateString() : "-"}</td>
+          <td>${i.supplier_invoice_date ? displayDate(i.supplier_invoice_date) : "-"}</td>
           <td><span style="padding:2px 8px;border-radius:10px;font-size:10px;background:${i.payment_type === "credit" ? "#e3f2fd" : "#e8f5e9"};color:${i.payment_type === "credit" ? "#1565c0" : "#2e7d32"}">${i.payment_type === "credit" ? "Credit" : "Non-Credit"}</span></td>
           <td style="text-align:right">${fmtLKR(i.total_amount)}</td>
           <td style="text-align:right">${fmtLKR(i.paid_amount)}</td>
           <td style="text-align:right;font-weight:bold;color:${i.is_overdue ? "#c62828" : "#1565c0"}">${fmtLKR(i.balance_due)}</td>
-          <td>${i.due_date ? new Date(i.due_date).toLocaleDateString() : "-"}</td>
+          <td>${i.due_date ? displayDate(i.due_date) : "-"}</td>
           <td style="text-align:center;color:${i.is_overdue ? "#c62828" : "#2e7d32"}">${i.is_overdue ? `${escapeHtml(i.days_overdue)}d overdue` : "Current"}</td>
           <td>${escapeHtml(i.branch_code)}</td>
         </tr>`).join("");
@@ -273,7 +275,7 @@ export default function SupplierPaymentReportPage() {
 .sc .val{font-size:18px;font-weight:bold;margin-top:4px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #ddd;padding:6px 8px}
 th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-child(even){background:#f9f9f9}@media print{body{padding:10px}}</style></head>
 <body><h1>Outstanding Supplier Invoices</h1>
-<div class="meta">${escapeHtml(supplierLabel)} | Generated ${new Date().toLocaleString()}</div>
+<div class="meta">${escapeHtml(supplierLabel)} | Generated ${formatDateTimeReadable(new Date())}</div>
 <div class="summary">
   <div class="sc"><div class="lbl">Total Outstanding</div><div class="val" style="color:#1976d2">${currencySymbol} ${fmtLKR(outSummary.total_outstanding)}</div></div>
   <div class="sc"><div class="lbl">Overdue</div><div class="val" style="color:#c62828">${currencySymbol} ${fmtLKR(outSummary.total_overdue)}</div></div>
@@ -290,7 +292,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
 
     const rowsHtml = filteredHist.map((i) => `
       <tr>
-        <td>${new Date(i.date).toLocaleDateString()}</td>
+        <td>${displayDate(i.date)}</td>
         <td>${escapeHtml(i.supplier_name)}</td>
         <td>${escapeHtml(i.type)}</td>
         <td style="font-family:monospace">${escapeHtml(i.document_no)}</td>
@@ -307,7 +309,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
 th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-child(even){background:#f9f9f9}
 .total-row{background:#f5f5f5;font-weight:bold}@media print{body{padding:10px}}</style></head>
 <body><h1>Supplier Payment History</h1>
-<div class="meta">${escapeHtml(supplierLabel)} | ${new Date(dateFrom).toLocaleDateString()} to ${new Date(dateTo).toLocaleDateString()} | Generated ${new Date().toLocaleString()}</div>
+<div class="meta">${escapeHtml(supplierLabel)} | ${displayDate(dateFrom)} to ${displayDate(dateTo)} | Generated ${formatDateTimeReadable(new Date())}</div>
 <table><thead><tr><th>Date</th><th>Supplier</th><th>Type</th><th>Payment No.</th><th>Invoice No.</th><th>Method</th><th>Amount (${currencySymbol})</th><th>Status</th><th>Branch</th><th>Remarks</th></tr></thead>
 <tbody>${rowsHtml}
 <tr class="total-row"><td colspan="6" style="text-align:right">TOTAL:</td><td style="text-align:right">${currencySymbol} ${fmtLKR(histSummary?.total_amount || 0)}</td><td colspan="3"></td></tr>
@@ -372,10 +374,10 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
         <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
           {activeTab === 0 && (
             <>
-              <TextField size="small" label="Date From" type="date" value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 155 }} />
-              <TextField size="small" label="Date To" type="date" value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 155 }} />
+              <TDatePicker size="small" label="Date From" value={dateFrom}
+                onChange={(v) => setDateFrom(v ?? "")} sx={{ width: 155 }} />
+              <TDatePicker size="small" label="Date To" value={dateTo}
+                onChange={(v) => setDateTo(v ?? "")} sx={{ width: 155 }} />
             </>
           )}
           <Autocomplete options={suppliers} getOptionLabel={(o) => o.company_name} value={selectedSupplier}
@@ -468,7 +470,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                     <TableBody>
                       {filteredHist.map((item, idx) => (
                         <TableRow key={`${item.type}-${item.id}-${idx}`} hover sx={modernTableStyles.bodyRow}>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(item.date).toLocaleDateString()}</TableCell>
+                          <TableCell sx={{ whiteSpace: "nowrap" }}>{displayDate(item.date)}</TableCell>
                           <TableCell>{item.supplier_name}</TableCell>
                           <TableCell><TChip label={item.type} size="small" color={typeChipColor(item.type) as any} variant="outlined" /></TableCell>
                           <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{item.document_no}</TableCell>
@@ -555,7 +557,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                           <TableCell>{item.supplier_name || "-"}</TableCell>
                           <TableCell sx={{ fontSize: "0.8rem", color: "text.secondary" }}>{item.supplier_invoice_no || "-"}</TableCell>
                           <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            {item.supplier_invoice_date ? new Date(item.supplier_invoice_date).toLocaleDateString() : "-"}
+                            {item.supplier_invoice_date ? displayDate(item.supplier_invoice_date) : "-"}
                           </TableCell>
                           <TableCell>
                             {item.payment_type === "credit"
@@ -566,7 +568,7 @@ th{background:#1976d2;color:#fff;font-size:10px;text-transform:uppercase}tr:nth-
                           <TableCell align="right">{fmtLKR(item.paid_amount)}</TableCell>
                           <TableCell align="right" sx={{ fontWeight: 700, color: item.is_overdue ? "error.main" : "primary.main" }}>{fmtLKR(item.balance_due)}</TableCell>
                           <TableCell sx={{ whiteSpace: "nowrap", color: item.is_overdue ? "error.main" : "text.primary" }}>
-                            {item.due_date ? new Date(item.due_date).toLocaleDateString() : "-"}
+                            {item.due_date ? displayDate(item.due_date) : "-"}
                           </TableCell>
                           <TableCell align="center">
                             {item.is_overdue

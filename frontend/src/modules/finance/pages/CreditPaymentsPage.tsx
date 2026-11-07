@@ -33,6 +33,7 @@ import {
   EmptyState,
   SelectableListItem,
   useMasterDetailState,
+  useRecordParam,
   TDetailSkeleton,
   TBranchFilter,
   fmtLKR,
@@ -45,6 +46,7 @@ import { creditPaymentsApi } from "@/modules/finance/api";
 import { CreditPayment } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { displayDate, formatDateTimeReadable } from "@/utils/formatters";
 
 interface Branch {
   branch_code: string;
@@ -91,6 +93,7 @@ export default function CreditPaymentsPage() {
     searchQuery,
     setSearchQuery,
     selectedItem,
+    openItem,
     setSelectedItem,
     isCreating,
     formData,
@@ -192,7 +195,7 @@ export default function CreditPaymentsPage() {
         header: "Date",
         width: 150,
         renderCell: (params: GridRenderCellParams<CreditPaymentRow>) =>
-          params.row.created_date ? new Date(params.row.created_date).toLocaleDateString() : "-",
+          params.row.created_date ? displayDate(params.row.created_date) : "-",
       },
       {
         field: "amount",
@@ -266,7 +269,7 @@ export default function CreditPaymentsPage() {
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Finance", href: "/finance" },
-          { label: "Customer Payment Methods", href: "/finance/customer-payment-methods" },
+          { label: "Money In" },
           { label: "Credit Payments", href: "/finance/customer-payment-methods/credit-payments" },
           ...(selectedItem || isCreating ? [{ label: `Credit Payment #${selectedItem?.id}` }] : []),
         ]}
@@ -322,7 +325,7 @@ export default function CreditPaymentsPage() {
               <TextField
                 label="Due Date"
                 size="small"
-                value={formData.due_date ? new Date(formData.due_date).toLocaleDateString() : "-"}
+                value={formData.due_date ? displayDate(formData.due_date) : "-"}
                 disabled
                 InputProps={{ readOnly: true }}
               />
@@ -351,7 +354,7 @@ export default function CreditPaymentsPage() {
                 <TextField
                   label="Date Created"
                   size="small"
-                  value={selectedItem.created_date ? new Date(selectedItem.created_date).toLocaleString() : "-"}
+                  value={selectedItem.created_date ? formatDateTimeReadable(selectedItem.created_date) : "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
@@ -369,6 +372,17 @@ export default function CreditPaymentsPage() {
       </Box>
     </Box>
   );
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedItem?.id,
+    creating: isCreating,
+    items: payments,
+    loading: isLoading,
+    fetchById: (id) => creditPaymentsApi.getById(Number(id)),
+    onOpen: openItem,
+    onClose: handleBackToPayments,
+  });
 
   return (
     <>

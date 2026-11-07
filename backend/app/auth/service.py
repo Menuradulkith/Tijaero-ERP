@@ -15,8 +15,7 @@ from app.core.security import (
     verify_password,
 )
 from app.modules.employees.models import Employee
-from app.modules.settings.schemas import NotificationCreate
-from app.modules.settings.service import NotificationService
+from app.modules.notifications import events as notify_events
 
 logger = logging.getLogger(__name__)
 from fastapi import HTTPException, status
@@ -144,18 +143,7 @@ class AuthService:
 
         db.refresh(user)
 
-        # Notify the new user
-        try:
-            NotificationService(db).create_notification(
-                NotificationCreate(
-                    user_id=user.id,
-                    title="Welcome to TijaeroERP",
-                    message="Your account has been successfully created and configured.",
-                    notification_type="info",
-                )
-            )
-        except Exception:
-            logger.exception("Failed to send welcome notification for user_id=%s", user.id)
+        notify_events.welcome(user.id)
 
         return user
 

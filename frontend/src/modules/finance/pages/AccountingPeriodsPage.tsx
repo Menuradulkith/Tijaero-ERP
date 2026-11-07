@@ -53,6 +53,7 @@ import {
   useConfirmDialog,
   useCrudMutation,
   TActivityHistoryPanel,
+  useRecordParam,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
@@ -61,6 +62,7 @@ import type { AccountingPeriod, PeriodStatus } from "@/modules/finance/types";
 
 import CancelIcon from "@mui/icons-material/Cancel";
 import { submitOnce } from "@/modules/finance/submitOnce";
+import { displayDate } from "@/utils/formatters";
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const STATUS_FILTER_OPTIONS = [
@@ -279,7 +281,7 @@ export default function AccountingPeriodsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        {format(new Date(period.start_date), "dd/MM/yyyy")} - {format(new Date(period.end_date), "dd/MM/yyyy")}
+                        {displayDate(period.start_date)} - {displayDate(period.end_date)}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Date Range)
@@ -299,7 +301,7 @@ export default function AccountingPeriodsPage() {
             }
             secondaryText={
               !isSelected
-                ? `FY ${period.fiscal_year} | ${format(new Date(period.start_date), "dd/MM")} - ${format(new Date(period.end_date), "dd/MM/yyyy")}`
+                ? `FY ${period.fiscal_year} | ${format(new Date(period.start_date), "dd MMM")} - ${displayDate(period.end_date)}`
                 : undefined
             }
             statusChip={
@@ -453,13 +455,13 @@ export default function AccountingPeriodsPage() {
               <TextField
                 label="Start Date"
                 size="small"
-                value={format(new Date(selectedPeriod.start_date), "dd/MM/yyyy")}
+                value={displayDate(selectedPeriod.start_date)}
                 disabled
               />
               <TextField
                 label="End Date"
                 size="small"
-                value={format(new Date(selectedPeriod.end_date), "dd/MM/yyyy")}
+                value={displayDate(selectedPeriod.end_date)}
                 disabled
               />
             </FormSection>
@@ -475,7 +477,7 @@ export default function AccountingPeriodsPage() {
                 <TextField
                   label="Closed At"
                   size="small"
-                  value={format(new Date(selectedPeriod.closed_at), "dd/MM/yyyy HH:mm")}
+                  value={format(new Date(selectedPeriod.closed_at), "dd MMM yyyy HH:mm")}
                   disabled
                 />
               )}
@@ -496,14 +498,14 @@ export default function AccountingPeriodsPage() {
                 <TextField
                   label="Created At"
                   size="small"
-                  value={format(new Date(selectedPeriod.created_at), "dd/MM/yyyy HH:mm")}
+                  value={format(new Date(selectedPeriod.created_at), "dd MMM yyyy HH:mm")}
                   disabled
                 />
                 {selectedPeriod.updated_at && (
                   <TextField
                     label="Last Updated"
                     size="small"
-                    value={format(new Date(selectedPeriod.updated_at), "dd/MM/yyyy HH:mm")}
+                    value={format(new Date(selectedPeriod.updated_at), "dd MMM yyyy HH:mm")}
                     disabled
                   />
                 )}
@@ -516,6 +518,16 @@ export default function AccountingPeriodsPage() {
   );
 
   // ─── Render ────────────────────────────────────────────────────────────────
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedPeriod?.id,
+    items: periods,
+    loading: isLoading,
+    fetchById: (id) => accountingPeriodsApi.getById(Number(id)),
+    onOpen: setSelectedPeriod,
+    onClose: () => setSelectedPeriod(null),
+  });
 
   return (
     <>

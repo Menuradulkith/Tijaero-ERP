@@ -68,8 +68,10 @@ import {
   modernTableStyles,
   useCrudMutation,
   useMasterDetailState,
+  useRecordParam,
   TDataGrid,
   type TDataGridColumn,
+  TDatePicker,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
@@ -85,12 +87,13 @@ import {
   PAYMENT_STATUS_OPTIONS,
 } from "@/modules/sales/commission-types";
 import { submitOnce } from "@/modules/finance/submitOnce";
+import { todayISO, displayDate } from "@/utils/formatters";
 
 type PaymentWithAgent = CustomerAgentCommissionPayment & { agent_name?: string };
 
 const INITIAL_FORM_DATA: CustomerAgentCommissionPaymentCreate = {
   customer_agent_id: 0,
-  payment_date: new Date().toISOString().split("T")[0],
+  payment_date: todayISO(),
   payment_method: "Cash",
   payment_amount: 0,
   reference_number: "",
@@ -135,6 +138,7 @@ export default function CommissionPaymentsPage() {
     searchQuery,
     setSearchQuery,
     selectedItem: selectedPayment,
+    openItem: openPayment,
     setSelectedItem: setSelectedPayment,
     isEditing,
     setIsEditing,
@@ -367,7 +371,7 @@ export default function CommissionPaymentsPage() {
         header: "Date",
         width: 120,
         renderCell: (params: GridRenderCellParams<PaymentWithAgent>) =>
-          params.row.payment_date ? format(new Date(params.row.payment_date), "dd/MM/yyyy") : "-",
+          params.row.payment_date ? displayDate(params.row.payment_date) : "-",
       },
       {
         field: "payment_amount",
@@ -588,15 +592,13 @@ export default function CommissionPaymentsPage() {
                   <TextField {...params} label="Customer Agent" placeholder="Select agent..." required />
                 )}
               />
-              <TextField
+              <TDatePicker
                 label="Payment Date"
                 size="small"
-                type="date"
                 value={formData.payment_date}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, payment_date: e.target.value }))
+                onChange={(v) =>
+                  setFormData((prev) => ({ ...prev, payment_date: v ?? "" }))
                 }
-                InputLabelProps={{ shrink: true }}
                 required
               />
               <TextField
@@ -852,6 +854,18 @@ export default function CommissionPaymentsPage() {
       </Box>
     </Box>
   );
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedPayment?.id,
+    creating: isCreating,
+    items: payments,
+    loading: isLoading,
+    fetchById: (id) => commissionPaymentsApi.getById(Number(id)) as unknown as Promise<PaymentWithAgent>,
+    onOpen: openPayment,
+    onClose: handleBackToPayments,
+    onNew: canCreate ? handleNewPayment : undefined,
+  });
 
   return (
     <>

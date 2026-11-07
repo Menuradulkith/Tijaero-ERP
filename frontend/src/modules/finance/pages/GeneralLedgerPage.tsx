@@ -4,6 +4,8 @@
  * View GL entries per account with Master-Detail pattern.
  * Left panel: list of accounts with search/filter.
  * Right panel: GL entries for the selected account + Trial Balance tab.
+ * "Find a document" searches every account by document number (INV-, EXP-,
+ * JE-...); clicking a match opens that account on that day.
  * Follows Purchasing/Sales UI pattern with TFilterPanel, TSearchableSelect,
  * expanded list items, ActionToolbar, and onRefresh.
  */
@@ -32,7 +34,6 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import { useQuery } from "@tanstack/react-query";
-import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -49,9 +50,12 @@ import {
   type SortOption,
   TDetailSkeleton,
   modernTableStyles,
+  TDatePicker,
 } from "@/components/tijaero";
 
 import { generalLedgerApi, chartOfAccountsApi } from "@/modules/finance/api";
+import type { GeneralLedgerEntry } from "@/modules/finance/types";
+import { displayDate, localDateISO, startOfMonthISO, todayISO } from "@/utils/formatters";
 
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -72,8 +76,7 @@ const SORT_OPTIONS: SortOption[] = [
 ];
 
 // Local YYYY-MM-DD (avoids UTC shifting the date for +TZ users)
-const isoDate = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const isoDate = localDateISO;
 
 const downloadCSV = (filename: string, rows: (string | number)[][]) => {
   if (!rows.length) return;
@@ -107,22 +110,29 @@ export default function GeneralLedgerPage() {
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
     setFilterAccountType(null);
+    setDocSearch("");
+    setDocQuery("");
   }, []);
 
   // Detail tab (0 = Ledger, 1 = Trial Balance)
   const [detailTab, setDetailTab] = useState(0);
 
   // Ledger date filters
-  const [dateFrom, setDateFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d.toISOString().split("T")[0];
-  });
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split("T")[0]);
+  const [dateFrom, setDateFrom] = useState(() => startOfMonthISO());
+  const [dateTo, setDateTo] = useState(() => todayISO());
   const [filterTxnType, setFilterTxnType] = useState<string | null>(null);
 
   // Trial Balance
-  const [tbDate, setTbDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [tbDate, setTbDate] = useState(() => todayISO());
+
+  // Document search across every account (INV-..., EXP-..., JE-...)
+  const [docSearch, setDocSearch] = useState("");
+  const [docQuery, setDocQuery] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDocQuery(docSearch.trim()), 350);
+    return () => clearTimeout(t);
+  }, [docSearch]);
+  const docSearchActive = docQuery.length >= 2;
 
   // ─── Data Fetching ─────────────────────────────────────────────────────────
 
@@ -140,6 +150,32 @@ export default function GeneralLedgerPage() {
       }),
     enabled: !!selectedAccount && detailTab === 0,
   });
+
+  const { data: docResults, isFetching: docLoading } = useQuery({
+    queryKey: ["gl-document-search", docQuery],
+    queryFn: () => {
+      const params = { reference: docQuery, limit: 200 };
+      return generalLedgerApi.getAll(params);
+    },
+    enabled: docSearchActive,
+  });
+
+  const openDocumentRow = useCallback(
+    (row: GeneralLedgerEntry) => {
+      const acc = accounts.find((a) => a.id === row.account_id);
+      if (acc) setSelectedAccount(acc);
+      const day = (row.posting_date || row.transaction_date || "").slice(0, 10);
+      if (day) {
+        setDateFrom(day);
+        setDateTo(day);
+      }
+      setFilterTxnType(null);
+      setDetailTab(0);
+      setDocSearch("");
+      setDocQuery("");
+    },
+    [accounts]
+  );
 
   // Transaction-type filter options come from the actual data (backend values
   // like "Sales" / "Purchase" / "Expense" / "Adjustment" / "JE").
@@ -249,7 +285,7 @@ export default function GeneralLedgerPage() {
       [
         ["Date", "Description", "Reference", "Type", "Debit", "Credit", "Running Balance"],
         ...glEntries.map((e) => [
-          e.transaction_date ? format(new Date(e.transaction_date), "yyyy-MM-dd") : "",
+          e.transaction_date ? localDateISO(new Date(e.transaction_date)) : "",
           e.description ?? "",
           e.reference_no ?? "",
           e.transaction_type ?? "",
@@ -301,24 +337,12 @@ export default function GeneralLedgerPage() {
           onClick={() => setSelectedAccount(acc)}
           primaryText={
             <Box sx={{ display: "flex", flexDirection: "column", width: "100%", gap: 0.5 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{acc.account_code}</span>
-                {isSelected && (
-                  <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                    (Code)
-                  </Typography>
-                )}
-              </Box>
+              <span>{acc.account_code}</span>
               {isSelected && (
                 <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Typography component="span" variant="caption">
-                      {acc.account_name}
-                    </Typography>
-                    <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
-                      (Name)
-                    </Typography>
-                  </Box>
+                  <Typography component="span" variant="caption">
+                    {acc.account_name}
+                  </Typography>
                   <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
                     <TChip
                       label={acc.account_type}
@@ -350,7 +374,106 @@ export default function GeneralLedgerPage() {
 
   // ─── Detail Panel ──────────────────────────────────────────────────────────
 
-  const detailPanel = (
+  const docRows = docResults?.items ?? [];
+  const documentPanel = (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <DetailPanelHeader
+        breadcrumbs={[
+          { label: "Finance", href: "/finance" },
+          { label: "General Ledger", href: "/finance/general-ledger" },
+          { label: `Find "${docQuery}"` },
+        ]}
+        title={`Documents matching "${docQuery}"`}
+        titleIcon={<SearchIcon color="primary" />}
+        noSelectionTitle="Find a document"
+      />
+      <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
+        <FormSection
+          title={
+            docLoading
+              ? "Searching..."
+              : `${docResults?.total ?? 0} ledger line${(docResults?.total ?? 0) === 1 ? "" : "s"} found`
+          }
+          columns={1}
+          titleAction={
+            <Button size="small" onClick={() => { setDocSearch(""); setDocQuery(""); }} sx={{ textTransform: "none" }}>
+              Back to accounts
+            </Button>
+          }
+        >
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            Every account line posted by a document whose number (or journal entry number) contains
+            &quot;{docQuery}&quot;. Click a line to open that account on that day.
+          </Typography>
+          <Paper variant="outlined" sx={{ width: "100%", overflow: "hidden", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={modernTableStyles.headerRow}>
+                  <TableCell>Date</TableCell>
+                  <TableCell>Document</TableCell>
+                  <TableCell>Account</TableCell>
+                  <TableCell>Description</TableCell>
+                  <TableCell align="right">Debit</TableCell>
+                  <TableCell align="right">Credit</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {docLoading && !docResults ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <TableRow key={i}>
+                      {Array.from({ length: 6 }).map((_, j) => (
+                        <TableCell key={j}><Skeleton animation="wave" /></TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                ) : docRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} align="center">
+                      <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
+                        No ledger lines for a document number containing &quot;{docQuery}&quot;
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  docRows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      hover
+                      sx={{ ...modernTableStyles.bodyRow, cursor: "pointer" }}
+                      onClick={() => openDocumentRow(row)}
+                    >
+                      <TableCell>{displayDate(row.posting_date || row.transaction_date) || "-"}</TableCell>
+                      <TableCell>{row.reference_no || "-"}</TableCell>
+                      <TableCell>
+                        {row.account_name || "-"}
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {row.account_code}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>{row.description || "-"}</TableCell>
+                      <TableCell align="right" sx={{ color: Number(row.debit_amount) > 0 ? "success.main" : "text.disabled" }}>
+                        {Number(row.debit_amount) > 0 ? fmtLKR(row.debit_amount) : "-"}
+                      </TableCell>
+                      <TableCell align="right" sx={{ color: Number(row.credit_amount) > 0 ? "error.main" : "text.disabled" }}>
+                        {Number(row.credit_amount) > 0 ? fmtLKR(row.credit_amount) : "-"}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </Paper>
+          {(docResults?.total ?? 0) > docRows.length && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+              Showing the latest {docRows.length} of {docResults?.total}. Type more of the number to narrow it down.
+            </Typography>
+          )}
+        </FormSection>
+      </Box>
+    </Box>
+  );
+
+  const detailPanel = docSearchActive ? documentPanel : (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
@@ -391,21 +514,17 @@ export default function GeneralLedgerPage() {
           <>
             {/* Ledger Filters */}
             <FormSection title="Filters" columns={3}>
-              <TextField
+              <TDatePicker
                 label="From Date"
-                type="date"
                 size="small"
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                InputLabelProps={{ shrink: true }}
+                onChange={(v) => setDateFrom(v ?? "")}
               />
-              <TextField
+              <TDatePicker
                 label="To Date"
-                type="date"
                 size="small"
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                InputLabelProps={{ shrink: true }}
+                onChange={(v) => setDateTo(v ?? "")}
               />
               <TSearchableSelect
                 label="Transaction Type"
@@ -512,9 +631,7 @@ export default function GeneralLedgerPage() {
                         {glEntries.map((entry) => (
                           <TableRow key={entry.id} sx={modernTableStyles.bodyRow}>
                             <TableCell>
-                              {entry.transaction_date
-                                ? format(new Date(entry.transaction_date), "dd/MM/yyyy")
-                                : "-"}
+                              {entry.transaction_date ? displayDate(entry.transaction_date) : "-"}
                             </TableCell>
                             <TableCell>{entry.description || "-"}</TableCell>
                             <TableCell>{entry.reference_no || "-"}</TableCell>
@@ -555,13 +672,11 @@ export default function GeneralLedgerPage() {
           /* Trial Balance Tab */
           <>
             <FormSection title="Trial Balance Period" columns={2}>
-              <TextField
+              <TDatePicker
                 label="As of Date"
-                type="date"
                 size="small"
                 value={tbDate}
-                onChange={(e) => setTbDate(e.target.value)}
-                InputLabelProps={{ shrink: true }}
+                onChange={(v) => setTbDate(v ?? "")}
                 helperText={`Fiscal year ${tbFiscalYear}`}
               />
               {trialBalance && (
@@ -711,6 +826,21 @@ export default function GeneralLedgerPage() {
             }}
             sx={{ width: 190, flexShrink: 0 }}
           />
+          <TextField
+            size="small"
+            placeholder="Find document (INV-, EXP-, JE-...)"
+            value={docSearch}
+            onChange={(e) => setDocSearch(e.target.value)}
+            inputProps={{ "aria-label": "Find a document by its number", maxLength: 100 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" color="action" />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ width: 250, flexShrink: 0 }}
+          />
           <Box sx={{ width: 170, flexShrink: 0 }}>
             <TSearchableSelect
               label=""
@@ -727,7 +857,7 @@ export default function GeneralLedgerPage() {
               size="small"
             />
           </Box>
-          {(searchQuery || filterAccountType) && (
+          {(searchQuery || filterAccountType || docSearch) && (
             <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
               Clear
             </Button>
@@ -735,7 +865,7 @@ export default function GeneralLedgerPage() {
         </Box>
       }
       onRefresh={handleRefresh}
-      isLoading={accountsLoading || glLoading}
+      isLoading={accountsLoading || glLoading || docLoading}
       masterPanel={masterPanel}
       detailPanel={detailPanel}
     />

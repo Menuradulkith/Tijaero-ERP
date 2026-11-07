@@ -55,6 +55,7 @@ import {
 import ReportParamsForm from "../components/ReportParamsForm";
 import ReportResultView from "../components/ReportResultView";
 
+import { formatDateTimeReadable } from "@/utils/formatters";
 const FAVOURITES_KEY = "report-center-favourites";
 
 function readFavourites(): string[] {
@@ -323,7 +324,7 @@ export default function ReportCenterPage() {
               {!term &&
                 recent.slice(0, 5).map((r) => (
                   <ListItemButton key={`recent-${r.report_key}`} onClick={() => select(r.report_key, null, r.params)}>
-                    <ListItemText primary={r.title} secondary={new Date(r.run_at).toLocaleString()} />
+                    <ListItemText primary={r.title} secondary={formatDateTimeReadable(r.run_at)} />
                   </ListItemButton>
                 ))}
               {byModule.map(([module, reports]) => (

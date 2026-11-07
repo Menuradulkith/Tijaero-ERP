@@ -29,7 +29,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatDateTimeReadable } from "@/utils/formatters";
+import { formatDateTimeReadable, todayISO } from "@/utils/formatters";
 
 // Tijaero Components
 import {
@@ -76,7 +76,7 @@ const USER_STATUS_OPTIONS: TFilterStatusOption[] = [
   { value: "inactive", label: "Inactive" },
 ];
 
-const TODAY = new Date().toISOString().split("T")[0];
+const TODAY = todayISO();
 
 const INITIAL_FORM_DATA: Partial<UserCreate> = {
   username: "",

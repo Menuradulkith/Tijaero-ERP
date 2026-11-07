@@ -31,6 +31,7 @@ import {
   FormSection,
   EmptyState,
   useMasterDetailState,
+  useRecordParam,
   TDetailSkeleton,
   TBranchFilter,
   CARD_TYPE,
@@ -45,6 +46,7 @@ import { cardPaymentsApi } from "@/modules/finance/api";
 import { CardPayment, CardPaymentCreate } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { displayDate, formatDateTimeReadable } from "@/utils/formatters";
 
 interface Branch {
   branch_code: string;
@@ -88,6 +90,7 @@ export default function CardPaymentsPage() {
     searchQuery,
     setSearchQuery,
     selectedItem,
+    openItem,
     setSelectedItem,
     isCreating,
     formData,
@@ -190,7 +193,7 @@ export default function CardPaymentsPage() {
         header: "Date",
         width: 160,
         renderCell: (params: GridRenderCellParams<CardPaymentRow>) =>
-          params.row.date_time ? new Date(params.row.date_time).toLocaleDateString() : "-",
+          params.row.date_time ? displayDate(params.row.date_time) : "-",
       },
       {
         field: "amount",
@@ -257,7 +260,7 @@ export default function CardPaymentsPage() {
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Finance", href: "/finance" },
-          { label: "Customer Payment Methods", href: "/finance/customer-payment-methods" },
+          { label: "Money In" },
           { label: "Card Payments", href: "/finance/customer-payment-methods/card-payments" },
           ...(selectedItem || isCreating ? [{ label: isCreating ? "New Payment" : `Payment #${selectedItem?.id}` }] : []),
         ]}
@@ -339,7 +342,7 @@ export default function CardPaymentsPage() {
                 <TextField
                   label="Payment Date"
                   size="small"
-                  value={selectedItem.date_time ? new Date(selectedItem.date_time).toLocaleString() : "-"}
+                  value={selectedItem.date_time ? formatDateTimeReadable(selectedItem.date_time) : "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
@@ -363,6 +366,17 @@ export default function CardPaymentsPage() {
       </Box>
     </Box>
   );
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedItem?.id,
+    creating: isCreating,
+    items: payments,
+    loading: isLoading,
+    fetchById: (id) => cardPaymentsApi.getById(Number(id)),
+    onOpen: openItem,
+    onClose: handleBackToPayments,
+  });
 
   return (
     <>

@@ -20,6 +20,36 @@ PRINT_DOCUMENT_TYPE = {
 }
 
 
+def send_plain_email(bcc: list, subject: str, body: str) -> None:
+    """Send one plain-text message, hiding recipients from each other.
+
+    No-ops when SMTP is not configured. Runs on a daemon thread so a slow
+    mail server cannot hold the request that created the notification.
+    """
+    import threading
+
+    if not settings.SMTP_HOST or not settings.SMTP_FROM_EMAIL or not bcc:
+        return
+
+    def _send() -> None:
+        try:
+            msg = EmailMessage()
+            msg["From"] = settings.SMTP_FROM_EMAIL
+            msg["To"] = settings.SMTP_FROM_EMAIL
+            msg["Bcc"] = ", ".join(bcc)
+            msg["Subject"] = subject
+            msg.set_content(body)
+            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30) as server:
+                server.starttls()
+                if settings.SMTP_USER and settings.SMTP_PASSWORD:
+                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.send_message(msg)
+        except Exception:
+            logger.exception("Plain notification email failed")
+
+    threading.Thread(target=_send, name="notification-email", daemon=True).start()
+
+
 def render_document_pdf(db, email_document_type: str, document_id: int) -> bytes:
     """The document's PDF, rendered in-process exactly like GET /reporting/documents/{type}/{id}/pdf
     (the sender's permission and branch access are checked when the email is queued)."""

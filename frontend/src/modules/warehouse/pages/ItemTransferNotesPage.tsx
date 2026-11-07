@@ -87,6 +87,7 @@ import { useCurrencyStore } from "@/state/currencyStore";
 import { usePermission } from "@/auth/permissions";
 
 import CancelIcon from "@mui/icons-material/Cancel";
+import { todayISO } from "@/utils/formatters";
 const getNextNumber = (prefix: string, existing: { no: string }[], branchCode?: string): string => {
   const year = new Date().getFullYear();
   const yy = String(year).slice(-2);
@@ -119,7 +120,7 @@ const transferDateError = (value: string): string | null => {
 
 const INITIAL_FORM_DATA: ItemTransferNoteCreate = {
   item_transfer_note: "",
-  created_date: new Date().toISOString().split("T")[0],
+  created_date: todayISO(),
   remark: "",
   branch_code: "HQ",
   from_location_id: 0,

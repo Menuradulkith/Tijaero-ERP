@@ -38,7 +38,7 @@ const PAGE_PERMISSIONS: Record<string, { resource: string; action: string }> = {
   "/purchasing/returns": { resource: "purchase_returns", action: "view" },
   "/purchasing/approvals/return-approvals": { resource: "purchase_return_approvals", action: "view" },
   "/purchasing/payments": { resource: "supplier_payments", action: "view" },
-  "/finance/supplier-payment-report": { resource: "supplier_payments", action: "view" },
+  "/finance/supplier-payments/report": { resource: "supplier_payments", action: "view" },
   "/purchasing/payment-approvals": { resource: "payment_approvals", action: "view" },
   "/manufacturing/work-centers": { resource: "work_centers", action: "view" },
   "/manufacturing/boms": { resource: "boms", action: "view" },
@@ -141,7 +141,7 @@ const allPages = [
   },
   {
     text: "Payment Report",
-    path: "/finance/supplier-payment-report",
+    path: "/finance/supplier-payments/report",
     keywords: [
       "payment report",
       "supplier report",

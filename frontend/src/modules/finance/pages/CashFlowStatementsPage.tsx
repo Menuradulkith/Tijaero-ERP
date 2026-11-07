@@ -57,8 +57,9 @@ import {
   useConfirmDialog,
   useCrudMutation,
   TActivityHistoryPanel,
+  TDatePicker,
 } from "@/components/tijaero";
-import { formatDateTimeReadable } from "@/utils/formatters";
+import { formatDateTimeReadable, todayISO, localDateISO, displayDate } from "@/utils/formatters";
 import { useCurrencyStore } from "@/state/currencyStore";
 
 import { usePermission } from "@/auth/permissions";
@@ -113,9 +114,9 @@ export default function CashFlowStatementsPage() {
   const [genStartDate, setGenStartDate] = useState(() => {
     const d = new Date();
     d.setMonth(0, 1);
-    return d.toISOString().split("T")[0];
+    return localDateISO(d);
   });
-  const [genEndDate, setGenEndDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [genEndDate, setGenEndDate] = useState(() => todayISO());
 
   // Activity History is opened on demand from a detail icon next to the
   // Activity History section title, rather than shown inline.
@@ -311,7 +312,7 @@ export default function CashFlowStatementsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        {format(new Date(stmt.start_date), "dd/MM/yyyy")} - {format(new Date(stmt.end_date), "dd/MM/yyyy")}
+                        {displayDate(stmt.start_date)} - {displayDate(stmt.end_date)}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Period)
@@ -339,7 +340,7 @@ export default function CashFlowStatementsPage() {
             }
             secondaryText={
               !isSelected
-                ? `FY ${stmt.fiscal_year} | ${format(new Date(stmt.start_date), "dd/MM")} - ${format(new Date(stmt.end_date), "dd/MM/yyyy")}`
+                ? `FY ${stmt.fiscal_year} | ${format(new Date(stmt.start_date), "dd MMM")} - ${displayDate(stmt.end_date)}`
                 : undefined
             }
             statusChip={
@@ -481,7 +482,7 @@ export default function CashFlowStatementsPage() {
               <TextField
                 label="Period"
                 size="small"
-                value={`${format(new Date(detail.start_date), "dd/MM/yyyy")} - ${format(new Date(detail.end_date), "dd/MM/yyyy")}`}
+                value={`${displayDate(detail.start_date)} - ${displayDate(detail.end_date)}`}
                 disabled
               />
               <TextField
@@ -682,23 +683,19 @@ export default function CashFlowStatementsPage() {
               value={genYear}
               onChange={(e) => setGenYear(Number(e.target.value))}
             />
-            <TextField
+            <TDatePicker
               label="Start Date"
-              type="date"
               size="small"
               fullWidth
               value={genStartDate}
-              onChange={(e) => setGenStartDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
+              onChange={(v) => setGenStartDate(v ?? "")}
             />
-            <TextField
+            <TDatePicker
               label="End Date"
-              type="date"
               size="small"
               fullWidth
               value={genEndDate}
-              onChange={(e) => setGenEndDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
+              onChange={(v) => setGenEndDate(v ?? "")}
             />
           </Box>
         </DialogContent>

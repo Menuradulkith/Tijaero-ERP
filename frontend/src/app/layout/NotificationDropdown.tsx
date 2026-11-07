@@ -83,8 +83,9 @@ export default function NotificationDropdown() {
     <>
       <IconButton
         color="inherit"
+        aria-label="Notifications"
         onClick={handleMenuOpen}
-        sx={{ display: { xs: "none", sm: "inline-flex" } }}
+        sx={{ display: "inline-flex" }}
       >
         <Badge badgeContent={stats?.unread || 0} color="error">
           <NotificationsIcon />
@@ -100,7 +101,7 @@ export default function NotificationDropdown() {
         slotProps={{
           paper: {
             sx: {
-              width: 350,
+              width: { xs: "min(350px, calc(100vw - 24px))", sm: 350 },
               maxHeight: 500,
               overflow: "hidden",
               display: "flex",

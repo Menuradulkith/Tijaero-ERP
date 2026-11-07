@@ -138,6 +138,8 @@ EXPENSE_CATEGORY_DEFAULTS: Dict[str, str] = {
     "marketing": "5182",
     "insurance": "5183",
     "miscellaneous": "5190",
+    # Tea, meals and small staff treats paid from petty cash
+    "staff_welfare": "5190",
     "freight": "5020",
     "commission": "5150",
     # A subcontractor's bill meets the outside work absorbed into WIP on 5040
@@ -157,6 +159,8 @@ EXPENSE_CATEGORY_ALIASES: Dict[str, str] = {
     "advertising": "marketing",
     "other_expenses": "miscellaneous",
     "other": "miscellaneous",
+    "staff_welfare_tea_meals": "staff_welfare",
+    "welfare": "staff_welfare",
 }
 
 

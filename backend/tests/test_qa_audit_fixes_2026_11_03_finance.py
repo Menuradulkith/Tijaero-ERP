@@ -247,7 +247,10 @@ def test_fin11_reject_approved_entry(db, two_users):
 
 # ── FIN-14: no self-verification of a hand-entered deposit ──────────────────
 def test_fin14_deposit_maker_checker(db, make_user, api, make_branch):
+    from tests.cash_helpers import give_branch_cash
+
     branch = make_branch()
+    give_branch_cash(db, branch.branch_code, "80.00")  # a cash deposit can't exceed cash on hand
     as_maker, as_checker = _branch_staff(make_user, api, branch, [
         ("bank_deposits", "create"), ("bank_transfer_verify", "approve")])
     dep = as_maker().post(f"{F}/bank-deposits", json={

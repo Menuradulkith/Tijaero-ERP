@@ -438,6 +438,9 @@ class GLListFilter(BaseModel):
     date_to: Optional[date] = None
     reference_type: Optional[str] = None
     reference_no: Optional[str] = None
+    # Document number as the user knows it (INV-…, EXP-…, JE-…): matches the
+    # GL row's reference number or its journal entry number.
+    reference: Optional[str] = None
     search: Optional[str] = None
     skip: int = 0
     limit: int = 500

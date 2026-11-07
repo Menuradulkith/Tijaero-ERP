@@ -1021,6 +1021,8 @@ class PurchaseExpensePayrollGL:
         # Determine payment account
         payment_method = (expense.payment_method or expense.expenses_method or "").lower()
         credit_account = ACCT_CASH_ON_HAND if payment_method == "cash" else ACCT_BANK_ACCOUNT
+        if payment_method != "cash" and getattr(expense, "_pay_from_account", None):
+            credit_account = expense._pay_from_account  # the registered bank account chosen at payment
 
         lines = [
             {

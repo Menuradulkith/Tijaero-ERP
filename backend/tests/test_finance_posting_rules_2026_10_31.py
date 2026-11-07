@@ -25,6 +25,7 @@ from app.modules.finance.posting_rules import (
     posting_ref,
     voucher_type_for_prefix,
 )
+from tests.cash_helpers import give_branch_cash
 from tests.money_invariants import Books, D
 
 F = "/api/v1/finance"
@@ -48,13 +49,16 @@ def _account(db, account_type: str, normal_balance: str, parent_code: str | None
     return acc
 
 
-def _paid_expense(client, branch, category, amount, method="cash"):
+def _paid_expense(client, branch, category, amount, method="bank_transfer"):
     e = client.post(F + "/expenses", json={
         "expense_category": category, "expenses_method": method, "expense_amount": amount,
         "branch_code": branch.branch_code, "description": "posting rule test"})
     assert e.status_code in (200, 201), e.text
     eid = e.json()["id"]
-    for step, body in (("submit", None), ("approve", {}), ("process-payment", {"payment_method": method})):
+    pay = {"payment_method": method}
+    if method != "cash":
+        pay["payment_reference"] = "TEST-TRF"
+    for step, body in (("submit", None), ("approve", {}), ("process-payment", pay)):
         r = client.post(f"{F}/expenses/{eid}/{step}", json=body) if body is not None else client.post(f"{F}/expenses/{eid}/{step}")
         assert r.status_code in (200, 201), (step, r.text)
     return eid
@@ -141,8 +145,11 @@ class TestRulesMovePostings:
                   details=[{"control_value": branch_a.branch_code, "account_id": till_a.id}])
         assert r.status_code == 200, r.text
 
-        a_id = _paid_expense(superclient, branch_a, "rent", "300.00")
-        b_id = _paid_expense(superclient, branch_b, "rent", "200.00")
+        # Cash is the point: put cash in both tills first (a cash payment is refused otherwise).
+        give_branch_cash(db, branch_a.branch_code, "300.00")
+        give_branch_cash(db, branch_b.branch_code, "200.00")
+        a_id = _paid_expense(superclient, branch_a, "rent", "300.00", method="cash")
+        b_id = _paid_expense(superclient, branch_b, "rent", "200.00", method="cash")
         assert Books(db).entries_for("Expense", a_id)[till_a.account_code] == (D("0"), D("300.00"))
         assert Books(db).entries_for("Expense", b_id)["1010"] == (D("0"), D("200.00"))
 

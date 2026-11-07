@@ -146,11 +146,26 @@ class CustomerCreditNote(CustomerCreditNoteBase, TijaeroBaseSchema):
     id: int
     date: datetime
 
+# The old "expense method" only ever mirrored the category (reports group by it);
+# it is now always derived from the category so the two can't disagree.
+_CATEGORY_TO_EXPENSES_METHOD = {
+    "meal_expenses": "meal_expenses",
+    "salary_expenses": "salary_expenses",
+    "utilities": "utilities_expenses",
+    "travel_transportation": "travel_expenses",
+    "commissions": "commissions",
+}
+
+
+def expenses_method_for_category(category: Optional[str]) -> str:
+    return _CATEGORY_TO_EXPENSES_METHOD.get((category or "").strip(), "other_expenses")
+
+
 class ExpenseBase(BaseModel):
     expenses_no: Optional[str] = None
     expense_type: str = "operational"
     expense_category: str
-    expenses_method: str
+    expenses_method: Optional[str] = None
     expense_amount: Decimal
     expense_date: Optional[date] = None
     vendor_name: Optional[str] = None
@@ -172,6 +187,11 @@ class ExpenseCreate(ExpenseBase):
     remarks: OptText(2000) = None
     bill_reference: OptText(200) = None
 
+    @model_validator(mode="after")
+    def _derive_method(self):
+        self.expenses_method = expenses_method_for_category(self.expense_category)
+        return self
+
 class ExpenseUpdate(BaseModel):
     expense_type: Optional[str] = None
     expense_category: Optional[str] = None
@@ -188,11 +208,22 @@ class ExpenseUpdate(BaseModel):
     account_code: Optional[str] = None
     cost_center: Optional[str] = None
 
+    @model_validator(mode="after")
+    def _derive_method(self):
+        # Only the category sets the method; a change of category moves it too.
+        self.expenses_method = (
+            expenses_method_for_category(self.expense_category) if self.expense_category else None
+        )
+        return self
+
 class Expense(ExpenseBase, TijaeroBaseSchema):
     id: int
     status: str = ExpenseStatus.PENDING
     submitted_by: Optional[int] = None
+    submitted_by_name: Optional[str] = None
     approved_by: Optional[int] = None
+    # Whoever approved, or rejected, the expense (approved_by holds either).
+    approved_by_name: Optional[str] = None
     approved_date: Optional[datetime] = None
     rejection_reason: Optional[str] = None
     payment_status: Optional[str] = None
@@ -202,6 +233,9 @@ class Expense(ExpenseBase, TijaeroBaseSchema):
     created_date: date
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # Set on the single-expense read: True when the payment's journal is in the
+    # ledger, so the screen does not offer "Record in Accounting" again.
+    posted_to_accounts: Optional[bool] = None
 
 class ExpenseApproval(BaseModel):
     remarks: Optional[str] = None
@@ -214,6 +248,8 @@ class ExpensePayment(BaseModel):
     payment_reference: OptText(200) = None
     payment_date: Optional[date] = None
     remarks: Optional[str] = None
+    # The registered bank account the money left from (bank transfer / cheque).
+    bank_account_id: Optional[int] = None
 
     @model_validator(mode="after")
     def _reference_required(self):
@@ -346,7 +382,13 @@ class CashbookSummary(BaseModel):
     net_movement: Decimal = Decimal("0")
     opening_balance: Decimal = Decimal("0")
     closing_balance: Decimal = Decimal("0")
-    
+    # The same balance split into cash in hand (cash + cheques not yet banked)
+    # and bank (everything else); a bank deposit moves money from one to the other.
+    cash_opening_balance: Decimal = Decimal("0")
+    cash_closing_balance: Decimal = Decimal("0")
+    bank_opening_balance: Decimal = Decimal("0")
+    bank_closing_balance: Decimal = Decimal("0")
+
     # Breakdown by type - amounts
     invoice_receipts: Decimal = Decimal("0")
     customer_credit_settlements: Decimal = Decimal("0")

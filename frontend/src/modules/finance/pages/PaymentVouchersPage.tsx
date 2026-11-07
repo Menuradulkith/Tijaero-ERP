@@ -19,6 +19,8 @@ import {
   type TDataGridColumn,
   TDate,
   TSearchableSelect,
+  useRecordParam,
+  TDatePicker,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import AddIcon from "@mui/icons-material/Add";
@@ -72,7 +74,7 @@ const fmt = (v: number | string | null | undefined) =>
 
 export default function PaymentVouchersPage() {
   const canCreate = usePermission("payment_voucher", "create");
-  const { filteredBranches } = useReferenceData();
+  const { filteredBranches, defaultBranchCode } = useReferenceData();
 
   // UI State
   const [selectedVoucherId, setSelectedVoucherId] = useState<number | null>(null);
@@ -88,7 +90,8 @@ export default function PaymentVouchersPage() {
 
   // Form states
   const emptyForm = () => ({
-    branch_code: filteredBranches[0]?.branch_code || "MAIN",
+    // The user's own branch, or blank for all-branch users: never silently the first branch.
+    branch_code: defaultBranchCode ?? "",
     payee_name: "",
     amount: 0,
     payment_date: format(new Date(), "yyyy-MM-dd"),
@@ -229,13 +232,11 @@ export default function PaymentVouchersPage() {
           <MenuItem value="travel">Travel</MenuItem>
           <MenuItem value="other">Other</MenuItem>
         </TextField>
-        <TextField
+        <TDatePicker
           label="Payment Date"
-          type="date"
           size="small"
           value={formData.payment_date}
-          onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
-          InputLabelProps={{ shrink: true }}
+          onChange={(v) => setFormData({ ...formData, payment_date: v ?? "" })}
         />
       </FormSection>
       <FormSection title="Description" columns={1}>
@@ -334,6 +335,22 @@ export default function PaymentVouchersPage() {
       </Box>
     </Box>
   );
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedVoucher?.id,
+    creating,
+    items: mockVouchers,
+    onOpen: (v) => {
+      setCreating(false);
+      setSelectedVoucherId(v.id);
+    },
+    onClose: back,
+    onNew: canCreate ? () => {
+      setFormData(emptyForm());
+      setCreating(true);
+    } : undefined,
+  });
 
   return (
     <>
@@ -485,14 +502,12 @@ export default function PaymentVouchersPage() {
             Amount: <TCurrency value={selectedVoucher?.amount} />
           </Typography>
 
-          <TextField
+          <TDatePicker
             fullWidth
             label="Payment Date"
-            type="date"
             value={paymentDate}
-            onChange={(e) => setPaymentDate(e.target.value)}
+            onChange={(v) => setPaymentDate(v ?? "")}
             margin="normal"
-            InputLabelProps={{ shrink: true }}
           />
         </DialogContent>
         <DialogActions>

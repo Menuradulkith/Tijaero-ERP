@@ -30,6 +30,7 @@ import {
   type TDataGridColumn,
   TSearchableSelect,
   TStatusChip,
+  useRecordParam,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { costCentersApi, type CostCenter, type CostCenterInput } from "@/modules/finance/api/costCenters";
@@ -141,6 +142,25 @@ export default function CostCentersTab({ canEdit, layout }: { canEdit: boolean; 
     setEditing(false);
   };
   const detailMode = creating || !!selected;
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selected?.id,
+    creating,
+    items: centers,
+    loading: isLoading,
+    onOpen: (c) => {
+      setCreating(false);
+      setEditing(false);
+      setSelected(c);
+      setForm(toForm(c));
+    },
+    onClose: back,
+    onNew: canEdit ? () => {
+      setForm(EMPTY);
+      setCreating(true);
+    } : undefined,
+  });
   const ro = !creating && !editing;
   const valid = !!form.name?.trim() && (!creating || !!form.code?.trim());
 

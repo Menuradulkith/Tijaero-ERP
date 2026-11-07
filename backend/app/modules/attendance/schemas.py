@@ -32,6 +32,8 @@ class Attendance(AttendanceBase, TijaeroBaseSchema):
     employee_name: Optional[str] = None
     branch_name: Optional[str] = None
     status: Optional[str] = None  # derived: present | late | absent | leave | half_day
+    employee_branch_code: Optional[str] = None
+    other_branch: bool = False
 
 
 class AttendanceFilter(BaseModel):

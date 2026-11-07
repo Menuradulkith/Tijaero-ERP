@@ -126,6 +126,58 @@ export function formatDate(date: Date | string | null | undefined): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Local calendar dates for date pickers / API filters.
+// `date.toISOString().split("T")[0]` gives the UTC date: in Sri Lanka (UTC+5:30)
+// that is yesterday before 05:30, and "this month" started on the 31st. Use these.
+// ---------------------------------------------------------------------------
+
+/** Today as YYYY-MM-DD in the user's own time zone. */
+export function todayISO(): string {
+  return formatDate(new Date());
+}
+
+/** A Date as YYYY-MM-DD in the user's own time zone (not UTC). */
+export function localDateISO(date: Date): string {
+  return formatDate(date);
+}
+
+/** First day of the current month, YYYY-MM-DD (local). */
+export function startOfMonthISO(date: Date = new Date()): string {
+  return formatDate(new Date(date.getFullYear(), date.getMonth(), 1));
+}
+
+/** Monday of the current week, YYYY-MM-DD (local). */
+export function startOfWeekISO(date: Date = new Date()): string {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return formatDate(d);
+}
+
+/** Today minus n days, YYYY-MM-DD (local). */
+export function daysAgoISO(n: number, date: Date = new Date()): string {
+  return formatDate(new Date(date.getFullYear(), date.getMonth(), date.getDate() - n));
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * The one date format users see: "07 Nov 2026". Unambiguous (03/11 vs 11/03).
+ * A plain YYYY-MM-DD string is read as a calendar day, not shifted by time zone.
+ */
+export function displayDate(value: Date | string | null | undefined): string {
+  if (!value) return "";
+  let d: Date;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [y, m, day] = value.split("-").map(Number);
+    d = new Date(y, m - 1, day);
+  } else {
+    d = typeof value === "string" ? new Date(value) : value;
+  }
+  if (isNaN(d.getTime())) return "";
+  return `${String(d.getDate()).padStart(2, "0")} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 /**
  * Format a datetime as YYYY-MM-DD HH:MM:SS (without microseconds)
  * @param date - The datetime to format (Date object, ISO string, or null/undefined)
@@ -149,29 +201,43 @@ export function formatDateTime(date: Date | string | null | undefined): string {
 }
 
 /**
- * Format a datetime as human-readable date with time (e.g., "Jan 11, 2026 4:14 AM")
- * @param date - The datetime to format (Date object, ISO string, or null/undefined)
- * @returns Formatted datetime string or empty string if invalid
+ * The one date-time format users see: "07 Nov 2026, 10:03" (24-hour clock,
+ * in the ERP's time zone). Same day format as displayDate().
  */
 export function formatDateTimeReadable(date: Date | string | null | undefined): string {
   if (!date) return "";
+  // A plain calendar day has no time to show.
+  if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) return displayDate(date);
   try {
     const d = typeof date === "string" ? new Date(date) : date;
     if (isNaN(d.getTime())) return "";
     const { timezone } = useTimezoneStore.getState();
-    return d.toLocaleString(ERP_LOCALE, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-      timeZone: timezone,
-    });
+    let parts: Intl.DateTimeFormatPart[];
+    try {
+      parts = new Intl.DateTimeFormat("en-GB", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+        timeZone: timezone || undefined,
+      }).formatToParts(d);
+    } catch {
+      parts = new Intl.DateTimeFormat("en-GB", {
+        year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+      }).formatToParts(d);
+    }
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+    const month = MONTHS[Number(get("month")) - 1] ?? "";
+    return `${get("day")} ${month} ${get("year")}, ${get("hour")}:${get("minute")}`;
   } catch {
     return "";
   }
 }
+
+/** Alias of formatDateTimeReadable: "07 Nov 2026, 10:03". */
+export const displayDateTime = formatDateTimeReadable;
 
 /**
  * Strip microseconds from a datetime string
@@ -183,4 +249,14 @@ export function stripMicroseconds(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
   // Remove the microseconds part (everything after the seconds)
   return dateStr.replace(/\.\d+$/, "");
+}
+
+/**
+ * A stored code shown as plain words: "bank_transfer" -> "Bank transfer",
+ * "pending_verification" -> "Pending verification". Empty for no value.
+ */
+export function codeLabel(code: string | null | undefined): string {
+  if (!code) return "";
+  const words = String(code).replace(/[_-]+/g, " ").trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }

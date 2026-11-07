@@ -72,6 +72,9 @@ import {
   TSearchableSelect,
   TStatusChip,
   useConfirmDialog,
+  useRecordParam,
+  useTabParam,
+  TDatePicker,
 } from "@/components/tijaero";
 import { bankReconciliationApi, chartOfAccountsApi } from "@/modules/finance/api";
 import type {
@@ -87,6 +90,7 @@ import type {
 } from "@/modules/finance/types";
 import { submitOnce } from "@/modules/finance/submitOnce";
 import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
+import { localDateISO } from "@/utils/formatters";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v: BankAmount | null | undefined) =>
@@ -96,8 +100,7 @@ const fmt = (v: BankAmount | null | undefined) =>
 const cents = (v: BankAmount | null | undefined) => Math.round(Number(v ?? 0) * 100);
 
 const iso = (d: Date) => {
-  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
+  return localDateISO(d);
 };
 const today = new Date();
 const MONTH_START = iso(new Date(today.getFullYear(), today.getMonth(), 1));
@@ -656,13 +659,11 @@ function AddBankAccountPanel({
         <TextField label="Account number" size="small" value={form.account_number} onChange={set("account_number")} inputProps={{ maxLength: 50 }} />
         <TextField label="Bank" size="small" value={form.bank_name} onChange={set("bank_name")} inputProps={{ maxLength: 100 }} />
         <TextField label="Bank branch" size="small" value={form.branch_code} onChange={set("branch_code")} />
-        <TextField
+        <TDatePicker
           label="Check from"
-          type="date"
           size="small"
-          value={form.reconcile_from}
-          onChange={set("reconcile_from")}
-          InputLabelProps={{ shrink: true }}
+          value={form.reconcile_from ?? ""}
+          onChange={(v) => setForm({ ...form, reconcile_from: v ?? "" })}
           helperText="Entries in the books before this date count as already checked. Leave empty to check everything."
         />
       </FormSection>
@@ -934,23 +935,19 @@ function NewStatementPanel({
         />
         <TextField label="Statement no." size="small" value={statementNo} onChange={(e) => setStatementNo(e.target.value)} />
         <Box />
-        <TextField
+        <TDatePicker
           label="From"
-          type="date"
           size="small"
           value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          InputLabelProps={{ shrink: true }}
+          onChange={(v) => setDateFrom(v ?? "")}
           required
           error={!datesValid}
         />
-        <TextField
+        <TDatePicker
           label="To"
-          type="date"
           size="small"
           value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          InputLabelProps={{ shrink: true }}
+          onChange={(v) => setDateTo(v ?? "")}
           required
           error={!datesValid}
           helperText={!datesValid ? 'The "From" date must be on or before the "To" date.' : undefined}
@@ -1077,11 +1074,10 @@ function NewStatementPanel({
                       ) : (
                         <>
                           <TableCell>
-                            <TextField
-                              type="date"
+                            <TDatePicker
                               size="small"
                               value={l.line_date}
-                              onChange={(e) => updateLine(l.key, { line_date: e.target.value })}
+                              onChange={(v) => updateLine(l.key, { line_date: v ?? "" })}
                               error={!l.ok || flag}
                               helperText={flag ? "Outside the statement dates" : undefined}
                               fullWidth
@@ -1636,7 +1632,9 @@ export default function BankReconciliationPage() {
   const canAddAccount = usePermission("chart_of_accounts", "update");
   const canReconcile = usePermission("journal_entries", "create");
 
-  const [tab, setTab] = useState<PageTab>("statements");
+  // ?tab=accounts keeps the Bank Accounts tab on reload / shared links. Both
+  // tabs keep their own open record (?id= statement, ?account= bank account).
+  const [tab, setTab] = useTabParam<PageTab>("statements", ["statements", "accounts"], { clear: [] });
   // Statements tab
   const [pickedAccountId, setPickedAccountId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -1744,6 +1742,42 @@ export default function BankReconciliationPage() {
   const statementsDetail = addingStatement || statementId !== null;
   const accountsDetail = addingAccount || viewedAccount !== null;
   const detailMode = tab === "statements" ? statementsDetail : accountsDetail;
+
+  // Open statement / bank account live in the URL: browser Back returns to the list.
+  useRecordParam<{ id: number; bank_account_id?: number }>({
+    current: statementId,
+    creating: addingStatement,
+    items: statements,
+    loading: isLoading || loadingStatements,
+    fetchById: (id) => bankReconciliationApi.getStatement(Number(id)),
+    onOpen: (s) => {
+      setAddingStatement(false);
+      if (s.bank_account_id) setPickedAccountId(s.bank_account_id);
+      setStatementId(s.id);
+    },
+    onClose: () => {
+      setStatementId(null);
+      setAddingStatement(false);
+    },
+    onNew: canReconcile ? () => setAddingStatement(true) : undefined,
+  });
+  useRecordParam<BankAccount>({
+    param: "account",
+    newParam: "new_account",
+    current: viewAccountId,
+    creating: addingAccount,
+    items: accounts,
+    loading: isLoading,
+    onOpen: (a) => {
+      setAddingAccount(false);
+      setViewAccountId(a.id);
+    },
+    onClose: () => {
+      setViewAccountId(null);
+      setAddingAccount(false);
+    },
+    onNew: canAddAccount ? () => setAddingAccount(true) : undefined,
+  });
 
   const back = () => {
     if (tab === "statements") {

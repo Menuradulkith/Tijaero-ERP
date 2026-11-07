@@ -28,6 +28,7 @@ import {
   FormSection,
   EmptyState,
   useMasterDetailState,
+  useRecordParam,
   TDetailSkeleton,
   TBranchFilter,
   TDataGrid,
@@ -41,6 +42,7 @@ import { cashPaymentsApi } from "@/modules/finance/api";
 import { CashPayment } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { displayDate, formatDateTimeReadable } from "@/utils/formatters";
 
 interface Branch {
   branch_code: string;
@@ -80,6 +82,7 @@ export default function CashPaymentsPage() {
     searchQuery,
     setSearchQuery,
     selectedItem,
+    openItem,
     setSelectedItem,
     isCreating,
     formData,
@@ -192,7 +195,7 @@ export default function CashPaymentsPage() {
         header: "Date",
         width: 170,
         renderCell: (params: GridRenderCellParams<CashPaymentRow>) =>
-          params.row.created_date_time ? new Date(params.row.created_date_time).toLocaleString() : "-",
+          params.row.created_date_time ? formatDateTimeReadable(params.row.created_date_time) : "-",
       },
       {
         field: "amount",
@@ -259,7 +262,7 @@ export default function CashPaymentsPage() {
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Finance", href: "/finance" },
-          { label: "Customer Payment Methods", href: "/finance/customer-payment-methods" },
+          { label: "Money In" },
           { label: "Cash Payments", href: "/finance/customer-payment-methods/cash-payments" },
           ...(selectedItem || isCreating ? [{ label: `Cash Payment #${selectedItem?.id}` }] : []),
         ]}
@@ -315,7 +318,7 @@ export default function CashPaymentsPage() {
               <TextField
                 label="Date & Time"
                 size="small"
-                value={selectedItem?.created_date_time ? new Date(selectedItem.created_date_time).toLocaleString() : "-"}
+                value={selectedItem?.created_date_time ? formatDateTimeReadable(selectedItem.created_date_time) : "-"}
                 disabled
                 InputProps={{ readOnly: true }}
               />
@@ -344,7 +347,7 @@ export default function CashPaymentsPage() {
                 <TextField
                   label="Date Created (Date)"
                   size="small"
-                  value={selectedItem.created_date ? new Date(selectedItem.created_date).toLocaleDateString() : "-"}
+                  value={selectedItem.created_date ? displayDate(selectedItem.created_date) : "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
@@ -362,6 +365,17 @@ export default function CashPaymentsPage() {
       </Box>
     </Box>
   );
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedItem?.id,
+    creating: isCreating,
+    items: payments,
+    loading: isLoading,
+    fetchById: (id) => cashPaymentsApi.getById(Number(id)),
+    onOpen: openItem,
+    onClose: handleBackToCashPayments,
+  });
 
   return (
     <>

@@ -21,6 +21,7 @@ from tests.integration.test_workflows.test_grn_receive_cancel import (  # noqa: 
     _uid,
     world,
 )
+from tests.cash_helpers import give_branch_cash
 from tests.money_invariants import Books, D
 
 S = "/api/v1/sales"
@@ -219,6 +220,7 @@ class TestSupplierMoney:
 class TestFinanceLedger:
     def test_expense_cycle_posts_once_and_hits_the_cashbook(self, db, superclient, make_branch):
         branch = make_branch()
+        give_branch_cash(db, branch.branch_code, "1000.00")  # a cash payment needs cash in the till
         e = superclient.post(F + "/expenses", json={
             "expense_category": "Office Supplies", "expenses_method": "cash", "expense_amount": "250.00",
             "branch_code": branch.branch_code, "description": "Paper"})
@@ -230,7 +232,7 @@ class TestFinanceLedger:
         b = books(db)
         je = b.entries_for("Expense", eid)
         assert sum(dr for dr, _ in je.values()) == D("250.00") and sum(cr for _, cr in je.values()) == D("250.00"), je
-        assert b.cashbook_net() == b.gl_cash_net() == D("-250.00"), (b.cashbook_net(), b.gl_cash_net(), je)
+        assert b.cashbook_net() == b.gl_cash_net() == D("750.00"), (b.cashbook_net(), b.gl_cash_net(), je)
         b.assert_balanced("expense")
 
     def test_bank_deposit_moves_cash_to_bank(self, db, superclient, superuser, shop):

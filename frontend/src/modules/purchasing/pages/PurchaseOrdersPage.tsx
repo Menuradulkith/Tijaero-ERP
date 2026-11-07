@@ -109,6 +109,7 @@ import { hasPermission, usePermission } from "@/auth/permissions";
 
 import CancelIcon from "@mui/icons-material/Cancel";
 import SaveIcon from "@mui/icons-material/Save";
+import { todayISO } from "@/utils/formatters";
 // Status options are now imported from common components (PO_STATUS_OPTIONS)
 
 /** Preview the next sequential number using the same format as the backend */
@@ -143,8 +144,8 @@ const INITIAL_FORM_DATA: PurchaseOrderFormData = {
   purchasing_order_no: "",
   branch_code: "",
   payment_method: "Credit",
-  purchasing_order_date: new Date().toISOString().split("T")[0],
-  good_received_note_date: new Date().toISOString().split("T")[0],
+  purchasing_order_date: todayISO(),
+  good_received_note_date: todayISO(),
   remarks: "",
   credit_date: 0,
   first_suppliers_id: 0,
@@ -1107,7 +1108,7 @@ export default function PurchaseOrdersPage() {
       const newFormData = {
         ...resetFormFromOrder(selectedOrder),
         purchasing_order_no: "",
-        purchasing_order_date: new Date().toISOString().split("T")[0],
+        purchasing_order_date: todayISO(),
       };
       setFormData(newFormData);
       // Keep line items from current selection

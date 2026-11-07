@@ -163,6 +163,12 @@ def _approved_note_with(db, w, units):
     return note
 
 
+def _dispatched_note_with(db, w, units):
+    note = _approved_note_with(db, w, units)
+    ItemTransferNoteService(db).dispatch_transfer_note(note.id)
+    return note
+
+
 class TestDamageTravelsWithTheReceipt:
     def _receive(self, db, w, note, **kw):
         return ItemReceiveNoteService(db).receive_items(
@@ -171,7 +177,7 @@ class TestDamageTravelsWithTheReceipt:
 
     def test_damaged_serial_unit_arrives_but_is_not_sellable(self, db, world):
         u1, u2 = world["units"][0], world["units"][1]
-        note = _approved_note_with(db, world, [u1, u2])
+        note = _dispatched_note_with(db, world, [u1, u2])
         res = self._receive(db, world, note, barcodes=[u1.barcode, u2.barcode], received_note="dock 3",
                             lines=[wh.ReceiveLine(barcode=u2.barcode, damaged_quantity=1, note="dented box")])
         assert res.all_received
@@ -185,23 +191,23 @@ class TestDamageTravelsWithTheReceipt:
 
     def test_note_text_without_damage_is_kept_as_typed(self, db, world):
         u1 = world["units"][0]
-        note = _approved_note_with(db, world, [u1])
+        note = _dispatched_note_with(db, world, [u1])
         self._receive(db, world, note, barcodes=[u1.barcode], received_note="all fine")
         assert ItemReceiveNoteService(db).get_by_transfer_note(note.id).received_note == "all fine"
 
     def test_a_serial_line_cannot_be_more_damaged_than_received(self, db, world):
         u1 = world["units"][0]
-        note = _approved_note_with(db, world, [u1])
+        note = _dispatched_note_with(db, world, [u1])
         with pytest.raises(HTTPException) as exc:
             self._receive(db, world, note, barcodes=[u1.barcode],
                           lines=[wh.ReceiveLine(barcode=u1.barcode, damaged_quantity=3)])
         assert exc.value.status_code == 400 and "more than the 1 received" in exc.value.detail
         db.refresh(u1)
-        assert u1.status == StockStatus.TRANSFER_PENDING  # nothing was received
+        assert u1.status == StockStatus.IN_TRANSIT  # nothing was received
 
     def test_damage_for_a_line_that_is_not_being_received_is_refused(self, db, world):
         u1, u2 = world["units"][0], world["units"][1]
-        note = _approved_note_with(db, world, [u1, u2])
+        note = _dispatched_note_with(db, world, [u1, u2])
         with pytest.raises(HTTPException) as exc:
             self._receive(db, world, note, barcodes=[u1.barcode],
                           lines=[wh.ReceiveLine(barcode=u2.barcode, damaged_quantity=1)])
@@ -238,6 +244,7 @@ class TestLotDamage:
         item = ItemTransferNoteItemService(db).create_item(wh.ItemTransferNoteItemCreate(
             product_id=w["product"].id, quantity=qty, branch_code=w["a"].branch_code, itemtransfernote_id=note.id))
         svc.approve_transfer_note(note.id, user_id=w["user"].id)
+        svc.dispatch_transfer_note(note.id)
         db.refresh(item)
         res = ItemReceiveNoteService(db).receive_items(note.id, wh.ReceiveItemsRequest(
             item_ids=[item.id], received_user_id=w["user"].id,
@@ -329,7 +336,7 @@ class TestHeaderRules:
 class TestOnlyUnitsInTransitCanBeReceived:
     def test_a_unit_that_is_not_in_transit_is_not_received(self, db, world):
         u1, u2 = world["units"][0], world["units"][1]
-        note = _approved_note_with(db, world, [u1, u2])
+        note = _dispatched_note_with(db, world, [u1, u2])
         u2.status = StockStatus.AVAILABLE  # e.g. freed by the old reject bug
         db.flush()
         res = ItemReceiveNoteService(db).receive_items(
@@ -340,7 +347,7 @@ class TestOnlyUnitsInTransitCanBeReceived:
         assert "not in transit" in by_code[u2.barcode].message
         assert not res.all_received
         db.refresh(u1), db.refresh(u2)
-        assert u1.location_id == world["loc_b"].id and u2.location_id == world["loc_a"].id
+        assert u1.location_id == world["loc_b"].id and u2.location_id != world["loc_b"].id
         line = db.query(ItemTransferNoteItems).filter_by(itemtransfernote_id=note.id, barcode=u2.barcode).one()
         assert line.item_recieved is False
 

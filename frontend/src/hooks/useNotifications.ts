@@ -1,5 +1,7 @@
 import { notificationsApi } from "@/modules/notifications/api";
+import { settingsApi } from "@/modules/settings/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import toast from "react-hot-toast";
 
 export const NOTIFICATIONS_QUERY_KEY = ["notifications"];
@@ -50,6 +52,42 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     refetchInterval,
     refetchIntervalInBackground: false,
   });
+
+  const preferencesQuery = useQuery({
+    queryKey: ["preferences", "notification-channels"],
+    queryFn: () => settingsApi.getPreferences(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const seenUnread = useRef<number | null>(null);
+  const unread = statsQuery.data?.unread ?? 0;
+  const desktopOn = !!preferencesQuery.data?.desktop_notifications;
+  const latest = notificationsQuery.data;
+
+  useEffect(() => {
+    if (seenUnread.current === null) {
+      seenUnread.current = unread;
+      return;
+    }
+    const rose = unread > seenUnread.current;
+    seenUnread.current = unread;
+    if (!rose || !desktopOn || typeof Notification === "undefined") return;
+    const newest = (latest || []).find((item) => !item.is_read);
+    if (!newest) return;
+    const show = () => {
+      try {
+        new Notification(newest.title, { body: newest.message });
+      } catch {
+        /* the browser refused the popup */
+      }
+    };
+    if (Notification.permission === "granted") show();
+    else if (Notification.permission === "default") {
+      Notification.requestPermission().then((permission) => {
+        if (permission === "granted") show();
+      });
+    }
+  }, [unread, desktopOn, latest]);
 
   const markAsReadMutation = useMutation({
     mutationFn: (recipientId: number) => notificationsApi.markAsRead(recipientId),

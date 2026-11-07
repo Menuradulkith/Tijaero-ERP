@@ -190,7 +190,17 @@ def create_order(data: s.ProductionOrderIn, db: Session = Depends(get_db),
                  user: User = Depends(require_permission(*Permissions.PRODUCTION_ORDER_CREATE))):
     if not validate_branch_access(user, data.branch_code):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {data.branch_code}")
-    return ProductionOrderService(db).create(data, user.id)
+    created = ProductionOrderService(db).create(data, user.id)
+    from app.modules.notifications import events
+    events.tell_branch(
+        created.branch_code,
+        title="Production order opened",
+        message=f"Production order {created.order_no} was opened.",
+        category="manufacturing",
+        action_url="/manufacturing/orders",
+        exclude_user_id=user.id,
+    )
+    return created
 
 
 @router.post("/orders/from-quote", response_model=s.ProductionOrderOut, status_code=201)
@@ -202,7 +212,17 @@ def create_order_from_quote(data: s.FromQuoteIn, db: Session = Depends(get_db),
               .filter(SalesQuoteItem.id == data.quote_item_id).scalar())
     if branch:
         _branch_access(user, branch)
-    return ProductionOrderService(db).create_from_quote_item(data, user.id)
+    created = ProductionOrderService(db).create_from_quote_item(data, user.id)
+    from app.modules.notifications import events
+    events.tell_branch(
+        created.branch_code,
+        title="Production order opened",
+        message=f"Production order {created.order_no} was opened from a quotation.",
+        category="manufacturing",
+        action_url="/manufacturing/orders",
+        exclude_user_id=user.id,
+    )
+    return created
 
 
 @router.get("/quote-demand", response_model=List[s.QuoteDemandOut],
@@ -282,7 +302,19 @@ def quality_decision(order_id: RowId, data: s.QcDecisionIn, db: Session = Depend
                      user: User = Depends(require_permission(*Permissions.PRODUCTION_ORDER_APPROVE))):
     """Pass / fail output held for a quality check (approvers decide, like closing an order)."""
     _order_access(db, user, order_id)
-    return ProductionOrderService(db).qc_decision(order_id, data, user.id)
+    result = ProductionOrderService(db).qc_decision(order_id, data, user.id)
+    from app.modules.notifications import events
+    failed = data.failed_quantity > 0
+    events.tell_branch(
+        result.branch_code,
+        title="Quality check failed" if failed else "Quality check passed",
+        message=f"Production order {result.order_no}: {data.passed_quantity} passed, {data.failed_quantity} failed.",
+        category="manufacturing",
+        notification_type="warning" if failed else "success",
+        action_url="/manufacturing/orders",
+        exclude_user_id=user.id,
+    )
+    return result
 
 
 @router.get("/trace", response_model=s.TraceOut)
@@ -297,15 +329,36 @@ def trace_batch(batch_no: str = Query(..., min_length=1, max_length=100), db: Se
 def complete_order(order_id: RowId, data: Optional[s.CompleteIn] = None, db: Session = Depends(get_db),
                    user: User = Depends(require_permission(*Permissions.PRODUCTION_ORDER_APPROVE))):
     _order_access(db, user, order_id)
-    return ProductionOrderService(db).complete(order_id, user.id,
+    result = ProductionOrderService(db).complete(order_id, user.id,
                                                book_planned_time=data.book_planned_time if data else True)
+    from app.modules.notifications import events
+    events.tell_branch(
+        result.branch_code,
+        title="Production order completed",
+        message=f"Production order {result.order_no} was completed.",
+        category="manufacturing",
+        notification_type="success",
+        action_url="/manufacturing/orders",
+        exclude_user_id=user.id,
+    )
+    return result
 
 
 @router.post("/orders/{order_id}/close", response_model=s.ProductionOrderOut)
 def close_order(order_id: RowId, db: Session = Depends(get_db),
                 user: User = Depends(require_permission(*Permissions.PRODUCTION_ORDER_APPROVE))):
     _order_access(db, user, order_id)
-    return ProductionOrderService(db).close(order_id, user.id)
+    result = ProductionOrderService(db).close(order_id, user.id)
+    from app.modules.notifications import events
+    events.tell_branch(
+        result.branch_code,
+        title="Production order closed",
+        message=f"Production order {result.order_no} was closed.",
+        category="manufacturing",
+        action_url="/manufacturing/orders",
+        exclude_user_id=user.id,
+    )
+    return result
 
 
 @router.post("/orders/{order_id}/cancel", response_model=s.ProductionOrderOut)

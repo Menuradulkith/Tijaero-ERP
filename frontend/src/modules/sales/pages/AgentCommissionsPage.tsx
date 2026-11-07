@@ -37,6 +37,7 @@ import { useCurrencyStore } from "@/state/currencyStore";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 
 import CancelIcon from "@mui/icons-material/Cancel";
+import { todayISO } from "@/utils/formatters";
 const STATUS_COLOR: Record<string, "default" | "warning" | "success" | "error"> = {
   pending: "warning",
   paid: "success",
@@ -159,7 +160,7 @@ export default function AgentCommissionsPage() {
     try {
       await commissionPaymentsApi.create({
         customer_agent_id: payingCommission.customer_agent_id,
-        payment_date: new Date().toISOString().split("T")[0],
+        payment_date: todayISO(),
         payment_method: payMethod,
         payment_amount: requested,
         reference_number: payReference || undefined,
@@ -203,7 +204,7 @@ export default function AgentCommissionsPage() {
     ]);
 
     exportToCSV({
-      filename: `agent_commissions_${new Date().toISOString().split("T")[0]}`,
+      filename: `agent_commissions_${todayISO()}`,
       headers,
       rows
     });

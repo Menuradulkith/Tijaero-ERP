@@ -1359,6 +1359,8 @@ class SupplierPayment(SupplierPaymentBase, TijaeroBaseSchema):
     created_date: datetime
     created_by: Optional[int] = None
     
+    created_by_name: Optional[str] = None
+    verified_by_name: Optional[str] = None
     supplier_name: Optional[str] = None
     po_no: Optional[str] = None
 

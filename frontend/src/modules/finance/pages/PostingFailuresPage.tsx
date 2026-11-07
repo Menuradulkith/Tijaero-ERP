@@ -40,6 +40,7 @@ import {
   TSearchableSelect,
   TStatusChip,
   useConfirmDialog,
+  useRecordParam,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { usePermission } from "@/auth/permissions";
@@ -47,6 +48,7 @@ import { postingFailuresApi } from "@/modules/finance/api";
 import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
 import type { GLPostingFailure, GLPostingFailureStatus } from "@/modules/finance/types";
 
+import { formatDateTimeReadable } from "@/utils/formatters";
 type StatusFilter = GLPostingFailureStatus | "all";
 
 const STATUS_OPTIONS = [
@@ -61,7 +63,7 @@ const BREADCRUMBS = [
 ];
 
 const fmtDateTime = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString("en-LK", { dateStyle: "medium", timeStyle: "short" }) : "—";
+  iso ? formatDateTimeReadable(iso) : "—";
 
 const refLabel = (r: GLPostingFailure) => `${r.reference_type} #${r.reference_id}`;
 
@@ -278,6 +280,15 @@ export default function PostingFailuresPage() {
   );
 
   const filterSet = !!search || !!branch || status !== "pending";
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selected?.id,
+    items: data?.items,
+    loading: isFetching && !data,
+    onOpen: setSelected,
+    onClose: () => setSelected(null),
+  });
 
   return (
     <>
