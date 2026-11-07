@@ -92,7 +92,17 @@ def _attendance_status(att: Attendance) -> str:
     return "present"   # checked in (still working or finished the day)
 
 
-def _to_attendance_response(db: Session, att: Attendance, name: Optional[str] = None) -> schemas.Attendance:
+def _home_branches(db: Session, codes) -> dict:
+    """{employee code: the employee's own branch} in one query."""
+    codes = {c for c in codes if c}
+    if not codes:
+        return {}
+    return dict(db.query(Employee.employee_id, Employee.branch_code).filter(Employee.employee_id.in_(codes)).all())
+
+
+def _to_attendance_response(db: Session, att: Attendance, name: Optional[str] = None,
+                            homes: Optional[dict] = None) -> schemas.Attendance:
+    home = (homes if homes is not None else _home_branches(db, [att.employee_id])).get(att.employee_id)
     payload = {
         "id": att.id,
         "employee_id": att.employee_id,
@@ -111,6 +121,9 @@ def _to_attendance_response(db: Session, att: Attendance, name: Optional[str] = 
         "employee_name": name if name is not None else _resolve_employee_name(db, att.employee_id),
         "branch_name": att.branch_code,
         "status": _attendance_status(att),
+        # Recording at another branch is allowed (relief / visiting staff) but shown as such
+        "employee_branch_code": home,
+        "other_branch": bool(home and att.branch_code and home != att.branch_code),
     }
     return schemas.Attendance(**payload)
 
@@ -357,7 +370,8 @@ class AttendanceService:
             allowed_branches=_branches_of(actor),
         )
         names = employee_names(self.db, [r.employee_id for r in rows])   # one query, not two per row
-        return [_to_attendance_response(self.db, r, names.get(r.employee_id, r.employee_id)) for r in rows]
+        homes = _home_branches(self.db, [r.employee_id for r in rows])
+        return [_to_attendance_response(self.db, r, names.get(r.employee_id, r.employee_id), homes) for r in rows]
 
     def summary(
         self,

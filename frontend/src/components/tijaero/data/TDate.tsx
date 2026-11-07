@@ -90,11 +90,11 @@ const formatDate = (date: Date, formatType: string, timeZone: string): string =>
       const zoned = toZonedDate(date, timeZone);
       switch (formatType) {
         case "short":
-          return format(zoned, "MMM dd, yyyy");
+          return format(zoned, "dd MMM yyyy");
         case "long":
-          return format(zoned, "MMMM dd, yyyy");
+          return format(zoned, "dd MMMM yyyy");
         case "datetime":
-          return format(zoned, "MMM dd, yyyy HH:mm");
+          return format(zoned, "dd MMM yyyy HH:mm");
         case "time":
           return format(zoned, "HH:mm:ss");
         default:

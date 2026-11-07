@@ -269,3 +269,50 @@ def run_outstanding_payments_digest() -> Dict[str, object]:
         "invoices": invoices,
         "total_outstanding": float(total_outstanding),
     }
+
+
+def run_material_shortage_digest() -> Dict[str, int]:
+    """Notify each branch about MRP items that need to be bought or made.
+
+    One message per branch. Returns ``{"branches": x, "items": y}``.
+    """
+    from collections import defaultdict
+
+    from app.db.session import SessionLocal
+    from app.modules.manufacturing.planning import MrpService
+
+    from . import dispatcher as notify
+
+    db = SessionLocal()
+    branches = 0
+    items = 0
+    try:
+        rows = MrpService(db).run(shortages_only=True)
+        by_branch: Dict[str, List[str]] = defaultdict(list)
+        for row in rows:
+            branch = row.get("branch_code")
+            if not branch or not row.get("suggested_quantity"):
+                continue
+            by_branch[branch].append(row.get("product_name") or "Item")
+
+        for branch_code, names in by_branch.items():
+            branches += 1
+            items += len(names)
+            shown = ", ".join(names[:_MAX_NAMED_ITEMS])
+            extra = len(names) - _MAX_NAMED_ITEMS
+            if extra > 0:
+                shown += f", and {extra} more"
+            notify.branch(
+                branch_code,
+                title=f"Material shortages: {len(names)} item(s)",
+                message=f"{shown} need to be purchased or produced.",
+                notification_type=notify.WARNING,
+                category=notify.MANUFACTURING,
+                action_url="/manufacturing/mrp",
+                extra_data={"digest": "daily", "items": len(names)},
+            )
+    except Exception:
+        logger.exception("Material-shortage digest failed")
+    finally:
+        db.close()
+    return {"branches": branches, "items": items}

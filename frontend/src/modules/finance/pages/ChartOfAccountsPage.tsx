@@ -49,6 +49,7 @@ import {
   TSearchableSelect,
   TDetailSkeleton,
   useMasterDetailState,
+  useRecordParam,
   TConfirmDialog,
   useConfirmDialog,
   useCrudMutation,
@@ -134,6 +135,7 @@ export default function ChartOfAccountsPage() {
     searchQuery,
     setSearchQuery,
     selectedItem: selectedAccount,
+    openItem: openAccount,
     setSelectedItem: setSelectedAccount,
     isEditing,
     setIsEditing,
@@ -699,6 +701,18 @@ export default function ChartOfAccountsPage() {
   );
 
   // ─── Render ────────────────────────────────────────────────────────────────
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedAccount?.id,
+    creating: isCreating,
+    items: accounts,
+    loading: isLoading,
+    fetchById: (id) => chartOfAccountsApi.getById(Number(id)),
+    onOpen: openAccount,
+    onClose: handleBackToAccounts,
+    onNew: canCreateCoa ? handleNew : undefined,
+  });
 
   return (
     <>

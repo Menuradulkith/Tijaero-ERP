@@ -146,7 +146,21 @@ def record_payment(
             notes=request.notes,
             created_by=current_user.get('user_id')
         )
-        
+        from app.modules.notifications import events
+        from app.modules.sales.models import Invoice
+
+        invoice = db.query(Invoice.invoice_no, Invoice.branch_code).filter(Invoice.id == request.invoice_id).first()
+        if invoice:
+            events.tell_branch(
+                invoice.branch_code,
+                title="Customer payment received",
+                message=f"Rs. {request.amount} received for {invoice.invoice_no} ({request.payment_method}).",
+                category="finance",
+                notification_type="success",
+                action_url="/finance/customer-payments",
+                exclude_user_id=current_user.get("user_id"),
+            )
+
         return InvoicePaymentResponse(**payment)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

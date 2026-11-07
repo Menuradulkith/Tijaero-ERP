@@ -1,3 +1,4 @@
+import { todayISO } from "./formatters";
 /**
  * Financial Table Export Utilities
  * 
@@ -17,7 +18,7 @@ export function prepareFinancialTableForExport<T extends Record<string, any>>(
   filename: string
 ): ExportOptions {
   return {
-    filename: `${filename}_${new Date().toISOString().split('T')[0]}.csv`,
+    filename: `${filename}_${todayISO()}.csv`,
     headers: headers.map(h => h.label),
     rows: data.map(row =>
       headers.map(header => {

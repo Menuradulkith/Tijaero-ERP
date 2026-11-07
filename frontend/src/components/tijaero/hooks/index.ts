@@ -3,3 +3,10 @@ export { default as useMasterDetailStateDefault } from "./useMasterDetailState";
 export { useCrudMutation } from "./useCrudMutation";
 export { default as useCrudMutationDefault } from "./useCrudMutation";
 export { useRowSelection, type UseRowSelectionReturn } from "./useRowSelection";
+export {
+  useRecordParam,
+  useTabParam,
+  type UseRecordParamOptions,
+  type UseRecordParamReturn,
+  type RecordKey,
+} from "./useRecordParam";

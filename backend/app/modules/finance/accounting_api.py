@@ -447,6 +447,10 @@ def list_gl_entries(
     date_to: Optional[date] = None,
     reference_type: Optional[str] = None,
     reference_no: Optional[str] = None,
+    reference: Optional[str] = Query(
+        None, max_length=100,
+        description="Document number (INV-, EXP-, JE-...): the GL reference or the journal entry number",
+    ),
     search: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(500, ge=1, le=100000),
@@ -470,6 +474,7 @@ def list_gl_entries(
         date_to=date_to,
         reference_type=reference_type,
         reference_no=reference_no,
+        reference=reference,
         search=search,
         skip=skip,
         limit=limit,

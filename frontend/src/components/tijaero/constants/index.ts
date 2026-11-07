@@ -206,6 +206,7 @@ export const EXPENSE_CATEGORIES = [
   { value: 'professional_services', label: 'Professional Services' },
   { value: 'marketing_advertising', label: 'Marketing & Advertising' },
   { value: 'meal_expenses', label: 'Meal Expenses' },
+  { value: 'staff_welfare', label: 'Staff welfare (tea, meals)' },
   { value: 'salary_expenses', label: 'Salary Expenses' },
   { value: 'commissions', label: 'Commissions' },
   { value: 'miscellaneous', label: 'Miscellaneous' },

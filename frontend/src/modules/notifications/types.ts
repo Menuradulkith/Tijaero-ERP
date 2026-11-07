@@ -16,7 +16,8 @@ export type NotificationCategory =
   | "finance"
   | "hr"
   | "support"
-  | "approvals";
+  | "approvals"
+  | "manufacturing";
 
 export interface AppNotification {
   /** Recipient row id (per-user delivery) — used for read/delete actions. */

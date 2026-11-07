@@ -557,7 +557,9 @@ def approve_invoice(
     For credit orders, this marks it as approved and completed.
     """
     _scope_invoice(db, current_user, invoice_id)
-    return service.sales_service.approve_invoice(db, invoice_id, current_user.id)
+    result = service.sales_service.approve_invoice(db, invoice_id, current_user.id)
+    _notify_invoice_actor(result, current_user.id, "Sales order approved", f"Sales order {result.invoice_no} was approved.", "success")
+    return result
 
 
 @router.post(
@@ -575,7 +577,9 @@ def complete_invoice(
     This finalizes the sale and ensures all stock is marked as 'sold'.
     """
     _scope_invoice(db, current_user, invoice_id)
-    return service.sales_service.complete_invoice(db, invoice_id, current_user.id)
+    result = service.sales_service.complete_invoice(db, invoice_id, current_user.id)
+    _notify_invoice_actor(result, current_user.id, "Sales order completed", f"Sales order {result.invoice_no} was completed.", "success")
+    return result
 
 
 @router.post(
@@ -593,7 +597,9 @@ def cancel_invoice(
     Cannot cancel completed invoices - use sale return instead.
     """
     _scope_invoice(db, current_user, invoice_id)
-    return service.sales_service.cancel_invoice(db, invoice_id, current_user.id)
+    result = service.sales_service.cancel_invoice(db, invoice_id, current_user.id)
+    _notify_invoice_actor(result, current_user.id, "Sales order cancelled", f"Sales order {result.invoice_no} was cancelled.", "warning")
+    return result
 
 
 @router.post(
@@ -609,7 +615,9 @@ def reject_invoice(
 ):
     """Reject an order that is waiting for approval. A reason is required."""
     _scope_invoice(db, current_user, invoice_id)
-    return service.sales_service.reject_invoice(db, invoice_id, current_user.id, payload.reason)
+    result = service.sales_service.reject_invoice(db, invoice_id, current_user.id, payload.reason)
+    _notify_invoice_actor(result, current_user.id, "Sales order rejected", f"Sales order {result.invoice_no} was rejected: {payload.reason}", "error")
+    return result
 
 
 @router.post(
@@ -740,9 +748,11 @@ def confirm_bank_transfer(
     - reject: Marks the bank transfer as rejected and cancels the order
     """
     _scope_invoice(db, current_user, invoice_id)
-    return service.sales_service.confirm_bank_transfer(
+    result = service.sales_service.confirm_bank_transfer(
         db, invoice_id, request.action, current_user.id, request.rejection_reason
     )
+    _notify_bank_transfer(db, invoice_id, current_user.id, request.action, request.rejection_reason)
+    return result
 
 
 @router.post(
@@ -757,9 +767,11 @@ def verify_bank_transfer(
 ):
     """Verify (approve) a bank transfer payment. Marks as verified and completes the sale."""
     _scope_invoice(db, current_user, invoice_id)
-    return service.sales_service.confirm_bank_transfer(
+    result = service.sales_service.confirm_bank_transfer(
         db, invoice_id, "verify", current_user.id, None
     )
+    _notify_bank_transfer(db, invoice_id, current_user.id, "verify", None)
+    return result
 
 
 @router.post(
@@ -776,9 +788,11 @@ def reject_bank_transfer(
     """Reject a bank transfer payment. Marks as rejected and cancels the order."""
     _scope_invoice(db, current_user, invoice_id)
     reason = request.reason if request else None
-    return service.sales_service.confirm_bank_transfer(
+    result = service.sales_service.confirm_bank_transfer(
         db, invoice_id, "reject", current_user.id, reason
     )
+    _notify_bank_transfer(db, invoice_id, current_user.id, "reject", reason)
+    return result
 
 
 # Credit Settlement Bank Transfer Verification Endpoints
@@ -793,9 +807,11 @@ def verify_credit_settlement_bank_transfer(
     current_user: User = Depends(require_permission(*Permissions.BANK_TRANSFER_VERIFY_APPROVE)),
 ):
     """Verify a credit settlement bank transfer. Applies the deferred payment to the invoice."""
-    return service.sales_service.confirm_credit_settlement_bank_transfer(
+    result = service.sales_service.confirm_credit_settlement_bank_transfer(
         db, transaction_id, "verify", current_user.id
     )
+    _notify_invoice_no(db, result.invoice_no, current_user.id, "Credit settlement verified", f"Bank transfer for {result.invoice_no} was verified.", "success")
+    return result
 
 
 @router.post(
@@ -811,9 +827,11 @@ def reject_credit_settlement_bank_transfer(
 ):
     """Reject a credit settlement bank transfer. Voids the settlement transaction."""
     reason = request.reason if request else None
-    return service.sales_service.confirm_credit_settlement_bank_transfer(
+    result = service.sales_service.confirm_credit_settlement_bank_transfer(
         db, transaction_id, "reject", current_user.id, reason
     )
+    _notify_invoice_no(db, result.invoice_no, current_user.id, "Credit settlement rejected", f"Bank transfer for {result.invoice_no} was rejected.", "error")
+    return result
 
 
 # =============================================================================
@@ -986,3 +1004,61 @@ def manually_post_invoice_to_gl(
     db.commit()
 
     return result
+
+
+def _notify_invoice_actor(result, actor_id: int, title: str, message: str, kind: str) -> None:
+    from app.modules.notifications import events
+
+    events.tell_user(
+        getattr(result, "created_by", None),
+        title=title,
+        message=message,
+        category="sales",
+        notification_type=kind,
+        action_url="/sales/orders",
+        exclude_user_id=actor_id,
+    )
+
+
+def _notify_bank_transfer(db, invoice_id: int, actor_id: int, action: str, reason) -> None:
+    verified = action in ("verify", "confirm", "approve")
+    title = "Bank transfer verified" if verified else "Bank transfer rejected"
+    kind = "success" if verified else "error"
+    detail = "" if verified or not reason else f" Reason: {reason}"
+    _notify_invoice_id(db, invoice_id, actor_id, title, detail, kind)
+
+
+def _notify_invoice_no(db, invoice_no: str, actor_id: int, title: str, message: str, kind: str) -> None:
+    from app.modules.sales.models import Invoice
+
+    invoice_id = db.query(Invoice.id).filter(Invoice.invoice_no == invoice_no).scalar()
+    if invoice_id:
+        _notify_invoice_id(db, invoice_id, actor_id, title, "", kind, message=message)
+
+
+def _notify_invoice_id(db, invoice_id: int, actor_id: int, title: str, detail: str, kind: str, message: str = "") -> None:
+    from app.modules.notifications import events
+    from app.modules.sales.models import Invoice
+
+    row = db.query(Invoice.created_by, Invoice.invoice_no, Invoice.branch_code).filter(Invoice.id == invoice_id).first()
+    if not row:
+        return
+    text = message or f"{row.invoice_no}: {title}.{detail}"
+    events.tell_user(
+        row.created_by,
+        title=title,
+        message=text,
+        category="finance",
+        notification_type=kind,
+        action_url="/finance/approvals/bank-transfer-verify",
+        exclude_user_id=actor_id,
+    )
+    events.tell_branch(
+        row.branch_code,
+        title=title,
+        message=text,
+        category="finance",
+        notification_type=kind,
+        action_url="/finance/approvals/bank-transfer-verify",
+        exclude_user_id=actor_id,
+    )

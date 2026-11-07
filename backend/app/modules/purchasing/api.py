@@ -1111,6 +1111,16 @@ def create_purchase_return(
         return_data = return_data.model_copy(update={"require_approval": True})
     return_service = service.PurchasingReturnService(db)
     created = return_service.create_return(return_data, user_id=current_user.id)
+    from app.modules.notifications import events
+    events.tell_branch(
+        created.branch_code,
+        title="Purchase return created",
+        message=f"Return {created.purchasing_return_no} was created.",
+        category="purchasing",
+        notification_type="warning",
+        action_url="/purchasing/returns",
+        exclude_user_id=current_user.id,
+    )
     # Same header fields as the list (GRN / PO / supplier, totals) plus the lines.
     payload = _enrich_purchase_returns(db, [created])[0]
     payload["items"] = [schemas.PurchasingReturnItem.model_validate(i).model_dump() for i in created.items]
@@ -1284,7 +1294,18 @@ def cancel_grn(
     grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
     if grn and not validate_branch_access(current_user, grn.branch_code):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {grn.branch_code}")
-    return service.GoodReceivedNoteService(db).cancel(grn_id, request.reason.strip(), current_user.id)
+    cancelled = service.GoodReceivedNoteService(db).cancel(grn_id, request.reason.strip(), current_user.id)
+    from app.modules.notifications import events
+    events.tell_branch(
+        cancelled.branch_code,
+        title="GRN cancelled",
+        message=f"GRN {cancelled.good_received_no} was cancelled. {request.reason.strip()}",
+        category="purchasing",
+        notification_type="warning",
+        action_url="/purchasing/grn",
+        exclude_user_id=current_user.id,
+    )
+    return cancelled
 
 
 def _grn_for_branch_check(db: Session, current_user: User, grn_id: int) -> None:
@@ -1851,7 +1872,18 @@ def create_supplier_payment(
             detail=f"Access denied to branch: {payment.branch_code}",
         )
     payment_service = service.SupplierPaymentService(db)
-    return payment_service.create_payment(payment, created_by=current_user.id)
+    created = payment_service.create_payment(payment, created_by=current_user.id)
+    from app.modules.notifications import events
+    events.tell_branch(
+        created.branch_code,
+        title="Supplier payment recorded",
+        message=f"{created.payment_no} for Rs. {created.payment_amount} was recorded.",
+        category="purchasing",
+        notification_type="info",
+        action_url="/finance/supplier-payments",
+        exclude_user_id=current_user.id,
+    )
+    return created
 
 
 @router.get(
@@ -2094,7 +2126,18 @@ def create_supplier_advance(
             detail=f"Access denied to branch: {data.branch_code}",
         )
     advance_service = service.SupplierAdvancePaymentService(db)
-    return advance_service.create_advance(data, created_by=current_user.id)
+    created = advance_service.create_advance(data, created_by=current_user.id)
+    from app.modules.notifications import events
+    events.tell_branch(
+        created.branch_code,
+        title="Supplier advance paid",
+        message=f"Advance {created.advance_no} for Rs. {created.original_amount} was recorded.",
+        category="purchasing",
+        notification_type="info",
+        action_url="/finance/advance-payments/supplier",
+        exclude_user_id=current_user.id,
+    )
+    return created
 
 
 @router.get(

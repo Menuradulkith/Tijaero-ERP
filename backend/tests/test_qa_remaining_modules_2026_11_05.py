@@ -159,6 +159,29 @@ def test_reference_employees_carry_user_id(superclient):
 
 
 # --------------------------------------------------------------------------- #
+# H9: attendance at another branch is allowed but flagged
+# --------------------------------------------------------------------------- #
+def test_attendance_at_another_branch_is_flagged(db, superclient, make_employee, make_branch):
+    home, away = make_branch(), make_branch()
+    emp = make_employee()
+    emp.branch_code = home.branch_code
+    db.flush()
+    day = date.today().isoformat()
+    r = superclient.post(f"{API}/hr/attendance", json={"employee_id": emp.employee_id, "branch_code": away.branch_code,
+                                                       "date": day, "check_in": "09:00"})
+    if r.status_code == 400 and "already been run" in r.text:
+        pytest.skip("this month already has a payroll batch in this database")
+    assert r.status_code == 201, r.text
+    assert r.json()["other_branch"] is True and r.json()["employee_branch_code"] == home.branch_code
+    rows = superclient.get(f"{API}/hr/attendance", params={"employee_id": emp.employee_id}).json()
+    assert rows and rows[0]["other_branch"] is True
+    r = superclient.post(f"{API}/hr/attendance", json={"employee_id": emp.employee_id, "branch_code": home.branch_code,
+                                                       "date": (date.today() - timedelta(days=1)).isoformat(), "check_in": "09:00"})
+    if r.status_code == 201:
+        assert r.json()["other_branch"] is False
+
+
+# --------------------------------------------------------------------------- #
 # M2 / AD1 / W6: manufacturing plan dates, company website, lookup bounds
 # --------------------------------------------------------------------------- #
 def test_production_plan_window():

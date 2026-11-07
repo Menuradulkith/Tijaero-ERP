@@ -30,6 +30,7 @@ import {
   type MaterialMoveInput,
   type Operator,
   type OutputInput,
+  type OrderMaterial,
   type OutsideReceiptInput,
   type ProductionOrder,
   type ProductionOutput,
@@ -50,6 +51,13 @@ const full = { gridColumn: "1 / -1" } as const;
 /** Good + scrap units the order can still take (planned + over-production tolerance). */
 const unitsLeft = (order: ProductionOrder | null) =>
   order ? Math.max((order.max_quantity || order.planned_quantity) - order.produced_quantity - order.scrapped_quantity, 0) : 0;
+
+/** Most units of a component the order may hold: what its largest allowed output needs (same rule as the API). */
+const issueCap = (order: ProductionOrder | null, m: OrderMaterial) => {
+  const units = order ? order.max_quantity || order.planned_quantity : 0;
+  const need = Math.ceil(Number(m.quantity_per_unit) * (1 + Number(m.scrap_pct || 0) / 100) * units - 1e-6);
+  return Math.max(m.required_quantity, need);
+};
 
 // ─────────────────────────── material issue / return ───────────────────────────
 interface MaterialMovePanelProps {
@@ -81,10 +89,10 @@ export function MaterialMovePanel({ open, mode, order, saving, onClose, onSubmit
   }, [open, rows, isIssue]);
 
   const lines = rows.map((m) => ({ material_id: m.id, quantity: toInt(qty[m.id] || "") })).filter((l) => l.quantity > 0);
-  const overLimit = rows.some((m) => {
-    const q = toInt(qty[m.id] || "");
-    return isIssue ? q > m.available_quantity : q > m.issued_quantity;
-  });
+  const lineLimit = (m: OrderMaterial) =>
+    isIssue ? Math.min(m.available_quantity, issueCap(order, m) - m.issued_quantity) : m.issued_quantity;
+  const overLimit = rows.some((m) => toInt(qty[m.id] || "") > lineLimit(m));
+  const overCap = isIssue && rows.some((m) => toInt(qty[m.id] || "") > issueCap(order, m) - m.issued_quantity);
 
   return (
     <TSidePanel
@@ -119,7 +127,7 @@ export function MaterialMovePanel({ open, mode, order, saving, onClose, onSubmit
           <TableBody>
             {rows.map((m) => {
               const q = toInt(qty[m.id] || "");
-              const limit = isIssue ? m.available_quantity : m.issued_quantity;
+              const limit = lineLimit(m);
               return (
                 <TableRow key={m.id} sx={modernTableStyles.bodyRow}>
                   <TableCell>
@@ -130,7 +138,12 @@ export function MaterialMovePanel({ open, mode, order, saving, onClose, onSubmit
                     <TChip size="small" label={m.issue_method === "backflush" ? "Backflush" : "Manual"}
                       color={m.issue_method === "backflush" ? "info" : "default"} variant="outlined" />
                   </TableCell>
-                  <TableCell align="right">{m.required_quantity}</TableCell>
+                  <TableCell align="right">
+                    {m.required_quantity}
+                    {isIssue && issueCap(order, m) > m.required_quantity && (
+                      <Typography variant="caption" color="text.secondary" display="block">max {issueCap(order, m)}</Typography>
+                    )}
+                  </TableCell>
                   <TableCell align="right">{m.issued_quantity}</TableCell>
                   {isIssue && (
                     <TableCell align="right" sx={{ color: m.available_quantity < m.remaining_quantity ? "error.main" : undefined }}>
@@ -150,7 +163,11 @@ export function MaterialMovePanel({ open, mode, order, saving, onClose, onSubmit
       )}
       {overLimit && (
         <Alert severity="warning">
-          {isIssue ? "A quantity is more than the free stock in the branch." : "A quantity is more than was issued."}
+          {!isIssue
+            ? "A quantity is more than was issued."
+            : overCap
+            ? "A quantity is more than this order may hold (the requirement for its largest allowed output; set by the BOM's over-production tolerance)."
+            : "A quantity is more than the free stock in the branch."}
         </Alert>
       )}
       <TextField label="Remark" size="small" fullWidth value={remark}

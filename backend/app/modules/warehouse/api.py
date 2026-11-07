@@ -393,7 +393,9 @@ def dispatch_transfer_note(
     """
     _ensure_itn_access(db, current_user, transfer_note_id, side="sender")
     transfer_service = service.ItemTransferNoteService(db)
-    return transfer_service.dispatch_transfer_note(transfer_note_id)
+    dispatched = transfer_service.dispatch_transfer_note(transfer_note_id)
+    _notify_transfer(db, dispatched, current_user.id, "Stock transfer dispatched", f"Transfer note {dispatched.item_transfer_note} is on the way.", "info")
+    return dispatched
 
 
 @router.post("/transfer-notes/{transfer_note_id}/cancel", response_model=schemas.ItemTransferNote, dependencies=[Depends(require_permission(*Permissions.ITN_UPDATE))])
@@ -404,7 +406,9 @@ def cancel_transfer_note(
 ):
     """Cancel a pending or approved (not yet dispatched) transfer note; units it reserved become available again."""
     _ensure_itn_access(db, current_user, transfer_note_id, side="sender")
-    return service.ItemTransferNoteService(db).cancel_transfer_note(transfer_note_id, user_id=current_user.id)
+    cancelled = service.ItemTransferNoteService(db).cancel_transfer_note(transfer_note_id, user_id=current_user.id)
+    _notify_transfer(db, cancelled, current_user.id, "Stock transfer cancelled", f"Transfer note {cancelled.item_transfer_note} was cancelled.", "warning")
+    return cancelled
 
 
 # Receive Items (receiving side workflow)
@@ -425,7 +429,12 @@ def receive_transfer_items(
     _ensure_itn_access(db, current_user, transfer_note_id, side="receiver")
     receive_service = service.ItemReceiveNoteService(db)
     request.received_user_id = current_user.id  # the receiver is the signed-in user, never a client claim
-    return receive_service.receive_items(transfer_note_id, request)
+    result = receive_service.receive_items(transfer_note_id, request)
+    from .models import ItemTransferNote
+    note = db.query(ItemTransferNote).filter(ItemTransferNote.id == transfer_note_id).first()
+    if note:
+        _notify_transfer(db, note, current_user.id, "Stock transfer received", f"Transfer note {note.item_transfer_note} was received.", "success")
+    return result
 
 
 # Get Transfer Note Status Summary
@@ -439,3 +448,30 @@ def get_transfer_note_status(
     _ensure_itn_access(db, current_user, transfer_note_id)
     transfer_service = service.ItemTransferNoteService(db)
     return transfer_service.get_transfer_status(transfer_note_id)
+
+
+def _notify_transfer(db, note, actor_id: int, title: str, message: str, kind: str) -> None:
+    """Tell the sending branch and, when it differs, the receiving branch."""
+    from app.modules.common.models import Locations
+    from app.modules.notifications import events
+
+    events.tell_branch(
+        note.branch_code,
+        title=title,
+        message=message,
+        category="warehouse",
+        notification_type=kind,
+        action_url="/warehouse/item-transfer-notes",
+        exclude_user_id=actor_id,
+    )
+    dest = db.query(Locations.branch_code).filter(Locations.id == note.to_location_id).scalar()
+    if dest and dest != note.branch_code:
+        events.tell_branch(
+            dest,
+            title=title,
+            message=message,
+            category="warehouse",
+            notification_type=kind,
+            action_url="/warehouse/item-transfer-notes",
+            exclude_user_id=actor_id,
+        )

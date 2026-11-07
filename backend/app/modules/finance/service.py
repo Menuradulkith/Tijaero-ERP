@@ -199,10 +199,55 @@ class ChequePaymentService:
     def list_payments(self, filters: schemas.PaymentListFilter) -> List[models.ChequePayments]:
         return self.repo.get_all(filters)
 
+def branch_cash_available(db: Session, branch_code: str) -> Optional[Decimal]:
+    """Cash on hand at the branch less cash deposits still waiting to be verified
+    (that money is already on its way to the bank): the same figure a bank
+    deposit is checked against. None when the cash account can't be resolved."""
+    on_hand = branch_cash_on_hand(db, branch_code)
+    if on_hand is None:
+        return None
+    pending = db.query(models.BankDeposits.deposits_amount).filter(
+        models.BankDeposits.branch_code == branch_code,
+        models.BankDeposits.verified.isnot(True),
+        models.BankDeposits.status == "pending",
+        or_(
+            models.BankDeposits.payment_for.is_(None),
+            models.BankDeposits.payment_for.notin_(_NON_CASH_DEPOSIT_SOURCES),
+        ),
+    ).all()
+    return on_hand - sum((Decimal(str(row[0] or 0)) for row in pending), Decimal("0"))
+
+
+def _user_name_map(db: Session, user_ids) -> dict:
+    from app.auth.models import User
+
+    ids = {u for u in user_ids if u}
+    if not ids:
+        return {}
+    return {
+        u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+        for u in db.query(User).filter(User.id.in_(ids)).all()
+    }
+
+
 class ExpenseService:
     def __init__(self, db: Session):
         self.repo = repository.ExpenseRepository(db)
         self.db = db
+
+    def attach_user_names(self, expenses):
+        """Stamp submitted_by_name / approved_by_name on the rows so screens show
+        people, not user ids. Accepts one expense or a list; returns the input."""
+        rows = expenses if isinstance(expenses, list) else [expenses]
+        names = _user_name_map(
+            self.db, [i for e in rows if e is not None for i in (e.submitted_by, e.approved_by)]
+        )
+        for e in rows:
+            if e is None:
+                continue
+            e.submitted_by_name = names.get(e.submitted_by)
+            e.approved_by_name = names.get(e.approved_by)
+        return expenses
 
     def create_expense(self, expense: schemas.ExpenseCreate, submitted_by: int = None) -> models.Expenses:
         # ── Validate branch is active ──
@@ -213,7 +258,7 @@ class ExpenseService:
         check_posting_date(self.db, getattr(expense, "expense_date", None), "Expense date")
         self._check_expense_account(getattr(expense, "account_code", None))
 
-        return self.repo.create(expense, submitted_by=submitted_by)
+        return self.attach_user_names(self.repo.create(expense, submitted_by=submitted_by))
 
     def _check_expense_account(self, code: Optional[str]) -> None:
         """Paying an expense posts Dr <account>: it must be an active Expense
@@ -237,17 +282,17 @@ class ExpenseService:
         from app.modules.finance.posting_dates import check_posting_date
         check_posting_date(self.db, getattr(data, "expense_date", None), "Expense date")
         self._check_expense_account(getattr(data, "account_code", None))
-        return self.repo.update(expense_id, data)
+        return self.attach_user_names(self.repo.update(expense_id, data))
 
     def get_expense(self, expense_id: int) -> models.Expenses:
         expense = self.repo.get_by_id(expense_id)
         if not expense:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense with id {expense_id} not found")
-        return expense
+        return self.attach_user_names(expense)
 
     def list_expenses(self, filters: schemas.ExpenseListFilter) -> dict:
         items, total = self.repo.get_all(filters)
-        return {"items": items, "total": total}
+        return {"items": self.attach_user_names(list(items)), "total": total}
 
     def submit_expense(self, expense_id: int, submitted_by: int) -> models.Expenses:
         # Lock row to prevent concurrent status mutation
@@ -264,7 +309,7 @@ class ExpenseService:
         log_audit(self.db, user_id=submitted_by, action="submit", entity_type="expense", entity_id=expense_id, changes={"status": ExpenseStatus.SUBMITTED})
         self.db.commit()
         self.db.refresh(expense)
-        return expense
+        return self.attach_user_names(expense)
 
     def approve_expense(
         self, expense_id: int, approved_by: int, remarks: str = None, maker_checker: bool = True,
@@ -289,7 +334,7 @@ class ExpenseService:
         log_audit(self.db, user_id=approved_by, action="approve", entity_type="expense", entity_id=expense_id, changes={"status": ExpenseStatus.APPROVED})
         self.db.commit()
         self.db.refresh(expense)
-        return expense
+        return self.attach_user_names(expense)
 
     def reject_expense(self, expense_id: int, rejected_by: int, rejection_reason: str) -> models.Expenses:
         # SELECT FOR UPDATE to prevent double-processing race condition
@@ -306,8 +351,7 @@ class ExpenseService:
         log_audit(self.db, user_id=rejected_by, action="reject", entity_type="expense", entity_id=expense_id, changes={"status": ExpenseStatus.REJECTED, "reason": rejection_reason})
         self.db.commit()
         self.db.refresh(expense)
-        return expense
-        return expense
+        return self.attach_user_names(expense)
 
     def process_payment(self, expense_id: int, payment_data: schemas.ExpensePayment, processed_by: int) -> models.Expenses:
         from datetime import date as date_type
@@ -321,15 +365,51 @@ class ExpenseService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense with id {expense_id} not found")
         if expense.status != ExpenseStatus.APPROVED:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot process payment for expense in '{expense.status}' status")
+        method = payment_data.payment_method.strip().lower().replace(" ", "_")
+        amount = Decimal(str(expense.expense_amount or 0))
+        if method == "cash":
+            # Same rule as a cash bank deposit: you can't pay out cash the till doesn't hold.
+            available = branch_cash_available(self.db, expense.branch_code)
+            if available is not None and amount - available > Decimal("0.005"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Only Rs. {max(available, Decimal('0')):,.2f} cash at {expense.branch_code}. "
+                        "Pay by bank, or deposit cash first."
+                    ),
+                )
+        bank_label = None
+        if payment_data.bank_account_id is not None and method != "cash":
+            from app.modules.finance.accounting_models import BankAccount
+            bank = self.db.query(BankAccount).filter(BankAccount.id == payment_data.bank_account_id).first()
+            if bank is None or not bank.is_active:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail="Choose an active bank account to pay from.")
+            bank_label = " ".join(x for x in (bank.name, bank.account_number) if x)
+            # Credit the ledger account of the bank actually used, not the main bank.
+            expense._pay_from_account = bank.account.account_code if bank.account else None
         expense.payment_status = PaymentStatus.PAID
         expense.payment_method = payment_data.payment_method
         expense.payment_reference = payment_data.payment_reference
         expense.payment_date = payment_data.payment_date or tz.today()
         expense.status = ExpenseStatus.PAID
+        if bank_label:
+            expense.remarks = (expense.remarks or "") + f"\n[Payment] Paid from bank account {bank_label}"
         if payment_data.remarks:
             expense.remarks = (expense.remarks or "") + f"\n[Payment] {payment_data.remarks}"
+        changes = {
+            "status": ExpenseStatus.PAID,
+            "amount": str(amount),
+            "payment_method": payment_data.payment_method,
+            "payment_date": str(expense.payment_date),
+        }
+        if bank_label:
+            changes["bank_account"] = bank_label
+        log_audit(self.db, user_id=processed_by or 0, action="pay", entity_type="expense",
+                  entity_id=expense_id, changes=changes)
         self.db.commit()
         self.db.refresh(expense)
+        self.attach_user_names(expense)  # plain attributes: survive the GL commit below
         
         # ── GL Auto-Posting: Scenario 32 – Expense Paid ───────────────
         try:
@@ -398,9 +478,11 @@ class ExpenseService:
         expense.status = "recorded"
         if record_data.remarks:
             expense.remarks = (expense.remarks or "") + f"\n[Recording] {record_data.remarks}"
+        log_audit(self.db, user_id=user_id or 0, action="record", entity_type="expense", entity_id=expense_id,
+                  changes={"status": "recorded", "account_code": new_account})
         self.db.commit()
         self.db.refresh(expense)
-        return expense
+        return self.attach_user_names(expense)
 
     def delete_expense(self, expense_id: int) -> bool:
         expense = self.get_expense(expense_id)
@@ -783,6 +865,7 @@ class CashbookService:
         sorted_entries = list(reversed(entries))  # oldest first
         running_balance = Decimal("0")
         opening_balance_seed = Decimal("0")
+        till_opening = Decimal("0")
 
         # Seed with the running balance of the last entry BEFORE the date range
         # (so the table shows balances relative to the true opening balance).
@@ -812,6 +895,7 @@ class CashbookService:
                 pre_balance = Decimal("0")
                 for pr in pre_records:
                     pre_balance += self._balance_effect(pr)
+                    till_opening += self._till_effect(pr)
                 running_balance = pre_balance
                 opening_balance_seed = pre_balance
 
@@ -823,7 +907,12 @@ class CashbookService:
 
         # Calculate summary
         summary = self._calculate_summary(entries, opening_balance=opening_balance_seed)
-        
+        till_closing = till_opening + sum((self._till_effect(e) for e in entries), Decimal("0"))
+        summary.cash_opening_balance = till_opening
+        summary.cash_closing_balance = till_closing
+        summary.bank_opening_balance = summary.opening_balance - till_opening
+        summary.bank_closing_balance = summary.closing_balance - till_closing
+
         return schemas.CashbookReport(
             entries=entries,
             summary=summary,
@@ -841,6 +930,20 @@ class CashbookService:
         mi = Decimal(str(entry.money_in)) if entry.money_in else Decimal("0")
         mo = Decimal(str(entry.money_out)) if entry.money_out else Decimal("0")
         return mi - mo
+
+    @staticmethod
+    def _till_effect(entry) -> Decimal:
+        """Effect of one cashbook row on cash in hand (cash + cheques not yet banked).
+
+        A bank deposit takes the money out of the till (into the bank); card and
+        bank-transfer rows never touch the till."""
+        mi = Decimal(str(entry.money_in)) if entry.money_in else Decimal("0")
+        mo = Decimal(str(entry.money_out)) if entry.money_out else Decimal("0")
+        if entry.entry_type == "bank_deposit":
+            return -mo
+        if (entry.payment_method or "").strip().lower() in ("cash", "cheque"):
+            return mi - mo
+        return Decimal("0")
 
     def _calculate_summary(self, entries: List[schemas.CashbookEntry], opening_balance: Decimal = Decimal("0")) -> schemas.CashbookSummary:
         """Calculate summary statistics from entries"""
@@ -1069,7 +1172,10 @@ class PettyCashService:
             recipient_name=data.recipient_name,
             purpose=data.purpose,
             receipt_number=data.receipt_number,
-            description=data.description or f"{data.expense_type} expense",
+            # What the user typed (purpose / recipient), not the category code.
+            description=data.description
+            or " – ".join(p for p in ((data.purpose or "").strip(), (data.recipient_name or "").strip()) if p)
+            or f"{(data.expense_type or 'petty cash').replace('_', ' ').capitalize()} expense",
             transaction_date=data.transaction_date or tz.today(),
             recorded_by=data.recorded_by,
             branch_code=fund.branch_code,

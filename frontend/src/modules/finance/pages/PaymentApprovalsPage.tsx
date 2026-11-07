@@ -60,6 +60,15 @@ import { usePermission } from "@/auth/permissions";
 
 import { supplierPaymentsApi, suppliersApi, supplierCreditsSettleApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
+import { useActivityLog } from "@/hooks/useActivityLog";
+import { codeLabel, displayDate } from "@/utils/formatters";
+
+/** "07 Nov 2026 14:05": the ERP's date format plus the time. */
+const displayDateTime = (v?: string | null) => {
+  const d = v ? new Date(v) : null;
+  if (!d || isNaN(d.getTime())) return "";
+  return `${displayDate(d)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
 import { SupplierPayment, Supplier, SupplierCreditsSettle } from "@/modules/purchasing/types";
 import { useCurrencyStore } from "@/state/currencyStore";
 
@@ -124,6 +133,20 @@ export default function PaymentApprovalsPage() {
   // Activity History is opened on demand from a detail icon next to the
   // Record Info section title, rather than shown inline.
   const [activityHistoryOpen, setActivityHistoryOpen] = useState(false);
+
+  // People's names for "Created By" / "Verified By": the payment rows only carry
+  // user ids, the activity log carries who did what.
+  const { data: activityEntries } = useActivityLog(
+    selectedPayment?.payment_type === "credit" ? "credit_settlement" : "supplier_payment",
+    selectedPayment?.id,
+  );
+  const userName = useCallback(
+    (id?: number) => {
+      if (!id) return "N/A";
+      return activityEntries?.find((e) => e.user_id === id && e.user_name)?.user_name || `User #${id}`;
+    },
+    [activityEntries],
+  );
 
   // Confirm dialog for verification warning
   const confirmDialog = useConfirmDialog();
@@ -436,7 +459,7 @@ export default function PaymentApprovalsPage() {
           ? (payment as any).payment_date
           : payment.created_date;
         const paymentMethod = payment.payment_type === "payment"
-          ? (payment as any).payment_method
+          ? codeLabel((payment as any).payment_method)
           : "Credit Settlement";
         const paymentType = payment.payment_type === "payment" ? "Direct Payment" : "Credit Settlement";
         const statusProps = getPaymentStatusProps(payment.status || "pending");
@@ -469,7 +492,7 @@ export default function PaymentApprovalsPage() {
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <Typography component="span" variant="caption">
-                        {new Date(paymentDate).toLocaleDateString()}
+                        {displayDate(paymentDate)}
                       </Typography>
                       <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                         (Date)
@@ -518,8 +541,9 @@ export default function PaymentApprovalsPage() {
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Purchasing" },
-          { label: "Payment Approvals", href: "/purchasing/payment-approvals" },
+          { label: "Finance", href: "/finance" },
+          { label: "Approvals", href: "/finance/approvals" },
+          { label: "Payment Approvals", href: "/finance/approvals/payment-approvals" },
           ...(selectedPayment ? [{ label: selectedPayment.payment_no }] : []),
         ]}
         title={selectedPayment?.payment_no || ""}
@@ -586,20 +610,20 @@ export default function PaymentApprovalsPage() {
               <TextField
                 label="Payment Date"
                 size="small"
-                value={new Date(selectedPayment.payment_type === "payment" ? (selectedPayment as any).payment_date : selectedPayment.created_date).toLocaleDateString()}
+                value={displayDate(selectedPayment.payment_type === "payment" ? (selectedPayment as any).payment_date : selectedPayment.created_date)}
                 disabled
               />
               <TextField label="Branch" size="small" value={selectedPayment.branch_code} disabled />
               <TextField 
                 label="Payment Method" 
                 size="small" 
-                value={selectedPayment.payment_type === "payment" ? (selectedPayment as any).payment_method : "Credit Settlement"} 
+                value={selectedPayment.payment_type === "payment" ? codeLabel((selectedPayment as any).payment_method) : "Credit Settlement"} 
                 disabled 
               />
               {selectedPayment.payment_type === "payment" && (
-                <TextField label="Payment For" size="small" value={(selectedPayment as any).payment_for} disabled />
+                <TextField label="Payment For" size="small" value={codeLabel((selectedPayment as any).payment_for)} disabled />
               )}
-              <TextField label="Status" size="small" value={selectedPayment.status} disabled />
+              <TextField label="Status" size="small" value={getPaymentStatusProps(selectedPayment.status || "pending").label} disabled />
             </FormSection>
 
             {/* Supplier Information */}
@@ -677,13 +701,13 @@ export default function PaymentApprovalsPage() {
                 <TextField
                   label="Verified Date"
                   size="small"
-                  value={new Date(selectedPayment.verified_date).toLocaleString()}
+                  value={displayDateTime(selectedPayment.verified_date)}
                   disabled
                 />
                 <TextField
                   label="Verified By"
                   size="small"
-                  value={selectedPayment.verified_by ? `User #${selectedPayment.verified_by}` : "N/A"}
+                  value={(selectedPayment as { verified_by_name?: string | null }).verified_by_name || userName(selectedPayment.verified_by)}
                   disabled
                 />
               </FormSection>
@@ -723,13 +747,13 @@ export default function PaymentApprovalsPage() {
               <TextField
                 label="Created Date"
                 size="small"
-                value={new Date(selectedPayment.created_date).toLocaleString()}
+                value={displayDateTime(selectedPayment.created_date)}
                 disabled
               />
               <TextField
                 label="Created By"
                 size="small"
-                value={selectedPayment.created_by ? `User #${selectedPayment.created_by}` : "N/A"}
+                value={(selectedPayment as { created_by_name?: string | null }).created_by_name || userName(selectedPayment.created_by)}
                 disabled
               />
             </FormSection>

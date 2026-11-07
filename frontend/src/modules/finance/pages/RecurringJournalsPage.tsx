@@ -55,6 +55,9 @@ import {
   type TDataGridColumn,
   TSearchableSelect,
   TStatusChip,
+  useRecordParam,
+  useTabParam,
+  TDatePicker,
 } from "@/components/tijaero";
 import { chartOfAccountsApi } from "@/modules/finance/api";
 import {
@@ -66,12 +69,13 @@ import {
 } from "@/modules/finance/api/periodEnd";
 import { submitOnce } from "@/modules/finance/submitOnce";
 import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
+import { localDateISO } from "@/utils/formatters";
 
 const fmt = (v: number | string | null | undefined) =>
   Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const today = () => {
   const d = new Date();
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  return localDateISO(d);
 };
 const FREQ_LABEL = { monthly: "Every month", quarterly: "Every 3 months", yearly: "Every year" } as const;
 
@@ -180,8 +184,8 @@ function RecurringCreatePanel({ onCancel, onSaved }: { onCancel: () => void; onS
         <TextField select label="How often" size="small" value={frequency} onChange={(e) => setFrequency(e.target.value as RecurringJournal["frequency"])}>
           {Object.entries(FREQ_LABEL).map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
         </TextField>
-        <TextField label="First date" type="date" size="small" required value={nextDate} onChange={(e) => setNextDate(e.target.value)} InputLabelProps={{ shrink: true }} />
-        <TextField label="Last date (optional)" type="date" size="small" value={endDate} onChange={(e) => setEndDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+        <TDatePicker label="First date" size="small" required value={nextDate} onChange={(v) => setNextDate(v ?? "")} />
+        <TDatePicker label="Last date (optional)" size="small" value={endDate} onChange={(v) => setEndDate(v ?? "")} />
         <FormControlLabel
           sx={{ gridColumn: "1 / -1" }}
           control={<Checkbox checked={autoReverse} onChange={(e) => setAutoReverse(e.target.checked)} />}
@@ -402,6 +406,20 @@ function RecurringTab({ nav, canWrite }: { nav: TabNav; canWrite: boolean }) {
     setCreating(false);
   };
   const detailMode = creating || !!selected;
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selected?.id,
+    creating,
+    items: rows,
+    loading: isLoading,
+    onOpen: (r) => {
+      setCreating(false);
+      setSelected(r);
+    },
+    onClose: back,
+    onNew: canWrite ? () => setCreating(true) : undefined,
+  });
 
   let body: ReactNode;
   if (creating) {
@@ -654,7 +672,7 @@ function OpeningTab({ nav, canWrite }: { nav: TabNav; canWrite: boolean }) {
           Saving creates a draft journal to approve and post on the Journal Entries page.
         </Alert>
         <FormSection title="Opening Journal" columns={4}>
-          <TextField label="Balances as at" type="date" size="small" required value={entryDate} onChange={(e) => setEntryDate(e.target.value)} InputLabelProps={{ shrink: true }} disabled={!canWrite} />
+          <TDatePicker label="Balances as at" size="small" required value={entryDate} onChange={(v) => setEntryDate(v ?? "")} disabled={!canWrite} />
           {ro("Accounts read", lines.length)}
           {ro("Total debits", fmt(dr))}
           {ro("Total credits", fmt(cr))}
@@ -695,8 +713,10 @@ function OpeningTab({ nav, canWrite }: { nav: TabNav; canWrite: boolean }) {
 }
 
 export default function RecurringJournalsPage() {
-  const [tab, setTab] = useState(0);
+  // ?tab=opening keeps the Opening Balances tab on reload / shared links.
+  const [tabKey, setTabKey] = useTabParam<"recurring" | "opening">("recurring", ["recurring", "opening"]);
+  const tab = tabKey === "opening" ? 1 : 0;
   const canWrite = usePermission("journal_entries", "create");
-  const nav: TabNav = { activeTab: tab, onTabChange: (t) => setTab(Number(t)) };
+  const nav: TabNav = { activeTab: tab, onTabChange: (t) => setTabKey(Number(t) === 1 ? "opening" : "recurring") };
   return tab === 0 ? <RecurringTab nav={nav} canWrite={canWrite} /> : <OpeningTab nav={nav} canWrite={canWrite} />;
 }

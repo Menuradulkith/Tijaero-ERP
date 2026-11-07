@@ -9,8 +9,6 @@ from enum import Enum
 from typing import Any, Callable, Dict, Optional
 
 from app.modules.common.models import Approvals
-from app.modules.settings.schemas import NotificationCreate
-from app.modules.settings.service import NotificationService
 from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -92,6 +90,15 @@ class ApprovalService:
         )
         db.add(approval)
         db.flush()
+        from app.modules.notifications import events
+
+        events.queue_approval_requested(
+            db,
+            approval_type=approval_type.value,
+            reference_no=reference_no,
+            branch_code=branch_code,
+            requested_by=requested_by,
+        )
         return approval
 
     def approve(
@@ -154,30 +161,17 @@ class ApprovalService:
         if on_approve_callback and reference_id:
             on_approve_callback(db, reference_id)
 
-        # Send Notification to the original requester
-        if requester_id:
-            try:
-                reference_no = (
-                    approval.approval_for.split(":")[-1]
-                    if approval.approval_for
-                    else "Approval"
-                )
-                approval_type_str = (
-                    approval.approval_for.split(":")[0].replace("_", " ").title()
-                    if approval.approval_for
-                    else "Approval"
-                )
-                NotificationService(db).create_notification(
-                    NotificationCreate(
-                        user_id=requester_id,
-                        title=f"{approval_type_str} Approved",
-                        message=f"Your {approval_type_str} request ({reference_no}) has been approved.",
-                        notification_type="success",
-                    )
-                )
-            except Exception:
-                # Log error but don't fail the approval transaction
-                logger.exception("Failed to send approval notification for approval_id=%s", approval.id)
+        approval_type, _, reference_no = self._parse_approval_for(approval.approval_for)
+        from app.modules.notifications import events
+
+        events.queue_approval_decided(
+            db,
+            approval_type=approval_type or "approval",
+            reference_no=reference_no or "Approval",
+            requested_by=requester_id,
+            approved=True,
+            remarks=remarks,
+        )
 
         db.flush()
         return approval
@@ -234,29 +228,17 @@ class ApprovalService:
         if on_reject_callback and reference_id:
             on_reject_callback(db, reference_id)
 
-        # Send Notification to the original requester
-        if requester_id:
-            try:
-                reference_no = (
-                    approval.approval_for.split(":")[-1]
-                    if approval.approval_for
-                    else "Approval"
-                )
-                approval_type_str = (
-                    approval.approval_for.split(":")[0].replace("_", " ").title()
-                    if approval.approval_for
-                    else "Approval"
-                )
-                NotificationService(db).create_notification(
-                    NotificationCreate(
-                        user_id=requester_id,
-                        title=f"{approval_type_str} Rejected",
-                        message=f"Your {approval_type_str} request ({reference_no}) has been rejected. Remark: {remarks}",
-                        notification_type="error",
-                    )
-                )
-            except Exception:
-                logger.exception("Failed to send rejection notification for approval_id=%s", approval.id)
+        approval_type, _, reference_no = self._parse_approval_for(approval.approval_for)
+        from app.modules.notifications import events
+
+        events.queue_approval_decided(
+            db,
+            approval_type=approval_type or "approval",
+            reference_no=reference_no or "Approval",
+            requested_by=requester_id,
+            approved=False,
+            remarks=remarks,
+        )
 
         db.flush()
         return approval

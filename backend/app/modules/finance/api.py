@@ -71,7 +71,18 @@ def create_bank_deposit(
     if deposit.branch_code and not validate_branch_access(current_user, deposit.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {deposit.branch_code}")
     deposit_service = service.BankDepositService(db)
-    return deposit_service.create_deposit(deposit, created_by=current_user.id)
+    created = deposit_service.create_deposit(deposit, created_by=current_user.id)
+    from app.modules.notifications import events
+    events.tell_branch(
+        created.branch_code,
+        title="Bank deposit recorded",
+        message=f"Rs. {created.deposits_amount} deposited ({created.bank_name or 'bank'}).",
+        category="finance",
+        notification_type="info",
+        action_url="/finance/customer-payment-methods/bank-deposits",
+        exclude_user_id=current_user.id,
+    )
+    return created
 
 @router.get("/bank-deposits/{deposit_id}", response_model=schemas.BankDeposit, dependencies=[Depends(require_permission(*Permissions.BANK_DEPOSIT_VIEW))])
 def get_bank_deposit(
@@ -120,9 +131,20 @@ def verify_bank_deposit(
     if existing.branch_code and not validate_branch_access(current_user, existing.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {existing.branch_code}")
     # Maker-checker for everyone but a system administrator (superuser).
-    return deposit_service.verify_deposit(
+    verified = deposit_service.verify_deposit(
         deposit_id, user_id=current_user.id, maker_checker=not current_user.is_superuser,
     )
+    from app.modules.notifications import events
+    events.tell_user(
+        getattr(verified, "created_by", None) or getattr(verified, "user_id", None),
+        title="Bank deposit verified",
+        message=f"Bank deposit of Rs. {verified.deposits_amount} was verified.",
+        category="finance",
+        notification_type="success",
+        action_url="/finance/customer-payment-methods/bank-deposits",
+        exclude_user_id=current_user.id,
+    )
+    return verified
 
 # =============================================================================
 # CARD PAYMENTS
@@ -138,7 +160,21 @@ def create_card_payment(
     # there is no branch to validate here — attempting to read payment.branch_code
     # previously raised AttributeError on every create.
     payment_service = service.CardPaymentService(db)
-    return payment_service.create_payment(payment, created_by=current_user.id)
+    created = payment_service.create_payment(payment, created_by=current_user.id)
+    if payment.invoice_no:
+        from app.modules.notifications import events
+        from app.modules.sales.models import Invoice
+        branch = db.query(Invoice.branch_code).filter(Invoice.invoice_no == payment.invoice_no).scalar()
+        events.tell_branch(
+            branch,
+            title="Card payment recorded",
+            message=f"Rs. {created.amount} by card for {payment.invoice_no}.",
+            category="finance",
+            notification_type="info",
+            action_url="/finance/customer-payment-methods/card-payments",
+            exclude_user_id=current_user.id,
+        )
+    return created
 
 @router.get("/card-payments/{payment_id}", response_model=schemas.CardPayment, dependencies=[Depends(require_permission(*Permissions.CARD_PAYMENT_VIEW))])
 def get_card_payment(
@@ -186,7 +222,18 @@ def create_cheque_payment(
     if payment.branch_code and not validate_branch_access(current_user, payment.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {payment.branch_code}")
     payment_service = service.ChequePaymentService(db)
-    return payment_service.create_payment(payment, created_by=current_user.id)
+    created = payment_service.create_payment(payment, created_by=current_user.id)
+    from app.modules.notifications import events
+    events.tell_branch(
+        created.branch_code,
+        title="Cheque received",
+        message=f"Cheque {created.cheque_number} for Rs. {created.amount} was recorded.",
+        category="finance",
+        notification_type="info",
+        action_url="/finance/customer-payment-methods/cheque-payments",
+        exclude_user_id=current_user.id,
+    )
+    return created
 
 @router.get("/cheque-payments/{payment_id}", response_model=schemas.ChequePayment, dependencies=[Depends(require_permission(*Permissions.CHEQUE_PAYMENT_VIEW))])
 def get_cheque_payment(
@@ -335,6 +382,9 @@ def get_expense(
     expense = service.ExpenseService(db).get_expense(expense_id)
     if expense.branch_code and not validate_branch_access(current_user, expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {expense.branch_code}")
+    if expense.status in ("paid", "recorded"):
+        from app.modules.finance.purchase_expense_payroll_gl import PurchaseExpensePayrollGL
+        expense.posted_to_accounts = bool(PurchaseExpensePayrollGL(db).expense_posted_accounts(expense))
     return expense
 
 @router.get("/expenses", dependencies=[Depends(require_permission(*Permissions.EXPENSE_VIEW))])
@@ -384,7 +434,19 @@ def submit_expense(
     _expense = svc.get_expense(expense_id)
     if _expense.branch_code and not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
-    return svc.submit_expense(expense_id, submitted_by=current_user.id)
+    submitted = svc.submit_expense(expense_id, submitted_by=current_user.id)
+    from app.auth.rbac import Permissions
+    from app.modules.notifications import events
+    events.tell_approvers(
+        submitted.branch_code,
+        *Permissions.EXPENSE_APPROVAL_APPROVE,
+        title="Expense submitted",
+        message=f"{submitted.expenses_no} for Rs. {submitted.expense_amount} is waiting for approval.",
+        category="finance",
+        action_url="/finance/approvals/expense-approvals",
+        exclude_user_id=current_user.id,
+    )
+    return submitted
 
 @router.post("/expenses/{expense_id}/approve", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_APPROVAL_APPROVE))])
 def approve_expense(
@@ -398,10 +460,21 @@ def approve_expense(
     if _expense.branch_code and not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
     # Maker-checker for everyone but a system administrator (superuser).
-    return svc.approve_expense(
+    approved = svc.approve_expense(
         expense_id, approved_by=current_user.id, remarks=data.remarks if data else None,
         maker_checker=not current_user.is_superuser,
     )
+    from app.modules.notifications import events
+    events.tell_user(
+        approved.submitted_by,
+        title="Expense approved",
+        message=f"{approved.expenses_no} was approved.",
+        category="finance",
+        notification_type="success",
+        action_url="/finance/expenses",
+        exclude_user_id=current_user.id,
+    )
+    return approved
 
 @router.post("/expenses/{expense_id}/reject", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_APPROVAL_APPROVE))])
 def reject_expense(
@@ -414,7 +487,18 @@ def reject_expense(
     _expense = svc.get_expense(expense_id)
     if _expense.branch_code and not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
-    return svc.reject_expense(expense_id, rejected_by=current_user.id, rejection_reason=data.rejection_reason)
+    rejected = svc.reject_expense(expense_id, rejected_by=current_user.id, rejection_reason=data.rejection_reason)
+    from app.modules.notifications import events
+    events.tell_user(
+        rejected.submitted_by,
+        title="Expense rejected",
+        message=f"{rejected.expenses_no} was rejected: {data.rejection_reason}",
+        category="finance",
+        notification_type="error",
+        action_url="/finance/expenses",
+        exclude_user_id=current_user.id,
+    )
+    return rejected
 
 @router.post("/expenses/{expense_id}/process-payment", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_UPDATE))])
 def process_expense_payment(
@@ -427,7 +511,27 @@ def process_expense_payment(
     _expense = svc.get_expense(expense_id)
     if _expense.branch_code and not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
-    return svc.process_payment(expense_id, data, processed_by=current_user.id)
+    paid = svc.process_payment(expense_id, data, processed_by=current_user.id)
+    from app.modules.notifications import events
+    events.tell_user(
+        paid.submitted_by,
+        title="Expense paid",
+        message=f"{paid.expenses_no} was paid.",
+        category="finance",
+        notification_type="success",
+        action_url="/finance/expenses",
+        exclude_user_id=current_user.id,
+    )
+    events.tell_branch(
+        paid.branch_code,
+        title="Expense paid",
+        message=f"{paid.expenses_no} for Rs. {paid.expense_amount} was paid.",
+        category="finance",
+        notification_type="success",
+        action_url="/finance/expenses",
+        exclude_user_id=current_user.id,
+    )
+    return paid
 
 @router.post("/expenses/{expense_id}/record", response_model=schemas.Expense, dependencies=[Depends(require_permission(*Permissions.EXPENSE_UPDATE))])
 def record_expense(
@@ -440,7 +544,17 @@ def record_expense(
     _expense = svc.get_expense(expense_id)
     if _expense.branch_code and not validate_branch_access(current_user, _expense.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {_expense.branch_code}")
-    return svc.record_expense(expense_id, data, user_id=current_user.id)
+    recorded = svc.record_expense(expense_id, data, user_id=current_user.id)
+    from app.modules.notifications import events
+    events.tell_branch(
+        recorded.branch_code,
+        title="Expense recorded",
+        message=f"{recorded.expenses_no} for Rs. {recorded.expense_amount} was recorded.",
+        category="finance",
+        action_url="/finance/expenses",
+        exclude_user_id=current_user.id,
+    )
+    return recorded
 
 # =============================================================================
 # ADVANCE PAYMENTS
@@ -455,7 +569,18 @@ def create_advance_payment(
     if advance.branch_code and not validate_branch_access(current_user, advance.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {advance.branch_code}")
     advance_service = service.CustomerAdvancePaymentService(db)
-    return advance_service.create_advance_payment(advance, user_id=current_user.id)
+    created = advance_service.create_advance_payment(advance, user_id=current_user.id)
+    from app.modules.notifications import events
+    events.tell_branch(
+        created.branch_code,
+        title="Customer advance received",
+        message=f"Advance {created.advance_payments_no} for Rs. {created.payment_amount} was recorded.",
+        category="finance",
+        notification_type="success",
+        action_url="/finance/advance-payments/customer",
+        exclude_user_id=current_user.id,
+    )
+    return created
 
 @router.get("/advance-payments/{advance_id}", response_model=schemas.CustomerAdvancePayment, dependencies=[Depends(require_permission(*Permissions.CUSTOMER_ADVANCE_VIEW))])
 def get_advance_payment(
@@ -510,7 +635,21 @@ def create_credit_note(
         if branch and not validate_branch_access(current_user, branch):
             raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch}")
     credit_note_service = service.CustomerCreditNoteService(db)
-    return credit_note_service.create_credit_note(credit_note, user_id=current_user.id)
+    created = credit_note_service.create_credit_note(credit_note, user_id=current_user.id)
+    if credit_note.invoice_no:
+        from app.modules.notifications import events
+        from app.modules.sales.models import Invoice
+        branch = db.query(Invoice.branch_code).filter(Invoice.invoice_no == credit_note.invoice_no).scalar()
+        events.tell_branch(
+            branch,
+            title="Credit note issued",
+            message=f"Credit note of Rs. {created.amount} for {credit_note.invoice_no}.",
+            category="finance",
+            notification_type="warning",
+            action_url="/finance/customer-payment-methods/credit-notes",
+            exclude_user_id=current_user.id,
+        )
+    return created
 
 @router.get("/credit-notes/{credit_note_id}", response_model=schemas.CustomerCreditNote, dependencies=[Depends(require_permission(*Permissions.CREDIT_NOTE_VIEW))])
 def get_credit_note(
@@ -642,7 +781,9 @@ def open_petty_cash_fund(
     if data.branch_code and not validate_branch_access(current_user, data.branch_code):
         raise HTTPException(status_code=403, detail=f"Access denied to branch: {data.branch_code}")
     data.opened_by = current_user.id  # never trust a user id sent by the client
-    return service.PettyCashService(db).open_fund(data, user_id=current_user.id)
+    opened = service.PettyCashService(db).open_fund(data, user_id=current_user.id)
+    _notify_branch(opened.branch_code, current_user.id, "Petty cash fund opened", f"Fund {opened.petty_cash_no} was opened with Rs. {opened.opening_balance}.", "/finance/petty-cash")
+    return opened
 
 
 @router.get("/petty-cash/funds", response_model=List[schemas.PettyCashFundResponse], dependencies=[Depends(require_permission(*Permissions.CASHBOOK_VIEW))])
@@ -714,7 +855,9 @@ def record_petty_cash_expense(
     """Step 2: Record a petty cash expense (deducts from fund)"""
     _ensure_petty_cash_branch(db, current_user, data.petty_cash_id)
     data.recorded_by = current_user.id  # never trust a user id sent by the client
-    return service.PettyCashService(db).record_expense(data, user_id=current_user.id)
+    recorded = service.PettyCashService(db).record_expense(data, user_id=current_user.id)
+    _notify_petty(db, data.petty_cash_id, current_user.id, "Petty cash expense", f"Rs. {recorded.amount} was paid from petty cash ({recorded.transaction_no}).")
+    return recorded
 
 
 @router.post("/petty-cash/replenishments", response_model=schemas.PettyCashTransactionResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(*Permissions.CASHBOOK_CREATE))])
@@ -727,7 +870,9 @@ def replenish_petty_cash(
     _ensure_petty_cash_branch(db, current_user, data.petty_cash_id)
     data.recorded_by = current_user.id  # never trust a user id sent by the client
     data.approved_by = current_user.id
-    return service.PettyCashService(db).replenish_fund(data, user_id=current_user.id)
+    topped = service.PettyCashService(db).replenish_fund(data, user_id=current_user.id)
+    _notify_petty(db, data.petty_cash_id, current_user.id, "Petty cash replenished", f"Rs. {topped.amount} was added to petty cash ({topped.transaction_no}).", "success")
+    return topped
 
 
 @router.post("/petty-cash/funds/{fund_id}/reconcile", response_model=schemas.PettyCashReconcileResponse, dependencies=[Depends(require_permission(*Permissions.CASHBOOK_UPDATE))])
@@ -740,7 +885,9 @@ def reconcile_petty_cash(
     """Step 4: Close and reconcile a petty cash fund"""
     _ensure_petty_cash_branch(db, current_user, fund_id)
     data.closed_by = current_user.id  # never trust a user id sent by the client
-    return service.PettyCashService(db).reconcile_and_close(fund_id, data, user_id=current_user.id)
+    closed = service.PettyCashService(db).reconcile_and_close(fund_id, data, user_id=current_user.id)
+    _notify_petty(db, fund_id, current_user.id, "Petty cash reconciled", "The petty cash fund was closed.", "success")
+    return closed
 
 
 @router.get("/petty-cash/funds/{fund_id}/transactions", response_model=List[schemas.PettyCashTransactionResponse], dependencies=[Depends(require_permission(*Permissions.CASHBOOK_VIEW))])
@@ -845,3 +992,22 @@ def export_bank_deposits_csv(
             for r in rows
         ],
     )
+
+
+def _notify_branch(branch_code, actor_id, title, message, action_url, kind="info"):
+    from app.modules.notifications import events
+
+    events.tell_branch(
+        branch_code,
+        title=title,
+        message=message,
+        category="finance",
+        notification_type=kind,
+        action_url=action_url,
+        exclude_user_id=actor_id,
+    )
+
+
+def _notify_petty(db, fund_id, actor_id, title, message, kind="info"):
+    branch = db.query(models.PettyCash.branch_code).filter(models.PettyCash.id == fund_id).scalar()
+    _notify_branch(branch, actor_id, title, message, "/finance/petty-cash", kind)

@@ -10,7 +10,10 @@ Dispatch is *fan-out on write*: one :class:`Notification` row holds the content
 and one :class:`NotificationRecipient` row is created per target user.
 """
 
+import logging
 from typing import Iterable, List, Optional, Sequence
+
+logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, desc, func
@@ -130,12 +133,15 @@ class NotificationService:
         created :class:`Notification`, or ``None`` when there are no recipients.
         """
         recipient_ids = set(user_ids or [])
-        if branch_code:
+        # An explicit recipient list is not widened by the branch tag. Branch
+        # fan-out is only for calls that name a branch and nobody else.
+        if branch_code and not user_ids:
             recipient_ids.update(self._branch_user_ids(branch_code))
         if broadcast:
             recipient_ids.update(self._all_active_user_ids())
         if exclude_user_id is not None:
             recipient_ids.discard(exclude_user_id)
+        recipient_ids = self._without_opt_outs(recipient_ids)
 
         if not recipient_ids:
             return None
@@ -160,6 +166,7 @@ class NotificationService:
         )
         self.db.commit()
         self.db.refresh(notification)
+        self._email_copy(recipient_ids, title, message)
         return notification
 
     # ------------------------------------------------------------------ #
@@ -184,6 +191,58 @@ class NotificationService:
                 detail="Notification not found",
             )
         return recipient
+
+    def _without_opt_outs(self, user_ids: set) -> set:
+        """Drop users who turned in-app notifications off. Missing prefs stay on."""
+        if not user_ids:
+            return user_ids
+        from app.modules.settings.models import UserPreferences
+
+        disabled = {
+            uid
+            for (uid,) in self.db.query(UserPreferences.user_id).filter(
+                UserPreferences.user_id.in_(list(user_ids)),
+                UserPreferences.notifications_enabled.is_(False),
+            )
+        }
+        return set(user_ids) - disabled
+
+    def _email_copy(self, user_ids: set, title: str, message: str) -> None:
+        """Best-effort email for users who left email notifications on.
+
+        Skipped entirely when SMTP is not configured, and never raises into
+        the business transaction (the in-app row is already committed).
+        """
+        try:
+            from app.core.config import settings
+
+            if not (getattr(settings, "SMTP_HOST", "") and getattr(settings, "SMTP_FROM_EMAIL", "")):
+                return
+            from app.modules.settings.models import UserPreferences
+
+            opted_out = {
+                uid
+                for (uid,) in self.db.query(UserPreferences.user_id).filter(
+                    UserPreferences.user_id.in_(list(user_ids)),
+                    UserPreferences.email_notifications.is_(False),
+                )
+            }
+            targets = [uid for uid in user_ids if uid not in opted_out]
+            if not targets:
+                return
+            emails = [
+                email
+                for (email,) in self.db.query(User.email).filter(
+                    User.id.in_(targets), User.email.isnot(None), User.email != ""
+                )
+            ]
+            if not emails:
+                return
+            from app.core.email import send_plain_email
+
+            send_plain_email(emails, title, message)
+        except Exception:
+            logger.exception("Notification email failed (title=%r)", title)
 
     def _branch_user_ids(self, branch_code: str) -> Sequence[int]:
         rows = (

@@ -61,6 +61,8 @@ import {
   TSearchableSelect,
   TStatusChip,
   useConfirmDialog,
+  useRecordParam,
+  useTabParam,
 } from "@/components/tijaero";
 import { chartOfAccountsApi, postingRulesApi, taxCodesApi, voucherTypesApi } from "@/modules/finance/api";
 import { WriteOffLimitsTab } from "./ReceivablesSetupTabs";
@@ -528,6 +530,19 @@ function PostingRulesTab({ canEdit, layout }: { canEdit: boolean; layout: SetupT
     setEditing(false);
   };
 
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedCode,
+    items: types,
+    loading: isLoading,
+    getId: (t) => t.code,
+    onOpen: (t) => {
+      setEditing(false);
+      setSelectedCode(t.code);
+    },
+    onClose: back,
+  });
+
   return (
     <>
       <MasterDetailLayout
@@ -701,6 +716,25 @@ function TaxCodesTab({ canEdit, layout }: { canEdit: boolean; layout: SetupTabLa
     setEditing(false);
   };
   const detailMode = creating || !!selected;
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selected?.id,
+    creating,
+    items: codes,
+    loading: isLoading,
+    onOpen: (c) => {
+      setCreating(false);
+      setEditing(false);
+      setSelected(c);
+      setForm(taxForm(c));
+    },
+    onClose: back,
+    onNew: canEdit ? () => {
+      setForm(EMPTY_TAX_CODE);
+      setCreating(true);
+    } : undefined,
+  });
   const ro = !creating && !editing;
   const isStandard = form.tax_type === "standard";
   const rateOk = Number(form.rate ?? 0) >= 0 && Number(form.rate ?? 0) <= 100;
@@ -988,7 +1022,8 @@ const TABS: TabConfig[] = [
 ];
 
 export default function AccountingSetupPage() {
-  const [tab, setTab] = useState("posting-rules");
+  // ?tab= keeps the active tab on reload / shared links.
+  const [tab, setTab] = useTabParam("posting-rules", TABS.map((t) => String(t.id)));
   const canEdit = usePermission("chart_of_accounts", "update");
   const layout: SetupTabLayout = { tabs: TABS, activeTab: tab, onTabChange: (t) => setTab(String(t)) };
 

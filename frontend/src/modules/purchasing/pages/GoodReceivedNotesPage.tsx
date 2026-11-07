@@ -111,7 +111,7 @@ import {
   PurchasingOrderWithItems, Supplier
 } from "@/modules/purchasing/types";
 // Currency formatting uses fmtLKR from tijaero
-import { formatDateTimeReadable } from "@/utils/formatters";
+import { formatDateTimeReadable, todayISO } from "@/utils/formatters";
 
 import CancelIcon from "@mui/icons-material/Cancel";
 const FORM_STEPS = ["GRN Information", "Received Items"];
@@ -166,7 +166,7 @@ interface GRNLineItem extends Omit<GoodReceivedItemCreate, "barcode"> {
 // quantity (no per-unit barcode); serial products stay one line per unit.
 const isLotItem = (i: { tracking_type?: TrackingType }) => (i.tracking_type ?? "serial") !== "serial";
 // Today's date as YYYY-MM-DD in the user's own time zone (an expiry before it means already expired).
-const todayLocalISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const todayLocalISO = () => todayISO();
 const isLotReady = (i: GRNLineItem) =>
   (i.quantity ?? 0) >= 1 &&
   (i.max_quantity === undefined || (i.quantity ?? 0) <= i.max_quantity) &&

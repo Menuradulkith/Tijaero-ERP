@@ -31,7 +31,6 @@ import {
 } from "@mui/material";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
@@ -43,7 +42,6 @@ import {
   EXPENSE_CATEGORIES,
   EXPENSE_PAYMENT_METHODS,
   EXPENSE_TYPES,
-  EXPENSES_METHOD,
   fmtLKR,
   FormSection,
   handleApiError,
@@ -63,17 +61,52 @@ import {
   useConfirmDialog,
   useTConfirmDialog,
   useMasterDetailState,
+  useRecordParam,
   useCrudMutation,
   TActivityHistoryPanel,
+  TDatePicker,
 } from "@/components/tijaero";
 
 
 import { useReferenceData } from "@/hooks";
 import { usePermission } from "@/auth/permissions";
-import { expensesApi } from "@/modules/finance/api";
+import { bankReconciliationApi, expensesApi } from "@/modules/finance/api";
+import { bankOverdraftWarning } from "@/modules/finance/bankBalance";
 import { LEDGER_QUERY_KEYS } from "@/modules/finance/ledgerQueries";
-import type { Expense, ExpenseCreate, ExpensePaymentData } from "@/modules/finance/types";
+import type { Expense as ExpenseBase, ExpenseCreate, ExpensePaymentData } from "@/modules/finance/types";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { displayDate, todayISO } from "@/utils/formatters";
+
+// The API adds the people's names next to their user ids.
+type Expense = ExpenseBase & {
+  submitted_by_name?: string | null;
+  approved_by_name?: string | null;
+};
+
+/** "07 Nov 2026 14:05": the ERP's date format plus the time. */
+const displayDateTime = (v?: string | null) => {
+  const d = v ? new Date(v) : null;
+  if (!d || isNaN(d.getTime())) return "";
+  return `${displayDate(d)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
+// Process Payment dialog: where the money comes from, then the details.
+type PaymentForm = {
+  pay_from: "cash" | "bank";
+  bank_method: "bank_transfer" | "cheque";
+  bank_account_id: number | "";
+  payment_reference: string;
+  payment_date: string;
+  remarks: string;
+};
+const newPaymentForm = (): PaymentForm => ({
+  pay_from: "cash",
+  bank_method: "bank_transfer",
+  bank_account_id: "",
+  payment_reference: "",
+  payment_date: todayISO(),
+  remarks: "",
+});
 
 import CancelIcon from "@mui/icons-material/Cancel";
 // An expense row as shown in the browse table, with display-only lookup
@@ -97,7 +130,6 @@ const STATUS_FILTER_OPTIONS = [
 const INITIAL_FORM_DATA: Partial<ExpenseCreate> = {
   expense_type: "operational",
   expense_category: "miscellaneous",
-  expenses_method: "other_expenses",
   expense_amount: 0,
   branch_code: "",
   vendor_name: "",
@@ -110,8 +142,8 @@ const INITIAL_FORM_DATA: Partial<ExpenseCreate> = {
 const resetFormFromExpense = (expense: Expense): Partial<ExpenseCreate> => ({
   expense_type: expense.expense_type,
   expense_category: expense.expense_category,
-  expenses_method: expense.expenses_method,
   expense_amount: expense.expense_amount,
+  expense_date: expense.expense_date,
   branch_code: expense.branch_code,
   vendor_name: expense.vendor_name,
   description: expense.description,
@@ -173,6 +205,7 @@ export default function ExpensesPage() {
     handleNew: handleNewExpenseBase,
     handleCancel: handleCancelBase,
     handleStartEdit: handleStartEditBase,
+    openItem: openExpense,
   } = useMasterDetailState<Expense, Partial<ExpenseCreate>>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromExpense,
@@ -204,9 +237,13 @@ export default function ExpensesPage() {
 
   const handleNewExpense = useCallback(() => {
     handleNewExpenseBase();
-    if (defaultBranchCode) {
-      setFormData(prev => ({ ...prev, branch_code: defaultBranchCode }));
-    }
+    // Bill date defaults to today (local, not UTC); the server sets the old
+    // "expense method" from the category.
+    setFormData(prev => ({
+      ...prev,
+      expense_date: todayISO(),
+      ...(defaultBranchCode ? { branch_code: defaultBranchCode } : {}),
+    }));
   }, [handleNewExpenseBase, defaultBranchCode, setFormData]);
 
   const handleClearFilters = useCallback(() => {
@@ -281,7 +318,9 @@ export default function ExpensesPage() {
     successMessage: "Expense recorded successfully",
     errorMessage: "Failed to create expense",
     onSuccess: (data) => {
+      // Show the saved expense (view mode) with its Submit action.
       setIsCreating(false);
+      setIsEditing(false);
       setSelectedExpense(data);
     },
   });
@@ -332,11 +371,11 @@ export default function ExpensesPage() {
   });
 
   const paymentMutation = useCrudMutation({
-    mutationFn: ({ id, data }: { id: number; data: ExpensePaymentData }) =>
+    mutationFn: ({ id, data }: { id: number; data: ExpensePaymentData & { bank_account_id?: number }; message: string }) =>
       expensesApi.processPayment(id, data),
     invalidateQueryKeys: [["expenses"], ["expense-detail"], ...LEDGER_QUERY_KEYS],
-    successMessage: "Payment processed",
-    errorMessage: "Failed to process payment",
+    getSuccessMessage: (_data, vars) => vars.message,
+    errorMessage: "Payment not made",
     onSuccess: (data) => {
       setPaymentDialogOpen(false);
       setSelectedExpense(data);
@@ -378,8 +417,8 @@ export default function ExpensesPage() {
     return !!(
       formData.expense_type &&
       formData.expense_category &&
-      formData.expenses_method &&
       formData.expense_amount &&
+      (!formData.expense_date || formData.expense_date <= todayISO()) &&
       formData.expense_amount > 0 &&
       formData.branch_code &&
       formData.vendor_name
@@ -457,6 +496,19 @@ export default function ExpensesPage() {
     }
   }, [isCreating, setSelectedExpense, setIsCreating, setIsEditing]);
 
+  // Open expense lives in the URL (?id= / ?new=1) so browser Back returns to
+  // the list and an expense can be shared as a link.
+  useRecordParam<Expense>({
+    current: selectedExpense?.id,
+    creating: isCreating,
+    items: expenses,
+    loading: isLoading,
+    fetchById: (id) => expensesApi.getById(Number(id)),
+    onOpen: openExpense,
+    onClose: handleBackToExpenses,
+    onNew: canCreateExpense ? handleNewExpense : undefined,
+  });
+
   // Whether we're showing a single expense's detail view (selected or being
   // created) instead of the browse table.
   const isExpenseDetailMode = !!selectedExpense || isCreating;
@@ -466,13 +518,62 @@ export default function ExpensesPage() {
 
   // ─── Forms for workflow dialogs ────────────────────────────────────────────
 
-  const paymentForm = useForm<ExpensePaymentData>({
-    defaultValues: {
-      payment_method: "cash",
-      payment_reference: "",
-      remarks: "",
-    },
+  const paymentForm = useForm<PaymentForm>({ defaultValues: newPaymentForm() });
+  const payFrom = paymentForm.watch("pay_from");
+  const bankMethod = paymentForm.watch("bank_method");
+
+  // Registered bank accounts to pay from (Accounting > Bank Accounts).
+  const { data: bankAccountsData } = useQuery({
+    queryKey: ["bank-accounts"],
+    queryFn: bankReconciliationApi.listAccounts,
+    enabled: paymentDialogOpen,
+    retry: false,
   });
+  const bankAccounts = useMemo(
+    () =>
+      (bankAccountsData || []).filter(
+        (b) => b.is_active && (!b.branch_code || !selectedExpense || b.branch_code === selectedExpense.branch_code)
+      ),
+    [bankAccountsData, selectedExpense]
+  );
+  // Paying more than the account holds is allowed (overdraft), but say so.
+  const payBankId = paymentForm.watch("bank_account_id");
+  const overdraftWarning =
+    payFrom === "bank" && selectedExpense
+      ? bankOverdraftWarning(
+          bankAccounts.find((b) => b.id === payBankId),
+          Number(selectedExpense.expense_amount),
+          currencySymbol
+        )
+      : null;
+  const bankLabel = (b: { name: string; bank_name?: string | null; account_number?: string | null }) =>
+    [b.bank_name && b.bank_name !== b.name ? `${b.bank_name} ${b.name}` : b.name, b.account_number]
+      .filter(Boolean)
+      .join(" · ");
+
+  const submitPayment = (form: PaymentForm) => {
+    if (!selectedExpense || savingRef.current) return;
+    const amountText = `${currencySymbol} ${fmtLKR(selectedExpense.expense_amount)}`;
+    const bank = bankAccounts.find((b) => b.id === form.bank_account_id);
+    const common = {
+      payment_date: form.payment_date,
+      payment_reference: form.payment_reference.trim() || undefined,
+      remarks: form.remarks || undefined,
+    };
+    const data: ExpensePaymentData & { bank_account_id?: number } =
+      form.pay_from === "cash"
+        ? { ...common, payment_method: "cash" }
+        : { ...common, payment_method: form.bank_method, bank_account_id: bank?.id };
+    const message =
+      form.pay_from === "cash"
+        ? `Paid ${amountText} in cash from ${selectedExpense.branch_code}`
+        : `Paid ${amountText} by ${form.bank_method === "cheque" ? "cheque" : "bank transfer"}${bank ? ` from ${bankLabel(bank)}` : ""}`;
+    savingRef.current = true;
+    paymentMutation.mutate(
+      { id: selectedExpense.id, data, message },
+      { onSettled: () => { savingRef.current = false; } }
+    );
+  };
 
   const recordForm = useForm<{ account_code: string; cost_center: string }>({
     defaultValues: { account_code: "", cost_center: "" },
@@ -500,11 +601,10 @@ export default function ExpensesPage() {
       { field: "branch_name", header: "Branch", width: 150 },
       {
         field: "expense_date",
-        header: "Date",
+        header: "Bill Date",
         width: 130,
         renderCell: (params: GridRenderCellParams<ExpenseRow>) => {
-          const d = params.row.expense_date || params.row.created_date;
-          return d ? format(new Date(d), "dd/MM/yyyy") : "-";
+          return displayDate(params.row.expense_date || params.row.created_date) || "-";
         },
       },
       {
@@ -553,7 +653,7 @@ export default function ExpensesPage() {
 
   // ─── Detail Panel ──────────────────────────────────────────────────────────
 
-  const detail = expenseDetail || selectedExpense;
+  const detail = (expenseDetail || selectedExpense) as Expense | null;
 
   // Workflow action buttons based on status
   const getWorkflowActions = () => {
@@ -605,18 +705,21 @@ export default function ExpensesPage() {
           color="primary"
           startIcon={<PaymentIcon />}
           onClick={() => {
-            paymentForm.reset({
-              payment_method: "cash",
-              payment_reference: "",
-              remarks: "",
-            });
+            paymentForm.reset(newPaymentForm());
             setPaymentDialogOpen(true);
           }}
         >
           Process Payment
         </Button>
       );
-    } else if (selectedExpense.status === "paid" && canUpdateExpense) {
+    } else if (
+      selectedExpense.status === "paid" &&
+      canUpdateExpense &&
+      // Paying an expense posts it to the accounts. Only offer this for an
+      // older paid expense whose journal is missing.
+      expenseDetail?.id === selectedExpense.id &&
+      expenseDetail.posted_to_accounts === false
+    ) {
       actions.push(
         <Button
           key="record"
@@ -750,21 +853,17 @@ export default function ExpensesPage() {
                     ))}
                   </TextField>
 
-                  <TextField
-                    label="Expense Method"
+                  <TDatePicker
+                    label="Bill Date"
                     size="small"
-                    select
-                    value={formData.expenses_method || "other_expenses"}
-                    onChange={(e) => setFormData({ ...formData, expenses_method: e.target.value })}
+                    value={formData.expense_date || ""}
+                    onChange={(v) => setFormData({ ...formData, expense_date: v ?? "" })}
                     disabled={!isEditing && !isCreating}
+                    inputProps={{ max: todayISO() }}
+                    error={!!formData.expense_date && formData.expense_date > todayISO()}
+                    helperText={!!formData.expense_date && formData.expense_date > todayISO() ? "Can't be a future date" : undefined}
                     required
-                  >
-                    {EXPENSES_METHOD.map((method) => (
-                      <MenuItem key={method.value} value={method.value}>
-                        {method.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                  />
 
                   <TextField
                     label={`Amount (${currencySymbol})`}
@@ -851,21 +950,13 @@ export default function ExpensesPage() {
                       <TextField
                         label="Created Date"
                         size="small"
-                        value={
-                          detail.created_date
-                            ? format(new Date(detail.created_date), "dd MMM yyyy")
-                            : "N/A"
-                        }
+                        value={displayDate(detail.created_date) || "N/A"}
                         disabled
                       />
                       <TextField
-                        label="Expense Date"
+                        label="Submitted By"
                         size="small"
-                        value={
-                          detail.expense_date
-                            ? format(new Date(detail.expense_date), "dd MMM yyyy")
-                            : "N/A"
-                        }
+                        value={detail.submitted_by_name || (detail.submitted_by ? `User #${detail.submitted_by}` : "N/A")}
                         disabled
                       />
                     </FormSection>
@@ -874,19 +965,15 @@ export default function ExpensesPage() {
                     {(detail.approved_by || detail.approved_date) && (
                       <FormSection title="Approval Information" columns={2}>
                         <TextField
-                          label="Approved By"
+                          label={detail.status === "rejected" ? "Rejected By" : "Approved By"}
                           size="small"
-                          value={detail.approved_by || "N/A"}
+                          value={detail.approved_by_name || (detail.approved_by ? `User #${detail.approved_by}` : "N/A")}
                           disabled
                         />
                         <TextField
                           label="Approved Date"
                           size="small"
-                          value={
-                            detail.approved_date
-                              ? format(new Date(detail.approved_date), "dd MMM yyyy HH:mm")
-                              : "N/A"
-                          }
+                          value={displayDateTime(detail.approved_date) || "N/A"}
                           disabled
                         />
                       </FormSection>
@@ -909,11 +996,7 @@ export default function ExpensesPage() {
                         <TextField
                           label="Payment Date"
                           size="small"
-                          value={
-                            detail.payment_date
-                              ? format(new Date(detail.payment_date), "dd MMM yyyy")
-                              : "N/A"
-                          }
+                          value={displayDate(detail.payment_date) || "N/A"}
                           disabled
                         />
                         <TextField
@@ -1134,54 +1217,113 @@ export default function ExpensesPage() {
         maxWidth="sm"
         fullWidth
       >
-        <form
-          onSubmit={paymentForm.handleSubmit((data) =>
-            {
-              if (!selectedExpense || savingRef.current) return;
-              savingRef.current = true;
-              paymentMutation.mutate({ id: selectedExpense.id, data }, { onSettled: () => { savingRef.current = false; } });
-            }
-          )}
-        >
-          <DialogTitle>Process Payment</DialogTitle>
+        <form onSubmit={paymentForm.handleSubmit(submitPayment)}>
+          <DialogTitle>Pay Expense</DialogTitle>
           <DialogContent>
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, 1fr)",
-                gap: 2,
-                mt: 1,
-              }}
-            >
+            {selectedExpense && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {selectedExpense.expenses_no} · {selectedExpense.vendor_name || "-"}
+                </Typography>
+                <Typography variant="h5">
+                  {currencySymbol} {fmtLKR(selectedExpense.expense_amount)}
+                </Typography>
+              </Box>
+            )}
+            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
               <Controller
-                name="payment_method"
+                name="pay_from"
                 control={paymentForm.control}
-                rules={{ required: "Required" }}
-                render={({ field, fieldState }) => (
-                  <TextField
-                    {...field}
-                    select
-                    label="Payment Method"
-                    required
-                    error={!!fieldState.error}
-                    fullWidth
-                  >
-                    {EXPENSE_PAYMENT_METHODS.map((m) => (
-                      <MenuItem key={m.value} value={m.value}>
-                        {m.label}
-                      </MenuItem>
-                    ))}
+                render={({ field }) => (
+                  <TextField {...field} select label="Pay from" required fullWidth>
+                    <MenuItem value="cash">Cash in till ({selectedExpense?.branch_code})</MenuItem>
+                    <MenuItem value="bank">Bank account</MenuItem>
                   </TextField>
                 )}
               />
               <Controller
+                name="payment_date"
+                control={paymentForm.control}
+                rules={{
+                  required: "Required",
+                  validate: (v) => v <= todayISO() || "Can't be a future date",
+                }}
+                render={({ field, fieldState }) => (
+                  <TDatePicker
+                    name={field.name}
+                    value={field.value || ""}
+                    onChange={(v) => field.onChange(v ?? "")}
+                    onBlur={field.onBlur}
+                    inputRef={field.ref}
+                    label="Payment date"
+                    required
+                    fullWidth
+                    inputProps={{ max: todayISO() }}
+                    error={!!fieldState.error}
+                    helperText={fieldState.error?.message}
+                  />
+                )}
+              />
+              {payFrom === "bank" && (
+                <>
+                  <Controller
+                    name="bank_account_id"
+                    control={paymentForm.control}
+                    rules={{ validate: (v) => bankAccounts.length === 0 || v !== "" || "Choose the bank account" }}
+                    render={({ field, fieldState }) => (
+                      <TextField
+                        {...field}
+                        select
+                        label="Bank account"
+                        required={bankAccounts.length > 0}
+                        fullWidth
+                        disabled={bankAccounts.length === 0}
+                        error={!!fieldState.error}
+                        helperText={
+                          fieldState.error?.message ||
+                          (bankAccounts.length === 0 ? "No bank accounts set up: name the bank in the reference" : undefined)
+                        }
+                      >
+                        {bankAccounts.map((b) => (
+                          <MenuItem key={b.id} value={b.id}>
+                            {bankLabel(b)}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+                  />
+                  {overdraftWarning && <Alert severity="warning">{overdraftWarning}</Alert>}
+                  <Controller
+                    name="bank_method"
+                    control={paymentForm.control}
+                    render={({ field }) => (
+                      <TextField {...field} select label="How" required fullWidth>
+                        {EXPENSE_PAYMENT_METHODS.filter((m) => m.value === "bank_transfer" || m.value === "cheque").map((m) => (
+                          <MenuItem key={m.value} value={m.value}>
+                            {m.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+                  />
+                </>
+              )}
+              <Controller
                 name="payment_reference"
                 control={paymentForm.control}
-                render={({ field }) => (
+                rules={{
+                  validate: (v) =>
+                    payFrom === "cash" || !!v.trim() || (bankMethod === "cheque" ? "Enter the cheque number" : "Enter the transfer reference"),
+                }}
+                render={({ field, fieldState }) => (
                   <TextField
                     {...field}
-                    label="Payment Reference"
+                    label={payFrom === "cash" ? "Receipt / voucher no. (optional)" : bankMethod === "cheque" ? "Cheque number" : "Transfer reference"}
+                    required={payFrom === "bank"}
                     fullWidth
+                    error={!!fieldState.error}
+                    helperText={fieldState.error?.message}
+                    sx={{ gridColumn: payFrom === "bank" ? "span 2" : undefined }}
                   />
                 )}
               />
@@ -1207,12 +1349,8 @@ export default function ExpensesPage() {
             <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setPaymentDialogOpen(false)}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={paymentMutation.isPending}
-            >
-              Process Payment
+            <Button type="submit" variant="contained" disabled={paymentMutation.isPending}>
+              Pay {selectedExpense ? `${currencySymbol} ${fmtLKR(selectedExpense.expense_amount)}` : ""}
             </Button>
           </DialogActions>
         </form>
@@ -1311,6 +1449,8 @@ export default function ExpensesPage() {
           submit: "Expense submitted",
           approve: "Expense approved",
           reject: "Expense rejected",
+          pay: "Expense paid",
+          record: "Recorded in accounts",
         }}
       />
     </>

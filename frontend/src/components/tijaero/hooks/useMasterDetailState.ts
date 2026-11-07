@@ -8,7 +8,7 @@
  * - Form data handling
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { BaseEntity, UseMasterDetailStateOptions, UseMasterDetailStateReturn } from "../types";
 import { useFormGuardStore } from "@/state/formGuardStore";
 
@@ -43,6 +43,30 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
   // Form State
   const [formData, setFormData] = useState<TCreate>(initialFormData);
   const [originalFormData, setOriginalFormData] = useState<TCreate>(initialFormData);
+
+  // A create that finishes (pages call setIsCreating(false) on success) means
+  // what is in the form is now saved. Many pages leave isEditing on after a
+  // create, so without this the form still looked "changed" against the blank
+  // initial data and Back / the menu asked "Discard unsaved changes?" right
+  // after a successful save.
+  //
+  // A create that ends with a record selected (the saved one) also leaves
+  // edit mode, so the page shows the saved record with its workflow actions
+  // (Submit, Approve, ...) instead of Save / Cancel until it is reopened.
+  const wasCreatingRef = useRef(isCreating);
+  useEffect(() => {
+    if (wasCreatingRef.current && !isCreating) {
+      if (selectedItem) {
+        setIsEditing(false);
+        const saved = resetFormFromItem ? resetFormFromItem(selectedItem) : formData;
+        setFormData(saved);
+        setOriginalFormData(saved);
+      } else {
+        setOriginalFormData(formData);
+      }
+    }
+    wasCreatingRef.current = isCreating;
+  }, [isCreating, formData, selectedItem, resetFormFromItem]);
 
   // Check if there are unsaved changes
   const hasChanges = JSON.stringify(formData) !== JSON.stringify(originalFormData);
@@ -108,6 +132,18 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
     setIsCreating(false);
     return true;
   }, [isEditing, isCreating, formData, originalFormData, resetFormFromItem, confirmUnsavedChanges, initialFormData]);
+
+  // Open an item with no unsaved-changes prompt. Used by useRecordParam when
+  // the URL (browser Back/Forward, a shared link) picks the record and the
+  // discard question has already been asked there.
+  const openItem = useCallback((item: T) => {
+    setSelectedItem(item);
+    const newFormData = resetFormFromItem ? resetFormFromItem(item) : initialFormData;
+    setFormData(newFormData);
+    setOriginalFormData(newFormData);
+    setIsEditing(false);
+    setIsCreating(false);
+  }, [resetFormFromItem, initialFormData]);
 
   // Handle creating new item - returns true if succeeded, false if cancelled
   const handleNew = useCallback(async (): Promise<boolean> => {
@@ -196,6 +232,7 @@ export function useMasterDetailState<T extends BaseEntity, TCreate>(
     handleCancel,
     handleStartEdit,
     resetToItem,
+    openItem,
   };
 }
 

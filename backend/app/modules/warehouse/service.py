@@ -1004,8 +1004,12 @@ class ItemReceiveNoteService:
                 detail="Transfer note not found"
             )
 
+        if transfer_note.status == TransferNoteStatus.APPROVED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This transfer note has not been dispatched yet; dispatch it before receiving",
+            )
         if transfer_note.status not in [
-            TransferNoteStatus.APPROVED,
             TransferNoteStatus.DISPATCHED,
             TransferNoteStatus.IN_TRANSIT,
             TransferNoteStatus.PARTIALLY_RECEIVED,

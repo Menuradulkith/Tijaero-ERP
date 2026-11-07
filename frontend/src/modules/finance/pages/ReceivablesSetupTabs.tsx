@@ -23,6 +23,7 @@ import {
   TCurrency,
   TDataGrid,
   type TDataGridColumn,
+  useRecordParam,
 } from "@/components/tijaero";
 import { writeOffsApi, type WriteOffLimit } from "@/modules/finance/api/receivables";
 import { submitOnce } from "@/modules/finance/submitOnce";
@@ -78,6 +79,19 @@ export function WriteOffLimitsTab({ canEdit, layout }: { canEdit: boolean; layou
   };
   const value = editing ? draft : selected ? String(Number(selected.max_amount)) : "";
   const changed = !!selected && draft !== "" && Number(draft) !== Number(selected.max_amount);
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedId,
+    items: limits,
+    loading: isLoading,
+    getId: (l) => l.group_id,
+    onOpen: (l) => {
+      setEditing(false);
+      setSelectedId(l.group_id);
+    },
+    onClose: back,
+  });
   const MAX_LIMIT = 999999999.99;
   const draftError =
     draft.trim() === ""

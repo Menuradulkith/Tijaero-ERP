@@ -39,6 +39,7 @@ import {
   handleApiError,
   showErrorToast,
   fmtLKR,
+  TDatePicker,
 } from "@/components/tijaero";
 import {
   DetailPanelHeader,
@@ -55,6 +56,7 @@ import { Customer } from "@/modules/customers/types";
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { escapeHtml } from "@/utils/escapeHtml";
+import { todayISO, localDateISO, displayDate, formatDateTimeReadable } from "@/utils/formatters";
 
 type SortField = "date" | "customer_name" | "amount" | "branch_code" | "payment_method";
 type SortDir = "asc" | "desc";
@@ -67,9 +69,9 @@ export default function CustomerPaymentReportPage() {
   const defaultFrom = useMemo(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 3);
-    return d.toISOString().split("T")[0];
+    return localDateISO(d);
   }, []);
-  const defaultTo = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const defaultTo = useMemo(() => todayISO(), []);
 
   // Tab
   const [activeTab, setActiveTab] = useState(0);
@@ -296,7 +298,7 @@ export default function CustomerPaymentReportPage() {
   </div>
   <div class="detail-grid">
     <div class="detail-item"><div class="label">Document No.</div><div class="value">${escapeHtml(item.document_no)}</div></div>
-    <div class="detail-item"><div class="label">Date</div><div class="value">${new Date(item.date).toLocaleDateString()}</div></div>
+    <div class="detail-item"><div class="label">Date</div><div class="value">${displayDate(item.date)}</div></div>
     <div class="detail-item"><div class="label">Customer</div><div class="value">${escapeHtml(item.customer_name)}</div></div>
     <div class="detail-item"><div class="label">Payment Method</div><div class="value">${escapeHtml(item.payment_method || "-")}</div></div>
     <div class="detail-item"><div class="label">Invoice(s)</div><div class="value">${escapeHtml(item.invoice_refs || "-")}</div></div>
@@ -304,7 +306,7 @@ export default function CustomerPaymentReportPage() {
     ${item.remarks ? `<div class="detail-item" style="grid-column: span 2;"><div class="label">Remarks</div><div class="value">${escapeHtml(item.remarks)}</div></div>` : ""}
   </div>
   <div class="footer">
-    <p>Generated on ${new Date().toLocaleString()} | Tijaero ERP System</p>
+    <p>Generated on ${formatDateTimeReadable(new Date())} | Tijaero ERP System</p>
     <p>This is a computer-generated receipt.</p>
   </div>
   <script>window.onload = function() { window.print(); }</script>
@@ -322,7 +324,7 @@ export default function CustomerPaymentReportPage() {
       showErrorToast("Please allow popups to print");
       return;
     }
-    const dateRangeText = `${new Date(dateFrom).toLocaleDateString()} to ${new Date(dateTo).toLocaleDateString()}`;
+    const dateRangeText = `${displayDate(dateFrom)} to ${displayDate(dateTo)}`;
     const customerText = selectedCustomer ? selectedCustomer.customer_name : "All Customers";
 
     const html = `<!DOCTYPE html>
@@ -390,7 +392,7 @@ export default function CustomerPaymentReportPage() {
     <tbody>
       ${sortedItems.map((item) => `
         <tr>
-          <td>${new Date(item.date).toLocaleDateString()}</td>
+          <td>${displayDate(item.date)}</td>
           <td>${escapeHtml(item.customer_name)}</td>
           <td>${escapeHtml(item.document_no)}</td>
           <td>${escapeHtml(item.invoice_refs)}</td>
@@ -408,7 +410,7 @@ export default function CustomerPaymentReportPage() {
     </tbody>
   </table>
   <div class="footer">
-    <p>Generated on ${new Date().toLocaleString()} | Tijaero ERP System</p>
+    <p>Generated on ${formatDateTimeReadable(new Date())} | Tijaero ERP System</p>
     <p>This is a computer-generated report.</p>
   </div>
   <script>window.onload = function() { window.print(); }</script>
@@ -528,22 +530,18 @@ export default function CustomerPaymentReportPage() {
         >
           {activeTab === 0 && (
             <>
-              <TextField
+              <TDatePicker
                 size="small"
                 label="Date From"
-                type="date"
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                InputLabelProps={{ shrink: true }}
+                onChange={(v) => setDateFrom(v ?? "")}
                 sx={{ minWidth: 155, flex: "0 0 155px" }}
               />
-              <TextField
+              <TDatePicker
                 size="small"
                 label="Date To"
-                type="date"
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                InputLabelProps={{ shrink: true }}
+                onChange={(v) => setDateTo(v ?? "")}
                 sx={{ minWidth: 155, flex: "0 0 155px" }}
               />
             </>
@@ -648,7 +646,7 @@ export default function CustomerPaymentReportPage() {
                     <TableBody>
                       {sortedItems.map((item, index) => (
                         <TableRow key={`${item.id}-${index}`} hover sx={{ "&:nth-of-type(odd)": { bgcolor: "grey.50" }, "& td": { borderColor: "divider" } }}>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(item.date).toLocaleDateString()}</TableCell>
+                          <TableCell sx={{ whiteSpace: "nowrap" }}>{displayDate(item.date)}</TableCell>
                           <TableCell>{item.customer_name}</TableCell>
                           <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{item.document_no}</TableCell>
                           <TableCell>{item.invoice_refs}</TableCell>
@@ -734,13 +732,13 @@ export default function CustomerPaymentReportPage() {
                     <TableBody>
                       {sortedOutItems.map((item) => (
                         <TableRow key={item.invoice_id} hover sx={{ "&:nth-of-type(odd)": { bgcolor: "grey.50" }, "& td": { borderColor: "divider" }, ...(item.is_overdue && { bgcolor: "error.50" }) }}>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(item.invoice_date).toLocaleDateString()}</TableCell>
+                          <TableCell sx={{ whiteSpace: "nowrap" }}>{displayDate(item.invoice_date)}</TableCell>
                           <TableCell>{item.customer_name}</TableCell>
                           <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{item.invoice_no}</TableCell>
                           <TableCell align="right">{fmtLKR(item.credit_amount)}</TableCell>
                           <TableCell align="right">{fmtLKR(item.paid_amount)}</TableCell>
                           <TableCell align="right" sx={{ fontWeight: 700, color: item.is_overdue ? "error.main" : "primary.main" }}>{fmtLKR(item.balance_due)}</TableCell>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(item.due_date).toLocaleDateString()}</TableCell>
+                          <TableCell sx={{ whiteSpace: "nowrap" }}>{displayDate(item.due_date)}</TableCell>
                           <TableCell align="center">
                             {item.is_overdue ? (
                               <TChip label={`${item.days_overdue}d`} size="small" color="error" variant="filled" />

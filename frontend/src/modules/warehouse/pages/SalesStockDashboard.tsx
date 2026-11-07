@@ -52,6 +52,7 @@ import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
+import { todayISO } from "@/utils/formatters";
 
 // Selectable status filter options (mirrors backend StockStatus); rendered
 // via TStatusChip's "salesStockStatus" map for the label/color everywhere else.
@@ -788,7 +789,7 @@ export default function SalesStockDashboard() {
         renderCell: (params: GridRenderCellParams<SalesStock>) => {
           const d = params.row.expiry_date;
           if (!d) return <span>-</span>;
-          const expired = d < new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+          const expired = d < todayISO();
           return <span style={{ color: expired ? "#d32f2f" : undefined, fontWeight: expired ? 600 : 400 }}>{d}{expired ? " (expired)" : ""}</span>;
         },
       },

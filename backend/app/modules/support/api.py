@@ -24,7 +24,27 @@ def create_support_ticket(
 ):
     """Create a new support ticket"""
     support_service = service.CustomerSupportService(db, current_user)
-    return support_service.create_support_ticket(ticket)
+    created = support_service.create_support_ticket(ticket)
+    from app.modules.notifications import events
+    events.tell_branch(
+        created.branch_code,
+        title="Support ticket opened",
+        message=f"Ticket {created.job_number} ({created.job_type}) was opened.",
+        category="support",
+        notification_type="info",
+        action_url="/support",
+        exclude_user_id=current_user.id,
+    )
+    events.tell_user(
+        created.assigned_user_id,
+        title="Support ticket assigned",
+        message=f"Ticket {created.job_number} was assigned to you.",
+        category="support",
+        notification_type="info",
+        action_url="/support",
+        exclude_user_id=current_user.id,
+    )
+    return created
 
 @router.get("/tickets/{ticket_id}", response_model=schemas.CustomerSupport, dependencies=[Depends(require_permission(*Permissions.SUPPORT_TICKET_VIEW))])
 def get_support_ticket(ticket_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
@@ -86,7 +106,9 @@ def create_job_item(
 ):
     """Create a new job item"""
     item_service = service.CSJobItemService(db, current_user)
-    return item_service.create_job_item(item)
+    created = item_service.create_job_item(item)
+    _notify_ticket_assignee(db, created.customer_support_id, current_user.id, "Job item added", "A job item was added to your support ticket.")
+    return created
 
 @router.get("/job-items/{item_id}", response_model=schemas.CSJobItem, dependencies=[Depends(require_permission(*Permissions.JOB_ITEM_VIEW))])
 def get_job_item(item_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
@@ -126,7 +148,9 @@ def create_call_log(
 ):
     """Create a new call log"""
     log_service = service.CustomerCallLogService(db, current_user)
-    return log_service.create_call_log(log)
+    created = log_service.create_call_log(log)
+    _notify_ticket_assignee(db, created.customer_support_id, current_user.id, "Call logged", "A call was logged on your support ticket.")
+    return created
 
 @router.get("/call-logs/{log_id}", response_model=schemas.CustomerCallLog, dependencies=[Depends(require_permission(*Permissions.CALL_LOG_VIEW))])
 def get_call_log(log_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
@@ -166,7 +190,20 @@ def create_warranty_claim(
 ):
     """Create a new warranty claim"""
     claim_service = service.WarrantyClaimService(db, current_user)
-    return claim_service.create_warranty_claim(claim)
+    created = claim_service.create_warranty_claim(claim)
+    from app.modules.notifications import events
+    from app.modules.sales.models import Invoice
+    branch = db.query(Invoice.branch_code).filter(Invoice.id == created.order_id).scalar()
+    events.tell_branch(
+        branch,
+        title="Warranty claim opened",
+        message=f"A {created.warranty_type} warranty claim was opened for barcode {created.product_barcode_old_code}.",
+        category="support",
+        notification_type="warning",
+        action_url="/support",
+        exclude_user_id=current_user.id,
+    )
+    return created
 
 @router.get("/warranty-claims/{claim_id}", response_model=schemas.WarrantyClaim, dependencies=[Depends(require_permission(*Permissions.WARRANTY_CLAIM_VIEW))])
 def get_warranty_claim(claim_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
@@ -210,3 +247,19 @@ def delete_warranty_claim(claim_id: int, db: Session = Depends(get_db), current_
     """Delete a warranty claim"""
     claim_service = service.WarrantyClaimService(db, current_user)
     claim_service.delete_warranty_claim(claim_id)
+
+
+def _notify_ticket_assignee(db, ticket_id: int, actor_id: int, title: str, message: str) -> None:
+    from app.modules.notifications import events
+    from .models import CustomerSupport
+
+    assignee = db.query(CustomerSupport.assigned_user_id).filter(CustomerSupport.id == ticket_id).scalar()
+    events.tell_user(
+        assignee,
+        title=title,
+        message=message,
+        category="support",
+        notification_type="info",
+        action_url="/support",
+        exclude_user_id=actor_id,
+    )

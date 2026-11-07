@@ -46,9 +46,8 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { formatDateTimeReadable } from "@/utils/formatters";
+import { formatDateTimeReadable, todayISO, displayDate } from "@/utils/formatters";
 
 import {
   TChip,
@@ -67,6 +66,7 @@ import {
   TPrintPreviewDialog,
   TSearchableSelect,
   useMasterDetailState,
+  useRecordParam,
   modernTableStyles,
   TConfirmDialog,
   useConfirmDialog,
@@ -74,6 +74,7 @@ import {
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
+  TDatePicker,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
@@ -169,7 +170,7 @@ const lineProblem = (l: LineItem): string | null => {
 };
 
 const INITIAL_FORM_DATA: JEFormData = {
-  entry_date: new Date().toISOString().split("T")[0],
+  entry_date: todayISO(),
   description: "",
   entry_type: "standard",
 };
@@ -238,6 +239,7 @@ export default function JournalEntriesPage() {
     handleNew: handleNewBase,
     handleCancel: handleCancelBase,
     handleStartEdit,
+    openItem: openJE,
   } = useMasterDetailState<JournalEntry, JEFormData>({
     initialFormData: INITIAL_FORM_DATA,
     resetFormFromItem: resetFormFromJE,
@@ -309,6 +311,18 @@ export default function JournalEntriesPage() {
       }),
   });
   const entries = entriesData?.items ?? [];
+
+  // Open entry lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam<JournalEntry>({
+    current: selectedJE?.id,
+    creating: isCreating,
+    items: entries,
+    loading: isLoading,
+    fetchById: (id) => journalEntriesApi.getById(Number(id)),
+    onOpen: openJE,
+    onClose: handleBackToJournalEntries,
+    onNew: canCreateJE ? handleNew : undefined,
+  });
 
   const { data: voucherTypes = [] } = useQuery({
     queryKey: ["voucher-types"],
@@ -601,7 +615,7 @@ export default function JournalEntriesPage() {
         header: "Date",
         width: 120,
         renderCell: (params: GridRenderCellParams<JournalEntry>) =>
-          params.row.entry_date ? format(new Date(params.row.entry_date), "dd/MM/yyyy") : "-",
+          params.row.entry_date ? displayDate(params.row.entry_date) : "-",
       },
       {
         field: "voucher_type",
@@ -839,24 +853,20 @@ export default function JournalEntriesPage() {
 
             {formStep === 0 && (
               <FormSection title="Entry Information" columns={3}>
-                <TextField
+                <TDatePicker
                   label="Entry Date"
-                  type="date"
                   size="small"
                   value={formData.entry_date}
-                  onChange={(e) => setFormData({ ...formData, entry_date: e.target.value })}
-                  InputLabelProps={{ shrink: true }}
+                  onChange={(v) => setFormData({ ...formData, entry_date: v ?? "" })}
                   required
                   error={showErrors && !formData.entry_date}
                   helperText={showErrors && !formData.entry_date ? "Entry date is required" : undefined}
                 />
-                <TextField
+                <TDatePicker
                   label="Reverse on (optional)"
-                  type="date"
                   size="small"
                   value={formData.auto_reverse_date || ""}
-                  onChange={(e) => setFormData({ ...formData, auto_reverse_date: e.target.value })}
-                  InputLabelProps={{ shrink: true }}
+                  onChange={(v) => setFormData({ ...formData, auto_reverse_date: v ?? "" })}
                   helperText="For accruals: a reversal is posted on this date together with the entry"
                 />
                 <TextField
@@ -1058,7 +1068,7 @@ export default function JournalEntriesPage() {
               <TextField
                 label="Entry Date"
                 size="small"
-                value={format(new Date(detail.entry_date), "dd/MM/yyyy")}
+                value={displayDate(detail.entry_date)}
                 disabled
               />
               <TextField label="Entry Type" size="small" value={detail.entry_type} disabled />
@@ -1092,7 +1102,7 @@ export default function JournalEntriesPage() {
                 <TextField
                   label="Posting Date"
                   size="small"
-                  value={format(new Date(detail.posting_date), "dd/MM/yyyy")}
+                  value={displayDate(detail.posting_date)}
                   disabled
                 />
                 {detail.reversed_je_no && (

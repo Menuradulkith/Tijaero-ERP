@@ -95,6 +95,17 @@ export const MasterDetailLayout: React.FC<MasterDetailLayoutProps> = ({
           flexShrink: 0,
         }}
       >
+        {/* On desktop the filter row stands in for the title (the shared list look);
+            on a phone the filters wrap, so the page name goes on its own line above. */}
+        {titleSlot && title && (
+          <Typography
+            variant="subtitle1"
+            fontWeight={600}
+            sx={{ display: { xs: "block", sm: "none" }, width: "100%", pt: 0.5 }}
+          >
+            {title}
+          </Typography>
+        )}
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: titleSlot ? { xs: "100%", sm: 0 } : 0 }}>
           {titleSlot ? (
             titleSlot

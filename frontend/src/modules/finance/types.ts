@@ -101,6 +101,8 @@ export interface Expense {
   // Accounting
   account_code?: string;
   cost_center?: string;
+  /** Single-expense read only: the payment journal is already in the ledger. */
+  posted_to_accounts?: boolean | null;
   // Timestamps
   created_date: string;
   created_at?: string;
@@ -282,6 +284,11 @@ export interface CashbookSummary {
   net_movement: number;
   opening_balance: number;
   closing_balance: number;
+  /** Cash in hand (cash + cheques not yet banked) vs bank; they add up to the balances above. */
+  cash_opening_balance?: number;
+  cash_closing_balance?: number;
+  bank_opening_balance?: number;
+  bank_closing_balance?: number;
   // Breakdown by type - amounts
   invoice_receipts: number;
   customer_credit_settlements: number;

@@ -47,6 +47,7 @@ import {
   SelectableListItem,
   handleApiError,
   useMasterDetailState,
+  useRecordParam,
   showErrorToast,
   showSuccessToast,
   TDetailSkeleton,
@@ -61,6 +62,7 @@ import {
   TDataGrid,
   type TDataGridColumn,
   TRemarkField,
+  TDatePicker,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
@@ -73,6 +75,7 @@ import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
 
 import CancelIcon from "@mui/icons-material/Cancel";
+import { todayISO, displayDate, formatDateTimeReadable } from "@/utils/formatters";
 // Types
 interface Branch {
   branch_code: string;
@@ -96,7 +99,7 @@ interface EligibleAdvancePOOption {
 const INITIAL_FORM_DATA: Partial<SupplierAdvancePaymentCreate> = {
   supplier_id: 0,
   purchasing_order_id: undefined,
-  payment_date: new Date().toISOString().split("T")[0],
+  payment_date: todayISO(),
   payment_method: "",
   original_amount: 0,
   reference_number: "",
@@ -108,7 +111,7 @@ const INITIAL_FORM_DATA: Partial<SupplierAdvancePaymentCreate> = {
 const resetFormFromItem = (item: SupplierAdvancePayment): Partial<SupplierAdvancePaymentCreate> => ({
   supplier_id: item.supplier_id || 0,
   purchasing_order_id: item.purchasing_order_id,
-  payment_date: item.payment_date?.split("T")[0] || new Date().toISOString().split("T")[0],
+  payment_date: item.payment_date?.split("T")[0] || todayISO(),
   payment_method: item.payment_method || "Bank Transfer",
   original_amount: Number(item.original_amount) || 0,
   reference_number: item.reference_number || "",
@@ -132,7 +135,7 @@ export default function SupplierAdvancePaymentsPage() {
   // Return dialog state
   const [returnDialogOpen, setReturnDialogOpen] = useState(false);
   const [returnAmount, setReturnAmount] = useState<number | "">("");
-  const [returnDate, setReturnDate] = useState(new Date().toISOString().split("T")[0]);
+  const [returnDate, setReturnDate] = useState(todayISO());
   const [returnMethod, setReturnMethod] = useState("Bank Transfer");
   const [returnReference, setReturnReference] = useState("");
   const [returnRemarks, setReturnRemarks] = useState("");
@@ -146,6 +149,7 @@ export default function SupplierAdvancePaymentsPage() {
     searchQuery,
     setSearchQuery,
     selectedItem,
+    openItem,
     setSelectedItem,
     isEditing,
     setIsEditing,
@@ -363,7 +367,7 @@ export default function SupplierAdvancePaymentsPage() {
   const openReturnDialog = useCallback(() => {
     if (!selectedItem) return;
     setReturnAmount(remainingForReturn);
-    setReturnDate(new Date().toISOString().split("T")[0]);
+    setReturnDate(todayISO());
     setReturnMethod(selectedItem.payment_method as string || "Bank Transfer");
     setReturnReference("");
     setReturnRemarks("");
@@ -529,7 +533,7 @@ export default function SupplierAdvancePaymentsPage() {
         header: "Date",
         width: 120,
         renderCell: (params: GridRenderCellParams<SupplierAdvancePayment>) =>
-          params.row.payment_date ? new Date(params.row.payment_date).toLocaleDateString() : "-",
+          params.row.payment_date ? displayDate(params.row.payment_date) : "-",
       },
       {
         field: "original_amount",
@@ -728,15 +732,13 @@ export default function SupplierAdvancePaymentsPage() {
                   />
                 )}
               />
-              <TextField
+              <TDatePicker
                 label="Payment Date"
                 size="small"
-                type="date"
                 value={formData.payment_date || ""}
-                onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
+                onChange={(v) => setFormData({ ...formData, payment_date: v ?? "" })}
                 onBlur={() => handleBlur("payment_date")}
                 disabled={!isEditing && !isCreating}
-                InputLabelProps={{ shrink: true }}
                 required
                 error={hasError("payment_date")}
                 helperText={getFieldError("payment_date")}
@@ -863,7 +865,7 @@ export default function SupplierAdvancePaymentsPage() {
                     <TextField
                       label="Return Date"
                       size="small"
-                      value={detailAdvance.return_date ? new Date(detailAdvance.return_date).toLocaleDateString() : "-"}
+                      value={detailAdvance.return_date ? displayDate(detailAdvance.return_date) : "-"}
                       disabled
                       InputProps={{ readOnly: true }}
                     />
@@ -904,14 +906,14 @@ export default function SupplierAdvancePaymentsPage() {
                 <TextField
                   label="Created Date"
                   size="small"
-                  value={selectedItem.created_at ? new Date(selectedItem.created_at).toLocaleString() : "-"}
+                  value={selectedItem.created_at ? formatDateTimeReadable(selectedItem.created_at) : "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
                 <TextField
                   label="Last Updated"
                   size="small"
-                  value={selectedItem.updated_at ? new Date(selectedItem.updated_at).toLocaleString() : "-"}
+                  value={selectedItem.updated_at ? formatDateTimeReadable(selectedItem.updated_at) : "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
@@ -934,6 +936,18 @@ export default function SupplierAdvancePaymentsPage() {
       </Box>
     </Box>
   );
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedItem?.id,
+    creating: isCreating,
+    items: advances,
+    loading: isLoading,
+    fetchById: (id) => supplierAdvancePaymentsApi.getById(Number(id)),
+    onOpen: openItem,
+    onClose: handleBackToAdvances,
+    onNew: handleNewAdvance,
+  });
 
   return (
     <>
@@ -1040,14 +1054,12 @@ export default function SupplierAdvancePaymentsPage() {
               helperText={`Max: ${currencySymbol} ${fmtLKR(remainingForReturn)}`}
               fullWidth
             />
-            <TextField
+            <TDatePicker
               label="Return Date"
               size="small"
-              type="date"
               value={returnDate}
-              onChange={(e) => setReturnDate(e.target.value)}
+              onChange={(v) => setReturnDate(v ?? "")}
               required
-              InputLabelProps={{ shrink: true }}
               fullWidth
             />
             <TextField

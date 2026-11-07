@@ -660,7 +660,7 @@ export default function DashboardPage() {
                       count={metrics.pending_expense_approvals}
                       icon={<ReceiptLongIcon sx={{ fontSize: 14 }} />}
                       color={theme.palette.error.main}
-                      onClick={() => navigate("/finance/expense-approvals")}
+                      onClick={() => navigate("/finance/approvals/expense-approvals")}
                     />
                     <ApprovalRow
                       label="Stock Transfers"

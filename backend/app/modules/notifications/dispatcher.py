@@ -45,6 +45,7 @@ FINANCE = "finance"
 HR = "hr"
 SUPPORT = "support"
 APPROVALS = "approvals"
+MANUFACTURING = "manufacturing"
 
 
 def _emit(

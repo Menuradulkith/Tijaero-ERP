@@ -68,6 +68,7 @@ import { salesApi } from "@/modules/sales/api";
 import { InvoiceWithItems } from "@/modules/sales/types";
 import { commissionsApi } from "@/modules/sales/commission-api";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { codeLabel, displayDate, formatDateTimeReadable } from "@/utils/formatters";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "created_date", label: "Date" },
@@ -83,6 +84,21 @@ const BT_STATUS_FILTER_OPTIONS = [
   { value: "rejected", label: "Rejected" },
 ];
 
+/** One order line's printed amounts. API amounts can arrive as strings ("1200.00"),
+ * so every value goes through Number(): adding strings left the Total blank. */
+function lineAmounts(item: any, order: { is_tax_invoice?: boolean; tax_rate?: number | string | null }) {
+  const taxRate = Number(order.tax_rate || 0);
+  const exTax = (v: number) => (order.is_tax_invoice && taxRate > 0 ? v / (1 + taxRate / 100) : v);
+  const qty = Number(item.quantity || 0);
+  const displaySellingPrice = exTax(Number(item.selling_price || 0));
+  const lineGross = qty * displaySellingPrice;
+  const discountAmount = Number(item.discount_amount || 0);
+  const discAmt = discountAmount > 0 ? exTax(discountAmount) : lineGross * (Number(item.discount_percent || 0) / 100);
+  const lineTotal = Number(item.line_total || 0);
+  const netAmount = lineTotal > 0 ? exTax(lineTotal) : lineGross - discAmt;
+  return { displaySellingPrice, lineGross, netAmount };
+}
+
 export default function BankTransferVerifyPage() {
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   const canViewCustomers = usePermission("customers", "view");
@@ -97,7 +113,7 @@ export default function BankTransferVerifyPage() {
   // Filter states - all filters apply live as the user types/selects, no
   // separate "Search" step needed.
   const [filterBranch, setFilterBranch] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState<string | null>("all");
+  const [filterStatus, setFilterStatus] = useState<string | null>("pending_verification");
 
   // Reject reason dialog
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -117,7 +133,7 @@ export default function BankTransferVerifyPage() {
 
   const handleClearFilters = useCallback(() => {
     setSearchQuery("");
-    setFilterStatus("all");
+    setFilterStatus("pending_verification");
     setFilterBranch(null);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -326,7 +342,7 @@ export default function BankTransferVerifyPage() {
   const formatDate = (dateStr: string | undefined) => {
     if (!dateStr) return "N/A";
     try {
-      return format(new Date(dateStr), "dd/MM/yyyy HH:mm");
+      return format(new Date(dateStr), "dd MMM yyyy HH:mm");
     } catch {
       return dateStr;
     }
@@ -432,8 +448,9 @@ export default function BankTransferVerifyPage() {
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Finance" },
-          { label: "Bank Transfer Verification", href: "/finance/bank-transfer-verify" },
+          { label: "Finance", href: "/finance" },
+          { label: "Approvals", href: "/finance/approvals" },
+          { label: "Bank Transfer Verify", href: "/finance/approvals/bank-transfer-verify" },
           ...(selectedTransfer ? [{ label: selectedTransfer.invoice_no }] : []),
         ]}
         title={selectedTransfer?.invoice_no || ""}
@@ -505,7 +522,7 @@ export default function BankTransferVerifyPage() {
                 value={
                   selectedTransfer.source === "credit_settlement"
                     ? "Credit Settlement (Bank Transfer)"
-                    : selectedOrder.payment_method
+                    : codeLabel(selectedOrder.payment_method)
                 }
                 disabled
               />
@@ -561,7 +578,7 @@ export default function BankTransferVerifyPage() {
               <TextField
                 label="Created Date"
                 size="small"
-                value={selectedOrder.created_at ? new Date(selectedOrder.created_at).toLocaleString() : ""}
+                value={selectedOrder.created_at ? formatDateTimeReadable(selectedOrder.created_at) : ""}
                 disabled
                 InputProps={{ readOnly: true }}
               />
@@ -576,12 +593,12 @@ export default function BankTransferVerifyPage() {
 
             {/* Order Items */}
             <FormSection title="Order Items" columns={1}>
-              <Paper variant="outlined" sx={{ overflow: "hidden", width: "100%", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
-                <Table size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
+              <Paper variant="outlined" sx={{ overflowX: "auto", width: "100%", borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
+                <Table size="small" sx={{ minWidth: 760, width: "100%" }}>
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell sx={{ width: 110 }}>Barcode</TableCell>
-                      <TableCell sx={{ width: 200 }}>Product</TableCell>
+                      <TableCell>Product</TableCell>
                       <TableCell align="right" sx={{ width: 60 }}>Qty</TableCell>
                       <TableCell align="right" sx={{ width: 120 }}>{`Unit Price (${currencySymbol})`}</TableCell>
                       <TableCell align="right" sx={{ width: 70 }}>Disc %</TableCell>
@@ -593,20 +610,7 @@ export default function BankTransferVerifyPage() {
                   <TableBody>
                     {selectedOrder.items?.map((item: any, index) => {
                       const product = productMap.get(item.product_id);
-                      const isTaxInclusive = selectedOrder.is_tax_invoice;
-                      const taxRate = selectedOrder.tax_rate || 0;
-
-                      const displaySellingPrice = isTaxInclusive && taxRate > 0
-                        ? item.selling_price / (1 + taxRate / 100)
-                        : item.selling_price;
-
-                      const lineGross = item.quantity * displaySellingPrice;
-                      const discAmt = item.discount_amount > 0
-                        ? (isTaxInclusive && taxRate > 0 ? item.discount_amount / (1 + taxRate / 100) : item.discount_amount)
-                        : lineGross * ((item.discount_percent || 0) / 100);
-                      const netAmount = item.line_total > 0
-                        ? (isTaxInclusive && taxRate > 0 ? item.line_total / (1 + taxRate / 100) : item.line_total)
-                        : lineGross - discAmt;
+                      const { displaySellingPrice, lineGross, netAmount } = lineAmounts(item, selectedOrder);
 
                       return (
                         <TableRow key={index} sx={{
@@ -679,15 +683,12 @@ export default function BankTransferVerifyPage() {
                       </TableCell>
                       <TableCell align="right">
                         <strong>
-                          {fmtLKR(selectedOrder.items?.reduce((sum, item: any) => {
-                            const isTaxInclusive = selectedOrder.is_tax_invoice;
-                            const taxRate = selectedOrder.tax_rate || 0;
-                            const displaySellingPrice = isTaxInclusive && taxRate > 0 ? item.selling_price / (1 + taxRate / 100) : item.selling_price;
-                            const lineGross = item.quantity * displaySellingPrice;
-                            const discAmt = item.discount_amount > 0 ? (isTaxInclusive && taxRate > 0 ? item.discount_amount / (1 + taxRate / 100) : item.discount_amount) : lineGross * ((item.discount_percent || 0) / 100);
-                            const netAmount = item.line_total > 0 ? (isTaxInclusive && taxRate > 0 ? item.line_total / (1 + taxRate / 100) : item.line_total) : lineGross - discAmt;
-                            return sum + netAmount;
-                          }, 0) || 0)}
+                          {fmtLKR(
+                            (selectedOrder.items ?? []).reduce(
+                              (sum: number, item: any) => sum + lineAmounts(item, selectedOrder).netAmount,
+                              0,
+                            ),
+                          )}
                         </strong>
                       </TableCell>
                     </TableRow>
@@ -740,7 +741,7 @@ export default function BankTransferVerifyPage() {
                             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, fontStyle: "italic" }}>
                               {selectedOrder.cheque_bank ? `${selectedOrder.cheque_bank} ` : ""}
                               {selectedOrder.cheque_number ? `#${selectedOrder.cheque_number} ` : ""}
-                              {selectedOrder.cheque_date ? `(Due: ${new Date(selectedOrder.cheque_date).toLocaleDateString()})` : ""}
+                              {selectedOrder.cheque_date ? `(Due: ${displayDate(selectedOrder.cheque_date)})` : ""}
                             </Typography>
                           )}
                         </Box>
@@ -946,7 +947,7 @@ export default function BankTransferVerifyPage() {
             <Box sx={{ width: 170, flexShrink: 0 }}>
               <TBranchFilter branches={branches} value={filterBranch} onChange={setFilterBranch} label="" placeholder="All Branches" size="small" />
             </Box>
-            {(searchQuery || (filterStatus && filterStatus !== "all") || filterBranch) && (
+            {(searchQuery || filterStatus !== "pending_verification" || filterBranch) && (
               <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
                 Clear
               </Button>

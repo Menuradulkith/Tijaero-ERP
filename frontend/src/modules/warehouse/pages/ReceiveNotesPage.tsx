@@ -173,7 +173,7 @@ export default function ReceiveNotesPage() {
     },
   });
 
-  // Fetch Available Transfer Notes (approved, not yet received)
+  // Fetch Available Transfer Notes (dispatched, not yet fully received)
   const { data: availableITNs, isLoading: isLoadingITNs } = useQuery<ItemTransferNoteWithItems[]>({
     queryKey: ["availableTransferNotes", branchFilter],
     queryFn: async () => {
@@ -183,17 +183,11 @@ export default function ReceiveNotesPage() {
           limit: 100,
           to_location_branch: branchFilter || undefined,
         });
-        const allNotes = Array.isArray(response) ? response : [];
-        // Fetch each note with items
-        const notesWithItems = await Promise.all(
-          allNotes.map((note) => transferNotesApi.getById(note.id))
+        // An approved note must be dispatched before it can be received
+        const receivable = (Array.isArray(response) ? response : []).filter((note) =>
+          ["dispatched", "in_transit", "partially_received"].includes(note.status || "")
         );
-        return notesWithItems.filter(
-          (note) =>
-            ["approved", "dispatched", "in_transit", "partially_received"].includes(
-              note.status || ""
-            )
-        );
+        return Promise.all(receivable.map((note) => transferNotesApi.getById(note.id)));
       } catch (err) {
         return [];
       }
@@ -587,7 +581,7 @@ export default function ReceiveNotesPage() {
               </Box>
             ) : (availableITNs || []).length === 0 ? (
               <TAlert severity="info">
-                No approved transfer notes available for receiving
+                No dispatched transfer notes available for receiving
               </TAlert>
             ) : (
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>

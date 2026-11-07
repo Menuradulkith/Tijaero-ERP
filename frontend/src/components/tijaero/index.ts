@@ -118,7 +118,16 @@ export {
 export * from "./types";
 
 // Hooks
-export { useCrudMutation, useMasterDetailState, useRowSelection, type UseRowSelectionReturn } from "./hooks";
+export {
+  useCrudMutation,
+  useMasterDetailState,
+  useRowSelection,
+  type UseRowSelectionReturn,
+  useRecordParam,
+  useTabParam,
+  type UseRecordParamOptions,
+  type UseRecordParamReturn,
+} from "./hooks";
 
 // Layouts
 export { MasterDetailLayout } from "./layouts";

@@ -63,9 +63,11 @@ import {
   fmtLKR,
   TActivityHistoryPanel,
   TRemarkField,
+  TDatePicker,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { todayISO, displayDate, formatDateTimeReadable } from "@/utils/formatters";
 
 // Types
 interface Branch {
@@ -100,14 +102,14 @@ const CUSTOMER_INITIAL_FORM: Partial<CustomerAdvancePaymentCreate> = {
   payment_amount: 0,
   remarks: "",
   customer_id: 0,
-  cheque_date: new Date().toISOString().split("T")[0],
+  cheque_date: todayISO(),
   active: true,
   quote_id: undefined,
 };
 
 const SUPPLIER_INITIAL_FORM: Partial<SupplierAdvancePaymentCreate> = {
   supplier_id: 0,
-  payment_date: new Date().toISOString().split("T")[0],
+  payment_date: todayISO(),
   payment_method: "bank_transfer",
   original_amount: 0,
   reference_number: "",
@@ -290,13 +292,13 @@ export default function AdvancePaymentsPage() {
           payment_amount: Number(item.payment_amount) || 0,
           remarks: item.remarks || "",
           customer_id: item.customer_id || 0,
-          cheque_date: (item.cheque_date || "").split("T")[0] || new Date().toISOString().split("T")[0],
+          cheque_date: (item.cheque_date || "").split("T")[0] || todayISO(),
           active: item.active ?? true,
         });
       } else {
         setSupplierForm({
           supplier_id: item.supplier_id || 0,
-          payment_date: (item.payment_date || "").split("T")[0] || new Date().toISOString().split("T")[0],
+          payment_date: (item.payment_date || "").split("T")[0] || todayISO(),
           payment_method: item.payment_method || "bank_transfer",
           original_amount: Number(item.original_amount) || 0,
           reference_number: item.reference_number || "",
@@ -580,7 +582,7 @@ export default function AdvancePaymentsPage() {
                   )}
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <Typography component="span" variant="caption">
-                      {getRecordDate(adv) ? new Date(getRecordDate(adv)).toLocaleDateString() : "-"}
+                      {getRecordDate(adv) ? displayDate(getRecordDate(adv)) : "-"}
                     </Typography>
                     <Typography component="span" variant="caption" sx={{ color: "inherit", opacity: 0.7 }}>
                       (Date)
@@ -791,14 +793,12 @@ export default function AdvancePaymentsPage() {
                 }}
                 inputProps={{ min: 0, step: 0.01 }}
               />
-              <TextField
+              <TDatePicker
                 label="Payment Date"
                 size="small"
-                type="date"
                 value={customerForm.cheque_date || ""}
-                onChange={(e) => setCustomerForm({ ...customerForm, cheque_date: e.target.value })}
+                onChange={(v) => setCustomerForm({ ...customerForm, cheque_date: v ?? "" })}
                 disabled={!isEditing && !isCreating}
-                InputLabelProps={{ shrink: true }}
                 required
               />
             </FormSection>
@@ -835,7 +835,7 @@ export default function AdvancePaymentsPage() {
                 <TextField
                   label="Created"
                   size="small"
-                  value={selectedItem.created_at ? new Date(selectedItem.created_at).toLocaleString() : "-"}
+                  value={selectedItem.created_at ? formatDateTimeReadable(selectedItem.created_at) : "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
@@ -898,15 +898,13 @@ export default function AdvancePaymentsPage() {
                   />
                 )}
               />
-              <TextField
+              <TDatePicker
                 label="Payment Date"
                 size="small"
-                type="date"
                 value={supplierForm.payment_date || ""}
-                onChange={(e) => setSupplierForm({ ...supplierForm, payment_date: e.target.value })}
+                onChange={(v) => setSupplierForm({ ...supplierForm, payment_date: v ?? "" })}
                 onBlur={() => handleBlur("payment_date")}
                 disabled={!isEditing && !isCreating}
-                InputLabelProps={{ shrink: true }}
                 required
                 error={hasError("payment_date")}
                 helperText={getFieldError("payment_date")}
@@ -1031,14 +1029,14 @@ export default function AdvancePaymentsPage() {
                 <TextField
                   label="Created Date"
                   size="small"
-                  value={selectedItem.created_at ? new Date(selectedItem.created_at).toLocaleString() : "-"}
+                  value={selectedItem.created_at ? formatDateTimeReadable(selectedItem.created_at) : "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
                 <TextField
                   label="Last Updated"
                   size="small"
-                  value={selectedItem.updated_at ? new Date(selectedItem.updated_at).toLocaleString() : "-"}
+                  value={selectedItem.updated_at ? formatDateTimeReadable(selectedItem.updated_at) : "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />

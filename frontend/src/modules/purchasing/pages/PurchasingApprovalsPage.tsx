@@ -17,6 +17,7 @@ import {
 // Tijaero Components
 import { TPageHeader, TStatCard } from "@/components/tijaero";
 import { purchaseOrdersApi } from "@/modules/purchasing/api";
+import { todayISO } from "@/utils/formatters";
 
 interface ApprovalCard {
   title: string;
@@ -51,8 +52,8 @@ export default function PurchasingApprovalsPage() {
     queryKey: ["purchasing-approvals", "approved-pos-today"],
     queryFn: () => purchaseOrdersApi.getAll({
       status: "approved",
-      date_from: new Date().toISOString().split("T")[0],
-      date_to: new Date().toISOString().split("T")[0],
+      date_from: todayISO(),
+      date_to: todayISO(),
     }),
     refetchInterval: 30_000,
   });

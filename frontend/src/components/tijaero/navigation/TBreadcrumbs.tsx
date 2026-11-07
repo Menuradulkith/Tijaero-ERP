@@ -74,7 +74,8 @@ export const TBreadcrumbs: React.FC<TBreadcrumbsProps> = ({
         const showIcon = isFirst && showHomeIcon;
 
         const content = (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          // span, not div: it sits inside Typography (a <p>) and Link (an <a>)
+          <Box component="span" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
             {item.icon || (showIcon && <HomeIcon fontSize="small" />)}
             {item.label}
           </Box>
@@ -85,6 +86,7 @@ export const TBreadcrumbs: React.FC<TBreadcrumbsProps> = ({
           return (
             <Typography
               key={index}
+              component="span"
               color={isLast ? "text.primary" : "text.secondary"}
               sx={{
                 display: "flex",

@@ -113,8 +113,15 @@ class TestSenderAndReceiverRoles:
         ItemTransferNoteService(db).approve_transfer_note(note.id, user_id=itn_world["sender"].id)
         assert client.post(f"{W}/transfer-notes/{note.id}/dispatch").status_code == 403
 
+    def test_an_undispatched_note_cannot_be_received(self, db, api, itn_world):
+        note = _approved(db, itn_world)
+        body = {"barcodes": [itn_world["units"][0].barcode]}
+        r = api(itn_world["receiver_tok"]).post(f"{W}/transfer-notes/{note.id}/receive-items", json=body)
+        assert r.status_code == 400 and "not been dispatched" in r.json()["detail"]
+
     def test_only_the_receiving_branch_receives(self, db, api, itn_world):
         note = _approved(db, itn_world)
+        ItemTransferNoteService(db).dispatch_transfer_note(note.id)
         body = {"barcodes": [itn_world["units"][0].barcode]}
         r = api(itn_world["sender_tok"]).post(f"{W}/transfer-notes/{note.id}/receive-items", json=body)
         assert r.status_code == 403

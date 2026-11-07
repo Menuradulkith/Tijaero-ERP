@@ -37,6 +37,7 @@ import {
   EmptyState,
   handleApiError,
   useMasterDetailState,
+  useRecordParam,
   showErrorToast,
   showSuccessToast,
   TDetailSkeleton,
@@ -50,6 +51,7 @@ import {
   TActivityHistoryPanel,
   TDataGrid,
   type TDataGridColumn,
+  TDatePicker,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
@@ -58,6 +60,7 @@ import { customersApi } from "@/modules/customers/api";
 import { CustomerAdvancePayment, CustomerAdvancePaymentCreate } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { todayISO, displayDate, formatDateTimeReadable } from "@/utils/formatters";
 
 // Types
 interface Branch {
@@ -78,7 +81,7 @@ const INITIAL_FORM_DATA: Partial<CustomerAdvancePaymentCreate> = {
   payment_amount: 0,
   remarks: "",
   customer_id: 0,
-  cheque_date: new Date().toISOString().split("T")[0],
+  cheque_date: todayISO(),
   active: true,
 };
 
@@ -89,7 +92,7 @@ const resetFormFromItem = (item: CustomerAdvancePayment): Partial<CustomerAdvanc
   payment_amount: Number(item.payment_amount) || 0,
   remarks: item.remarks || "",
   customer_id: item.customer_id || 0,
-  cheque_date: item.cheque_date?.split("T")[0] || new Date().toISOString().split("T")[0],
+  cheque_date: item.cheque_date?.split("T")[0] || todayISO(),
   active: item.active ?? true,
 });
 
@@ -112,6 +115,7 @@ export default function CustomerAdvancePaymentsPage() {
     searchQuery,
     setSearchQuery,
     selectedItem,
+    openItem,
     setSelectedItem,
     isEditing,
     setIsEditing,
@@ -343,7 +347,7 @@ export default function CustomerAdvancePaymentsPage() {
         header: "Date",
         width: 140,
         renderCell: (params: GridRenderCellParams<AdvanceRow>) =>
-          params.row.cheque_date ? new Date(params.row.cheque_date).toLocaleDateString() : "-",
+          params.row.cheque_date ? displayDate(params.row.cheque_date) : "-",
       },
       {
         field: "payment_amount",
@@ -536,15 +540,13 @@ export default function CustomerAdvancePaymentsPage() {
                 }}
                 inputProps={{ min: 0, step: 0.01 }}
               />
-              <TextField
+              <TDatePicker
                 label="Payment Date"
                 size="small"
-                type="date"
                 value={formData.cheque_date || ""}
-                onChange={(e) => setFormData({ ...formData, cheque_date: e.target.value })}
+                onChange={(v) => setFormData({ ...formData, cheque_date: v ?? "" })}
                 onBlur={() => handleBlur("cheque_date")}
                 disabled={!isEditing && !isCreating}
-                InputLabelProps={{ shrink: true }}
                 required
                 error={hasError("cheque_date")}
                 helperText={getFieldError("cheque_date")}
@@ -575,7 +577,7 @@ export default function CustomerAdvancePaymentsPage() {
                 <TextField
                   label="Created Date"
                   size="small"
-                  value={selectedItem.created_date ? new Date(selectedItem.created_date).toLocaleString() : "-"}
+                  value={selectedItem.created_date ? formatDateTimeReadable(selectedItem.created_date) : "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
@@ -605,6 +607,18 @@ export default function CustomerAdvancePaymentsPage() {
       </Box>
     </Box>
   );
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedItem?.id,
+    creating: isCreating,
+    items: advances,
+    loading: isLoading,
+    fetchById: (id) => advancePaymentsApi.getById(Number(id)),
+    onOpen: openItem,
+    onClose: handleBackToAdvances,
+    onNew: handleNewAdvance,
+  });
 
   return (
     <>

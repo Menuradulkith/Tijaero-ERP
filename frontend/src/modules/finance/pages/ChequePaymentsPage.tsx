@@ -29,6 +29,7 @@ import {
   FormSection,
   EmptyState,
   useMasterDetailState,
+  useRecordParam,
   TDetailSkeleton,
   TBranchFilter,
   TDatePicker,
@@ -44,6 +45,7 @@ import { ChequePayment, ChequePaymentCreate } from "@/modules/finance/types";
 import ChequeStatusSection, { ChequeStatusChip, type ChequeRegisterFields } from "./ChequeStatusSection";
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { displayDate } from "@/utils/formatters";
 
 interface Branch {
   branch_code: string;
@@ -91,6 +93,7 @@ export default function ChequePaymentsPage() {
     searchQuery,
     setSearchQuery,
     selectedItem,
+    openItem,
     setSelectedItem,
     isCreating,
     formData,
@@ -196,7 +199,7 @@ export default function ChequePaymentsPage() {
         header: "Date",
         width: 130,
         renderCell: (params: GridRenderCellParams<ChequePaymentRow>) =>
-          params.row.cheque_date ? new Date(params.row.cheque_date).toLocaleDateString() : "-",
+          params.row.cheque_date ? displayDate(params.row.cheque_date) : "-",
       },
       {
         field: "amount",
@@ -221,7 +224,7 @@ export default function ChequePaymentsPage() {
         header: "Clearance Date",
         width: 150,
         renderCell: (params: GridRenderCellParams<ChequePaymentRow>) =>
-          params.row.deposit_date ? new Date(params.row.deposit_date).toLocaleDateString() : "-",
+          params.row.deposit_date ? displayDate(params.row.deposit_date) : "-",
       },
       {
         field: "view",
@@ -274,7 +277,7 @@ export default function ChequePaymentsPage() {
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Finance", href: "/finance" },
-          { label: "Customer Payment Methods", href: "/finance/customer-payment-methods" },
+          { label: "Money In" },
           { label: "Cheque Payments", href: "/finance/customer-payment-methods/cheque-payments" },
           ...(selectedItem || isCreating ? [{ label: isCreating ? "New Cheque" : `CHQ-${selectedItem?.cheque_number || selectedItem?.id}` }] : []),
         ]}
@@ -404,6 +407,17 @@ export default function ChequePaymentsPage() {
       </Box>
     </Box>
   );
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedItem?.id,
+    creating: isCreating,
+    items: cheques,
+    loading: isLoading,
+    fetchById: (id) => chequePaymentsApi.getById(Number(id)),
+    onOpen: openItem,
+    onClose: handleBackToCheques,
+  });
 
   return (
     <>

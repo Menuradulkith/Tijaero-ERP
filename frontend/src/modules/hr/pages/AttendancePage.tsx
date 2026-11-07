@@ -6,7 +6,7 @@
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Button, IconButton, InputAdornment, MenuItem, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Chip, IconButton, InputAdornment, MenuItem, TextField, Tooltip, Typography } from "@mui/material";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import LoginIcon from "@mui/icons-material/Login";
 import LogoutIcon from "@mui/icons-material/Logout";
@@ -288,6 +288,9 @@ export default function AttendancePage() {
   const isFormValid = !!formData.employee_id && !!formData.branch_code && !!formData.date;
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDisabled = !isEditing && !isCreating;
+  const homeBranch =
+    (employees || []).find((e) => e.employee_id === formData.employee_id)?.branch_code
+    ?? (isCreating ? null : selectedAttendance?.employee_branch_code ?? null);
 
   // Whether we're showing a single attendance record's detail view
   // (selected or being created) instead of the browse table.
@@ -311,6 +314,21 @@ export default function AttendancePage() {
         width: 130,
         renderCell: (params: GridRenderCellParams<Attendance>) =>
           format(new Date(params.row.date), "MMM dd, yyyy"),
+      },
+      {
+        field: "branch_code",
+        header: "Branch",
+        width: 170,
+        renderCell: (params: GridRenderCellParams<Attendance>) => (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            {params.row.branch_code}
+            {params.row.other_branch && (
+              <Tooltip title={`Home branch: ${params.row.employee_branch_code}`}>
+                <Chip label="Other branch" size="small" color="warning" variant="outlined" />
+              </Tooltip>
+            )}
+          </Box>
+        ),
       },
       {
         field: "check_in",
@@ -484,6 +502,16 @@ export default function AttendancePage() {
                 onChange={(e) => setFormData({ ...formData, branch_code: e.target.value })}
                 disabled={isDisabled || !isCreating}
                 required
+                helperText={
+                  homeBranch
+                    ? homeBranch === formData.branch_code
+                      ? `Home branch: ${homeBranch}`
+                      : `Not the employee's home branch (${homeBranch}); it will be marked as another branch`
+                    : undefined
+                }
+                FormHelperTextProps={{
+                  sx: homeBranch && formData.branch_code && homeBranch !== formData.branch_code ? { color: "warning.main" } : undefined,
+                }}
               >
                 {(branches || []).map((b) => (
                   <MenuItem key={b.branch_code} value={b.branch_code}>

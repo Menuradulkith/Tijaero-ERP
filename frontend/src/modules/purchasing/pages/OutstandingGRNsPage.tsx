@@ -54,6 +54,7 @@ import { suppliersApi } from "@/modules/purchasing/api";
 import { useReferenceData } from "@/hooks";
 import type { Supplier } from "@/modules/purchasing/types";
 import { escapeHtml } from "@/utils/escapeHtml";
+import { todayISO } from "@/utils/formatters";
 
 type SortDir = "asc" | "desc";
 type SortField =
@@ -205,7 +206,7 @@ export default function OutstandingGRNsPage() {
       i.branch_code,
     ]);
     exportToCSV({
-      filename: `outstanding_grns_${new Date().toISOString().split("T")[0]}`,
+      filename: `outstanding_grns_${todayISO()}`,
       headers,
       rows,
     });

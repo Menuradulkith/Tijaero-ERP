@@ -47,6 +47,7 @@ import {
   TRemarkField,
   TSearchableSelect,
   TStatusChip,
+  useRecordParam,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { customersApi, type OutstandingDocumentItem } from "@/modules/customers/api";
@@ -191,6 +192,20 @@ export default function WriteOffsPage() {
   const overLimit = limit !== null && limit !== undefined && value > Number(limit);
   const valid = !!doc && value > 0 && value <= open && !overLimit;
   const detailMode = creating || !!selected;
+
+  // Open write-off lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam<WriteOff>({
+    current: selected?.id,
+    creating,
+    items: rows,
+    loading: isLoading,
+    onOpen: (wo) => {
+      setCreating(false);
+      setSelected(wo);
+    },
+    onClose: back,
+    onNew: canWrite ? () => setCreating(true) : undefined,
+  });
 
   const createForm = (
     <>

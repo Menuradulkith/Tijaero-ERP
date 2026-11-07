@@ -157,15 +157,21 @@ class TestProductionOrderLifecycle:
 
         o = svc.issue_materials(o["id"], s.MaterialMoveIn(lines=[
             s.MaterialLineIn(material_id=mats[plant["top"].id]["id"], quantity=5),
-            s.MaterialLineIn(material_id=mats[plant["leg"].id]["id"], quantity=22),
+            s.MaterialLineIn(material_id=mats[plant["leg"].id]["id"], quantity=20),
         ]), uid)
         assert o["status"] == "in_progress"
-        assert _free(db, plant["top"], plant["branch"]) == 5 and _free(db, plant["leg"], plant["branch"]) == 18
+        assert _free(db, plant["top"], plant["branch"]) == 5 and _free(db, plant["leg"], plant["branch"]) == 20
         consumed = db.query(SalesStock).filter(SalesStock.consumed_by_production_order_id == o["id"]).all()
-        assert sum(r.quantity for r in consumed) == 27 and all(r.status == "consumed" for r in consumed)
+        assert sum(r.quantity for r in consumed) == 25 and all(r.status == "consumed" for r in consumed)
 
-        o = svc.return_materials(o["id"], s.MaterialMoveIn(lines=[
-            s.MaterialLineIn(material_id=mats[plant["leg"].id]["id"], quantity=2)]), uid)
+        # no more than the order can use (4 legs x 5, no over-production tolerance)
+        leg_line = [s.MaterialLineIn(material_id=mats[plant["leg"].id]["id"], quantity=2)]
+        with pytest.raises(HTTPException) as exc:
+            svc.issue_materials(o["id"], s.MaterialMoveIn(lines=leg_line), uid)
+        assert "up to 20 unit(s)" in exc.value.detail
+        o = svc.return_materials(o["id"], s.MaterialMoveIn(lines=leg_line), uid)
+        assert _free(db, plant["leg"], plant["branch"]) == 22
+        o = svc.issue_materials(o["id"], s.MaterialMoveIn(lines=leg_line), uid)
         assert _free(db, plant["leg"], plant["branch"]) == 20
 
         op_id = o["operations"][0]["id"]

@@ -58,8 +58,8 @@ class ReconciliationService:
         trial_balanced = abs(gl_total_debit - gl_total_credit) <= TOLERANCE
         if not trial_balanced:
             discrepancies.append(
-                f"Trial balance is off by {abs(gl_total_debit - gl_total_credit)} "
-                f"(debit {gl_total_debit} vs credit {gl_total_credit})."
+                f"Today's entries do not add up: one side is Rs. {abs(gl_total_debit - gl_total_credit):,.2f} "
+                f"more than the other (Rs. {gl_total_debit:,.2f} vs Rs. {gl_total_credit:,.2f})."
             )
 
         # 2. Cash / bank reconciliation ------------------------------------------------
@@ -85,18 +85,17 @@ class ReconciliationService:
             # Direction-aware hint: say which side is missing the movement.
             if cash_difference > 0:
                 hint = (
-                    "This usually means a transaction posted to the GL but is missing "
-                    "from the cashbook (check cashbook triggers/migrations)."
+                    "A payment is probably in the ledger but missing from the cashbook."
                 )
             else:
                 hint = (
-                    "This usually means a transaction posted to the cashbook but did "
-                    "not post to the GL (check gl_posting_failures)."
+                    "A payment is probably in the cashbook but was not posted to the "
+                    "ledger (see Posting Failures)."
                 )
             discrepancies.append(
-                f"Cash/bank movement does not reconcile with the cashbook: "
-                f"GL net {gl_cash_bank_net} vs expected {expected} "
-                f"(difference {cash_difference}). {hint}"
+                f"Cash and bank do not reconcile with the cashbook: "
+                f"ledger says Rs. {gl_cash_bank_net:,.2f}, cashbook says Rs. {expected:,.2f} "
+                f"(difference Rs. {cash_difference:,.2f}). {hint}"
             )
 
         # 3. Posting health ------------------------------------------------------------
@@ -108,8 +107,8 @@ class ReconciliationService:
         posting_failures_pending = int(pf_q.scalar() or 0)
         if posting_failures_pending:
             discrepancies.append(
-                f"{posting_failures_pending} automatic GL posting(s) failed and are "
-                f"pending retry."
+                f"{posting_failures_pending} automatic posting(s) failed and need a "
+                f"retry (Posting Failures). They may be from earlier days."
             )
 
         je_base = self.db.query(func.count(JournalEntry.id)).filter(
@@ -128,7 +127,7 @@ class ReconciliationService:
         )
         if unposted_je_count:
             warnings.append(
-                f"{unposted_je_count} journal entry(ies) dated today are not yet posted."
+                f"{unposted_je_count} journal entry(ies) dated this day are not yet posted."
             )
 
         is_balanced = (

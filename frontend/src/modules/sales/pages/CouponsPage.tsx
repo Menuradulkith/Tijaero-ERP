@@ -59,7 +59,7 @@ import {
   TDataGrid,
   type TDataGridColumn,
 } from "@/components/tijaero";
-import { formatDateTimeReadable } from "@/utils/formatters";
+import { formatDateTimeReadable, localDateISO } from "@/utils/formatters";
 
 import { usePermission } from "@/auth/permissions";
 import { useCurrencyStore } from "@/state/currencyStore";
@@ -88,7 +88,7 @@ const INITIAL_FORM_DATA: CustomerCuponCodesCreate = {
   minimum_invoice_amount: 0,
   limit_by_usage: 1000,
   limit_for_customer: 10,
-  valid_until_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0], // 30 days from now
+  valid_until_date: localDateISO(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)), // 30 days from now
   active: true,
   limit_validity_product_id: undefined,
   product_ids: [],

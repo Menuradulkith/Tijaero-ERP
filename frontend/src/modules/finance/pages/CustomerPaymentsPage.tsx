@@ -75,6 +75,8 @@ import {
   TConfirmDialog,
   useConfirmDialog,
   fmtLKR,
+  useRecordParam,
+  TDatePicker,
 } from "@/components/tijaero";
 
 import {
@@ -98,6 +100,7 @@ import { useQuery } from "@tanstack/react-query";
 import { settingsApi } from "@/modules/settings/api";
 import { usePermission } from "@/auth/permissions";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { displayDate, todayISO } from "@/utils/formatters";
 
 import CancelIcon from "@mui/icons-material/Cancel";
 // Configuration
@@ -142,7 +145,7 @@ const makeSplitRow = (method = "cash", amount = 0): SplitPaymentRow => ({
   amount,
   cheque_number: "",
   cheque_bank: "",
-  cheque_date: new Date().toISOString().split("T")[0],
+  cheque_date: todayISO(),
   card_ref_number: "",
   card_holder_name: "",
   card_id: null,
@@ -194,7 +197,8 @@ export default function CustomerPaymentsPage() {
 
   // Selection state
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState("created_at");
+  const [sortField, setSortField] = useState("outstanding");
+  const [showAllCustomers, setShowAllCustomers] = useState(false);
 
   // View state
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -233,8 +237,8 @@ export default function CustomerPaymentsPage() {
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [bankName, setBankName] = useState("");
-  const [chequeDate, setChequeDate] = useState(new Date().toISOString().split("T")[0]);
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split("T")[0]);
+  const [chequeDate, setChequeDate] = useState(todayISO());
+  const [paymentDate, setPaymentDate] = useState(todayISO());
   const [remarks, setRemarks] = useState("");
   const [cardRefNumber, setCardRefNumber] = useState("");
   const [cardHolderName, setCardHolderName] = useState("");
@@ -286,9 +290,10 @@ export default function CustomerPaymentsPage() {
     try {
       setLoading(true);
       setError(null);
-      const data = await customersApi.getAll(0, 1000);
-      const activeCustomers = data.filter((c: Customer) => c.active);
-      setCustomers(activeCustomers);
+      // Inactive customers are loaded too: one who still owes money must stay
+      // collectable (they are hidden below unless they have a balance).
+      const data = await customersApi.getAll(0, 100000, false);
+      setCustomers(data);
     } catch (err: unknown) {
       setError(handleApiError(err, "Failed to load customers"));
     } finally {
@@ -300,6 +305,16 @@ export default function CustomerPaymentsPage() {
   useEffect(() => {
     loadCustomers();
   }, [location.key, loadCustomers]);
+
+  // Open credit invoices of every customer (the aging report's source).
+  const {
+    data: outstandingDocs,
+    isLoading: loadingOutstanding,
+    refetch: refetchOutstanding,
+  } = useQuery({
+    queryKey: ["customer-outstanding-documents"],
+    queryFn: () => customersApi.getOutstandingDocuments(),
+  });
 
   // Tracks the most recently requested customer so a slower, stale response
   // (e.g. switching from A to B before A's request resolves) can't overwrite
@@ -349,6 +364,7 @@ export default function CustomerPaymentsPage() {
     const handler = () => {
       loadCustomers();
       refreshSelectedCustomerData();
+      refetchOutstanding();
     };
 
     window.addEventListener("customer-payment-approval-updated", handler as EventListener);
@@ -357,39 +373,51 @@ export default function CustomerPaymentsPage() {
       window.removeEventListener("customer-payment-approval-updated", handler as EventListener);
       window.removeEventListener("sales-order-updated", handler as EventListener);
     };
-  }, [loadCustomers, refreshSelectedCustomerData]);
+  }, [loadCustomers, refreshSelectedCustomerData, refetchOutstanding]);
 
-  // Transform invoices to outstanding documents
+  // Who owes what: the same receivables list the aging report uses (approved /
+  // completed credit invoices that are not cancelled, with the ledger's open
+  // balance and due date). Building it from the customer's invoice list instead
+  // counted cancelled invoices and guessed due dates, so the two disagreed.
+  const owedByCustomer = useMemo(() => {
+    const m = new Map<number, { total: number; count: number; overdue: number }>();
+    for (const d of outstandingDocs?.items ?? []) {
+      const cur = m.get(d.customer_id) ?? { total: 0, count: 0, overdue: 0 };
+      cur.total += Number(d.balance_due || 0);
+      cur.count += 1;
+      if (d.is_overdue) cur.overdue += Number(d.balance_due || 0);
+      m.set(d.customer_id, cur);
+    }
+    return m;
+  }, [outstandingDocs]);
+
+  // Outstanding documents of the selected customer
   const outstandingInvoices = useMemo((): OutstandingInvoice[] => {
     const docs: OutstandingInvoice[] = [];
+    const invoiceById = new Map(customerInvoices.map((inv) => [inv.id, inv]));
 
-    customerInvoices.forEach((inv) => {
-      if (inv.credit_amount > 0 && inv.balance_due > 0 && (inv.approval_status === "completed" || inv.approval_status === "approved")) {
-        const creditDays = selectedCustomer?.credit_days || 30;
-        const invoiceDate = new Date(inv.created_date);
-        const dueDate = new Date(invoiceDate);
-        dueDate.setDate(dueDate.getDate() + creditDays);
-        const now = new Date();
-        const daysOverdue = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)));
-
+    (outstandingDocs?.items ?? [])
+      .filter((d) => d.customer_id === selectedCustomer?.id)
+      .forEach((d) => {
+        const inv = invoiceById.get(d.invoice_id);
+        const paid = Number(d.paid_amount || 0);
         docs.push({
-          id: inv.id,
-          invoice_no: inv.invoice_no,
-          date: inv.created_date,
-          due_date: dueDate.toISOString().split("T")[0],
-          payment_method: inv.payment_method,
-          total_amount: inv.grand_total,
-          credit_amount: inv.credit_amount,
-          paid_amount: inv.paid_amount,
-          balance_due: inv.balance_due,
-          payment_status: inv.payment_status,
-          days_overdue: daysOverdue,
-          is_overdue: daysOverdue > 0,
-          branch_code: inv.branch_code,
-          approval_status: inv.approval_status,
+          id: d.invoice_id,
+          invoice_no: d.invoice_no,
+          date: d.invoice_date,
+          due_date: d.due_date,
+          payment_method: inv?.payment_method ?? "credit",
+          total_amount: Number(inv?.grand_total ?? d.credit_amount),
+          credit_amount: Number(d.credit_amount || 0),
+          paid_amount: paid,
+          balance_due: Number(d.balance_due || 0),
+          payment_status: paid > 0 ? "partial" : "unpaid",
+          days_overdue: d.days_overdue,
+          is_overdue: d.is_overdue,
+          branch_code: d.branch_code,
+          approval_status: inv?.approval_status ?? "approved",
         });
-      }
-    });
+      });
 
     // Apply filters
     let filtered = docs;
@@ -412,7 +440,7 @@ export default function CustomerPaymentsPage() {
     });
 
     return filtered;
-  }, [customerInvoices, selectedCustomer, selectedBranch, documentSearchQuery]);
+  }, [customerInvoices, outstandingDocs, selectedCustomer, selectedBranch, documentSearchQuery]);
 
   // Calculate totals
   const totalOutstanding = useMemo(() => {
@@ -545,7 +573,9 @@ export default function CustomerPaymentsPage() {
 
   // Filtered customers
   const filteredCustomers = useMemo(() => {
-    let filtered = customers;
+    // Default: only customers who owe money (the reason to open this page).
+    const owes = (c: Customer) => (owedByCustomer.get(c.id)?.total ?? 0) > 0;
+    let filtered = showAllCustomers ? customers.filter((c) => c.active || owes(c)) : customers.filter(owes);
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -562,8 +592,7 @@ export default function CustomerPaymentsPage() {
         case "customer_name":
           return a.customer_name.localeCompare(b.customer_name);
         case "outstanding":
-          return (b.max_credit_limit - (b.left_credit_amount ?? b.max_credit_limit)) -
-            (a.max_credit_limit - (a.left_credit_amount ?? a.max_credit_limit));
+          return (owedByCustomer.get(b.id)?.total ?? 0) - (owedByCustomer.get(a.id)?.total ?? 0);
         case "max_credit_limit":
           return b.max_credit_limit - a.max_credit_limit;
         case "created_at":
@@ -575,7 +604,7 @@ export default function CustomerPaymentsPage() {
     });
 
     return filtered;
-  }, [customers, searchQuery, sortField]);
+  }, [customers, searchQuery, sortField, showAllCustomers, owedByCustomer]);
 
   // Handlers
   const handleSelectCustomer = useCallback((customer: Customer) => {
@@ -640,12 +669,15 @@ export default function CustomerPaymentsPage() {
       });
   }, [loadCreditStatus, loadCustomerInvoices]);
 
-  // Auto-select first customer
+  // Auto-select the first customer, and when a search / filter leaves the shown
+  // customer out of the list, show the first match instead (not mid-payment).
   useEffect(() => {
-    if (filteredCustomers.length > 0 && !selectedCustomer && !loading) {
+    if (loading || loadingOutstanding || filteredCustomers.length === 0) return;
+    const stillListed = !!selectedCustomer && filteredCustomers.some((c) => c.id === selectedCustomer.id);
+    if (!selectedCustomer || (!stillListed && viewMode === "overview")) {
       handleSelectCustomer(filteredCustomers[0]);
     }
-  }, [filteredCustomers.length, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filteredCustomers, loading, loadingOutstanding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reload on customer change
   useEffect(() => {
@@ -659,8 +691,8 @@ export default function CustomerPaymentsPage() {
     setPaymentMethod("Cash");
     setReferenceNumber("");
     setBankName("");
-    setChequeDate(new Date().toISOString().split("T")[0]);
-    setPaymentDate(new Date().toISOString().split("T")[0]);
+    setChequeDate(todayISO());
+    setPaymentDate(todayISO());
     setRemarks("");
     setCardRefNumber("");
     setCardHolderName("");
@@ -810,6 +842,11 @@ export default function CustomerPaymentsPage() {
         showErrorToast(`Payment row #${i + 1}: Please enter cheque number and bank name`);
         return;
       }
+
+      if (row.method === "cheque" && (!row.cheque_date || Number.isNaN(new Date(row.cheque_date).getTime()))) {
+        showErrorToast(`Payment row #${i + 1}: Please enter the date written on the cheque`);
+        return;
+      }
       
       if (row.method === "card" && !row.card_ref_number) {
         showErrorToast(`Payment row #${i + 1}: Please enter card reference number`);
@@ -897,6 +934,7 @@ export default function CustomerPaymentsPage() {
       // Refresh data and reset
       await loadCreditStatus(selectedCustomer.id);
       await loadCustomerInvoices(selectedCustomer.id);
+      await refetchOutstanding();
       setViewMode("overview");
       setActiveStep(0);
       setSelectedInvoiceIds(new Set());
@@ -920,6 +958,7 @@ export default function CustomerPaymentsPage() {
     confirmDialog,
     loadCreditStatus,
     loadCustomerInvoices,
+    refetchOutstanding,
   ]);
 
   const handleBack = useCallback(() => {
@@ -958,27 +997,47 @@ export default function CustomerPaymentsPage() {
   const masterPanel = (
     <SearchableList<Customer>
       items={filteredCustomers}
-      isLoading={loading}
+      isLoading={loading || loadingOutstanding}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      placeholder="Search customers or invoices..."
+      placeholder="Search customers..."
       sortOptions={SORT_OPTIONS}
       sortField={sortField}
       onSortChange={setSortField}
       selectedItem={selectedCustomer}
       onSelectItem={handleSelectCustomer}
-      emptyMessage="No customers found"
+      emptyMessage={showAllCustomers ? "No customers found" : "No customer owes money"}
       width={300}
       listHeader={
-        <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
+        <Box
+          sx={{
+            px: 1.5,
+            py: 0.5,
+            borderBottom: 1,
+            borderColor: "divider",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 1,
+          }}
+        >
           <Typography variant="caption" color="text.secondary">
             {filteredCustomers.length} customer{filteredCustomers.length !== 1 ? "s" : ""}
+            {showAllCustomers ? "" : " who owe"}
           </Typography>
+          <FormControlLabel
+            control={
+              <Switch size="small" checked={showAllCustomers} onChange={(e) => setShowAllCustomers(e.target.checked)} />
+            }
+            label={<Typography variant="caption">Show all</Typography>}
+            sx={{ mr: 0 }}
+          />
         </Box>
       }
       renderItem={(customer, isSelected) => {
         const usage = getCreditUsage(customer);
-        const outstanding = customer.max_credit_limit - (customer.left_credit_amount ?? customer.max_credit_limit);
+        // Same figure as the receivables aging report.
+        const outstanding = owedByCustomer.get(customer.id)?.total ?? 0;
         return (
           <SelectableListItem
             key={customer.id}
@@ -1021,8 +1080,8 @@ export default function CustomerPaymentsPage() {
                       </>
                     )}
                     {outstanding > 0 && (
-                      <Typography variant="caption" color="warning.main">
-                        Outstanding: {currencySymbol} {fmtLKR(outstanding)}
+                      <Typography variant="caption" fontWeight={600}>
+                        Owes: {currencySymbol} {fmtLKR(outstanding)}
                       </Typography>
                     )}
                   </>
@@ -1035,6 +1094,11 @@ export default function CustomerPaymentsPage() {
                   <Typography variant="caption" display="block">
                     {customer.company_name || customer.mobile_contact_number || "Individual"}
                   </Typography>
+                  {outstanding > 0 && (
+                    <Typography variant="caption" display="block" color="warning.dark" fontWeight={600}>
+                      Owes {currencySymbol} {fmtLKR(outstanding)}
+                    </Typography>
+                  )}
                   {customer.max_credit_limit > 0 && (
                     <Box sx={{ mt: 0.5, width: "100%", height: 4, bgcolor: "grey.200", borderRadius: 1 }}>
                       <Box
@@ -1127,7 +1191,8 @@ export default function CustomerPaymentsPage() {
               <Grid item xs={6} sm={3}>
                 <Card variant="outlined" sx={{ bgcolor: "warning.light" }}>
                   <CardContent sx={{ textAlign: "center", py: 1.5 }}>
-                    <Typography variant="caption">Outstanding</Typography>
+                    {/* Credit limit taken up; what is owed on invoices (= aging report) is below. */}
+                    <Typography variant="caption">Credit Used</Typography>
                     <Typography variant="h6" color="warning.dark">
                       {currencySymbol} {fmtLKR(creditStatus?.outstanding_credit || 0)}
                     </Typography>
@@ -1221,6 +1286,7 @@ export default function CustomerPaymentsPage() {
           />
           <Autocomplete
             options={[{ branch_code: "all", branch_name: "All Branches" }, ...branches]}
+            isOptionEqualToValue={(option, value) => option.branch_code === value.branch_code}
             getOptionLabel={(option) =>
               option.branch_code === "all"
                 ? option.branch_name
@@ -1263,10 +1329,10 @@ export default function CustomerPaymentsPage() {
                     <TableCell>
                       <Typography variant="body2" fontWeight="medium">{inv.invoice_no}</Typography>
                     </TableCell>
-                    <TableCell>{new Date(inv.date).toLocaleDateString()}</TableCell>
+                    <TableCell>{displayDate(inv.date)}</TableCell>
                     <TableCell>
                       <Typography color={inv.is_overdue ? "error" : "text.primary"}>
-                        {new Date(inv.due_date).toLocaleDateString()}
+                        {displayDate(inv.due_date)}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">{fmtLKR(inv.total_amount)}</TableCell>
@@ -1319,6 +1385,7 @@ export default function CustomerPaymentsPage() {
         {/* Branch Filter */}
         <Autocomplete
           options={[{ branch_code: "all", branch_name: "All Branches" }, ...branches]}
+            isOptionEqualToValue={(option, value) => option.branch_code === value.branch_code}
           getOptionLabel={(option) =>
             option.branch_code === "all"
               ? option.branch_name
@@ -1422,7 +1489,7 @@ export default function CustomerPaymentsPage() {
                     </TableCell>
                     <TableCell>
                       <Typography color={inv.is_overdue ? "error" : "text.primary"}>
-                        {new Date(inv.due_date).toLocaleDateString()}
+                        {displayDate(inv.due_date)}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
@@ -1528,7 +1595,7 @@ export default function CustomerPaymentsPage() {
                     <Typography variant="body2" fontWeight="medium">{line.invoice.invoice_no}</Typography>
                   </TableCell>
                   <TableCell>
-                    {new Date(line.invoice.due_date).toLocaleDateString()}
+                    {displayDate(line.invoice.due_date)}
                     {line.invoice.is_overdue && (
                       <TChip label="Overdue" size="small" color="error" sx={{ ml: 1, height: 18, fontSize: "0.6rem" }} />
                     )}
@@ -1583,15 +1650,13 @@ export default function CustomerPaymentsPage() {
         <Box>
           {/* Global Payment Date Field */}
           <Box sx={{ mb: 3, maxWidth: 250 }}>
-            <TextField
+            <TDatePicker
               label="Payment Date"
               size="small"
               fullWidth
-              type="date"
               value={paymentDate}
-              onChange={(e) => setPaymentDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              inputProps={{ max: new Date().toISOString().split("T")[0] }}
+              onChange={(v) => setPaymentDate(v ?? "")}
+              inputProps={{ max: todayISO() }}
               required
               error={!!paymentDateError}
               helperText={paymentDateError || undefined}
@@ -1689,14 +1754,15 @@ export default function CustomerPaymentsPage() {
                     )}
                     sx={{ width: 220 }}
                   />
-                  <TextField
+                  <TDatePicker
                     label="Cheque Date"
                     size="small"
-                    type="date"
                     value={row.cheque_date}
-                    onChange={(e) => updateSplitRow(row.id, { cheque_date: e.target.value })}
-                    InputLabelProps={{ shrink: true }}
+                    onChange={(v) => updateSplitRow(row.id, { cheque_date: v ?? "" })}
                     sx={{ width: 160 }}
+                    required
+                    error={!row.cheque_date}
+                    helperText={!row.cheque_date ? "Date on the cheque" : undefined}
                   />
                 </Box>
               )}
@@ -1956,7 +2022,7 @@ export default function CustomerPaymentsPage() {
             </Grid>
             <Grid item xs={12} sm={6}>
               <Typography variant="caption" color="text.secondary">Payment Date</Typography>
-              <Typography variant="body1">{new Date(paymentDate).toLocaleDateString()}</Typography>
+              <Typography variant="body1">{displayDate(paymentDate)}</Typography>
             </Grid>
             <Grid item xs={12}>
               <Typography variant="caption" color="text.secondary">
@@ -1975,7 +2041,7 @@ export default function CustomerPaymentsPage() {
                   {row.method === "cheque" && row.cheque_number && (
                     <Typography variant="caption" color="text.secondary">
                       Cheque #{row.cheque_number}, Bank: {row.cheque_bank}, Date:{" "}
-                      {new Date(row.cheque_date).toLocaleDateString()}
+                      {displayDate(row.cheque_date)}
                     </Typography>
                   )}
                   {row.method === "card" && (
@@ -2092,7 +2158,7 @@ export default function CustomerPaymentsPage() {
                         <Typography variant="body2" fontWeight="medium">{line.invoice.invoice_no}</Typography>
                       </TableCell>
                       <TableCell>
-                        {new Date(line.invoice.due_date).toLocaleDateString()}
+                        {displayDate(line.invoice.due_date)}
                       </TableCell>
                       <TableCell align="right">
                         {fmtLKR(line.invoice.balance_due)}
@@ -2303,6 +2369,17 @@ export default function CustomerPaymentsPage() {
       <TConfirmDialog {...confirmDialog.dialogProps} />
     </Box>
   );
+
+  // Shown customer lives in ?customer= (replace, no history entry) so it can be shared as a link.
+  useRecordParam({
+    param: "customer",
+    history: "replace",
+    current: selectedCustomer?.id,
+    items: customers,
+    loading,
+    onOpen: handleSelectCustomer,
+    onClose: () => undefined,
+  });
 
   return (
     <MasterDetailLayout

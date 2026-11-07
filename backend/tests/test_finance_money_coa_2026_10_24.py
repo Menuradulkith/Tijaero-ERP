@@ -184,7 +184,9 @@ def _paid_expense(client, branch, category, amount):
         "branch_code": branch.branch_code, "description": "test"})
     assert e.status_code in (200, 201), e.text
     eid = e.json()["id"]
-    for step, body in (("submit", None), ("approve", {}), ("process-payment", {"payment_method": "cash"})):
+    # Cash isn't the point here (and a new branch has none in the till): pay by bank.
+    pay = {"payment_method": "bank_transfer", "payment_reference": "TEST-TRF"}
+    for step, body in (("submit", None), ("approve", {}), ("process-payment", pay)):
         r = client.post(f"{F}/expenses/{eid}/{step}", json=body) if body is not None else client.post(f"{F}/expenses/{eid}/{step}")
         assert r.status_code in (200, 201), (step, r.text)
     return eid

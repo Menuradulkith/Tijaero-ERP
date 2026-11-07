@@ -36,6 +36,7 @@ import {
   TPrintButton,
   TPrintPreviewDialog,
   useMasterDetailState,
+  useRecordParam,
   TDetailSkeleton,
   fmtLKR,
   TDataGrid,
@@ -48,6 +49,7 @@ import { creditNotesApi } from "@/modules/finance/api";
 import { CustomerCreditNote, CustomerCreditNoteCreate } from "@/modules/finance/types";
 import { customersApi } from "@/modules/customers/api";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { displayDate, formatDateTimeReadable } from "@/utils/formatters";
 
 interface Customer {
   id: number;
@@ -87,6 +89,7 @@ export default function CreditNotesPage() {
     searchQuery,
     setSearchQuery,
     selectedItem,
+    openItem,
     setSelectedItem,
     isCreating,
     formData,
@@ -178,7 +181,7 @@ export default function CreditNotesPage() {
         header: "Date",
         width: 130,
         renderCell: (params: GridRenderCellParams<CreditNoteRow>) =>
-          params.row.date ? new Date(params.row.date).toLocaleDateString() : "-",
+          params.row.date ? displayDate(params.row.date) : "-",
       },
       {
         field: "amount",
@@ -249,7 +252,7 @@ export default function CreditNotesPage() {
       <DetailPanelHeader
         breadcrumbs={[
           { label: "Finance", href: "/finance" },
-          { label: "Customer Payment Methods", href: "/finance/customer-payment-methods" },
+          { label: "Money In" },
           { label: "Credit Notes", href: "/finance/customer-payment-methods/credit-notes" },
           ...(selectedItem || isCreating ? [{ label: isCreating ? "New Credit Note" : `CN-${selectedItem?.id}` }] : []),
         ]}
@@ -325,7 +328,7 @@ export default function CreditNotesPage() {
                 <TextField
                   label="Date"
                   size="small"
-                  value={selectedItem.date ? new Date(selectedItem.date).toLocaleString() : "-"}
+                  value={selectedItem.date ? formatDateTimeReadable(selectedItem.date) : "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
@@ -349,6 +352,17 @@ export default function CreditNotesPage() {
       </Box>
     </Box>
   );
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedItem?.id,
+    creating: isCreating,
+    items: creditNotes,
+    loading: isLoading,
+    fetchById: (id) => creditNotesApi.getById(Number(id)),
+    onOpen: openItem,
+    onClose: handleBackToCreditNotes,
+  });
 
   return (
     <>

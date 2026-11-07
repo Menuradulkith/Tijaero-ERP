@@ -26,6 +26,7 @@ import { Controller, useForm } from "react-hook-form";
 import { settingsApi } from "../api";
 import { PasscodeSettingsSection } from "@/auth/components/PasscodeSettingsSection";
 import { profilePictureUrl } from "@/modules/users/components/UserAvatarUploader";
+import { todayISO } from "@/utils/formatters";
 
 
 interface ProfileFormData {
@@ -216,7 +217,7 @@ export default function ProfileSettings() {
                           disabled
                           helperText="Set by your administrator"
                           InputLabelProps={{ shrink: true }}
-                          inputProps={{ min: "1900-01-01", max: new Date().toISOString().slice(0, 10) }}
+                          inputProps={{ min: "1900-01-01", max: todayISO() }}
                         />
                       )}
                     />
@@ -233,7 +234,7 @@ export default function ProfileSettings() {
                           fullWidth
                           size="small"
                           InputLabelProps={{ shrink: true }}
-                          inputProps={{ min: "1900-01-01", max: new Date().toISOString().slice(0, 10) }}
+                          inputProps={{ min: "1900-01-01", max: todayISO() }}
                         />
                       )}
                     />

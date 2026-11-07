@@ -18,10 +18,12 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import ReportProblemIcon from "@mui/icons-material/ReportProblem";
-import { Alert, AlertTitle, Box, CircularProgress, Stack, TextField, Typography } from "@mui/material";
+import { Alert, AlertTitle, Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+
+import { displayDate, formatCurrency, todayISO } from "@/utils/formatters";
 
 import {
   FormSection,
@@ -30,19 +32,14 @@ import {
   TChip,
   TDataGrid,
   type TDataGridColumn,
+  TDatePicker,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { reconciliationApi } from "@/modules/finance/api";
 import type { DayEndReconciliation } from "@/modules/finance/types";
 
-const money = (n: number | null | undefined) =>
-  new Intl.NumberFormat("en-LK", {
-    style: "currency",
-    currency: "LKR",
-    minimumFractionDigits: 2,
-  }).format(Number(n || 0));
-
-const todayIso = () => new Date().toISOString().slice(0, 10);
+// "Rs. 1,000.00" like the rest of the app.
+const money = (n: number | null | undefined) => formatCurrency(Number(n || 0));
 
 // ─── Compact check tile (sits inside a FormSection grid) ─────────────────────
 interface TileProps {
@@ -104,7 +101,7 @@ interface FindingRow {
 export default function DayEndReconciliationPage() {
   const navigate = useNavigate();
   const { filteredBranches } = useReferenceData(["branches"]);
-  const [reconDate, setReconDate] = useState<string>(todayIso());
+  const [reconDate, setReconDate] = useState<string>(todayISO());
   const [branchCode, setBranchCode] = useState<string>("");
 
   const { data, isFetching, refetch } = useQuery<DayEndReconciliation>({
@@ -116,24 +113,58 @@ export default function DayEndReconciliationPage() {
       }),
   });
 
+  // Cheques taken but not yet banked = the rest of the ledger's cash + bank change.
+  const chequeMovement = data ? data.gl_cash_bank_net - data.gl_cash_movement - data.gl_bank_movement : 0;
   const breakdown: BreakdownRow[] = data
     ? [
-        { id: "gl-cash", label: "GL — Cash on Hand (1010)", amount: data.gl_cash_movement },
-        { id: "gl-bank", label: "GL — Bank Account (1020)", amount: data.gl_bank_movement },
-        { id: "gl-net", label: "GL cash + bank net", amount: data.gl_cash_bank_net, strong: true },
-        { id: "cb-in", label: "Cashbook money in", amount: data.cashbook_money_in },
-        { id: "cb-out", label: "Cashbook money out", amount: data.cashbook_money_out },
-        { id: "cb-net", label: "Cashbook net", amount: data.cashbook_net },
-        { id: "cb-dep", label: "+ Bank deposits (internal transfer)", amount: data.cashbook_bank_deposits },
+        { id: "gl-cash", label: "Cash in till (change on the day)", amount: data.gl_cash_movement },
+        { id: "gl-bank", label: "Bank (change on the day)", amount: data.gl_bank_movement },
+        ...(Math.abs(chequeMovement) > 0.005
+          ? [{ id: "gl-chq", label: "Cheques in hand (change on the day)", amount: chequeMovement }]
+          : []),
+        { id: "gl-net", label: "Ledger says", amount: data.gl_cash_bank_net, strong: true },
+        { id: "cb-in", label: "Money in", amount: data.cashbook_money_in },
+        { id: "cb-out", label: "Money out", amount: -data.cashbook_money_out },
+        { id: "cb-dep", label: "Cash taken to the bank (not money out)", amount: data.cashbook_bank_deposits },
         {
           id: "expected",
-          label: "Expected GL net",
+          label: "Cashbook says",
           amount: data.cashbook_net + data.cashbook_bank_deposits,
           strong: true,
         },
         { id: "diff", label: "Difference", amount: data.cash_difference, strong: true },
       ]
     : [];
+
+  // "Do the books balance?" is about the day's figures. Old posting failures and
+  // unposted entries need attention but do not make today's books wrong.
+  const booksBalance = !!data && data.trial_balanced && data.cash_reconciled;
+  const attention: { text: string; to: string; link: string }[] = data
+    ? [
+        ...(data.posting_failures_pending
+          ? [{
+              text: `${data.posting_failures_pending} posting${data.posting_failures_pending === 1 ? "" : "s"} need${data.posting_failures_pending === 1 ? "s" : ""} attention`,
+              to: "/finance/posting-failures",
+              link: "Posting Failures",
+            }]
+          : []),
+        ...(data.unposted_je_count
+          ? [{
+              text: `${data.unposted_je_count} journal entr${data.unposted_je_count === 1 ? "y is" : "ies are"} not posted yet`,
+              to: "/finance/journal-entries",
+              link: "Journal Entries",
+            }]
+          : []),
+      ]
+    : [];
+  const headline = !data
+    ? ""
+    : !booksBalance
+      ? "The books do not balance for this day"
+      : attention.length
+        ? `The books balance for this day — ${attention.map((a) => a.text).join(", ")}`
+        : "The books balance for this day";
+  const severity = !booksBalance ? "error" : attention.length ? "warning" : "success";
 
   const findings: FindingRow[] = data
     ? [
@@ -179,11 +210,11 @@ export default function DayEndReconciliationPage() {
         <TChip
           size="small"
           color={p.row.kind === "discrepancy" ? "error" : "warning"}
-          label={p.row.kind === "discrepancy" ? "Discrepancy" : "Warning"}
+          label={p.row.kind === "discrepancy" ? "Problem" : "Note"}
         />
       ),
     },
-    { field: "message", header: "Finding", minWidth: 300, flex: 1, sortable: false },
+    { field: "message", header: "What we found", minWidth: 300, flex: 1, sortable: false },
   ];
 
   return (
@@ -191,11 +222,18 @@ export default function DayEndReconciliationPage() {
       title="Day-End Reconciliation"
       titleSlot={
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
-          <TextField
-            type="date"
+          <Box sx={{ flexShrink: 0 }}>
+            <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2 }}>
+              Day-End Reconciliation
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Do the day&apos;s cash, bank and entries add up?
+            </Typography>
+          </Box>
+          <TDatePicker
             size="small"
             value={reconDate}
-            onChange={(e) => setReconDate(e.target.value)}
+            onChange={(v) => setReconDate(v ?? "")}
             inputProps={{ "aria-label": "Date" }}
             sx={{ width: 150, flexShrink: 0 }}
           />
@@ -222,54 +260,69 @@ export default function DayEndReconciliationPage() {
           <>
             {/* Banner */}
             <Alert
-              icon={data.is_balanced ? <CheckCircleIcon fontSize="inherit" /> : <ReportProblemIcon fontSize="inherit" />}
-              severity={data.is_balanced ? "success" : "error"}
+              icon={booksBalance ? <CheckCircleIcon fontSize="inherit" /> : <ReportProblemIcon fontSize="inherit" />}
+              severity={severity}
               sx={{ mb: 1.5, alignItems: "center", "& .MuiAlert-message": { width: "100%" } }}
+              action={
+                attention.length ? (
+                  <Stack direction="row" spacing={1}>
+                    {attention.map((a) => (
+                      <Button key={a.to} size="small" color="inherit" onClick={() => navigate(a.to)} sx={{ textTransform: "none" }}>
+                        Open {a.link}
+                      </Button>
+                    ))}
+                  </Stack>
+                ) : undefined
+              }
             >
-              <AlertTitle sx={{ fontWeight: 700, mb: 0 }}>
-                {data.is_balanced ? "Books Balanced ✓" : "Books NOT Balanced"}
-              </AlertTitle>
+              <AlertTitle sx={{ fontWeight: 700, mb: 0 }}>{headline}</AlertTitle>
               <Typography variant="body2">
-                {data.reconciliation_date}
+                {displayDate(data.reconciliation_date)}
                 {data.branch_code ? ` · Branch ${data.branch_code}` : " · All branches"}
               </Typography>
             </Alert>
 
             <FormSection title="Checks" columns={4}>
               <StatTile
-                title="Trial Balance"
+                title="Entries add up"
                 ok={data.trial_balanced}
                 icon={<FactCheckIcon fontSize="small" />}
-                primary={data.trial_balanced ? "Balanced" : "Out of balance"}
-                secondary={`Dr ${money(data.gl_total_debit)} · Cr ${money(data.gl_total_credit)}`}
+                primary={data.trial_balanced ? "Yes" : "No"}
+                secondary={
+                  data.trial_balanced
+                    ? `${money(data.gl_total_debit)} on both sides`
+                    : `${money(data.gl_total_debit)} vs ${money(data.gl_total_credit)}`
+                }
               />
               <StatTile
-                title="Cash & Bank"
+                title="Cash & Bank match the cashbook"
                 ok={data.cash_reconciled}
                 icon={<AccountBalanceIcon fontSize="small" />}
-                primary={data.cash_reconciled ? "Reconciled" : `Off by ${money(data.cash_difference)}`}
-                secondary={`GL net ${money(data.gl_cash_bank_net)}`}
+                primary={data.cash_reconciled ? "Yes" : `Off by ${money(data.cash_difference)}`}
+                secondary={`Change on the day ${money(data.gl_cash_bank_net)}`}
               />
               <StatTile
                 title="Posting Failures"
                 ok={data.posting_failures_pending === 0}
                 icon={<ReportProblemIcon fontSize="small" />}
-                primary={`${data.posting_failures_pending} pending`}
-                secondary={data.posting_failures_pending ? "Click to review & retry" : "None"}
+                primary={`${data.posting_failures_pending} to fix`}
+                secondary={data.posting_failures_pending ? "Any day — click to review & retry" : "None"}
                 onClick={() => navigate("/finance/posting-failures")}
               />
               <StatTile
                 title="Unposted Entries"
                 ok={data.unposted_je_count === 0}
                 icon={<ReceiptLongIcon fontSize="small" />}
-                primary={`${data.unposted_je_count} unposted`}
-                secondary={`${data.submitted_je_count} awaiting approval`}
+                primary={`${data.unposted_je_count} not posted`}
+                secondary={`${data.submitted_je_count} waiting for approval`}
+                onClick={data.unposted_je_count ? () => navigate("/finance/journal-entries") : undefined}
               />
             </FormSection>
 
-            <FormSection title="Cash / Bank Reconciliation" columns={1}>
+            <FormSection title="Cash & Bank Check" columns={1}>
               <Typography variant="caption" color="text.secondary">
-                GL cash &amp; bank movement should equal the cashbook net plus bank deposits.
+                What the ledger says should equal what the cashbook says. Cash taken to the bank is not money out — it
+                only moves from the till to the bank.
               </Typography>
               <TDataGrid<BreakdownRow>
                 rows={breakdown}

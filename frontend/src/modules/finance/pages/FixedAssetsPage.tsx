@@ -58,6 +58,9 @@ import {
   TSearchableSelect,
   TStatusChip,
   useConfirmDialog,
+  useRecordParam,
+  useTabParam,
+  TDatePicker,
 } from "@/components/tijaero";
 import { useReferenceData } from "@/hooks";
 import { chartOfAccountsApi } from "@/modules/finance/api";
@@ -80,13 +83,13 @@ import {
 } from "@/modules/finance/api/fixedAssets";
 import { submitOnce } from "@/modules/finance/submitOnce";
 import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
+import { localDateISO } from "@/utils/formatters";
 
 const fmt = (v: number | string | null | undefined) =>
   Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const iso = (d: Date) => {
-  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
+  return localDateISO(d);
 };
 const today = new Date();
 const TODAY = iso(today);
@@ -419,14 +422,12 @@ function AssetCreatePanel({
       </FormSection>
 
       <FormSection title="Cost" columns={3}>
-        <TextField
+        <TDatePicker
           label="Bought on"
-          type="date"
           size="small"
           required
           value={acquisitionDate}
-          onChange={(e) => setAcquisitionDate(e.target.value)}
-          InputLabelProps={{ shrink: true }}
+          onChange={(v) => setAcquisitionDate(v ?? "")}
         />
         <TextField label="Cost" type="number" size="small" required value={cost} onChange={(e) => setCost(e.target.value)} />
         <TextField
@@ -478,13 +479,11 @@ function AssetCreatePanel({
             helperText={rateError ?? undefined}
           />
         )}
-        <TextField
+        <TDatePicker
           label="Start depreciating from"
-          type="date"
           size="small"
           value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-          InputLabelProps={{ shrink: true }}
+          onChange={(v) => setStartDate(v ?? "")}
           helperText="Leave empty to use the bought date."
         />
       </FormSection>
@@ -622,13 +621,11 @@ function DisposeDialog({
               <MenuItem value="sold">Sold it</MenuItem>
               <MenuItem value="scrapped">Scrapped / thrown away</MenuItem>
             </TextField>
-            <TextField
+            <TDatePicker
               label="Date"
-              type="date"
               size="small"
               value={date}
-              onChange={(e) => setDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
+              onChange={(v) => setDate(v ?? "")}
               sx={{ flex: 1 }}
             />
           </Stack>
@@ -819,6 +816,20 @@ function RegisterTab({ nav }: { nav: TabNav }) {
     setCreating(false);
   };
   const detailMode = creating || !!selected;
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selected?.id,
+    creating,
+    items: assets,
+    loading: isLoading,
+    onOpen: (a) => {
+      setCreating(false);
+      setSelected(a);
+    },
+    onClose: back,
+    onNew: canCreate ? () => setCreating(true) : undefined,
+  });
 
   let body: ReactNode;
   if (creating) {
@@ -1175,6 +1186,20 @@ function DepreciationTab({ nav }: { nav: TabNav }) {
   };
   const detailMode = creating || !!selected;
 
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selected?.id,
+    creating,
+    items: runs,
+    loading: isLoading,
+    onOpen: (r) => {
+      setCreating(false);
+      setSelected(r);
+    },
+    onClose: back,
+    onNew: canPost ? () => setCreating(true) : undefined,
+  });
+
   let body: ReactNode;
   if (creating) {
     body = (
@@ -1511,6 +1536,20 @@ function AssetClassesTab({ nav }: { nav: TabNav }) {
   };
   const detailMode = creating || !!selected;
 
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selected?.id,
+    creating,
+    items: classes,
+    loading: isLoading,
+    onOpen: (c) => {
+      setCreating(false);
+      setSelected(c);
+    },
+    onClose: back,
+    onNew: canEdit ? () => setCreating(true) : undefined,
+  });
+
   let body: ReactNode;
   if (detailMode) {
     body = (
@@ -1585,8 +1624,13 @@ function lifeProblem(life: string): string | null {
 }
 
 export default function FixedAssetsPage() {
-  const [tab, setTab] = useState(0);
-  const nav: TabNav = { activeTab: tab, onTabChange: (t) => setTab(Number(t)) };
+  // ?tab= keeps the active tab on reload / shared links.
+  const [tabKey, setTabKey] = useTabParam<"register" | "depreciation" | "classes">("register", ["register", "depreciation", "classes"]);
+  const tab = tabKey === "depreciation" ? 1 : tabKey === "classes" ? 2 : 0;
+  const nav: TabNav = {
+    activeTab: tab,
+    onTabChange: (t) => setTabKey(Number(t) === 1 ? "depreciation" : Number(t) === 2 ? "classes" : "register"),
+  };
 
   if (tab === 1) return <DepreciationTab nav={nav} />;
   if (tab === 2) return <AssetClassesTab nav={nav} />;

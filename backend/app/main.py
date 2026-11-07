@@ -417,6 +417,9 @@ def _load_configured_timezone():
         logging.warning("Could not load configured timezone at startup; using default.", exc_info=True)
     finally:
         db.close()
+    from app.modules.notifications.scheduler import start_digest_scheduler
+
+    start_digest_scheduler()
 
 
 # Railway (and most PaaS) terminate TLS at the edge and proxy to this

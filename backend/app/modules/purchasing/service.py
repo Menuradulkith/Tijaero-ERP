@@ -3856,12 +3856,24 @@ class SupplierPaymentService:
             verified_date=payment.verified_date,
             created_date=payment.created_date,
             created_by=payment.created_by,
+            created_by_name=self._user_names([payment.created_by]).get(payment.created_by),
+            verified_by_name=self._user_names([payment.verified_by]).get(payment.verified_by),
             supplier_name=supplier_name,
             po_no=po_no
         )
+
+    def _user_names(self, ids) -> dict:
+        """{user id: "First Last"} for the people shown on payments (one query)."""
+        from app.auth.models import User
+        ids = {i for i in ids if i}
+        if not ids:
+            return {}
+        return {u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+                for u in self.db.query(User).filter(User.id.in_(ids)).all()}
     
     def list_payments(self, filters: schemas.SupplierPaymentListFilter) -> List[schemas.SupplierPayment]:
         payments = self.repo.get_all(filters)
+        names = self._user_names([p.created_by for p in payments] + [p.verified_by for p in payments])
         
         result = []
         for payment in payments:
@@ -3893,6 +3905,8 @@ class SupplierPaymentService:
                 verified_date=payment.verified_date,
                 created_date=payment.created_date,
                 created_by=payment.created_by,
+                created_by_name=names.get(payment.created_by),
+                verified_by_name=names.get(payment.verified_by),
                 supplier_name=supplier_name,
                 po_no=po_no
             ))

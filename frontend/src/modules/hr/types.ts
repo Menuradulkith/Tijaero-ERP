@@ -462,6 +462,8 @@ export interface Attendance {
   employee_name?: string;
   branch_name?: string;
   status?: string; // present | late | absent | leave
+  employee_branch_code?: string | null;
+  other_branch?: boolean; // recorded at a branch other than the employee's own
 }
 
 export interface AttendanceCreate {
@@ -568,6 +570,7 @@ export interface Employee {
   email?: string;
   occupation?: string;
   status?: string;
+  branch_code?: string | null;
 }
 
 // Same as the server's LIVE_STATUSES: only these may get new leave, attendance, assets, loans

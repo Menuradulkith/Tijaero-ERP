@@ -402,8 +402,9 @@ export default function CommissionPaymentApprovalsPage() {
     >
       <DetailPanelHeader
         breadcrumbs={[
-          { label: "Finance" },
-          { label: "Commission Payment Approvals", href: "/finance/commission-payment-approvals" },
+          { label: "Finance", href: "/finance" },
+          { label: "Approvals", href: "/finance/approvals" },
+          { label: "Commission Payment Approvals", href: "/finance/approvals/commission-payment-approvals" },
           ...(selectedPayment ? [{ label: selectedPayment.payment_no }] : []),
         ]}
         title={selectedPayment ? selectedPayment.payment_no : ""}

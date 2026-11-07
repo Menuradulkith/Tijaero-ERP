@@ -120,12 +120,16 @@ def update_reimbursement(reimbursement_id: RowId, reimbursement: schemas.Reimbur
 
 @router.post("/reimbursements/{reimbursement_id}/approve", response_model=schemas.Reimbursement, dependencies=[_need(P.REIMBURSEMENT_APPROVAL_APPROVE)])
 def approve_reimbursement(reimbursement_id: RowId, data: schemas.ReimbursementApprove, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return service.ReimbursementService(db).approve_reimbursement(reimbursement_id, data, current_user)
+    result = service.ReimbursementService(db).approve_reimbursement(reimbursement_id, data, current_user)
+    _notify_employee(db, result.employee_id, "Reimbursement approved", f"{result.reimbursement_no} was approved.", "success", "/hr/reimbursements", current_user.id)
+    return result
 
 
 @router.post("/reimbursements/{reimbursement_id}/reject", response_model=schemas.Reimbursement, dependencies=[_need(P.REIMBURSEMENT_APPROVAL_APPROVE)])
 def reject_reimbursement(reimbursement_id: RowId, data: schemas.ReimbursementReject, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return service.ReimbursementService(db).reject_reimbursement(reimbursement_id, data, current_user)
+    result = service.ReimbursementService(db).reject_reimbursement(reimbursement_id, data, current_user)
+    _notify_employee(db, result.employee_id, "Reimbursement rejected", f"{result.reimbursement_no} was rejected: {data.rejection_reason}", "error", "/hr/reimbursements", current_user.id)
+    return result
 
 
 @router.post("/reimbursements/{reimbursement_id}/verify", response_model=schemas.Reimbursement, dependencies=[_need(P.REIMBURSEMENT_APPROVAL_APPROVE)])
@@ -203,7 +207,18 @@ def trigger_payroll_run(data: schemas.PayrollRunRequest, db: Session = Depends(g
 
 @router.post("/payroll/batches/{batch_id}/submit", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_PROCESSING_CREATE)])
 def submit_payroll_batch(batch_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return service.PayrollService(db, branches_of(current_user)).submit_batch(batch_id, current_user.id)
+    result = service.PayrollService(db, branches_of(current_user)).submit_batch(batch_id, current_user.id)
+    from app.modules.notifications import events
+    events.tell_permission_holders(
+        *P.PAYROLL_APPROVAL_APPROVE,
+        title="Payroll submitted",
+        message=f"Payroll batch {result.batch_no} is waiting for approval.",
+        category="hr",
+        notification_type="warning",
+        action_url="/hr/approvals/payroll-approvals",
+        exclude_user_id=current_user.id,
+    )
+    return result
 
 
 @router.post("/payroll/batches/{batch_id}/approve", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_APPROVAL_APPROVE)])
@@ -228,17 +243,26 @@ def reject_payroll_batch(batch_id: RowId, data: schemas.PayrollBatchReject, db: 
 
 @router.post("/payroll/batches/{batch_id}/process-payment", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_PROCESSING_CREATE)])
 def process_salary_payment(batch_id: RowId, data: schemas.PayrollBatchProcessPayment, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return service.PayrollService(db, branches_of(current_user)).process_salary_payment(batch_id, data, current_user.id)
+    result = service.PayrollService(db, branches_of(current_user)).process_salary_payment(batch_id, data, current_user.id)
+    from app.modules.notifications import events
+    events.tell_user(result.created_by, title="Salaries paid", message=f"Payroll batch {result.batch_no} salaries were paid.", category="hr", notification_type="success", action_url="/hr/payroll", exclude_user_id=current_user.id)
+    return result
 
 
 @router.post("/payroll/batches/{batch_id}/process-statutory", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_PROCESSING_CREATE)])
 def process_statutory_payment(batch_id: RowId, data: schemas.PayrollBatchProcessStatutory, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return service.PayrollService(db, branches_of(current_user)).process_statutory_payment(batch_id, data, current_user.id)
+    result = service.PayrollService(db, branches_of(current_user)).process_statutory_payment(batch_id, data, current_user.id)
+    from app.modules.notifications import events
+    events.tell_user(result.created_by, title="Statutory payment recorded", message=f"Payroll batch {result.batch_no} statutory payment was recorded.", category="hr", notification_type="info", action_url="/hr/payroll", exclude_user_id=current_user.id)
+    return result
 
 
 @router.post("/payroll/batches/{batch_id}/complete", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_PROCESSING_CREATE)])
 def complete_payroll_batch(batch_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return service.PayrollService(db, branches_of(current_user)).complete_batch(batch_id, current_user.id)
+    result = service.PayrollService(db, branches_of(current_user)).complete_batch(batch_id, current_user.id)
+    from app.modules.notifications import events
+    events.tell_user(result.created_by, title="Payroll completed", message=f"Payroll batch {result.batch_no} is complete.", category="hr", notification_type="success", action_url="/hr/payroll", exclude_user_id=current_user.id)
+    return result
 
 
 @router.post("/payroll/batches/{batch_id}/cancel", response_model=schemas.PayrollBatchResponse, dependencies=[_need(P.PAYROLL_PROCESSING_CREATE)])
@@ -287,7 +311,9 @@ def delete_salary_profile(profile_id: RowId, db: Session = Depends(get_db), curr
 @router.post("/promotions", response_model=schemas.EmployeePromotion, status_code=status.HTTP_201_CREATED, dependencies=[_need(P.PROMOTION_CREATE)])
 def create_promotion(promotion: schemas.EmployeePromotionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     need_employee(db, current_user, code=promotion.employee_id)
-    return service.PromotionService(db).create_promotion(promotion, current_user.id)
+    result = service.PromotionService(db).create_promotion(promotion, current_user.id)
+    _notify_employee(db, result.employee_id, "Promotion recorded", f"You were appointed {result.designation}.", "success", "/hr/promotions", current_user.id)
+    return result
 
 
 @router.get("/promotions/{promotion_id}", response_model=schemas.EmployeePromotion, dependencies=[SEE_PROMOTIONS])
@@ -319,7 +345,9 @@ def delete_promotion(promotion_id: RowId, db: Session = Depends(get_db), current
 @router.post("/employee-assets", response_model=schemas.EmployeeAsset, status_code=status.HTTP_201_CREATED, dependencies=[_need(P.HR_ASSET_CREATE)])
 def create_asset_assignment(asset: schemas.EmployeeAssetCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     need_employee(db, current_user, code=asset.employee_id)
-    return service.EmployeeAssetService(db).create_asset_assignment(asset, current_user.id)
+    result = service.EmployeeAssetService(db).create_asset_assignment(asset, current_user.id)
+    _notify_employee(db, result.employee_id, "Asset assigned", "A company asset was assigned to you.", "info", "/hr/assets", current_user.id)
+    return result
 
 
 @router.get("/employee-assets/{assignment_id}", response_model=schemas.EmployeeAsset, dependencies=[SEE_ASSETS])
@@ -430,8 +458,15 @@ def get_loan(loan_id: RowId, db: Session = Depends(get_db), current_user: User =
 @router.post("/loans", status_code=status.HTTP_201_CREATED, dependencies=[_need(P.DEDUCTION_CREATE)])
 def create_loan(data: schemas.LoanIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     need_employee(db, current_user, pk=data.employee_pk)
+    from app.modules.employees.models import Employee
     from app.modules.hr.loans import LoanService
-    return LoanService(db).create(data, current_user)
+    from app.modules.notifications import events
+    created = LoanService(db).create(data, current_user)
+    emp = db.query(Employee).filter(Employee.id == created["employee_pk"]).first()
+    if emp:
+        events.tell_user(emp.user_id, title="Loan recorded", message=f"{created['loan_no']} for Rs. {created['amount']} was recorded.", category="hr", notification_type="info", action_url="/hr/loans", exclude_user_id=current_user.id)
+        events.tell_branch(emp.branch_code, title="Employee loan recorded", message=f"{created['loan_no']} for {emp.employee_id} was recorded.", category="hr", action_url="/hr/loans", exclude_user_id=current_user.id)
+    return created
 
 
 @router.put("/loans/{loan_id}", dependencies=[_need(P.DEDUCTION_UPDATE)])
@@ -453,3 +488,19 @@ def cancel_loan(loan_id: RowId, db: Session = Depends(get_db), current_user: Use
     need_row(db, current_user, HREmployeeLoan, loan_id, HREmployeeLoan.employee_pk, by="pk")
     from app.modules.hr.loans import LoanService
     return LoanService(db).cancel(loan_id, current_user)
+
+
+def _notify_employee(db, employee_code: str, title: str, message: str, kind: str, action_url: str, actor_id: int) -> None:
+    from app.modules.employees.models import Employee
+    from app.modules.notifications import events
+
+    user_id = db.query(Employee.user_id).filter(Employee.employee_id == employee_code).scalar()
+    events.tell_user(
+        user_id,
+        title=title,
+        message=message,
+        category="hr",
+        notification_type=kind,
+        action_url=action_url,
+        exclude_user_id=actor_id,
+    )

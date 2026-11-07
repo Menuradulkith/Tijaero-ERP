@@ -6,6 +6,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Alert,
   Autocomplete,
   Box,
   Button,
@@ -33,6 +34,7 @@ import {
   FormSection,
   EmptyState,
   useMasterDetailState,
+  useRecordParam,
   TDetailSkeleton,
   TBranchFilter,
   TStatusFilter,
@@ -49,10 +51,37 @@ import {
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
 
-import { bankDepositsApi } from "@/modules/finance/api";
-import { BankDeposit, BankDepositCreate } from "@/modules/finance/types";
+import { bankDepositsApi, bankReconciliationApi, cashbookApi } from "@/modules/finance/api";
+import { BankAccount, BankDeposit, BankDepositCreate } from "@/modules/finance/types";
 import { useReferenceData } from "@/hooks";
 import { useCurrencyStore } from "@/state/currencyStore";
+import { displayDate, formatCurrency, todayISO } from "@/utils/formatters";
+
+// The number shown everywhere else (cashbook, ledger) for a deposit.
+const depositNo = (d: { id: number }) => `DEP-${d.id}`;
+
+// "Payment for" in plain words instead of the stored code.
+const PAYMENT_FOR_LABELS: Record<string, string> = {
+  cash_deposit: "Cash deposit",
+  "Sales Invoice": "Bank / card payment on a sale",
+  "Credit Settlement": "Customer paid balance into bank",
+  "Cheque Deposit - Sales Invoice": "Cheque deposit",
+};
+const paymentForLabel = (v?: string | null) => {
+  if (!v) return "-";
+  if (PAYMENT_FOR_LABELS[v]) return PAYMENT_FOR_LABELS[v];
+  const words = v.replace(/_/g, " ").trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+// Deposits whose money never sat in the till (same list as the backend's cash check).
+const NON_CASH_SOURCES = ["Sales Invoice", "Credit Settlement", "Cheque Deposit - Sales Invoice"];
+
+// Same label as the expense pay dialog: "HNB QA-42228 bank · 1234" — several
+// accounts can be at the same bank, so the account name and number tell them apart.
+const bankAccountLabel = (a: BankAccount) =>
+  [a.bank_name && a.bank_name !== a.name ? `${a.bank_name} ${a.name}` : a.name, a.account_number]
+    .filter(Boolean)
+    .join(" · ");
 
 interface Branch {
   branch_code: string;
@@ -96,6 +125,7 @@ export default function BankDepositsPage() {
     searchQuery,
     setSearchQuery,
     selectedItem,
+    openItem,
     setSelectedItem,
     isCreating,
     setIsCreating,
@@ -149,8 +179,8 @@ export default function BankDepositsPage() {
       (d) =>
         (d.bank_name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         (d.invoice_no || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (d.payment_for || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-        String(d.id).includes(searchQuery)
+        paymentForLabel(d.payment_for).toLowerCase().includes(searchQuery.toLowerCase()) ||
+        depositNo(d).toLowerCase().includes(searchQuery.toLowerCase())
     );
     // Default order before the user sorts a column in the table itself (the
     // table's own column-header sort takes over from there).
@@ -196,6 +226,44 @@ export default function BankDepositsPage() {
     deposits_amount: !(Number(formData.deposits_amount) > 0) ? "Amount must be greater than 0" : undefined,
   };
   const isFormValid = !fieldErrors.branch_code && !fieldErrors.bank_name && !fieldErrors.deposits_amount;
+
+  // Registered bank accounts (Bank Reconciliation). Free text only when there are none
+  // (or this user may not see them).
+  const { data: bankAccounts = [] } = useQuery({
+    queryKey: ["bank-accounts"],
+    queryFn: bankReconciliationApi.listAccounts,
+    enabled: isCreating,
+    retry: false,
+  });
+  const bankOptions = useMemo(() => {
+    const active = bankAccounts.filter((a) => a.is_active);
+    const forBranch = active.filter((a) => !a.branch_code || a.branch_code === formData.branch_code);
+    return (forBranch.length ? forBranch : active).map((a) => ({ id: a.id, label: bankAccountLabel(a) }));
+  }, [bankAccounts, formData.branch_code]);
+
+  // "How much cash is there to deposit?" — the cashbook's cash in hand for the branch
+  // today, less cash deposits still waiting for verification.
+  const depositBranch = isCreating ? formData.branch_code || "" : "";
+  const { data: branchCashbook } = useQuery({
+    queryKey: ["cashbook", "cash-in-hand", depositBranch, todayISO()],
+    queryFn: () => cashbookApi.getReport({ branch_code: depositBranch, date_from: todayISO(), date_to: todayISO() }),
+    enabled: !!depositBranch,
+    retry: false,
+  });
+  const { data: pendingDeposits = [] } = useQuery({
+    queryKey: ["bank-deposits", "pending", depositBranch],
+    queryFn: () => bankDepositsApi.getAll({ branch_code: depositBranch, verified: false }),
+    enabled: !!depositBranch,
+    retry: false,
+  });
+  const cashAvailable =
+    branchCashbook?.summary?.cash_closing_balance === undefined
+      ? null
+      : Number(branchCashbook.summary.cash_closing_balance) -
+        pendingDeposits
+          .filter((d) => !d.verified && !NON_CASH_SOURCES.includes(d.payment_for || ""))
+          .reduce((s, d) => s + Number(d.deposits_amount || 0), 0);
+  const depositBranchName = branches.find((b) => b.branch_code === depositBranch)?.branch_name || depositBranch;
   const errorFor = (field: keyof typeof fieldErrors) => (isCreating && showErrors ? fieldErrors[field] : undefined);
 
   const handleNewDeposit = useCallback(async () => {
@@ -260,7 +328,7 @@ export default function BankDepositsPage() {
     const deposit = selectedItem;
     verifyDialog.open(
       "Verify Bank Deposit",
-      `Confirm that deposit #${deposit.id} of ${currencySymbol} ${fmtLKR(Number(deposit.deposits_amount || 0))} to ${deposit.bank_name || "the bank"} has reached the bank account?`,
+      `Confirm that deposit ${depositNo(deposit)} of ${currencySymbol} ${fmtLKR(Number(deposit.deposits_amount || 0))} to ${deposit.bank_name || "the bank"} has reached the bank account?`,
       () => {
         if (savingRef.current) return;
         savingRef.current = true;
@@ -287,16 +355,16 @@ export default function BankDepositsPage() {
         field: "id",
         header: "Deposit No",
         width: 130,
-        renderCell: (params: GridRenderCellParams<BankDepositRow>) => `#${params.row.id}`,
+        renderCell: (params: GridRenderCellParams<BankDepositRow>) => depositNo(params.row),
       },
       { field: "bank_name", header: "Bank", flex: 1, minWidth: 150 },
       { field: "branch_name", header: "Branch", width: 150 },
+      { field: "created_date", header: "Date", width: 120, type: "date" },
       {
-        field: "created_date",
-        header: "Date",
-        width: 140,
-        renderCell: (params: GridRenderCellParams<BankDepositRow>) =>
-          params.row.created_date ? new Date(params.row.created_date).toLocaleDateString() : "-",
+        field: "payment_for",
+        header: "Payment For",
+        width: 170,
+        renderCell: (params: GridRenderCellParams<BankDepositRow>) => paymentForLabel(params.row.payment_for),
       },
       {
         field: "deposits_amount",
@@ -379,9 +447,9 @@ export default function BankDepositsPage() {
           { label: "Finance", href: "/finance" },
           { label: "Customer Payment Methods", href: "/finance/customer-payment-methods" },
           { label: "Bank Deposits", href: "/finance/customer-payment-methods/bank-deposits" },
-          ...(selectedItem || isCreating ? [{ label: isCreating ? "New Deposit" : `Deposit #${selectedItem?.id}` }] : []),
+          ...(selectedItem || isCreating ? [{ label: isCreating ? "New Deposit" : depositNo(selectedItem!) }] : []),
         ]}
-        title={selectedItem ? (selectedItem.bank_name || `Deposit #${selectedItem.id}`) : ""}
+        title={selectedItem ? `${depositNo(selectedItem)}${selectedItem.bank_name ? ` · ${selectedItem.bank_name}` : ""}` : ""}
         titleIcon={<BankIcon color="primary" />}
         isCreating={isCreating}
         createTitle="New Bank Deposit"
@@ -458,24 +526,61 @@ export default function BankDepositsPage() {
                   />
                 )}
               />
-              <TextField
-                label="Bank Name"
-                size="small"
-                required={isCreating}
-                value={formData.bank_name || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, bank_name: e.target.value }))}
-                disabled={!isCreating}
-                InputProps={{ readOnly: !isCreating }}
-                error={!!errorFor("bank_name")}
-                helperText={errorFor("bank_name")}
-              />
+              {isCreating && bankOptions.length > 0 ? (
+                <Autocomplete
+                  size="small"
+                  options={bankOptions}
+                  value={bankOptions.find((o) => o.label === formData.bank_name) ?? null}
+                  onChange={(_, v) => setFormData((prev) => ({ ...prev, bank_name: v?.label || "" }))}
+                  getOptionLabel={(o) => o.label}
+                  isOptionEqualToValue={(o, v) => o.id === v.id}
+                  renderOption={(props, o) => (
+                    <li {...props} key={o.id}>
+                      {o.label}
+                    </li>
+                  )}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Bank"
+                      required
+                      error={!!errorFor("bank_name")}
+                      helperText={errorFor("bank_name")}
+                    />
+                  )}
+                />
+              ) : (
+                <TextField
+                  label="Bank Name"
+                  size="small"
+                  required={isCreating}
+                  value={formData.bank_name || ""}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, bank_name: e.target.value }))}
+                  disabled={!isCreating}
+                  InputProps={{ readOnly: !isCreating }}
+                  error={!!errorFor("bank_name")}
+                  helperText={errorFor("bank_name")}
+                />
+              )}
+              {isCreating && depositBranch && cashAvailable !== null && (
+                <Alert
+                  severity={Number(formData.deposits_amount || 0) > cashAvailable + 0.005 ? "error" : "info"}
+                  variant="outlined"
+                  sx={{ gridColumn: "1 / -1", py: 0 }}
+                >
+                  Cash available at {depositBranchName}: <strong>{formatCurrency(Math.max(cashAvailable, 0))}</strong>
+                  <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                    (cash and cheques in the till, less deposits waiting for verification)
+                  </Typography>
+                </Alert>
+              )}
             </FormSection>
 
             <FormSection title="Reference Details" columns={2}>
               <TextField
                 label="Payment For"
                 size="small"
-                value={formData.payment_for || ""}
+                value={paymentForLabel(formData.payment_for)}
                 disabled
                 InputProps={{ readOnly: true }}
               />
@@ -507,9 +612,9 @@ export default function BankDepositsPage() {
                   <TChip label={selectedItem.verified ? "Verified" : "Pending"} size="small" color={selectedItem.verified ? "success" : "warning"} />
                 </Box>
                 <TextField
-                  label="Created Date"
+                  label="Date"
                   size="small"
-                  value={selectedItem.created_date ? new Date(selectedItem.created_date).toLocaleString() : "-"}
+                  value={displayDate(selectedItem.created_date) || "-"}
                   disabled
                   InputProps={{ readOnly: true }}
                 />
@@ -539,6 +644,18 @@ export default function BankDepositsPage() {
       </Box>
     </Box>
   );
+
+  // Open record lives in the URL (?id= / ?new=1): browser Back returns to the list.
+  useRecordParam({
+    current: selectedItem?.id,
+    creating: isCreating,
+    items: deposits,
+    loading: isLoading,
+    fetchById: (id) => bankDepositsApi.getById(Number(id)),
+    onOpen: openItem,
+    onClose: handleBackToDeposits,
+    onNew: canCreate ? handleNewDeposit : undefined,
+  });
 
   return (
     <>

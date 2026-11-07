@@ -63,6 +63,7 @@ import type {
   Supplier,
   SupplierProduct,
 } from "@/modules/purchasing/types";
+import { todayISO } from "@/utils/formatters";
 
 const WIZARD_STEPS: TStepConfig[] = [
   { id: "products", label: "Add Products & Suppliers", description: "Pick what to buy and from whom" },
@@ -71,7 +72,7 @@ const WIZARD_STEPS: TStepConfig[] = [
 
 // A line's GRN Date can't be in the past — it's when the product is
 // needed by, so today is the earliest sensible value.
-const TODAY_STR = new Date().toISOString().split("T")[0];
+const TODAY_STR = todayISO();
 
 interface DraftLine {
   _id: string;

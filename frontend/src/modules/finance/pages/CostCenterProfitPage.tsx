@@ -5,7 +5,7 @@
  * form section, the cost centers in a grid.
  */
 
-import { Alert, Box, TextField, Typography } from "@mui/material";
+import { Alert, Box, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -15,13 +15,15 @@ import {
   TCurrency,
   TDataGrid,
   type TDataGridColumn,
+  TDatePicker,
 } from "@/components/tijaero";
 import { costCentersApi } from "@/modules/finance/api/costCenters";
+import { localDateISO } from "@/utils/formatters";
 
 const fmt = (v: number | string | null | undefined) =>
   Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const iso = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const iso = (d: Date) => localDateISO(d);
 const now = new Date();
 const MONTH_START = iso(new Date(now.getFullYear(), now.getMonth(), 1));
 const MONTH_END = iso(new Date(now.getFullYear(), now.getMonth() + 1, 0));
@@ -91,22 +93,20 @@ export default function CostCenterProfitPage() {
       title="Profit by Cost Center"
       titleSlot={
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
-          <TextField
-            type="date"
+          <TDatePicker
             size="small"
             value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
+            onChange={(v) => setDateFrom(v ?? "")}
             inputProps={{ "aria-label": "From date" }}
             sx={{ width: 150, flexShrink: 0 }}
           />
           <Typography variant="body2" color="text.secondary">
             to
           </Typography>
-          <TextField
-            type="date"
+          <TDatePicker
             size="small"
             value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
+            onChange={(v) => setDateTo(v ?? "")}
             inputProps={{ "aria-label": "To date" }}
             sx={{ width: 150, flexShrink: 0 }}
           />
