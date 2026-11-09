@@ -1,0 +1,21 @@
+{
+  "name": "tijaero-website",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "screens": "node scripts/capture-screens.mjs"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.12",
+    "@astrojs/sitemap": "^3.7.4",
+    "astro": "^5.18.2",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.65.0"
+  }
+}

@@ -533,7 +533,9 @@ export default function PurchaseOrdersPage() {
       (suppliers || [])
         .filter(
           (s: Supplier) =>
-            !allowedSupplierIds || allowedSupplierIds.has(s.id) || s.id === formData.first_suppliers_id,
+            // Inactive suppliers are not offered, except the one already on this order.
+            (s.active || s.id === formData.first_suppliers_id) &&
+            (!allowedSupplierIds || allowedSupplierIds.has(s.id) || s.id === formData.first_suppliers_id),
         )
         .sort(
           (a: Supplier, b: Supplier) =>

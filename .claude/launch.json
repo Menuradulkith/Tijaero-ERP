@@ -31,6 +31,27 @@
       "autoPort": false
     },
     {
+      "name": "backend-demo",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd backend && ..\\.venv\\Scripts\\python.exe scripts\\run_demo_server.py 8031"],
+      "port": 8031,
+      "autoPort": false,
+      "url": "http://localhost:8031"
+    },
+    {
+      "name": "frontend-demo",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set VITE_API_URL=http://localhost:8031/api/v1&& npm run dev --prefix frontend -- --port 3002 --strictPort"],
+      "port": 3002,
+      "autoPort": false
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "website", "--", "--port", "4321"],
+      "port": 4321
+    },
+    {
       "name": "frontend-5173",
       "runtimeExecutable": "cmd",
       "runtimeArgs": ["/c", "set VITE_API_URL=http://localhost:8021/api/v1&& npm run dev --prefix frontend -- --port 5173 --strictPort"],

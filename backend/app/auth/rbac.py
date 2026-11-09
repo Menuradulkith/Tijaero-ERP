@@ -182,6 +182,7 @@ class Permissions:
     GRN_CREATE = ("grn", "create")
     GRN_UPDATE = ("grn", "update")
     GRN_DELETE = ("grn", "delete")
+    GRN_APPROVE = ("grn", "approve")  # approve / reject a GRN cancellation request
     # Purchase Returns
     PURCHASE_RETURN_VIEW = ("purchase_returns", "view")
     PURCHASE_RETURN_CREATE = ("purchase_returns", "create")

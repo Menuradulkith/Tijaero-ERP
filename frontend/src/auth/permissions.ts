@@ -123,6 +123,7 @@ export const PERMISSIONS = {
   GRN_CREATE: { resource: "grn", action: "create" },
   GRN_UPDATE: { resource: "grn", action: "update" },
   GRN_DELETE: { resource: "grn", action: "delete" },
+  GRN_APPROVE: { resource: "grn", action: "approve" },
   // Purchase Returns
   PURCHASE_RETURNS_VIEW: { resource: "purchase_returns", action: "view" },
   PURCHASE_RETURNS_CREATE: { resource: "purchase_returns", action: "create" },

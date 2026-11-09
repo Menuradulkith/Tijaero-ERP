@@ -570,7 +570,12 @@ export interface GoodReceivedNote {
   delivery_note_no?: string | null;
   vehicle_no?: string | null;
   received_by?: string | null;
-  status?: "posted" | "cancelled";
+  status?: "posted" | "cancel_pending" | "cancelled";
+  /** A cancellation was requested and waits for an approver. */
+  cancel_requested_by?: number | null;
+  cancel_requested_at?: string | null;
+  /** Why the last cancellation request was rejected (the GRN stayed posted). */
+  cancel_rejection_remark?: string | null;
   cancelled_at?: string | null;
   cancel_reason?: string | null;
   remark?: string;

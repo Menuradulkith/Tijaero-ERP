@@ -810,7 +810,8 @@ def verify_credit_settlement_bank_transfer(
     result = service.sales_service.confirm_credit_settlement_bank_transfer(
         db, transaction_id, "verify", current_user.id
     )
-    _notify_invoice_no(db, result.invoice_no, current_user.id, "Credit settlement verified", f"Bank transfer for {result.invoice_no} was verified.", "success")
+    # The service returns a dict (see confirm_credit_settlement_bank_transfer).
+    _notify_invoice_no(db, result["invoice_no"], current_user.id, "Credit settlement verified", f"Bank transfer for {result['invoice_no']} was verified.", "success")
     return result
 
 
@@ -830,7 +831,7 @@ def reject_credit_settlement_bank_transfer(
     result = service.sales_service.confirm_credit_settlement_bank_transfer(
         db, transaction_id, "reject", current_user.id, reason
     )
-    _notify_invoice_no(db, result.invoice_no, current_user.id, "Credit settlement rejected", f"Bank transfer for {result.invoice_no} was rejected.", "error")
+    _notify_invoice_no(db, result["invoice_no"], current_user.id, "Credit settlement rejected", f"Bank transfer for {result['invoice_no']} was rejected.", "error")
     return result
 
 

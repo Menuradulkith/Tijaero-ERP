@@ -1052,6 +1052,11 @@ class GRNCancelRequest(BaseModel):
     reason: str = Field(..., min_length=3, max_length=500)
 
 
+class GRNCancelDecision(BaseModel):
+    approve: bool
+    remarks: Optional[str] = Field(default=None, max_length=500)
+
+
 class LandedCostCreate(BaseModel):
     charge_type: Literal["freight", "duty", "insurance", "handling", "other"]
     description: Optional[str] = Field(default=None, max_length=200)
@@ -1109,6 +1114,9 @@ class GoodReceivedNote(GoodReceivedNoteBase, TijaeroBaseSchema):
     created_date: date
     added_date: datetime
     status: str = "posted"
+    cancel_requested_by: Optional[int] = None
+    cancel_requested_at: Optional[datetime] = None
+    cancel_rejection_remark: Optional[str] = None
     cancelled_at: Optional[datetime] = None
     cancel_reason: Optional[str] = None
     po_no: Optional[str] = None  # Populated from purchasing_order relationship

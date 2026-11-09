@@ -30,6 +30,15 @@ from app.modules.purchasing.models import (
 )
 from app.modules.purchasing.service import PurchasingReturnService
 
+def cancel_grn(client, grn_id, reason="Wrong delivery"):
+    """Cancel a GRN the way the app does: request it, then approve the request.
+    Returns the request response when that is refused (blocked / already cancelled), else the decision's."""
+    r = client.post(f"{P}/grn/{grn_id}/cancel", json={"reason": reason})
+    if r.status_code != 200:
+        return r
+    return client.post(f"{P}/grn/{grn_id}/cancel-decision", json={"approve": True})
+
+
 P = "/api/v1/purchasing"
 
 
@@ -203,7 +212,7 @@ class TestCancel:
     def test_cancel_withdraws_stock_and_reopens_the_po(self, db, superclient, world):
         w = world
         grn_id = self._receive(superclient, w)
-        r = superclient.post(f"{P}/grn/{grn_id}/cancel", json={"reason": "Wrong delivery"})
+        r = cancel_grn(superclient, grn_id)
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "cancelled" and r.json()["cancel_reason"] == "Wrong delivery"
         for kind in ("serial", "batch", "none"):
@@ -242,7 +251,7 @@ class TestCancel:
             SalesStock.good_received_note_id == grn_id, SalesStock.product_id == w["products"]["serial"].id
         ).first()
         barcode = unit.barcode
-        superclient.post(f"{P}/grn/{grn_id}/cancel", json={"reason": "Wrong delivery"})
+        cancel_grn(superclient, grn_id)
         with pytest.raises(HTTPException) as exc:
             PurchasingReturnService(db).create_return(
                 po_schemas.PurchasingReturnCreate(
@@ -293,7 +302,7 @@ class TestGrnInventoryPosting:
         assert sum(D(str(x[2])) for x in rows if x[0] == "1010") == D("1120.00")
         assert sum(D(str(x[1])) for x in rows) == sum(D(str(x[2])) for x in rows)
 
-        assert superclient.post(f"{P}/grn/{grn_id}/cancel", json={"reason": "Wrong delivery"}).status_code == 200
+        assert cancel_grn(superclient, grn_id).status_code == 200
         rows = self._grn_lines(db, grn_id)
         assert sum(D(str(x[1])) for x in rows if x[0] == "1210") == D("1120.00")
         assert sum(D(str(x[2])) for x in rows if x[0] == "1210") == D("1120.00")  # reversed: net 0

@@ -16,6 +16,7 @@ from decimal import Decimal
 import pytest
 
 from tests.integration.test_workflows.test_grn_receive_cancel import (  # noqa: F401  (fixtures + helpers)
+    cancel_grn,
     P,
     _body,
     _uid,
@@ -146,7 +147,7 @@ class TestPurchasingLedger:
         db.flush()
         grn_id = superclient.post(f"{P}/grn/receive", params={"allow_credit_override": True},
                                   json=_body(w, _all_lines(w))).json()["grn"]["id"]
-        assert superclient.post(f"{P}/grn/{grn_id}/cancel", json={"reason": "Wrong delivery"}).status_code == 200
+        assert cancel_grn(superclient, grn_id).status_code == 200
         b = books(db)
         assert b.net("1210") == 0 and b.net("2010") == 0, (b.net("1210"), b.net("2010"))
         b.assert_balanced("GRN cancel")

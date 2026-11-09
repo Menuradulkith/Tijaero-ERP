@@ -1284,28 +1284,75 @@ def receive_grn(
     response_model=schemas.GoodReceivedNote,
     dependencies=[Depends(require_permission(*Permissions.GRN_DELETE))],
 )
-def cancel_grn(
+def request_grn_cancel(
     grn_id: int,
     request: schemas.GRNCancelRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Reverse a posted GRN (reason required). Refused when received stock has moved on."""
+    """Request the reversal of a posted GRN (reason required). The GRN stays in stock until an
+    approver approves; refused up front when received stock has already moved on."""
     grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
     if grn and not validate_branch_access(current_user, grn.branch_code):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {grn.branch_code}")
-    cancelled = service.GoodReceivedNoteService(db).cancel(grn_id, request.reason.strip(), current_user.id)
+    requested = service.GoodReceivedNoteService(db).request_cancel(grn_id, request.reason.strip(), current_user.id)
     from app.modules.notifications import events
-    events.tell_branch(
-        cancelled.branch_code,
-        title="GRN cancelled",
-        message=f"GRN {cancelled.good_received_no} was cancelled. {request.reason.strip()}",
+    events.tell_approvers(
+        requested.branch_code,
+        *Permissions.GRN_APPROVE,
+        title="GRN cancellation needs approval",
+        message=f"Cancellation of GRN {requested.good_received_no} was requested. {request.reason.strip()}",
         category="purchasing",
-        notification_type="warning",
         action_url="/purchasing/grn",
         exclude_user_id=current_user.id,
     )
-    return cancelled
+    return requested
+
+
+@router.post(
+    "/grn/{grn_id}/cancel-decision",
+    response_model=schemas.GoodReceivedNote,
+    dependencies=[Depends(require_permission(*Permissions.GRN_APPROVE))],
+)
+def decide_grn_cancel(
+    grn_id: int,
+    decision: schemas.GRNCancelDecision,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Approve (the GRN is reversed) or reject a pending GRN cancellation request."""
+    grn = db.query(GoodReceivedNote).filter(GoodReceivedNote.id == grn_id).first()
+    if grn and not validate_branch_access(current_user, grn.branch_code):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {grn.branch_code}")
+    result = service.GoodReceivedNoteService(db).decide_cancel(
+        grn_id, decision.approve, decision.remarks, current_user.id, bool(current_user.is_superuser)
+    )
+    from app.modules.notifications import events
+    approved = result.status == "cancelled"
+    if result.cancel_requested_by:
+        events.tell_user(
+            result.cancel_requested_by,
+            title="GRN cancellation approved" if approved else "GRN cancellation rejected",
+            message=(
+                f"GRN {result.good_received_no} was cancelled."
+                if approved
+                else f"Cancellation of GRN {result.good_received_no} was rejected. {result.cancel_rejection_remark or ''}"
+            ),
+            category="purchasing",
+            notification_type="info" if approved else "warning",
+            action_url="/purchasing/grn",
+        )
+    if approved:
+        events.tell_branch(
+            result.branch_code,
+            title="GRN cancelled",
+            message=f"GRN {result.good_received_no} was cancelled. {result.cancel_reason or ''}",
+            category="purchasing",
+            notification_type="warning",
+            action_url="/purchasing/grn",
+            exclude_user_id=current_user.id,
+        )
+    return result
 
 
 def _grn_for_branch_check(db: Session, current_user: User, grn_id: int) -> None:

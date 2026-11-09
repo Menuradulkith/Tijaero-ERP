@@ -1,0 +1,43 @@
+---
+import Icon from './Icon.astro';
+import { t, pathFor, type Lang } from '../i18n';
+
+interface Props { lang: Lang; page: '' | 'pricing' | 'demo' }
+const { lang, page } = Astro.props;
+const d = t(lang).nav;
+const home = pathFor(lang, '');
+---
+<header class="site-header">
+  <div class="container">
+    <nav class="nav" aria-label="Main" data-open="false">
+      <a class="brand" href={home}>
+        <span class="brand-mark"><Icon name="logo" size={16} stroke="#fff" width={2.6} /></span>
+        <span>Tijaero<em>ERP</em></span>
+      </a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="nav-links">
+        <span class="sr-only">{d.menu}</span>
+        <Icon name="menu" size={22} />
+      </button>
+      <div class="nav-links" id="nav-links">
+        <a class="nav-link" href={pathFor(lang, '', '#srilanka')}>{d.srilanka}</a>
+        <a class="nav-link" href={pathFor(lang, '', '#modules')}>{d.modules}</a>
+        <a class="nav-link" href={pathFor(lang, '', '#finance')}>{d.finance}</a>
+        <a class="nav-link" href={pathFor(lang, 'pricing')} aria-current={page === 'pricing' ? 'page' : undefined}>{d.pricing}</a>
+        {page !== 'demo' && <a class="btn btn-white" href={pathFor(lang, 'demo')}>{d.demo}</a>}
+      </div>
+    </nav>
+  </div>
+</header>
+
+<script>
+  const nav = document.querySelector<HTMLElement>('.nav');
+  const toggle = nav?.querySelector<HTMLButtonElement>('.menu-toggle');
+  toggle?.addEventListener('click', () => {
+    const open = nav!.dataset.open !== 'true';
+    nav!.dataset.open = String(open);
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+  nav?.querySelectorAll('.nav-links a').forEach((a) =>
+    a.addEventListener('click', () => { nav.dataset.open = 'false'; toggle?.setAttribute('aria-expanded', 'false'); }),
+  );
+</script>

@@ -1,0 +1,44 @@
+---
+import { t, pathFor, contact, phoneDigits, type Lang } from '../i18n';
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const d = t(lang);
+---
+<footer class="site-footer">
+  <div class="container stack" style="gap: 40px">
+    <div class="footer-top">
+      <div class="stack" style="gap: 12px; max-width: 320px">
+        <span class="footer-brand">Tijaero<span>ERP</span></span>
+        <p class="footer-tag">{d.footer.tag}</p>
+      </div>
+      <div class="footer-cols">
+        <div class="stack" style="gap: 10px">
+          <span class="footer-h">{d.footer.product}</span>
+          <a href={pathFor(lang, '', '#modules')}>{d.nav.modules}</a>
+          <a href={pathFor(lang, '', '#srilanka')}>{d.nav.srilanka}</a>
+          <a href={pathFor(lang, 'pricing')}>{d.nav.pricing}</a>
+        </div>
+        <div class="stack" style="gap: 10px">
+          <span class="footer-h">{d.footer.company}</span>
+          <a href={pathFor(lang, 'demo')}>{d.nav.demo}</a>
+          <a href={`mailto:${contact.email}`}>{contact.email}</a>
+          <a href={`tel:+${phoneDigits}`}>{contact.phone}</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>{d.footer.rights}</span>
+      <span>{d.footer.privacy} · {d.footer.terms}</span>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 40px; }
+  .footer-brand { font-family: var(--font-display); font-weight: 700; font-size: 19px; }
+  .footer-brand span { color: var(--plum); }
+  .footer-tag { font-size: 15px; line-height: 1.6; color: var(--muted); }
+  .footer-cols { display: flex; flex-wrap: wrap; gap: 64px; font-size: 15px; }
+  .footer-h { font-weight: 600; }
+  .footer-bottom { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted-2); border-top: 1px solid var(--line); padding-top: 24px; }
+</style>

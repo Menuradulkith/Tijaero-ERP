@@ -1,0 +1,48 @@
+---
+// A real Tijaero ERP screen (captured from the demo database) in a light browser frame.
+// Images live in public/screens/*.jpg, captured at 1440×900 @2x (aspect 16:10).
+interface Props {
+  src: string;            // e.g. "sales-orders"
+  alt: string;
+  url?: string;           // page label shown in the frame's address bar, e.g. "Sales › Sales Orders"
+  aspect?: number;        // width / height of the visible area, default 1.6 (whole screen)
+  zoom?: number;          // 1 = whole width of the screen; 2 = show half the width, magnified
+  focus?: [number, number]; // which part to show when zoomed/cropped: [x, y] from 0 (left/top) to 1 (right/bottom)
+  eager?: boolean;
+  class?: string;
+}
+const { src, alt, url = '', aspect = 1.6, zoom = 1, focus = [0, 0], eager = false, class: cls } = Astro.props;
+
+const IMG = 1.6; // captured aspect
+// Image width as % of the frame; height follows from the image aspect.
+const z = Math.max(zoom, aspect / IMG); // never leave empty space at the bottom
+const left = -focus[0] * (z - 1) * 100;                 // % of frame width
+const top = -focus[1] * ((z * aspect) / IMG - 1) * 100; // % of frame height
+const whole = z === 1 && aspect === IMG;
+---
+<figure class:list={['shot', cls]}>
+  <div class="bar" aria-hidden="true">
+    <span></span><span></span><span></span>
+    {url && <span class="addr">Tijaero ERP · {url}</span>}
+  </div>
+  <div class="view" style={`aspect-ratio: ${aspect};`}>
+    <img
+      src={`/screens/${src}.jpg`}
+      alt={alt}
+      width="2880"
+      height="1800"
+      loading={eager ? 'eager' : 'lazy'}
+      decoding="async"
+      style={whole ? '' : `position: absolute; width: ${z * 100}%; left: ${left}%; top: ${top}%;`}
+    />
+  </div>
+</figure>
+
+<style>
+  .shot { margin: 0; background: #fff; border-radius: 14px; overflow: hidden; border: 1px solid rgba(31,26,30,.1); box-shadow: 0 1px 2px rgba(31,26,30,.06), 0 24px 60px rgba(43,27,39,.14); }
+  .bar { height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 14px; background: #f3eff2; border-bottom: 1px solid #e9e3e8; }
+  .bar > span:not(.addr) { width: 10px; height: 10px; border-radius: 50%; background: #d9cfd7; }
+  .addr { margin-left: 14px; flex: 1; max-width: 360px; height: 20px; border-radius: 6px; background: #fff; font-size: 11px; line-height: 20px; padding: 0 10px; color: var(--muted-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .view { position: relative; overflow: hidden; }
+  img { display: block; width: 100%; height: auto; max-width: none; }
+</style>
