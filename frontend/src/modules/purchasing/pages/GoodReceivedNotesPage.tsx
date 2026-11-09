@@ -8,6 +8,7 @@
  */
 
 import { usePermission } from "@/auth/permissions";
+import { useAuthStore } from "@/state/authStore";
 import { useCurrencyStore } from "@/state/currencyStore";
 // ConfirmDialog now uses TConfirmDialog from tijaero
 import AddIcon from "@mui/icons-material/Add";
@@ -257,6 +258,11 @@ export default function GoodReceivedNotesPage() {
 
   // Cancel (reverse) a posted GRN
   const canCancelGRN = usePermission("grn", "delete");
+  const canApproveGRNCancel = usePermission("grn", "approve");
+  const authUser = useAuthStore((s) => s.user);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [decisionBusy, setDecisionBusy] = useState(false);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
   const canCreateGRN = usePermission("grn", "create");
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -926,13 +932,14 @@ export default function GoodReceivedNotesPage() {
     );
   };
 
+  // Cancelling needs approval: this only files the request, the GRN stays posted until an approver decides.
   const handleCancelGRN = async (reason: string) => {
     if (!selectedGRN) return;
     setCancelBusy(true);
     setCancelError(null);
     try {
       const cancelled = await goodReceivedNotesApi.cancel(selectedGRN.id, reason);
-      showSuccessToast(`${cancelled.good_received_no} cancelled`);
+      showSuccessToast(`Cancellation of ${cancelled.good_received_no} requested - waiting for approval`);
       setCancelOpen(false);
       queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
       queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
@@ -941,9 +948,35 @@ export default function GoodReceivedNotesPage() {
       await refetch();
       handleSelectGRNWithItems(cancelled);
     } catch (error) {
-      setCancelError(handleApiError(error, "Could not cancel this GRN"));
+      setCancelError(handleApiError(error, "Could not request the cancellation of this GRN"));
     } finally {
       setCancelBusy(false);
+    }
+  };
+
+  // Approver's decision on a pending cancellation request.
+  const handleDecideCancel = async (approve: boolean, remarks?: string) => {
+    if (!selectedGRN) return;
+    setDecisionBusy(true);
+    setDecisionError(null);
+    try {
+      const result = await goodReceivedNotesApi.decideCancel(selectedGRN.id, approve, remarks);
+      showSuccessToast(
+        approve ? `${result.good_received_no} cancelled` : `Cancellation of ${result.good_received_no} rejected`,
+      );
+      setRejectOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["goodReceivedNotes"] });
+      queryClient.invalidateQueries({ queryKey: ["purchaseOrders"] });
+      queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["salesStock"] });
+      await refetch();
+      handleSelectGRNWithItems(result);
+    } catch (error) {
+      const message = handleApiError(error, "Could not record the decision");
+      setDecisionError(message);
+      if (approve) showErrorToast(message);
+    } finally {
+      setDecisionBusy(false);
     }
   };
 
@@ -1578,6 +1611,8 @@ export default function GoodReceivedNotesPage() {
         renderCell: (params: GridRenderCellParams<GRNRow>) =>
           params.row.status === "cancelled" ? (
             <TChip label="Cancelled" size="small" color="error" sx={{ height: 20, fontSize: "0.65rem" }} />
+          ) : params.row.status === "cancel_pending" ? (
+            <TChip label="Cancel Pending" size="small" color="warning" sx={{ height: 20, fontSize: "0.65rem" }} />
           ) : (
             <TChip label="Received" size="small" color="success" sx={{ height: 20, fontSize: "0.65rem" }} />
           ),
@@ -1685,7 +1720,7 @@ export default function GoodReceivedNotesPage() {
             </Button>
           ) : selectedGRN && !isCreating && !isEditing ? (
             <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-              {canCancelGRN && selectedGRN.status !== "cancelled" && (
+              {canCancelGRN && selectedGRN.status === "posted" && (
                 <>
                   <Button
                     size="small"
@@ -1696,15 +1731,43 @@ export default function GoodReceivedNotesPage() {
                       setCancelOpen(true);
                     }}
                   >
-                    Cancel GRN
+                    Request Cancellation
                   </Button>
                   <Divider orientation="vertical" flexItem sx={{ mx: 2 }} />
                 </>
               )}
+              {selectedGRN.status === "cancel_pending" &&
+                canApproveGRNCancel &&
+                (authUser?.is_superuser || selectedGRN.cancel_requested_by !== authUser?.id) && (
+                  <>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="success"
+                      disabled={decisionBusy}
+                      onClick={() => handleDecideCancel(true)}
+                    >
+                      Approve Cancellation
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      disabled={decisionBusy}
+                      onClick={() => {
+                        setDecisionError(null);
+                        setRejectOpen(true);
+                      }}
+                    >
+                      Reject
+                    </Button>
+                    <Divider orientation="vertical" flexItem sx={{ mx: 2 }} />
+                  </>
+                )}
               <Button
                 size="small"
                 variant="outlined"
-                disabled={selectedGRN.status === "cancelled"}
+                disabled={selectedGRN.status === "cancelled" || selectedGRN.status === "cancel_pending"}
                 startIcon={<PaymentIcon />}
                 onClick={() => {
                   const po = purchaseOrderMap.get(selectedGRN.purchasingorders_id);
@@ -1918,6 +1981,18 @@ export default function GoodReceivedNotesPage() {
                 )}
 
 
+                {!isCreating && selectedGRN?.status === "cancel_pending" && (
+                  <Alert severity="warning" sx={{ mt: 2 }}>
+                    Cancellation requested
+                    {selectedGRN.cancel_requested_at ? ` on ${new Date(selectedGRN.cancel_requested_at).toLocaleDateString()}` : ""}:{" "}
+                    {selectedGRN.cancel_reason || "no reason recorded"}. The GRN stays in stock until an approver approves the cancellation.
+                  </Alert>
+                )}
+                {!isCreating && selectedGRN?.status === "posted" && selectedGRN.cancel_rejection_remark && (
+                  <Alert severity="info" sx={{ mt: 2 }}>
+                    The last cancellation request was rejected: {selectedGRN.cancel_rejection_remark}
+                  </Alert>
+                )}
                 {!isCreating && selectedGRN?.status === "cancelled" && (
                   <Alert severity="error" sx={{ mt: 2 }}>
                     This GRN was cancelled{selectedGRN.cancelled_at ? ` on ${new Date(selectedGRN.cancelled_at).toLocaleDateString()}` : ""}:{" "}
@@ -2464,13 +2539,23 @@ export default function GoodReceivedNotesPage() {
     <>
       <ReclassifyDialog
         open={cancelOpen}
-        title="Cancel GRN"
-        description="Cancelling withdraws the received stock and reopens the purchase order line. It is refused if any unit has been sold, moved or returned."
-        confirmLabel="Cancel GRN"
+        title="Request GRN Cancellation"
+        description="An approver has to approve the cancellation. Once approved, the received stock is withdrawn and the purchase order line reopens. It is refused if any unit has been sold, moved or returned."
+        confirmLabel="Request Cancellation"
         isSubmitting={cancelBusy}
         error={cancelError}
         onClose={() => setCancelOpen(false)}
         onSubmit={(reason) => handleCancelGRN(reason)}
+      />
+      <ReclassifyDialog
+        open={rejectOpen}
+        title="Reject Cancellation Request"
+        description="The GRN stays posted. Tell the requester why the cancellation was rejected."
+        confirmLabel="Reject Request"
+        isSubmitting={decisionBusy}
+        error={decisionError}
+        onClose={() => setRejectOpen(false)}
+        onSubmit={(remarks) => handleDecideCancel(false, remarks)}
       />
       <MasterDetailLayout
         title="Good Received Notes"

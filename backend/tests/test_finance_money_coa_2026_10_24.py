@@ -18,6 +18,7 @@ import pytest
 from pydantic import ValidationError
 
 from tests.integration.test_workflows.test_grn_receive_cancel import (  # noqa: F401  (fixtures + helpers)
+    cancel_grn,
     P,
     _body,
     _uid,
@@ -261,7 +262,7 @@ class TestGrnCancelAfterReversal:
         JournalEntryService(db).reverse_journal_entry(je_id, reversed_by=superuser[0].id, reason="test", commit=False)
         db.flush()
         assert _gl_net(db, "1210") == inv0
-        c = superclient.post(f"{P}/grn/{grn_id}/cancel", json={"reason": "Wrong delivery"})
+        c = cancel_grn(superclient, grn_id)
         assert c.status_code == 200, c.text
         # Before the fix the cancel mirrored the already-reversed receipt: inventory went negative.
         assert (_gl_net(db, "1210"), _gl_net(db, "2010")) == (inv0, cred0)

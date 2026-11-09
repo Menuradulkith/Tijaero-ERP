@@ -566,8 +566,14 @@ export const goodReceivedNotesApi = {
     return response.data;
   },
 
+  /** Requests the cancellation of a posted GRN; it is reversed only once an approver approves. */
   cancel: async (id: number, reason: string) => {
     const response = await apiClient.post<GoodReceivedNote>(`/purchasing/grn/${id}/cancel`, { reason });
+    return response.data;
+  },
+
+  decideCancel: async (id: number, approve: boolean, remarks?: string) => {
+    const response = await apiClient.post<GoodReceivedNote>(`/purchasing/grn/${id}/cancel-decision`, { approve, remarks });
     return response.data;
   },
 

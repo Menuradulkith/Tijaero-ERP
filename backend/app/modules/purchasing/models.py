@@ -17,8 +17,12 @@ class GoodReceivedNote(Base, AuditMixin):
     delivery_note_no = Column(String(200), nullable=True)  # supplier's delivery note reference
     vehicle_no = Column(String(50), nullable=True)
     received_by = Column(String(200), nullable=True)  # who received the goods (defaults to the posting user)
-    # 'posted' | 'cancelled'. A posted GRN is reversed by cancelling it, never edited/deleted.
+    # 'posted' | 'cancel_pending' | 'cancelled'. A posted GRN is reversed by cancelling it, never
+    # edited/deleted; the cancellation is requested first and only happens once an approver approves.
     status = Column(String(20), nullable=False, default="posted", server_default="posted", index=True)
+    cancel_requested_by = Column(Integer, nullable=True)
+    cancel_requested_at = Column(TIMESTAMP, nullable=True)
+    cancel_rejection_remark = Column(Text, nullable=True)  # why the last cancellation request was rejected
     cancelled_at = Column(TIMESTAMP, nullable=True)
     cancelled_by = Column(Integer, nullable=True)
     cancel_reason = Column(Text, nullable=True)

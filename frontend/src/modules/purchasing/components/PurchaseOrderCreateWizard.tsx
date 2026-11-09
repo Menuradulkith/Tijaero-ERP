@@ -173,11 +173,18 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
 
   const supplierOptionsByProduct = useMemo(() => {
     const map = new Map<number, SupplierProduct[]>();
+    // Inactive suppliers (and inactive mappings) are not offered for a new order.
+    const inactiveSupplierIds = new Set((suppliers || []).filter((s) => !s.active).map((s) => s.id));
     productIdsNeedingSuppliers.forEach((productId, idx) => {
-      map.set(productId, supplierOptionQueries[idx]?.data || []);
+      map.set(
+        productId,
+        (supplierOptionQueries[idx]?.data || []).filter(
+          (sp) => sp.active !== false && !inactiveSupplierIds.has(sp.supplier_id),
+        ),
+      );
     });
     return map;
-  }, [productIdsNeedingSuppliers, supplierOptionQueries]);
+  }, [productIdsNeedingSuppliers, supplierOptionQueries, suppliers]);
 
   // Currently-available stock for every product on the cart, at the
   // wizard's single branch — lets the user see what's already on hand

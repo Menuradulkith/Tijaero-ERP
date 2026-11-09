@@ -2871,18 +2871,9 @@ class GoodReceivedNoteService:
             )
         return {"grn": created_grn, "units_received": total_accepted, "units_rejected": total_rejected}
 
-    def cancel(self, grn_id: int, reason: str, user_id: int) -> models.GoodReceivedNote:
-        """Reverse a posted GRN: its stock is withdrawn, the PO line reopens. Refused when
-        any received unit has moved on, or money / documents depend on the GRN."""
-        from app.modules.purchasing.credit_service import SupplierCreditService
+    def _check_cancellable(self, grn: models.GoodReceivedNote, po) -> list:
+        """Raise 400 when the GRN can no longer be reversed; otherwise return its stock rows."""
         from app.modules.inventory.models import SalesStock, CompanyAssets
-
-        grn = self.db.query(models.GoodReceivedNote).filter(models.GoodReceivedNote.id == grn_id).with_for_update().first()
-        if not grn:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GRN not found")
-        if grn.status == "cancelled":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This GRN is already cancelled.")
-        po = self.db.query(models.PurchasingOrder).filter(models.PurchasingOrder.id == grn.purchasingorders_id).with_for_update().first()
 
         blockers: List[str] = []
         if self.db.query(models.PurchasingReturn.id).filter(
@@ -2929,6 +2920,74 @@ class GoodReceivedNoteService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot cancel this GRN: " + "; ".join(blockers) + ".",
             )
+
+        return stock_rows
+
+    def request_cancel(self, grn_id: int, reason: str, user_id: int) -> models.GoodReceivedNote:
+        """Ask for a posted GRN to be cancelled. Nothing is reversed yet: the GRN waits for an
+        approver (see decide_cancel). Refused up front when it could not be reversed anyway."""
+        grn = self.db.query(models.GoodReceivedNote).filter(models.GoodReceivedNote.id == grn_id).with_for_update().first()
+        if not grn:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GRN not found")
+        if grn.status == "cancelled":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This GRN is already cancelled.")
+        if grn.status == "cancel_pending":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A cancellation request for this GRN is already waiting for approval.")
+        po = self.db.query(models.PurchasingOrder).filter(models.PurchasingOrder.id == grn.purchasingorders_id).first()
+        self._check_cancellable(grn, po)
+        grn.status = "cancel_pending"
+        grn.cancel_reason = reason
+        grn.cancel_requested_by = user_id
+        grn.cancel_requested_at = tz.now()
+        grn.cancel_rejection_remark = None
+        log_audit(
+            self.db, user_id=user_id, action="cancel_request", entity_type="good_received_note", entity_id=grn.id,
+            changes={"grn_no": grn.good_received_no, "reason": reason},
+        )
+        self.db.commit()
+        self.db.refresh(grn)
+        return grn
+
+    def decide_cancel(
+        self, grn_id: int, approve: bool, remarks: Optional[str], user_id: int, is_superuser: bool = False
+    ) -> models.GoodReceivedNote:
+        """Approve (the GRN is cancelled and its stock withdrawn) or reject (it stays posted) a
+        pending cancellation request. Someone other than the requester must decide."""
+        grn = self.db.query(models.GoodReceivedNote).filter(models.GoodReceivedNote.id == grn_id).with_for_update().first()
+        if not grn:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GRN not found")
+        if grn.status != "cancel_pending":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This GRN has no cancellation request waiting for approval.")
+        if grn.cancel_requested_by == user_id and not is_superuser:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot approve or reject your own cancellation request.")
+        if approve:
+            return self.cancel(grn_id, grn.cancel_reason or "Cancellation approved", user_id)
+        if not (remarks or "").strip():
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A reason is required to reject the cancellation request.")
+        grn.status = "posted"
+        grn.cancel_rejection_remark = remarks.strip()
+        log_audit(
+            self.db, user_id=user_id, action="cancel_reject", entity_type="good_received_note", entity_id=grn.id,
+            changes={"grn_no": grn.good_received_no, "remarks": remarks.strip()},
+        )
+        self.db.commit()
+        self.db.refresh(grn)
+        return grn
+
+    def cancel(self, grn_id: int, reason: str, user_id: int) -> models.GoodReceivedNote:
+        """Reverse a posted GRN: its stock is withdrawn, the PO line reopens. Refused when
+        any received unit has moved on, or money / documents depend on the GRN."""
+        from app.modules.purchasing.credit_service import SupplierCreditService
+        from app.modules.inventory.models import SalesStock, CompanyAssets
+
+        grn = self.db.query(models.GoodReceivedNote).filter(models.GoodReceivedNote.id == grn_id).with_for_update().first()
+        if not grn:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GRN not found")
+        if grn.status == "cancelled":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This GRN is already cancelled.")
+        po = self.db.query(models.PurchasingOrder).filter(models.PurchasingOrder.id == grn.purchasingorders_id).with_for_update().first()
+
+        stock_rows = self._check_cancellable(grn, po)
 
         now = tz.now()
         for row in stock_rows:

@@ -19,6 +19,7 @@ from app.modules.finance.accounting_models import JournalEntryLine
 from app.modules.purchasing.models import GoodReceivedNote
 from app.modules.purchasing.receipt_rules import receipt_limits
 from tests.integration.test_workflows.test_grn_receive_cancel import (  # noqa: F401  (fixtures)
+    cancel_grn,
     P,
     _body,
     _full_lines,
@@ -169,7 +170,7 @@ class TestLandedCost:
         r = superclient.post(f"{P}/grn/{grn_id}/cancel", json={"reason": "Wrong delivery"})
         assert r.status_code == 400 and "landed cost" in r.json()["detail"]
         superclient.post(f"{P}/landed-costs/{v['id']}/cancel", json={"reason": "Charged twice"})
-        assert superclient.post(f"{P}/grn/{grn_id}/cancel", json={"reason": "Wrong delivery"}).status_code == 200
+        assert cancel_grn(superclient, grn_id).status_code == 200
 
     def test_credit_charge_needs_a_supplier_and_is_owed_to_them(self, db, superclient, world, make_supplier):
         """A charge on credit is Cr Trade Creditors: it must name who is owed, and

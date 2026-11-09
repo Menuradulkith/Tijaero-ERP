@@ -1,0 +1,184 @@
+---
+import Base from '../../layouts/Base.astro';
+import Icon from '../Icon.astro';
+import { t, pathFor, contact, phoneDigits, type Lang } from '../../i18n';
+
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const d = t(lang);
+const f = d.demo;
+const endpoint = import.meta.env.PUBLIC_DEMO_ENDPOINT ?? '';
+---
+<Base lang={lang} page="demo" title={d.meta.demoTitle} description={d.meta.demoDesc}>
+  <section slot="hero" class="container demo">
+    <div class="intro">
+      <h1>{f.title}</h1>
+      <p class="sub">{f.sub}</p>
+      <ol class="steps">
+        {f.steps.map((s) => (
+          <li class="glass"><span class="when">{s.when}</span><span class="stack" style="gap: 4px"><b>{s.title}</b><span>{s.body}</span></span></li>
+        ))}
+      </ol>
+      <p class="call">
+        {f.callUs}
+        <a href={`https://wa.me/${phoneDigits}`} rel="noopener"><Icon name="phone" size={16} stroke="#fff" />{contact.phone}</a>
+      </p>
+    </div>
+
+    <div class="panel">
+      <form id="demo-form" novalidate
+        data-endpoint={endpoint}
+        data-err-required={f.errRequired}
+        data-err-phone={f.errPhone}
+        data-err-send={f.errSend}
+        data-sending={f.sending}>
+        <div class="grid">
+          <div class="field"><label for="d-name">{f.name}</label><input id="d-name" name="name" type="text" required autocomplete="name" /></div>
+          <div class="field"><label for="d-company">{f.company}</label><input id="d-company" name="company" type="text" required autocomplete="organization" /></div>
+          <div class="field"><label for="d-phone">{f.phone}</label><input id="d-phone" name="phone" type="tel" required autocomplete="tel" inputmode="tel" placeholder="077 123 4567" /></div>
+          <div class="field"><label for="d-email">{f.email} <span class="opt">({f.optional})</span></label><input id="d-email" name="email" type="email" autocomplete="email" /></div>
+          <div class="field"><label for="d-prov">{f.province}</label><select id="d-prov" name="province">{f.provinces.map((p) => <option>{p}</option>)}</select></div>
+          <div class="field"><label for="d-branches">{f.branches}</label><select id="d-branches" name="branches"><option>1</option><option>2–5</option><option>6–20</option><option>20+</option></select></div>
+          <div class="field"><label for="d-type">{f.bizType}</label><select id="d-type" name="businessType">{f.types.map((x) => <option>{x}</option>)}</select></div>
+          <div class="field"><label for="d-lang">{f.demoLang}</label>
+            <select id="d-lang" name="demoLanguage">
+              <option value="en">English</option>
+              <option value="si">Sinhala</option>
+            </select>
+          </div>
+        </div>
+        <fieldset>
+          <legend>{f.interest}</legend>
+          <div class="chips">
+            {f.mods.map((m) => <label class="pick"><input type="checkbox" name="modules" value={m} /><span>{m}</span></label>)}
+          </div>
+        </fieldset>
+        <!-- spam trap: real people never see or fill this -->
+        <div class="hp" aria-hidden="true"><label for="d-website">Website</label><input id="d-website" name="website" type="text" tabindex="-1" autocomplete="off" /></div>
+        <p class="error" role="alert" hidden></p>
+        <button class="btn btn-primary btn-lg" type="submit">{f.submit}</button>
+        <p class="privacy">{f.privacy}</p>
+      </form>
+
+      <div class="thanks" role="status" hidden tabindex="-1">
+        <span class="tick"><Icon name="check" size={30} stroke="#714B67" width={2.6} /></span>
+        <h2>{f.thanksT}</h2>
+        <p>{f.thanksD}</p>
+        <a href={pathFor(lang, '')}>{f.back}</a>
+      </div>
+    </div>
+  </section>
+</Base>
+
+<script>
+  const form = document.getElementById('demo-form') as HTMLFormElement | null;
+  const thanks = document.querySelector<HTMLElement>('.thanks');
+  const errorEl = form?.querySelector<HTMLElement>('.error');
+  const submitBtn = form?.querySelector<HTMLButtonElement>('button[type="submit"]');
+
+  /** Accepts 0771234567, 771234567, +94 77 123 4567, 94771234567. Returns +94XXXXXXXXX or null. */
+  function normalizeLkPhone(raw: string): string | null {
+    let digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('94')) digits = digits.slice(2);
+    if (digits.startsWith('0')) digits = digits.slice(1);
+    return /^[1-9]\d{8}$/.test(digits) ? `+94${digits}` : null;
+  }
+
+  function showError(msg: string) {
+    if (!errorEl) return;
+    errorEl.textContent = msg;
+    errorEl.hidden = false;
+  }
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ds = form.dataset;
+    errorEl!.hidden = true;
+    const data = new FormData(form);
+    if (String(data.get('website') ?? '')) return; // bot
+
+    const name = String(data.get('name') ?? '').trim();
+    const company = String(data.get('company') ?? '').trim();
+    const phoneRaw = String(data.get('phone') ?? '').trim();
+    if (!name || !company || !phoneRaw) { showError(ds.errRequired!); return; }
+    const phone = normalizeLkPhone(phoneRaw);
+    if (!phone) { showError(ds.errPhone!); (form.elements.namedItem('phone') as HTMLInputElement).focus(); return; }
+
+    const payload = {
+      name, company, phone,
+      email: String(data.get('email') ?? '').trim() || null,
+      province: data.get('province'),
+      branches: data.get('branches'),
+      businessType: data.get('businessType'),
+      demoLanguage: data.get('demoLanguage'),
+      modules: data.getAll('modules'),
+      submittedAt: new Date().toISOString(),
+    };
+
+    const label = submitBtn!.textContent;
+    submitBtn!.disabled = true;
+    submitBtn!.textContent = ds.sending!;
+    try {
+      if (!ds.endpoint) {
+        if (import.meta.env.DEV) console.warn('[demo form] PUBLIC_DEMO_ENDPOINT is not set; payload:', payload);
+        else throw new Error('PUBLIC_DEMO_ENDPOINT not configured');
+      } else {
+        const res = await fetch(ds.endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      }
+      form.hidden = true;
+      thanks!.hidden = false;
+      thanks!.focus();
+    } catch (err) {
+      console.error('[demo form]', err);
+      showError(ds.errSend!);
+      submitBtn!.disabled = false;
+      submitBtn!.textContent = label;
+    }
+  });
+</script>
+
+<style>
+  .demo { position: relative; display: flex; flex-wrap: wrap; gap: 64px; align-items: flex-start; padding-top: 72px; padding-bottom: 104px; }
+  .intro { flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 22px; }
+  .intro h1 { font-size: clamp(40px, 5vw, 62px); line-height: 1; letter-spacing: -2.2px; font-weight: 800; color: #fff; }
+  .sub { font-size: 19px; line-height: 1.65; color: var(--on-dark-muted); }
+  .steps { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+  .steps li { border-radius: 18px; padding: 18px 20px; display: flex; gap: 16px; align-items: flex-start; font-size: 14px; color: var(--on-dark-muted); line-height: 1.55; }
+  .steps b { font-size: 16px; color: #fff; font-weight: 600; }
+  .when { flex: none; background: rgba(215,169,201,.18); color: #f1ddea; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 6px 10px; white-space: nowrap; }
+  .call { font-size: 15px; color: #bba9b6; margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .call a { color: #fff; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; padding: 8px 0; }
+
+  .panel { flex: 1 1 540px; min-width: 0; background: #fff; color: var(--ink); border-radius: 28px; padding: clamp(24px, 4vw, 40px); box-shadow: 0 40px 100px rgba(0,0,0,.45); }
+  form { display: flex; flex-direction: column; gap: 22px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 18px; }
+  .field { display: flex; flex-direction: column; gap: 8px; }
+  label, legend { font-size: 14px; font-weight: 600; }
+  .opt { font-weight: 400; color: var(--muted); }
+  input, select { border: 1px solid #d9cfd7; border-radius: 12px; padding: 13px 14px; font-size: 16px; background: #fff; color: var(--ink); min-height: 48px; width: 100%; }
+  input:focus, select:focus { outline: 2px solid var(--plum); outline-offset: 1px; border-color: var(--plum); }
+  fieldset { border: 0; margin: 0; padding: 0; }
+  legend { margin-bottom: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pick { position: relative; font-weight: 500; }
+  .pick input { position: absolute; opacity: 0; width: 1px; height: 1px; min-height: 0; }
+  .pick span { display: flex; align-items: center; min-height: 44px; padding: 0 16px; border: 1px solid #d9cfd7; border-radius: 999px; font-size: 14px; cursor: pointer; background: #fff; transition: background .15s, border-color .15s; }
+  .pick span:hover { border-color: var(--plum); }
+  .pick input:checked + span { background: var(--plum); border-color: var(--plum); color: #fff; }
+  .pick input:focus-visible + span { outline: 2px solid var(--plum); outline-offset: 2px; }
+  .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .error { background: #fdecec; color: #8c1d18; border-radius: 12px; padding: 12px 14px; font-size: 14px; }
+  .privacy { font-size: 13px; color: var(--muted); text-align: center; }
+  button[disabled] { opacity: .7; cursor: progress; }
+  .thanks { display: flex; flex-direction: column; gap: 18px; align-items: flex-start; padding: 32px 0; outline: none; }
+  .thanks[hidden] { display: none; }
+  .thanks h2 { font-size: 34px; line-height: 1.25; }
+  .thanks p { font-size: 17px; line-height: 1.6; color: var(--muted); }
+  .thanks a { font-weight: 600; padding: 10px 0; }
+  .tick { width: 64px; height: 64px; border-radius: 32px; background: var(--plum-tint); display: grid; place-items: center; }
+</style>

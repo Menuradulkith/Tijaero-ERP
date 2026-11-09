@@ -117,6 +117,7 @@ def seed_permissions():
         {"name": "create_grn", "resource": "grn", "action": "create", "description": "Create goods received notes"},
         {"name": "update_grn", "resource": "grn", "action": "update", "description": "Update goods received notes"},
         {"name": "delete_grn", "resource": "grn", "action": "delete", "description": "Delete goods received notes"},
+        {"name": "approve_grn", "resource": "grn", "action": "approve", "description": "Approve/reject GRN cancellation requests"},
         # Purchase Returns
         {"name": "view_purchase_returns", "resource": "purchase_returns", "action": "view", "description": "View purchase returns"},
         {"name": "create_purchase_returns", "resource": "purchase_returns", "action": "create", "description": "Create purchase returns"},
@@ -541,7 +542,7 @@ def seed_permissions():
                 "view_suppliers", "create_suppliers", "update_suppliers", "delete_suppliers",
                 "view_purchase_orders", "create_purchase_orders", "update_purchase_orders", "delete_purchase_orders",
                 "view_po_approvals", "approve_po_approvals",
-                "view_grn", "create_grn", "update_grn", "delete_grn",
+                "view_grn", "create_grn", "update_grn", "delete_grn", "approve_grn",
                 "view_purchase_returns", "create_purchase_returns", "update_purchase_returns", "delete_purchase_returns",
                 "view_purchase_return_approvals", "approve_purchase_return_approvals",
                 # Cross-module view access

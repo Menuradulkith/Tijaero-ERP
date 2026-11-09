@@ -1,0 +1,56 @@
+---
+import '../styles/global.css';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import { t, pathFor, htmlLang, type Lang } from '../i18n';
+
+interface Props {
+  lang: Lang;
+  page: '' | 'pricing' | 'demo';
+  title: string;
+  description: string;
+  footer?: boolean;
+}
+const { lang, page, title, description, footer = true } = Astro.props;
+const site = Astro.site ?? new URL('https://www.example.lk');
+const canonical = new URL(pathFor(lang, page), site).href;
+---
+<!doctype html>
+<html lang={htmlLang[lang]}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#120B10" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content="en_LK" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&display=swap" />
+  </head>
+  <body>
+    <a class="skip" href="#main">{t(lang).nav.skip}</a>
+    <div class="page-top dark">
+      <div class="grid-lines" aria-hidden="true"></div>
+      <Nav lang={lang} page={page} />
+      <slot name="hero" />
+    </div>
+    <main id="main">
+      <slot />
+    </main>
+    {footer && <Footer lang={lang} />}
+    <script>
+      // Fade sections in as they scroll into view (skipped when reduced motion is on, via CSS).
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      }, { rootMargin: '0px 0px -10% 0px' });
+      document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+    </script>
+  </body>
+</html>

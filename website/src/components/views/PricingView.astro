@@ -1,0 +1,119 @@
+---
+import Base from '../../layouts/Base.astro';
+import Icon from '../Icon.astro';
+import { t, pathFor, type Lang } from '../../i18n';
+
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const d = t(lang);
+const p = d.pricing;
+---
+<Base lang={lang} page="pricing" title={d.meta.pricingTitle} description={d.meta.pricingDesc}>
+  <section slot="hero" class="p-hero container">
+    <h1>{p.title}</h1>
+    <p>{p.sub}</p>
+    <div class="billing glass" role="group" aria-label={p.billing}>
+      <button type="button" data-billing="monthly" aria-pressed="true">{p.monthly}</button>
+      <button type="button" data-billing="yearly" aria-pressed="false">{p.yearly}</button>
+    </div>
+  </section>
+
+  <section class="container plans-wrap">
+    <div class="plans">
+      {p.plans.map((plan) => {
+        const featured = plan.id === 'growth';
+        const custom = !plan.monthly;
+        return (
+          <article class:list={['plan', { featured }]}>
+            <div class="stack" style="gap: 8px">
+              <div class="plan-head"><h2>{plan.name}</h2>{featured && <span class="badge">{p.popular}</span>}</div>
+              <p class="plan-desc">{plan.desc}</p>
+            </div>
+            <div class="stack" style="gap: 4px">
+              {custom ? (
+                <><span class="price">{p.custom}</span><span class="period">{p.quoted}</span></>
+              ) : (
+                <>
+                  <span class="price" data-monthly={plan.monthly} data-yearly={plan.yearly}>{plan.monthly}</span>
+                  <span class="period" data-monthly={p.perMonth} data-yearly={p.perMonthYearly}>{p.perMonth}</span>
+                </>
+              )}
+            </div>
+            <a class:list={['btn', featured ? 'btn-white' : 'btn-outline']} href={pathFor(lang, 'demo')}>{plan.cta}</a>
+            <hr />
+            <ul class="feat">
+              {plan.features.map((f) => <li><Icon name="check" size={18} stroke={featured ? '#8FD3CF' : '#714B67'} width={2.6} />{f}</li>)}
+            </ul>
+          </article>
+        );
+      })}
+    </div>
+    <p class="note">{p.note}</p>
+  </section>
+
+  <section class="container deploy">
+    <div class="card dep"><span class="dep-ico"><Icon name="cloud" size={24} stroke="#714B67" /></span><div class="stack" style="gap: 6px"><h3>{p.cloudT}</h3><p>{p.cloudD}</p></div></div>
+    <div class="card dep"><span class="dep-ico"><Icon name="server" size={24} stroke="#714B67" /></span><div class="stack" style="gap: 6px"><h3>{p.premT}</h3><p>{p.premD}</p></div></div>
+  </section>
+
+  <section class="container faq">
+    <h2 class="h2" style="font-size: clamp(32px, 4vw, 44px)">{p.faqTitle}</h2>
+    {p.faq.map((q) => (
+      <details>
+        <summary>{q.q}<span aria-hidden="true">+</span></summary>
+        <p>{q.a}</p>
+      </details>
+    ))}
+  </section>
+</Base>
+
+<script>
+  const buttons = document.querySelectorAll<HTMLButtonElement>('[data-billing]');
+  buttons.forEach((b) => b.addEventListener('click', () => {
+    const mode = b.dataset.billing as 'monthly' | 'yearly';
+    buttons.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll<HTMLElement>('[data-monthly]').forEach((el) => { el.textContent = el.dataset[mode] ?? ''; });
+  }));
+</script>
+
+<style>
+  .p-hero { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 20px; padding: 88px 24px 190px; }
+  .p-hero h1 { font-size: clamp(42px, 6vw, 72px); line-height: 1; letter-spacing: -2.6px; font-weight: 800; color: #fff; max-width: 900px; }
+  .p-hero p { font-size: 19px; line-height: 1.6; color: var(--on-dark-muted); max-width: 640px; }
+  .billing { display: flex; border-radius: 999px; padding: 4px; margin-top: 6px; }
+  .billing button { border: 0; border-radius: 999px; padding: 11px 20px; min-height: 44px; font-weight: 600; font-size: 15px; cursor: pointer; background: transparent; color: #e6d8e1; }
+  .billing button[aria-pressed="true"] { background: #fff; color: var(--plum-deep); }
+
+  .plans-wrap { margin-top: -140px; position: relative; padding-bottom: 72px; }
+  .plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); gap: 18px; align-items: stretch; }
+  .plan { background: #fff; border: 1px solid var(--line); border-radius: 26px; padding: 36px; display: flex; flex-direction: column; gap: 24px; box-shadow: 0 20px 60px rgba(43,27,39,.08); }
+  .plan.featured { background: linear-gradient(170deg, #3a2635, #1c1119); border-color: rgba(215,169,201,.45); color: var(--on-dark); box-shadow: 0 30px 80px rgba(43,27,39,.35); }
+  .plan-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .plan h2 { font-size: 26px; }
+  .featured h2, .featured .price { color: #fff; }
+  .badge { background: linear-gradient(90deg, #f6ddee, #8fd3cf); color: var(--plum-deep); font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 999px; white-space: nowrap; }
+  .plan-desc, .period { font-size: 15px; line-height: 1.5; color: var(--muted); }
+  .featured .plan-desc, .featured .period { color: var(--on-dark-muted); }
+  .price { font-family: var(--font-display); font-size: 46px; font-weight: 800; letter-spacing: -1.5px; }
+  .period { font-size: 14px; }
+  .plan hr { border: 0; height: 1px; background: #eee8ed; margin: 0; width: 100%; }
+  .featured hr { background: rgba(255,255,255,.14); }
+  .feat { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 13px; font-size: 15px; }
+  .feat li { display: flex; gap: 10px; line-height: 1.5; }
+  .feat :global(svg) { flex: none; margin-top: 2px; }
+  .note { margin-top: 28px; font-size: 14px; color: var(--muted); text-align: center; }
+
+  .deploy { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 18px; padding-bottom: 96px; }
+  .dep { flex-direction: row; gap: 18px; }
+  .dep h3 { font-size: 21px; }
+  .dep-ico { flex: none; width: 48px; height: 48px; border-radius: 14px; background: var(--plum-tint); display: grid; place-items: center; }
+
+  .faq { max-width: 868px; display: flex; flex-direction: column; gap: 12px; padding-bottom: 120px; }
+  .faq h2 { margin-bottom: 20px; }
+  details { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 4px 24px; }
+  summary { list-style: none; font-size: 17px; font-weight: 600; cursor: pointer; padding: 18px 0; display: flex; justify-content: space-between; gap: 16px; }
+  summary::-webkit-details-marker { display: none; }
+  summary span { color: var(--plum); font-size: 22px; line-height: 1; transition: transform .2s; }
+  details[open] summary span { transform: rotate(45deg); }
+  details p { margin-bottom: 20px; font-size: 16px; line-height: 1.65; color: var(--muted); }
+</style>
