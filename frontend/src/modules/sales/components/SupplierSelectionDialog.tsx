@@ -83,7 +83,8 @@ export default function SupplierSelectionDialog({
       Object.fromEntries(
         candidates.map((c) => [
           c.quote_item_id,
-          { included: true, supplier_id: 0, quantity: c.quantity, unit_price: c.unit_price },
+          // The price comes from the supplier chosen for the row (its listed cost), not from the product.
+          { included: true, supplier_id: 0, quantity: c.quantity, unit_price: 0 },
         ]),
       ),
     );
@@ -200,7 +201,7 @@ export default function SupplierSelectionDialog({
                           onChange={(_, newValue) =>
                             updateRow(c.quote_item_id, {
                               supplier_id: newValue?.supplier_id || 0,
-                              unit_price: newValue?.cost_price ?? row.unit_price,
+                              unit_price: Number(newValue?.cost_price ?? 0),
                             })
                           }
                           renderOption={(props, option) => (
@@ -250,7 +251,7 @@ export default function SupplierSelectionDialog({
         )}
       </DialogContent>
       <DialogActions>
-        <TButton variant="danger" startIcon={<CancelIcon />} onClick={onClose}>Cancel</TButton>
+        <TButton aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="danger"  onClick={onClose}><CancelIcon fontSize="small" /></TButton>
         <TButton onClick={handleContinue} disabled={!isValid}>Continue</TButton>
       </DialogActions>
     </Dialog>

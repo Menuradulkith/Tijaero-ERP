@@ -202,7 +202,7 @@ class TestPurchasingAPI:
             json={
                 "company_name": f"Supplier {_uid()}",
                 "billing_address_line1": "1 Main St",
-                "mobile_contact_number": "0771234567",
+                "mobile_contact_number": "0771234567", "tax_area": "domestic_standard", "default_currency": "LKR", "incoterm": "FOB", "shipment_method": "sea",
                 "credit_days": 30,
                 "max_credit_limit": 500000,
                 "active": True,

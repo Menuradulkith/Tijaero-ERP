@@ -134,18 +134,30 @@ export const TSidePanel: React.FC<TSidePanelProps> = ({
           {actions || (
             <>
               {extraActions}
-              <TButton variant="danger" startIcon={<CancelIcon />} onClick={onClose} disabled={isSubmitting}>
-                {cancelText}
+              {/* Plain Cancel / Save are icon-only (red cancel); a custom label keeps its text. */}
+              <TButton
+                variant="danger"
+                startIcon={cancelText === "Cancel" ? undefined : <CancelIcon />}
+                onClick={onClose}
+                disabled={isSubmitting}
+                aria-label={cancelText}
+                title={cancelText}
+                sx={cancelText === "Cancel" ? { minWidth: 36, px: 1 } : undefined}
+              >
+                {cancelText === "Cancel" ? <CancelIcon fontSize="small" /> : cancelText}
               </TButton>
               {onSubmit && (
                 <TButton
                   variant="success"
-                  startIcon={<SaveIcon />}
+                  startIcon={/^Save/.test(submitText) ? undefined : <SaveIcon />}
                   onClick={onSubmit}
                   loading={isSubmitting}
                   disabled={submitDisabled}
+                  aria-label={submitText}
+                  title={submitText}
+                  sx={/^Save/.test(submitText) ? { minWidth: 36, px: 1 } : undefined}
                 >
-                  {submitText}
+                  {/^Save/.test(submitText) ? <SaveIcon fontSize="small" /> : submitText}
                 </TButton>
               )}
             </>

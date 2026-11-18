@@ -1,0 +1,25 @@
+---
+// Stand-in for a real product screenshot that hasn't been captured yet.
+// Shows a framed, clearly labelled box so nothing fake is presented as the product.
+interface Props { label: string; note: string; dark?: boolean }
+const { label, note, dark = false } = Astro.props;
+---
+<figure class:list={['ph', { dark }]} role="img" aria-label={note}>
+  <div class="bar" aria-hidden="true">
+    <span></span><span></span><span></span>
+    <span class="addr">{label}</span>
+  </div>
+  <div class="body">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M3 9h18M8 21h8M12 18v3" /></svg>
+    <span>{note}</span>
+  </div>
+</figure>
+
+<style>
+  .ph { margin: 0; border-radius: 14px; overflow: hidden; border: 1px solid rgba(31,26,30,.1); background: #fff; box-shadow: 0 24px 60px rgba(43,27,39,.14); }
+  .bar { height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 14px; background: #f3eff2; border-bottom: 1px solid #e9e3e8; }
+  .bar > span:not(.addr) { width: 10px; height: 10px; border-radius: 50%; background: #d9cfd7; }
+  .addr { margin-left: 14px; flex: 1; max-width: 360px; height: 20px; border-radius: 6px; background: #fff; font-size: 11px; line-height: 20px; padding: 0 10px; color: var(--muted-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .body { aspect-ratio: 1.6; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; color: var(--muted-2); font-size: 14px; background: repeating-linear-gradient(135deg, #faf8fa 0 14px, #f4eef3 14px 28px); }
+  .dark { border-color: rgba(255,255,255,.18); box-shadow: 0 40px 120px rgba(0,0,0,.5); }
+</style>

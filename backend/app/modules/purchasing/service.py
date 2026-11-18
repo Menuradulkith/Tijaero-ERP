@@ -100,6 +100,7 @@ class SupplierService:
 
     def create_supplier(self, supplier: schemas.SupplierCreate, created_by: Optional[int] = None) -> models.Supplier:
         self._check_currency(supplier.default_currency)
+        self._check_currency(supplier.other_currency)
         self._check_duplicate_fields(supplier)
 
         with self._duplicate_guard():
@@ -347,7 +348,16 @@ class SupplierService:
             self._ensure_can_deactivate(before)
 
         self._check_currency(supplier_update.default_currency)
-        self._check_currency(supplier_update.default_currency)
+        self._check_currency(supplier_update.other_currency)
+        # Other currency may not equal the default one (either may come from the stored row).
+        submitted = supplier_update.model_fields_set
+        new_default = supplier_update.default_currency if "default_currency" in submitted else before.default_currency
+        new_other = supplier_update.other_currency if "other_currency" in submitted else before.other_currency
+        if new_other and new_default and new_other == new_default:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Other currency must be different from the default currency",
+            )
         self._check_duplicate_fields(supplier_update, exclude_id=supplier_id)
 
         if {"mobile_contact_number", "home_contact_number"} & set(submitted_fields):

@@ -156,31 +156,40 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
           toolbar. */}
       {(isEditing || isCreating || onNext) && (
         <Box sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 0.5 }}>
-          {/* Text buttons, not bare icons: users who are not used to the
-              ERP could not tell the green/red circles apart. */}
+          {/* Save / Cancel are icon-only (green save, solid red cancel), as requested. */}
           {(isEditing || isCreating) && onSave && (
-            <Button
-              size="small"
-              variant="contained"
-              color="success"
-              startIcon={<SaveIcon fontSize="small" />}
-              onClick={handleSaveClick}
-              disabled={isSaving}
-            >
-              {isSaving ? "Saving..." : "Save"}
-            </Button>
+            <Tooltip title={isSaving ? "Saving..." : "Save"}>
+              <span>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  aria-label="Save"
+                  onClick={handleSaveClick}
+                  disabled={isSaving}
+                  sx={{ minWidth: 36, px: 1 }}
+                >
+                  <SaveIcon fontSize="small" />
+                </Button>
+              </span>
+            </Tooltip>
           )}
           {(isEditing || isCreating) && onCancel && (
-            <Button
-              size="small"
-              variant="outlined"
-              color="inherit"
-              startIcon={<CancelIcon fontSize="small" />}
-              onClick={onCancel}
-              disabled={isSaving}
-            >
-              Cancel
-            </Button>
+            <Tooltip title="Cancel">
+              <span>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="error"
+                  aria-label="Cancel"
+                  onClick={onCancel}
+                  disabled={isSaving}
+                  sx={{ minWidth: 36, px: 1 }}
+                >
+                  <CancelIcon fontSize="small" />
+                </Button>
+              </span>
+            </Tooltip>
           )}
           {onNext && (
             <Button

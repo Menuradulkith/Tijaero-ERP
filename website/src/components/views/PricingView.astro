@@ -12,62 +12,161 @@ const p = d.pricing;
   <section slot="hero" class="p-hero container">
     <h1>{p.title}</h1>
     <p>{p.sub}</p>
+    <div class="switch glass" role="tablist" aria-label={p.productLabel}>
+      {p.tabs.map((x, i) => (
+        <button type="button" role="tab" id={`tab-${x.v}`} aria-controls={`panel-${x.v}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1} data-product={x.v}>{x.label}</button>
+      ))}
+    </div>
     <div class="billing glass" role="group" aria-label={p.billing}>
       <button type="button" data-billing="monthly" aria-pressed="true">{p.monthly}</button>
-      <button type="button" data-billing="yearly" aria-pressed="false">{p.yearly}</button>
+      <button type="button" data-billing="yearly" aria-pressed="false" data-label-erp={p.yearly} data-label-distributor={p.dlYearly}>{p.yearly}</button>
     </div>
   </section>
 
-  <section class="container plans-wrap">
-    <div class="plans">
-      {p.plans.map((plan) => {
-        const featured = plan.id === 'growth';
-        const custom = !plan.monthly;
-        return (
-          <article class:list={['plan', { featured }]}>
-            <div class="stack" style="gap: 8px">
-              <div class="plan-head"><h2>{plan.name}</h2>{featured && <span class="badge">{p.popular}</span>}</div>
-              <p class="plan-desc">{plan.desc}</p>
-            </div>
-            <div class="stack" style="gap: 4px">
-              {custom ? (
-                <><span class="price">{p.custom}</span><span class="period">{p.quoted}</span></>
-              ) : (
-                <>
-                  <span class="price" data-monthly={plan.monthly} data-yearly={plan.yearly}>{plan.monthly}</span>
-                  <span class="period" data-monthly={p.perMonth} data-yearly={p.perMonthYearly}>{p.perMonth}</span>
-                </>
-              )}
-            </div>
-            <a class:list={['btn', featured ? 'btn-white' : 'btn-outline']} href={pathFor(lang, 'demo')}>{plan.cta}</a>
-            <hr />
-            <ul class="feat">
-              {plan.features.map((f) => <li><Icon name="check" size={18} stroke={featured ? '#8FD3CF' : '#714B67'} width={2.6} />{f}</li>)}
-            </ul>
-          </article>
-        );
-      })}
-    </div>
-    <p class="note">{p.note}</p>
-  </section>
+  <!-- Tijaero ERP -->
+  <div role="tabpanel" id="panel-erp" aria-labelledby="tab-erp" class="panel" data-default>
+    <section class="container plans-wrap">
+      <div class="plans">
+        {p.plans.map((plan) => {
+          const featured = plan.id === 'growth';
+          const custom = !plan.monthly;
+          return (
+            <article class:list={['plan', { featured }]}>
+              <div class="stack" style="gap: 8px">
+                <div class="plan-head"><h2>{plan.name}</h2>{featured && <span class="badge">{p.popular}</span>}</div>
+                <p class="plan-desc">{plan.desc}</p>
+              </div>
+              <div class="stack" style="gap: 4px">
+                {custom ? (
+                  <><span class="price">{p.custom}</span><span class="period">{p.quoted}</span></>
+                ) : (
+                  <>
+                    <span class="price" data-monthly={plan.monthly} data-yearly={plan.yearly}>{plan.monthly}</span>
+                    <span class="period" data-monthly={p.perMonth} data-yearly={p.perMonthYearly}>{p.perMonth}</span>
+                  </>
+                )}
+              </div>
+              <a class:list={['btn', featured ? 'btn-white' : 'btn-outline']} href={pathFor(lang, 'demo', '?product=erp')}>{plan.cta}</a>
+              <hr />
+              <ul class="feat">
+                {plan.features.map((f) => <li><Icon name="check" size={18} stroke={featured ? '#8FD3CF' : '#714B67'} width={2.6} />{f}</li>)}
+              </ul>
+            </article>
+          );
+        })}
+      </div>
+      <p class="note">{p.erpIntro} {p.note}</p>
+    </section>
 
-  <section class="container deploy">
-    <div class="card dep"><span class="dep-ico"><Icon name="cloud" size={24} stroke="#714B67" /></span><div class="stack" style="gap: 6px"><h3>{p.cloudT}</h3><p>{p.cloudD}</p></div></div>
-    <div class="card dep"><span class="dep-ico"><Icon name="server" size={24} stroke="#714B67" /></span><div class="stack" style="gap: 6px"><h3>{p.premT}</h3><p>{p.premD}</p></div></div>
-  </section>
+    <section class="container deploy">
+      <div class="card dep"><span class="dep-ico"><Icon name="cloud" size={24} stroke="#714B67" /></span><div class="stack" style="gap: 6px"><h3>{p.cloudT}</h3><p>{p.cloudD}</p></div></div>
+      <div class="card dep"><span class="dep-ico"><Icon name="server" size={24} stroke="#714B67" /></span><div class="stack" style="gap: 6px"><h3>{p.premT}</h3><p>{p.premD}</p></div></div>
+    </section>
 
-  <section class="container faq">
-    <h2 class="h2" style="font-size: clamp(32px, 4vw, 44px)">{p.faqTitle}</h2>
-    {p.faq.map((q) => (
-      <details>
-        <summary>{q.q}<span aria-hidden="true">+</span></summary>
-        <p>{q.a}</p>
-      </details>
-    ))}
-  </section>
+    <section class="container faq">
+      <h2 class="h2" style="font-size: clamp(32px, 4vw, 44px)">{p.faqTitle}</h2>
+      {p.faq.map((q) => (
+        <details><summary>{q.q}<span aria-hidden="true">+</span></summary><p>{q.a}</p></details>
+      ))}
+    </section>
+  </div>
+
+  <!-- Tijaero POS -->
+  <div role="tabpanel" id="panel-pos" aria-labelledby="tab-pos" class="panel">
+    <section class="container plans-wrap">
+      <article class="plan quote">
+        <div class="stack" style="gap: 12px; max-width: 620px">
+          <h2>{p.posTitle}</h2>
+          <p class="plan-desc">{p.posBody}</p>
+          <ul class="feat">{p.posPoints.map((f) => <li><Icon name="check" size={18} stroke="#714B67" width={2.6} />{f}</li>)}</ul>
+        </div>
+        <div class="stack quote-cta" style="gap: 10px">
+          <a class="btn btn-primary btn-lg" href={pathFor(lang, 'demo', '?product=pos')}>{p.othersCta}</a>
+          <a class="btn btn-outline" href={pathFor(lang, 'pos')}>{d.nav.products[1].name} →</a>
+        </div>
+      </article>
+    </section>
+  </div>
+
+  <!-- Distributor Lanka: packages come from the same data as its product page -->
+  <div role="tabpanel" id="panel-distributor" aria-labelledby="tab-distributor" class="panel">
+    <section class="container plans-wrap">
+      <div class="plans plans-4">
+        {d.dist.plans.map((plan: { name: string; price: string; yearly?: string; tag: string; featured?: boolean; features: string[] }) => {
+          const custom = !plan.yearly;
+          return (
+            <article class:list={['plan', { featured: plan.featured }]}>
+              <div class="stack" style="gap: 8px">
+                <div class="plan-head"><h2>{plan.name}</h2>{plan.featured && <span class="badge">{p.popular}</span>}</div>
+                <p class="plan-desc">{plan.tag}</p>
+              </div>
+              <div class="stack" style="gap: 4px">
+                {custom ? (
+                  <><span class="price">{p.custom}</span><span class="period">{p.quoted}</span></>
+                ) : (
+                  <>
+                    <span class="price" data-monthly={plan.price} data-yearly={plan.yearly}>{plan.price}</span>
+                    <span class="period" data-monthly={p.dlPerMonth} data-yearly={p.dlPerYear}>{p.dlPerMonth}</span>
+                  </>
+                )}
+              </div>
+              <a class:list={['btn', plan.featured ? 'btn-white' : 'btn-outline']} href={pathFor(lang, 'demo', '?product=distributor')}>{custom ? p.othersCta : d.nav.demo}</a>
+              <hr />
+              <ul class="feat">
+                {plan.features.map((f) => <li><Icon name="check" size={18} stroke={plan.featured ? '#8FD3CF' : '#714B67'} width={2.6} />{f}</li>)}
+              </ul>
+            </article>
+          );
+        })}
+      </div>
+      <p class="note">{p.dlIntro} {d.dist.plansNote} <a href={pathFor(lang, 'distribution')}>{d.nav.products[2].name} →</a></p>
+    </section>
+
+    <section class="container faq">
+      <h2 class="h2" style="font-size: clamp(32px, 4vw, 44px)">{p.faqTitle}</h2>
+      {p.dlFaq.map((q) => (
+        <details><summary>{q.q}<span aria-hidden="true">+</span></summary><p>{q.a}</p></details>
+      ))}
+    </section>
+  </div>
 </Base>
 
 <script>
+  // Product tabs: ?product=erp|pos|distributor picks the tab (shareable link); arrow keys move between tabs.
+  const tabs = [...document.querySelectorAll<HTMLButtonElement>('[role="tab"][data-product]')];
+  const billing = document.querySelector<HTMLElement>('.billing');
+  const select = (tab: HTMLButtonElement, push: boolean) => {
+    for (const x of tabs) {
+      const on = x === tab;
+      x.setAttribute('aria-selected', String(on));
+      x.tabIndex = on ? 0 : -1;
+      const panel = document.getElementById(x.getAttribute('aria-controls')!)!;
+      panel.hidden = !on;
+      panel.classList.add('picked'); // from now on the hidden attribute decides
+    }
+    if (billing) {
+      billing.hidden = tab.dataset.product === 'pos'; // POS is quoted: no monthly/yearly prices
+      const yearly = billing.querySelector<HTMLElement>('[data-billing="yearly"]')!;
+      yearly.textContent = (tab.dataset.product === 'distributor' ? yearly.dataset.labelDistributor : yearly.dataset.labelErp) ?? '';
+    }
+    if (push) {
+      const url = new URL(location.href);
+      url.searchParams.set('product', tab.dataset.product!);
+      history.replaceState(null, '', url);
+    }
+  };
+  const want = new URLSearchParams(location.search).get('product');
+  select(tabs.find((x) => x.dataset.product === want) ?? tabs[0], false);
+  tabs.forEach((t, i) => {
+    t.addEventListener('click', () => select(t, true));
+    t.addEventListener('keydown', (e) => {
+      const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      const n = tabs[(i + step + tabs.length) % tabs.length];
+      select(n, true); n.focus(); e.preventDefault();
+    });
+  });
+
   const buttons = document.querySelectorAll<HTMLButtonElement>('[data-billing]');
   buttons.forEach((b) => b.addEventListener('click', () => {
     const mode = b.dataset.billing as 'monthly' | 'yearly';
@@ -80,6 +179,15 @@ const p = d.pricing;
   .p-hero { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 20px; padding: 88px 24px 190px; }
   .p-hero h1 { font-size: clamp(42px, 6vw, 72px); line-height: 1; letter-spacing: -2.6px; font-weight: 800; color: #fff; max-width: 900px; }
   .p-hero p { font-size: 19px; line-height: 1.6; color: var(--on-dark-muted); max-width: 640px; }
+  .switch { display: flex; flex-wrap: wrap; justify-content: center; border-radius: 999px; padding: 5px; margin-top: 10px; gap: 2px; }
+  .switch button { border: 0; border-radius: 999px; padding: 12px 22px; min-height: 46px; font-weight: 700; font-size: 16px; cursor: pointer; background: transparent; color: #eadde6; transition: background-color var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard); }
+  .switch button:hover { color: #fff; }
+  @media (max-width: 480px) { .switch { flex-wrap: nowrap; padding: 4px; } .switch button { padding: 10px 9px; font-size: 13px; min-height: 44px; white-space: nowrap; } }
+  .switch button[aria-selected="true"] { background: linear-gradient(135deg, var(--plum-light), var(--plum)); color: #fff; }
+  .switch button:focus-visible, .billing button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .billing[hidden], .panel[hidden] { display: none; }
+  /* before the script picks a tab, show only the default panel (the inline .js flag is set before first paint) */
+  :global(.js) .panel:not([data-default]):not(.picked) { display: none; }
   .billing { display: flex; border-radius: 999px; padding: 4px; margin-top: 6px; }
   .billing button { border: 0; border-radius: 999px; padding: 11px 20px; min-height: 44px; font-weight: 600; font-size: 15px; cursor: pointer; background: transparent; color: #e6d8e1; }
   .billing button[aria-pressed="true"] { background: #fff; color: var(--plum-deep); }
@@ -101,6 +209,13 @@ const p = d.pricing;
   .feat { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 13px; font-size: 15px; }
   .feat li { display: flex; gap: 10px; line-height: 1.5; }
   .feat :global(svg) { flex: none; margin-top: 2px; }
+  .plans-4 { grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr)); }
+  .plans-4 .plan { padding: 30px; }
+  .plans-4 .price { font-size: 38px; }
+  .quote { flex-direction: row; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 32px; }
+  .quote h2 { font-size: clamp(26px, 3vw, 34px); }
+  .quote-cta { min-width: 220px; }
+  .note a { font-weight: 600; }
   .note { margin-top: 28px; font-size: 14px; color: var(--muted); text-align: center; }
 
   .deploy { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 18px; padding-bottom: 96px; }
@@ -113,7 +228,7 @@ const p = d.pricing;
   details { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 4px 24px; }
   summary { list-style: none; font-size: 17px; font-weight: 600; cursor: pointer; padding: 18px 0; display: flex; justify-content: space-between; gap: 16px; }
   summary::-webkit-details-marker { display: none; }
-  summary span { color: var(--plum); font-size: 22px; line-height: 1; transition: transform .2s; }
+  summary span { color: var(--plum); font-size: 22px; line-height: 1; transition: transform var(--dur-base) var(--ease-standard); }
   details[open] summary span { transform: rotate(45deg); }
   details p { margin-bottom: 20px; font-size: 16px; line-height: 1.65; color: var(--muted); }
 </style>

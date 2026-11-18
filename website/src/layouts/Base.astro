@@ -1,17 +1,22 @@
 ---
+// Fonts are self-hosted (no request to Google: better privacy and a strict CSP).
+import '@fontsource-variable/inter';
+import '@fontsource-variable/inter-tight';
 import '../styles/global.css';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
-import { t, pathFor, htmlLang, type Lang } from '../i18n';
+import { t, pathFor, htmlLang, contact, whatsappUrl, type Lang, type Page } from '../i18n';
 
 interface Props {
   lang: Lang;
-  page: '' | 'pricing' | 'demo';
+  page: Page;
   title: string;
   description: string;
   footer?: boolean;
+  /** Pages search engines should skip (404): no canonical, robots noindex. */
+  noindex?: boolean;
 }
-const { lang, page, title, description, footer = true } = Astro.props;
+const { lang, page, title, description, footer = true, noindex = false } = Astro.props;
 const site = Astro.site ?? new URL('https://www.example.lk');
 const canonical = new URL(pathFor(lang, page), site).href;
 ---
@@ -19,10 +24,12 @@ const canonical = new URL(pathFor(lang, page), site).href;
 <html lang={htmlLang[lang]}>
   <head>
     <meta charset="utf-8" />
+    <!-- Marks JS as available before first paint, so .reveal content is only hidden when the script will reveal it. -->
+    <script is:inline>document.documentElement.classList.add('js');</script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    <link rel="canonical" href={canonical} />
+    {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="theme-color" content="#120B10" />
     <meta property="og:type" content="website" />
@@ -30,27 +37,24 @@ const canonical = new URL(pathFor(lang, page), site).href;
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
     <meta property="og:locale" content="en_LK" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&display=swap" />
   </head>
   <body>
     <a class="skip" href="#main">{t(lang).nav.skip}</a>
+    <Nav lang={lang} page={page} />
     <div class="page-top dark">
       <div class="grid-lines" aria-hidden="true"></div>
-      <Nav lang={lang} page={page} />
       <slot name="hero" />
     </div>
     <main id="main">
       <slot />
     </main>
     {footer && <Footer lang={lang} />}
+    <a class="wa-float" href={whatsappUrl} rel="noopener" aria-label={`${t(lang).nav.whatsapp} ${contact.phone}`}>
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.8-1.4.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.8 11.9 11.9 0 0 0 4.6 4c1.7.7 2.3.8 3.2.7a2.7 2.7 0 0 0 1.8-1.3 2.2 2.2 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z" /></svg>
+    </a>
     <script>
-      // Fade sections in as they scroll into view (skipped when reduced motion is on, via CSS).
-      const io = new IntersectionObserver((entries) => {
-        for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-      }, { rootMargin: '0px 0px -10% 0px' });
-      document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+      // Scroll reveal + cursor spotlights (see src/scripts/motion.ts).
+      import '../scripts/motion';
     </script>
   </body>
 </html>

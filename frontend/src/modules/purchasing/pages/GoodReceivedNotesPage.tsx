@@ -2699,9 +2699,7 @@ export default function GoodReceivedNotesPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCreditDialogClose}>
-            Cancel
-          </Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={handleCreditDialogClose}><CancelIcon fontSize="small" /></Button>
           {canOverrideCredit && (
             <Button
               onClick={handleCreditOverrideConfirm}

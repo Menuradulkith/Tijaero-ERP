@@ -1192,7 +1192,7 @@ export default function ExpensesPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setRejectDialogOpen(false)}><CancelIcon fontSize="small" /></Button>
           <Button
             variant="contained"
             color="error"
@@ -1346,9 +1346,7 @@ export default function ExpensesPage() {
             </Box>
           </DialogContent>
           <DialogActions>
-            <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setPaymentDialogOpen(false)}>
-              Cancel
-            </Button>
+            <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setPaymentDialogOpen(false)}><CancelIcon fontSize="small" /></Button>
             <Button type="submit" variant="contained" disabled={paymentMutation.isPending}>
               Pay {selectedExpense ? `${currencySymbol} ${fmtLKR(selectedExpense.expense_amount)}` : ""}
             </Button>
@@ -1407,7 +1405,7 @@ export default function ExpensesPage() {
             </Box>
           </DialogContent>
           <DialogActions>
-            <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRecordDialogOpen(false)}>Cancel</Button>
+            <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setRecordDialogOpen(false)}><CancelIcon fontSize="small" /></Button>
             <Button
               type="submit"
               variant="contained"

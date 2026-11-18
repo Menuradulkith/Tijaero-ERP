@@ -117,14 +117,10 @@ export default function PreferencesSettings() {
             icon={<SettingsSuggestIcon />}
             label={`Updated: ${lastUpdatedText}`}
           />
-          <Button
+          <Button aria-label="Save Preferences" title="Save Preferences" sx={{ minWidth: 36, px: 1 }}
             variant="contained"
-            startIcon={<SaveIcon />}
             onClick={handleSave}
-            disabled={saving || loading}
-          >
-            Save Preferences
-          </Button>
+            disabled={saving || loading}><SaveIcon fontSize="small" /></Button>
         </Stack>
       </Stack>
 

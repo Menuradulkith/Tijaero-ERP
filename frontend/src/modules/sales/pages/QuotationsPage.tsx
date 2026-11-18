@@ -1257,28 +1257,21 @@ export default function QuotationsPage() {
           endActions={
             isCreating || isEditing ? (
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <Button variant="contained" color="error" startIcon={<CancelIcon />}
+                <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error" 
                   size="small"
                   onClick={handleDiscardChanges}
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                >
-                  Cancel
-                </Button>
-                <Button
+                  disabled={createMutation.isPending || updateMutation.isPending}><CancelIcon fontSize="small" /></Button>
+                <Button aria-label="Save" title="Save" sx={{ minWidth: 36, px: 1 }}
                   size="small"
                   variant="contained"
                   color="success"
-                  startIcon={<SaveIcon />}
                   onClick={() =>
                     continueOrReveal(
                       !!(formData.customer_id && formData.branch_code && formData.valid_until && lineItems.length > 0),
                       handleSave,
                     )
                   }
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                >
-                  {createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
-                </Button>
+                  disabled={createMutation.isPending || updateMutation.isPending}><SaveIcon fontSize="small" /></Button>
               </Box>
             ) : selectedQuote && !isCreating && !isEditing ? (
               <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
@@ -2310,24 +2303,26 @@ export default function QuotationsPage() {
                 renderInput={(params) => <TextField {...params} placeholder="All Customers" />}
                 sx={{ width: 170, flexShrink: 0 }}
               />
-              <TextField
-                size="small"
-                type="date"
-                label="From"
-                InputLabelProps={{ shrink: true }}
-                value={filterDateFrom}
-                onChange={(e) => setFilterDateFrom(e.target.value)}
-                sx={{ width: 130, flexShrink: 0 }}
-              />
-              <TextField
-                size="small"
-                type="date"
-                label="To"
-                InputLabelProps={{ shrink: true }}
-                value={filterDateTo}
-                onChange={(e) => setFilterDateTo(e.target.value)}
-                sx={{ width: 130, flexShrink: 0 }}
-              />
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>From</Typography>
+                <TextField
+                  size="small"
+                  type="date"
+                  value={filterDateFrom}
+                  onChange={(e) => setFilterDateFrom(e.target.value)}
+                  sx={{ width: 150, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                />
+              </Box>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>To</Typography>
+                <TextField
+                  size="small"
+                  type="date"
+                  value={filterDateTo}
+                  onChange={(e) => setFilterDateTo(e.target.value)}
+                  sx={{ width: 150, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "24px" } }}
+                />
+              </Box>
               {(searchQuery || filterStatus || filterBranch || filterCustomerId || filterDateFrom || filterDateTo) && (
                 <Button size="small" onClick={handleClearFilters} sx={{ textTransform: "none" }}>
                   Clear
@@ -2512,7 +2507,7 @@ export default function QuotationsPage() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setRejectDialogOpen(false)}><CancelIcon fontSize="small" /></Button>
           <Button variant="contained" color="error" onClick={handleRejectSubmit}
             disabled={rejectMutation.isPending || !rejectReason.trim()}>
             {rejectMutation.isPending ? "Rejecting..." : "Reject"}

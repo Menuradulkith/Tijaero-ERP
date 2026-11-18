@@ -444,7 +444,7 @@ export default function PaymentVouchersPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowApproveDialog(false)}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setShowApproveDialog(false)}><CancelIcon fontSize="small" /></Button>
           <Button
             onClick={handleApproveVoucher}
             variant="contained"
@@ -477,7 +477,7 @@ export default function PaymentVouchersPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowRejectDialog(false)}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setShowRejectDialog(false)}><CancelIcon fontSize="small" /></Button>
           <Button
             onClick={handleRejectVoucher}
             variant="contained"
@@ -511,7 +511,7 @@ export default function PaymentVouchersPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowPayDialog(false)}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setShowPayDialog(false)}><CancelIcon fontSize="small" /></Button>
           <Button
             onClick={handlePayVoucher}
             variant="contained"

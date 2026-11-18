@@ -18,21 +18,39 @@ npm run preview    # serve dist/
 
 ## Pages
 
-| URL | Source |
-| --- | --- |
-| `/` | `src/components/views/HomeView.astro` |
-| `/pricing/` | `src/components/views/PricingView.astro` |
-| `/demo/` | `src/components/views/DemoView.astro` |
+| URL | Source | Copy in `en.ts` |
+| --- | --- | --- |
+| `/` company home | `src/components/views/HomeView.astro` | `home` |
+| `/erp/` Tijaero ERP | `src/components/views/ErpView.astro` | `erp` |
+| `/pos/` Tijaero POS | `src/components/views/ProductView.astro` | `pos` |
+| `/distribution/` Distributor Lanka | `src/components/views/ProductView.astro` | `dist` |
+| `/pricing/` | `src/components/views/PricingView.astro` | `pricing` |
+| `/demo/` | `src/components/views/DemoView.astro` | `demo` (`?product=erp\|pos\|distributor` preselects) |
+| `/privacy/`, `/terms/` | `src/components/views/LegalView.astro` | `legal` (drafts, need legal review) |
+
+Search the site for `[CONFIRM` to find claims that still need checking (mostly the POS page), and for
+`[` generally to find placeholders. Product pages without a real screenshot yet use `ShotPlaceholder.astro`.
 
 ## Editing text
 
 All copy lives in `src/i18n/en.ts`. Values in `[BRACKETS]` are placeholders to fill before launch:
 prices, user limits, yearly discount, go-live weeks, support hours, customer quote, company name.
 
+## Motion
+
+`src/scripts/motion.ts` plus the "motion" section of `src/styles/global.css`: a staggered hero entrance,
+scroll reveal, hover lift on cards, a cursor spotlight inside cards and a glow on dark sections, and tab fades.
+Product screenshots settle in from a tilted angle with one light sweep across the screen, then tilt in 3D
+toward the cursor with a soft glare (small crops inside cards, `.tile-shot`, are left still).
+Cursor effects only run with a mouse; everything is switched off for visitors who ask for reduced motion.
+Timings and colours are the `--dur-*`, `--ease-*`, `--spot*` and `--glow` tokens at the top of `global.css`.
+
 ## Product screenshots
 
-Every product image on the site is a real Tijaero ERP screen (`public/screens/*.jpg`, 1440×900 @2x),
+Every product image on the site is a real screen (`public/screens/*.jpg`, 1440×900 @2x),
 shown through `src/components/Screenshot.astro` (browser frame, optional `zoom` / `focus` crop).
+The `dl-*.jpg` screens are Distributor Lanka; how to rebuild them is in `scripts/distributor-demo/README.md`.
+The ones below are Tijaero ERP.
 
 They are captured from a separate **demo database** (`erp_demo`) filled with Sri Lankan sample data:
 five branches (Colombo, Kandy, Galle, Kurunegala, Jaffna), 18 customers, 6 suppliers, 14 staff, ~5 weeks
@@ -79,4 +97,18 @@ build shows the "please call us" error instead, so a missing endpoint is never s
 ## Deploy
 
 `npm run build` outputs static files in `dist/`. Any static host works (Netlify, Cloudflare Pages,
-Vercel, or the existing nginx container).
+Vercel, or the existing nginx container). A production build prints a `[launch check]` list of any
+`.env` values still on placeholders.
+
+## Security
+
+- `integrations/security-headers.mjs` writes `dist/_headers` on every build: a strict Content-Security-Policy
+  (scripts allowed only by SHA-256 hash, no third-party origins except the demo endpoint), HSTS, `nosniff`,
+  `X-Frame-Options: DENY`, Referrer-Policy and Permissions-Policy. Netlify and Cloudflare Pages read this
+  file automatically; on nginx or Vercel copy the same headers into that host's config after each build
+  (the script hashes change when scripts change).
+- Fonts are self-hosted (`@fontsource-variable/*`), so visitors' browsers make no requests to Google.
+- The demo form posts JSON only to `PUBLIC_DEMO_ENDPOINT` (must be https), trims and caps every field,
+  times out after 15 s, and uses `method="post"` so a script failure can never put personal data in the URL.
+  The endpoint itself should still validate input and rate-limit: the honeypot only stops simple bots.
+- Run `npm audit` before each release.

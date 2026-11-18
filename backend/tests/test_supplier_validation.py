@@ -13,7 +13,7 @@ def _u() -> str:
 def _body(**kw):
     u = _u()
     return {
-        "company_name": f"QA Sup {u}", "mobile_contact_number": "+94771234567",
+        "company_name": f"QA Sup {u}", "mobile_contact_number": "+94771234567", "tax_area": "domestic_standard", "default_currency": "LKR", "incoterm": "FOB", "shipment_method": "sea",
         "billing_address_line1": "1 Road", "credit_days": 30, "max_credit_limit": 1000, **kw,
     }
 
@@ -144,14 +144,60 @@ class TestSubResources:
         ):
             assert superclient.post(f"{B}/suppliers/{sid}/payment-methods", json=body).status_code == 201, body
 
-    def test_cannot_add_to_inactive_supplier(self, superclient, supplier):
+    def test_can_add_to_inactive_supplier(self, superclient, supplier):
+        # An inactive supplier's own data stays editable (it is only kept out of new transactions).
         sid = supplier["id"]
         assert superclient.patch(f"{B}/suppliers/{sid}", json={"active": False}).status_code == 200
-        assert superclient.post(f"{B}/suppliers/{sid}/contact-persons", json={"title": "Mr", "full_name": "X", "phone": "+94771234500"}).status_code == 400
-        assert superclient.post(f"{B}/suppliers/{sid}/payment-methods", json={"method_type": "cash"}).status_code == 400
+        assert superclient.post(f"{B}/suppliers/{sid}/contact-persons", json={"title": "Mr", "full_name": "X", "phone": "+94771234500"}).status_code == 201
+        assert superclient.post(f"{B}/suppliers/{sid}/payment-methods", json={"method_type": "cash"}).status_code == 201
 
     def test_supplier_product_bounds(self, superclient, supplier):
         sid = supplier["id"]
         for body in ({"product_id": 2 ** 40, "cost_price": 1}, {"product_id": 1, "cost_price": 1e30},
                      {"product_id": 1, "cost_price": 1, "supplier_sku": "s" * 256}):
             assert superclient.post(f"{B}/suppliers/{sid}/products", json=body).status_code == 422
+
+
+class TestGeneralSectionFields:
+    """Foreign flag, accounting group, other currency; tax area and default currency are mandatory."""
+
+    @pytest.mark.parametrize("field", ["tax_area", "default_currency", "incoterm", "shipment_method"])
+    def test_mandatory_on_create(self, superclient, field):
+        body = _body()
+        body.pop(field)
+        assert superclient.post(f"{B}/suppliers", json=body).status_code == 422
+
+    @pytest.mark.parametrize("field", ["tax_area", "default_currency", "incoterm", "shipment_method"])
+    def test_cannot_be_cleared(self, superclient, supplier, field):
+        assert superclient.patch(f"{B}/suppliers/{supplier['id']}", json={field: None}).status_code == 422
+
+    def test_foreign_accounting_group_other_currency_saved(self, superclient):
+        r = superclient.post(f"{B}/suppliers", json=_body(
+            is_foreign=True, accounting_group="foreign_trade", tax_area="import", other_currency="lkr", default_currency="USD",
+        ))
+        if r.status_code == 400:  # USD not configured on this DB
+            pytest.skip(r.text)
+        assert r.status_code == 201, r.text
+        s = r.json()
+        assert (s["is_foreign"], s["accounting_group"], s["other_currency"]) == (True, "foreign_trade", "LKR")
+
+    def test_defaults_to_local(self, supplier):
+        assert supplier["is_foreign"] is False and supplier["accounting_group"] is None
+
+    def test_other_currency_must_differ(self, superclient, supplier):
+        assert superclient.post(f"{B}/suppliers", json=_body(other_currency="LKR")).status_code == 422
+        r = superclient.patch(f"{B}/suppliers/{supplier['id']}", json={"other_currency": "LKR"})
+        assert r.status_code == 422
+
+    def test_bad_accounting_group_rejected(self, superclient):
+        assert superclient.post(f"{B}/suppliers", json=_body(accounting_group="nope")).status_code == 422
+
+    def test_shipping_info_saved(self, superclient):
+        r = superclient.post(f"{B}/suppliers", json=_body(incoterm="cif", incoterm_place="Colombo Port", shipment_method="air"))
+        assert r.status_code == 201, r.text
+        s = r.json()
+        assert (s["incoterm"], s["incoterm_place"], s["shipment_method"]) == ("CIF", "Colombo Port", "air")
+
+    @pytest.mark.parametrize("field,value", [("incoterm", "XYZ"), ("shipment_method", "truck")])
+    def test_bad_shipping_values_rejected(self, superclient, field, value):
+        assert superclient.post(f"{B}/suppliers", json=_body(**{field: value})).status_code == 422

@@ -337,7 +337,8 @@ export default function UsersPage() {
       markAsSaved();
       setIsCreating(false);
       setIsEditing(false);
-      await loadData();
+      // Stay on the new user (not back on the table): load it into the detail view.
+      await loadData(created.id);
     },
   });
 

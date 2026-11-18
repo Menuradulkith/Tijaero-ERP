@@ -514,27 +514,17 @@ export default function ProductsPage({
     enabled: !!productState.selectedItem?.id && !productState.isCreating,
   });
 
-  // These sections stay fillable without an Edit click for as long as they
-  // genuinely have nothing in them yet — checked every time the product is
-  // opened, not just right after creation — since users without update
-  // permission would otherwise have no way to ever fill them in. The moment
-  // either has real data, it locks again like General does. Cost/Selling
-  // Price are always required at creation, so only the optional Pricing
-  // fields (Website Price, Minimum Selling Price) count toward "unfilled".
-  const isPricingUnfilled =
-    !productState.selectedItem ||
-    ((!productState.formData.website_price ||
-      productState.formData.website_price === 0) &&
-      (currentMinPrice?.minimum_price === undefined ||
-        currentMinPrice?.minimum_price === null));
+  // The Suppliers tab stays fillable without an Edit click for as long as it has
+  // nothing in it yet. Pricing does not: once the product is saved the tab is
+  // read-only (Edit button), even when the optional Website / Minimum prices are
+  // still empty — otherwise Save / Cancel would never go away after saving.
   const isProductSuppliersUnfilled =
     productState.isCreating
       ? pendingSupplierMappings.length === 0
       : productSupplierMappings.length === 0;
 
   // Filling an empty section is still an update: it needs the update permission.
-  const isPricingEditable =
-    productState.isEditing || productState.isCreating || (canUpdate && isPricingUnfilled);
+  const isPricingEditable = productState.isEditing || productState.isCreating;
   const isProductSuppliersEditable =
     productState.isEditing || productState.isCreating || (canUpdate && isProductSuppliersUnfilled);
 
@@ -544,8 +534,8 @@ export default function ProductsPage({
   const hideToolbarSaveForSection = activeProductSection === "suppliers";
 
   // The main toolbar's Save/Cancel only cover fields on formData — General
-  // always (once in Edit mode), Pricing only while it's still unfilled
-  // (Suppliers saves through its own dialog, never this button).
+  // and Pricing (once in Edit mode); Suppliers saves through its own dialog,
+  // never this button.
   const showToolbarSaveForSection =
     !hideToolbarSaveForSection &&
     (activeProductSection === "pricing"

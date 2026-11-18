@@ -212,8 +212,8 @@ export default function ProductSuppliersList({
       setError("Please select a supplier.");
       return;
     }
-    if (isNaN(parseFloat(form.cost_price)) || parseFloat(form.cost_price) < 0) {
-      setError("Please enter a valid cost price.");
+    if (isNaN(parseFloat(form.cost_price)) || parseFloat(form.cost_price) <= 0) {
+      setError("Enter this supplier's cost price (greater than 0) - purchase orders use it.");
       return;
     }
 
@@ -394,7 +394,7 @@ export default function ProductSuppliersList({
         }
         onSubmit={panelMode === "view" ? undefined : handleSave}
         isSubmitting={isBusy}
-        submitDisabled={!form.supplier_id || isNaN(parseFloat(form.cost_price)) || parseFloat(form.cost_price) < 0}
+        submitDisabled={!form.supplier_id || isNaN(parseFloat(form.cost_price)) || parseFloat(form.cost_price) <= 0}
         submitText={panelMode === "edit" ? "Save Changes" : "Add Supplier"}
         extraActions={
           panelMode === "view" && canEdit ? (
@@ -430,7 +430,8 @@ export default function ProductSuppliersList({
             type="number"
             value={form.cost_price}
             onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
-            inputProps={{ min: 0, step: "0.01" }}
+            inputProps={{ min: 0.01, step: "0.01" }}
+            helperText={panelMode === "view" ? undefined : "Used as the unit price when this supplier is chosen on a purchase order"}
             disabled={panelMode === "view"}
             fullWidth
           />

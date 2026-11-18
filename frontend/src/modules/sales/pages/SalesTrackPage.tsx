@@ -3,14 +3,13 @@
  *
  * A modern ERP order tracking page that allows users to search for invoices
  * and view a complete lifecycle timeline, payment breakdown, payment history,
- * returns, and line items — all in one view.
+ * and line items — all in one view.
  *
  * Uses MasterDetailLayout pattern with Tijaero components.
  */
 
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
-import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
@@ -75,8 +74,8 @@ import { customersApi } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
 import { productsApi } from "@/modules/inventory/api";
 import { Product } from "@/modules/inventory/types";
-import { salesApi, saleReturnsApi } from "@/modules/sales/api";
-import { Invoice, InvoiceWithItems, SaleReturn } from "@/modules/sales/types";
+import { salesApi } from "@/modules/sales/api";
+import { Invoice, InvoiceWithItems } from "@/modules/sales/types";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -286,13 +285,6 @@ export default function SalesTrackPage() {
   const { data: paymentHistory = [], isLoading: historyLoading } = useQuery({
     queryKey: ["payment-history", selectedOrder?.id],
     queryFn: () => salesApi.getPaymentHistory(selectedOrder!.id),
-    enabled: !!selectedOrder,
-  });
-
-  // Returns for selected order
-  const { data: orderReturns = [], isLoading: returnsLoading } = useQuery({
-    queryKey: ["order-returns", selectedOrder?.id],
-    queryFn: () => saleReturnsApi.getByInvoice(selectedOrder!.id),
     enabled: !!selectedOrder,
   });
 
@@ -970,70 +962,6 @@ export default function SalesTrackPage() {
                 <Box sx={{ p: 2, textAlign: "center" }}>
                   <Typography variant="body2" color="text.secondary">
                     No payment history recorded yet.
-                  </Typography>
-                </Box>
-              )}
-            </TInfoCard>
-
-            {/* ── Returns ────────────────────────────────────── */}
-            <TInfoCard
-              title={`Returns (${orderReturns.length})`}
-              icon={<AssignmentReturnIcon />}
-              collapsible
-              defaultCollapsed={orderReturns.length === 0}
-              variant="outlined"
-            >
-              {returnsLoading ? (
-                <LinearProgress />
-              ) : orderReturns.length > 0 ? (
-                <Box sx={{ overflowX: "auto" }}>
-                  <Table size="small" sx={modernTableStyles}>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Return No</TableCell>
-                        <TableCell>Date</TableCell>
-                        <TableCell>Status</TableCell>
-                        <TableCell>Refund Status</TableCell>
-                        <TableCell align="right">Refund Amount</TableCell>
-                        <TableCell>Reason</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {orderReturns.map((ret: SaleReturn) => (
-                        <TableRow key={ret.id}>
-                          <TableCell>
-                            <Typography variant="body2" fontWeight={600}>
-                              {ret.sale_return_no}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            {ret.added_date
-                              ? format(new Date(ret.added_date), "dd MMM yyyy")
-                              : "—"}
-                          </TableCell>
-                          <TableCell>
-                            <TStatusChip status={ret.status} statusMap="salesReturn" />
-                          </TableCell>
-                          <TableCell>
-                            <TStatusChip status={ret.refund_status} statusMap="paymentStatus" />
-                          </TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 600, color: "error.main" }}>
-                            {fmtLKR(ret.total_refund)}
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="caption" color="text.secondary">
-                              {ret.return_reason || ret.remark || "—"}
-                            </Typography>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </Box>
-              ) : (
-                <Box sx={{ p: 2, textAlign: "center" }}>
-                  <Typography variant="body2" color="text.secondary">
-                    No returns associated with this invoice.
                   </Typography>
                 </Box>
               )}

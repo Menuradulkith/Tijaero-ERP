@@ -820,9 +820,7 @@ export default function CompanySettingsPage() {
             {canUpdate && (
             <Grid container spacing={3} sx={{ mt: 2 }}>
               <Grid item xs={12}>
-                <Button variant="contained" color="success" startIcon={<SaveIcon />} type="submit" disabled={saving || !isDirty}>
-                  {saving ? "Saving..." : "Save Changes"}
-                </Button>
+                <Button aria-label="Save" title="Save" sx={{ minWidth: 36, px: 1 }} variant="contained" color="success"  type="submit" disabled={saving || !isDirty}><SaveIcon fontSize="small" /></Button>
               </Grid>
             </Grid>
             )}

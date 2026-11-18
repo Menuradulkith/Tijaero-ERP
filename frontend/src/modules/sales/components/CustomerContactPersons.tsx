@@ -328,7 +328,7 @@ export default function CustomerContactPersons({
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={closeDialog}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={closeDialog}><CancelIcon fontSize="small" /></Button>
           <Button variant="contained" disabled={!canSave} onClick={handleSave}>
             {editingRow ? "Update" : "Add"}
           </Button>

@@ -93,7 +93,7 @@ export default function PayrollSettingsCard({ canUpdate }: { canUpdate: boolean 
 
       {canUpdate && (
         <Box sx={{ display: "flex", gap: 1 }}>
-          <Button variant="contained" color="success" startIcon={<SaveIcon />} disabled={save.isPending} onClick={() => save.mutate(form)}>Save</Button>
+          <Button aria-label="Save" title="Save" sx={{ minWidth: 36, px: 1 }} variant="contained" color="success"  disabled={save.isPending} onClick={() => save.mutate(form)}><SaveIcon fontSize="small" /></Button>
           <Button onClick={() => setForm({ ...form, ...SL_DEFAULTS } as PayrollSettings)}>Reset to Sri Lankan defaults</Button>
         </Box>
       )}

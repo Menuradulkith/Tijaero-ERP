@@ -1,0 +1,23 @@
+---
+import Base from '../layouts/Base.astro';
+import { t, pathFor } from '../i18n';
+const d = t('en');
+const n = d.notFound;
+---
+<Base lang="en" page="" title={n.metaTitle} description={n.body} noindex>
+  <section slot="hero" class="container l-hero">
+    <h1>{n.title}</h1>
+    <p>{n.body}</p>
+    <div class="ctas">
+      <a class="btn btn-primary btn-lg" href={pathFor('en', '')}>{n.home}</a>
+      <a class="btn btn-ghost btn-lg glass" href={pathFor('en', 'demo')}>{n.demo}</a>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .l-hero { position: relative; padding-top: 96px; padding-bottom: 120px; display: flex; flex-direction: column; gap: 18px; max-width: 760px; }
+  .l-hero h1 { font-size: clamp(36px, 5vw, 56px); font-weight: 800; letter-spacing: -1.6px; color: #fff; line-height: 1.05; }
+  .l-hero p { color: var(--on-dark-muted); font-size: 18px; line-height: 1.6; }
+  .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+</style>

@@ -19,6 +19,9 @@ import {
   SUPPLIER_PAYMENT_TERMS,
   SUPPLIER_PAYMENT_TERMS_CUSTOM,
   SUPPLIER_TAX_AREA,
+  SUPPLIER_ACCOUNTING_GROUP,
+  INCOTERMS,
+  SHIPMENT_METHODS,
   TDataGrid,
   TTabPanel,
   TTabs,
@@ -73,6 +76,9 @@ export default function SupplierReadOnlyView({ supplier, contact_persons, hideTa
 
   const taxArea = SUPPLIER_TAX_AREA.find((t) => t.value === supplier.tax_area)?.label ?? "";
   const currency = reference?.currencies?.find((c) => c.code === supplier.default_currency);
+  const otherCurrency = reference?.currencies?.find((c) => c.code === supplier.other_currency);
+  const accountingGroup =
+    SUPPLIER_ACCOUNTING_GROUP.find((g) => g.value === supplier.accounting_group)?.label ?? "";
   const knownTerm = SUPPLIER_PAYMENT_TERMS.find((t) => t.value === supplier.credit_days);
   const logo = supplier.logo_path ? `${LOGO_API_ORIGIN}/uploads/${supplier.logo_path}` : undefined;
   const shippingSame = !supplier.shipping_address_line1;
@@ -127,9 +133,15 @@ export default function SupplierReadOnlyView({ supplier, contact_persons, hideTa
             label="Default Currency"
             value={currency ? `${currency.code} — ${currency.name} (${currency.symbol})` : supplier.default_currency}
           />
+          <Field
+            label="Other Currency"
+            value={otherCurrency ? `${otherCurrency.code} — ${otherCurrency.name} (${otherCurrency.symbol})` : supplier.other_currency}
+          />
+          <Field label="Accounting Group" value={accountingGroup} />
           <Field label="Country" value={countryName(supplier.country_id)} />
           <Field label="Company Website" value={supplier.company_website} />
           <FormControlLabel control={<Switch checked={!!supplier.active} disabled />} label="Active" />
+          <FormControlLabel control={<Switch checked={!!supplier.is_foreign} disabled />} label="Foreign" />
           <Field label="Lead Time (days)" value={supplier.lead_time_days} />
           <Field
             label="Avg. Lead Time (computed)"
@@ -145,6 +157,15 @@ export default function SupplierReadOnlyView({ supplier, contact_persons, hideTa
           <Field label="Email" value={supplier.email} />
           <Field label="Contact No 1" value={supplier.mobile_contact_number} />
           <Field label="Contact No 2" value={supplier.home_contact_number} />
+        </FormSection>
+
+        <FormSection title="Shipping Info" columns={2}>
+          <Field label="Incoterm" value={INCOTERMS.find((i) => i.value === supplier.incoterm)?.label ?? supplier.incoterm} />
+          <Field label="Incoterm Place" value={supplier.incoterm_place} />
+          <Field
+            label="Shipment Method"
+            value={SHIPMENT_METHODS.find((m) => m.value === supplier.shipment_method)?.label ?? supplier.shipment_method}
+          />
         </FormSection>
       </TTabPanel>
 

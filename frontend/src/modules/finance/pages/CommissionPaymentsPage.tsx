@@ -273,11 +273,13 @@ export default function CommissionPaymentsPage() {
     ],
     successMessage: "Payment created successfully",
     errorMessage: "Failed to create payment",
-    onSuccess: () => {
+    onSuccess: (created) => {
       setIsCreating(false);
       setIsEditing(false);
       setSelectedCommissionIds(new Set());
       setPaymentItemAmounts({});
+      // Show the saved payment, not the table.
+      if (created?.id) setTimeout(() => handleSelectPayment(created), 0);
     },
   });
 

@@ -1,0 +1,3 @@
+# Lead lists hold third-party contact data: keep them out of git.
+*
+!.gitignore

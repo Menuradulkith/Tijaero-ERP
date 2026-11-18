@@ -31,6 +31,7 @@ import BusinessIcon from "@mui/icons-material/Business";
 import LocationOnOutlinedIcon from "@mui/icons-material/LocationOnOutlined";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
+import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import LocalAtmIcon from "@mui/icons-material/LocalAtm";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
@@ -68,6 +69,9 @@ import {
   type TTabConfig,
   TITLE_CHOICES,
   SUPPLIER_TAX_AREA,
+  SUPPLIER_ACCOUNTING_GROUP,
+  INCOTERMS,
+  SHIPMENT_METHODS,
   SUPPLIER_PAYMENT_TERMS,
   SUPPLIER_PAYMENT_TERMS_CUSTOM,
   getPaymentTermsLabel,
@@ -101,6 +105,7 @@ import {
   SupplierContactPersonCreate,
 } from "@/modules/purchasing/types";
 import SupplierLogoUploader from "@/modules/purchasing/components/SupplierLogoUploader";
+import SupplierPoHistory from "@/modules/purchasing/components/SupplierPoHistory";
 
 // A supplier row as shown in the browse table, with the country name looked
 // up and attached directly so the table's own column-header sort orders by
@@ -249,7 +254,10 @@ const SUPPLIER_DETAIL_TABS: TTabConfig[] = [
   { id: "address", label: "Address", icon: <LocationOnOutlinedIcon fontSize="small" /> },
   { id: "contactPerson", label: "Contact Person", icon: <PersonOutlineIcon fontSize="small" /> },
   { id: "payment", label: "Payment", icon: <AccountBalanceWalletOutlinedIcon fontSize="small" /> },
+  { id: "poHistory", label: "PO History", icon: <ReceiptLongOutlinedIcon fontSize="small" /> },
 ];
+// Tabs stepped through by Next/Previous after creating a supplier (PO History is view-only).
+const SUPPLIER_WIZARD_TABS = SUPPLIER_DETAIL_TABS.filter((t) => t.id !== "poHistory");
 
 // Lead time is always stored in days (SupplierCreate/Update.lead_time_days);
 // the unit dropdown next to the input is purely a display/entry convenience
@@ -298,6 +306,12 @@ const INITIAL_FORM_DATA: SupplierCreate = {
   country_id: undefined,
   lead_time_days: undefined,
   default_currency: undefined,
+  other_currency: undefined,
+  is_foreign: false,
+  accounting_group: undefined,
+  incoterm: undefined,
+  incoterm_place: "",
+  shipment_method: undefined,
 };
 
 const resetFormFromSupplier = (supplier: Supplier): SupplierCreate => ({
@@ -327,6 +341,12 @@ const resetFormFromSupplier = (supplier: Supplier): SupplierCreate => ({
   country_id: supplier.country_id,
   lead_time_days: supplier.lead_time_days ?? undefined,
   default_currency: supplier.default_currency || undefined,
+  other_currency: supplier.other_currency || undefined,
+  is_foreign: !!supplier.is_foreign,
+  accounting_group: supplier.accounting_group || undefined,
+  incoterm: supplier.incoterm || undefined,
+  incoterm_place: supplier.incoterm_place || "",
+  shipment_method: supplier.shipment_method || undefined,
 });
 
 export default function SuppliersPage() {
@@ -343,6 +363,11 @@ export default function SuppliersPage() {
     user,
     PERMISSIONS.SUPPLIERS_UPDATE.resource,
     PERMISSIONS.SUPPLIERS_UPDATE.action,
+  );
+  const canViewPurchaseOrders = hasPermission(
+    user,
+    PERMISSIONS.PURCHASE_ORDERS_VIEW.resource,
+    PERMISSIONS.PURCHASE_ORDERS_VIEW.action,
   );
 
   // Confirm dialog for unsaved changes and delete actions
@@ -369,7 +394,7 @@ export default function SuppliersPage() {
 
   // Which of the Address / Contact Person / Payment tabs is active, shown
   // below the always-visible Company/Contact Information section.
-  const [activeSection, setActiveSection] = useState<"general" | "address" | "contactPerson" | "payment">("general");
+  const [activeSection, setActiveSection] = useState<"general" | "address" | "contactPerson" | "payment" | "poHistory">("general");
 
   // "Same as billing" toggle for shipping address — checked whenever the
   // shipping fields are currently empty or already mirror billing, so it
@@ -796,7 +821,7 @@ export default function SuppliersPage() {
   // Contact Person rows are added/edited through their own side-panel
   // dialog (its own Save button) — the main toolbar's Save/Cancel is
   // redundant there regardless of whether the list is still empty.
-  const hideToolbarSaveForSection = activeSection === "contactPerson";
+  const hideToolbarSaveForSection = activeSection === "contactPerson" || activeSection === "poHistory";
 
   // The main toolbar's Save/Cancel only cover fields that live directly on
   // formData — General always (once in Edit mode); Address only while it's
@@ -1261,6 +1286,9 @@ export default function SuppliersPage() {
             id: selectedSupplier.id,
             data: {
               ...formData,
+              // Optional fields: send null so clearing them is saved (undefined is dropped).
+              other_currency: formData.other_currency ?? null,
+              accounting_group: formData.accounting_group ?? null,
               expected_updated_at: selectedSupplier.updated_at,
               expected_version: selectedSupplier.version,
             },
@@ -1398,6 +1426,11 @@ export default function SuppliersPage() {
     isValidPhone(formData.home_contact_number) &&
     !phonesMatch &&
     formData.country_id &&
+    formData.tax_area &&
+    formData.default_currency &&
+    formData.other_currency !== formData.default_currency &&
+    formData.incoterm &&
+    formData.shipment_method &&
     formData.email &&
     emailRegex.test(formData.email) &&
     !leadTimeMissingUnit &&
@@ -1432,8 +1465,8 @@ export default function SuppliersPage() {
   // Whether we're showing a single supplier's detail view (selected or being
   // created) instead of the browse table.
   // "Next" (only after the first save) validates the tab being left (highlighting what is missing) before moving on.
-  const nextSupplierTab = SUPPLIER_DETAIL_TABS[SUPPLIER_DETAIL_TABS.findIndex((t) => t.id === activeSection) + 1];
-  const prevSupplierTab = SUPPLIER_DETAIL_TABS[SUPPLIER_DETAIL_TABS.findIndex((t) => t.id === activeSection) - 1];
+  const nextSupplierTab = SUPPLIER_WIZARD_TABS[SUPPLIER_WIZARD_TABS.findIndex((t) => t.id === activeSection) + 1];
+  const prevSupplierTab = SUPPLIER_WIZARD_TABS[SUPPLIER_WIZARD_TABS.findIndex((t) => t.id === activeSection) - 1];
   const currentSectionValid =
     activeSection === "general" ? isGeneralValid : activeSection === "address" ? isAddressValid : true;
 
@@ -1495,7 +1528,9 @@ export default function SuppliersPage() {
         tabsSlot={
           (selectedSupplier || isCreating) && (
             <TTabs
-              tabs={SUPPLIER_DETAIL_TABS.map((t) => (isCreating && t.id !== "general" ? { ...t, disabled: true } : t))}
+              tabs={SUPPLIER_DETAIL_TABS.filter((t) => t.id !== "poHistory" || canViewPurchaseOrders).map((t) =>
+                isCreating && t.id !== "general" ? { ...t, disabled: true } : t,
+              )}
               activeTab={activeSection}
               onChange={(id) => setActiveSection(id as typeof activeSection)}
               appearance="segmented"
@@ -1586,13 +1621,34 @@ export default function SuppliersPage() {
                 value={formData.tax_area ?? ""}
                 onChange={(e) => setFormData({ ...formData, tax_area: e.target.value || undefined })}
                 disabled={!isEditing && !isCreating}
+                required
+                sx={requiredFieldSx}
+                SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
+              >
+                <MenuItem value="" disabled>
+                  <em>Select tax area</em>
+                </MenuItem>
+                {SUPPLIER_TAX_AREA.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Accounting Group"
+                size="small"
+                value={formData.accounting_group ?? ""}
+                onChange={(e) => setFormData({ ...formData, accounting_group: e.target.value || undefined })}
+                disabled={!isEditing && !isCreating}
                 SelectProps={{ displayEmpty: true }}
                 InputLabelProps={{ shrink: true }}
               >
                 <MenuItem value="">
                   <em>None</em>
                 </MenuItem>
-                {SUPPLIER_TAX_AREA.map((option) => (
+                {SUPPLIER_ACCOUNTING_GROUP.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
                     {option.label}
                   </MenuItem>
@@ -1603,7 +1659,36 @@ export default function SuppliersPage() {
                 label="Default Currency"
                 size="small"
                 value={formData.default_currency ?? ""}
-                onChange={(e) => setFormData({ ...formData, default_currency: e.target.value || undefined })}
+                onChange={(e) => {
+                  const code = e.target.value || undefined;
+                  // The other currency may not be the same as the default one.
+                  setFormData({
+                    ...formData,
+                    default_currency: code,
+                    other_currency: formData.other_currency === code ? undefined : formData.other_currency,
+                  });
+                }}
+                disabled={!isEditing && !isCreating}
+                required
+                sx={requiredFieldSx}
+                SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
+              >
+                <MenuItem value="" disabled>
+                  <em>Select currency</em>
+                </MenuItem>
+                {currencies.map((currency) => (
+                  <MenuItem key={currency.code} value={currency.code}>
+                    {currency.code} — {currency.name} ({currency.symbol})
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Other Currency"
+                size="small"
+                value={formData.other_currency ?? ""}
+                onChange={(e) => setFormData({ ...formData, other_currency: e.target.value || undefined })}
                 disabled={!isEditing && !isCreating}
                 SelectProps={{ displayEmpty: true }}
                 InputLabelProps={{ shrink: true }}
@@ -1611,11 +1696,13 @@ export default function SuppliersPage() {
                 <MenuItem value="">
                   <em>None</em>
                 </MenuItem>
-                {currencies.map((currency) => (
-                  <MenuItem key={currency.code} value={currency.code}>
-                    {currency.code} — {currency.name} ({currency.symbol})
-                  </MenuItem>
-                ))}
+                {currencies
+                  .filter((currency) => currency.code !== formData.default_currency)
+                  .map((currency) => (
+                    <MenuItem key={currency.code} value={currency.code}>
+                      {currency.code} — {currency.name} ({currency.symbol})
+                    </MenuItem>
+                  ))}
               </TextField>
               <TAutocomplete<CountryRef>
                 label="Country"
@@ -1645,6 +1732,16 @@ export default function SuppliersPage() {
                   />
                 }
                 label="Active"
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={!!formData.is_foreign}
+                    onChange={(e) => setFormData({ ...formData, is_foreign: e.target.checked })}
+                    disabled={!isEditing && !isCreating}
+                  />
+                }
+                label="Foreign"
               />
               <Box sx={{ display: "flex", gap: 1 }}>
                 <TextField
@@ -1725,6 +1822,62 @@ export default function SuppliersPage() {
                   helperText="From actual delivery history — read-only"
                 />
               )}
+            </FormSection>
+
+            <FormSection title="Shipping Info" columns={3}>
+              <TextField
+                select
+                label="Incoterm"
+                size="small"
+                value={formData.incoterm ?? ""}
+                onChange={(e) => setFormData({ ...formData, incoterm: e.target.value || undefined })}
+                disabled={!isEditing && !isCreating}
+                required
+                sx={requiredFieldSx}
+                SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
+                helperText="Incoterms 2020"
+              >
+                <MenuItem value="" disabled>
+                  <em>Select Incoterm</em>
+                </MenuItem>
+                {INCOTERMS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Incoterm Place"
+                size="small"
+                inputProps={{ maxLength: 120 }}
+                placeholder="e.g. Shanghai Port"
+                value={formData.incoterm_place ?? ""}
+                onChange={(e) => setFormData({ ...formData, incoterm_place: e.target.value })}
+                disabled={!isEditing && !isCreating}
+                helperText="Named port or place the Incoterm applies to"
+              />
+              <TextField
+                select
+                label="Shipment Method"
+                size="small"
+                value={formData.shipment_method ?? ""}
+                onChange={(e) => setFormData({ ...formData, shipment_method: e.target.value || undefined })}
+                disabled={!isEditing && !isCreating}
+                required
+                sx={requiredFieldSx}
+                SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
+              >
+                <MenuItem value="" disabled>
+                  <em>Select shipment method</em>
+                </MenuItem>
+                {SHIPMENT_METHODS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
             </FormSection>
 
             <FormSection title="Contact Information" columns={3}>
@@ -1976,6 +2129,11 @@ export default function SuppliersPage() {
                 </FormSection>
               </TTabPanel>
 
+              {selectedSupplier && !isCreating && canViewPurchaseOrders && (
+                <TTabPanel value={activeSection} index="poHistory" padding={0} sx={{ pt: 2 }}>
+                  {activeSection === "poHistory" && <SupplierPoHistory supplierId={selectedSupplier.id} />}
+                </TTabPanel>
+              )}
               <TTabPanel value={activeSection} index="payment" padding={0} sx={{ pt: 2 }}>
               <FormSection title="Payment" columns={3}>
               <TextField

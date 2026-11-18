@@ -4,13 +4,8 @@ import {
   InvoiceCreate,
   InvoiceUpdate,
   InvoiceWithItems,
-  SaleReturn,
-  SaleReturnCreate,
-  SaleReturnWithItems,
-  SaleReturnProcessResponse,
   SalesStats,
   PaginatedInvoices,
-  PaginatedSaleReturns,
 } from "./types";
 
 const PAGE = 1000; // the API serves at most 1000 rows per request
@@ -85,20 +80,6 @@ export const salesApi = {
     return response.data;
   },
 
-  // Return an entire completed/approved invoice (creates a full sale return)
-  returnFull: async (
-    id: number,
-    data: {
-      payment_method: string;
-      return_reason?: string;
-      remark?: string;
-      good_received_locations_id?: number;
-    }
-  ) => {
-    const response = await apiClient.post<SaleReturn>(`/sales/${id}/return-full`, data);
-    return response.data;
-  },
-
   // Get sales statistics
   getStatistics: async (branchCode?: string) => {
     const response = await apiClient.get<SalesStats>("/sales/statistics", {
@@ -156,97 +137,6 @@ export const salesApi = {
     const response = await apiClient.post<InvoiceWithItems>(`/sales/${id}/complete`);
     return response.data;
   },
-};
-
-export const saleReturnsApi = {
-  getAll: async (skip = 0) => fetchAllRows<SaleReturn>("/sales/returns/", {}, skip),
-
-  // OPTIMIZED: Paginated list with server-side filtering
-  getPaginated: async (params: {
-    page?: number;
-    pageSize?: number;
-    search?: string;
-    branchCode?: string;
-    status?: string;
-    sortBy?: string;
-    sortDesc?: boolean;
-  } = {}) => {
-    const response = await apiClient.get<PaginatedSaleReturns>("/sales/returns/list", {
-      params: {
-        page: params.page || 1,
-        page_size: params.pageSize || 50,
-        search: params.search || undefined,
-        branch_code: params.branchCode || undefined,
-        status: params.status || undefined,
-        sort_by: params.sortBy || "added_date",
-        sort_desc: params.sortDesc !== false,
-      },
-    });
-    return response.data;
-  },
-
-  getById: async (id: number) => {
-    const response = await apiClient.get<SaleReturnWithItems>(
-      `/sales/returns/${id}`
-    );
-    return response.data;
-  },
-
-  create: async (data: SaleReturnCreate) => {
-    const response = await apiClient.post<SaleReturn>("/sales/returns/", data);
-    return response.data;
-  },
-
-  delete: async (id: number) => {
-    await apiClient.delete(`/sales/returns/${id}`);
-  },
-
-  // Workflow endpoints - Use centralized approval API
-  approve: async (id: number, remarks?: string, credentials?: any) => {
-    // Get the sale return to find its approval_id
-    const saleReturn = await saleReturnsApi.getById(id);
-
-    if (!saleReturn.approval_id) {
-      throw new Error('Sale return does not have an approval record');
-    }
-
-    // Use centralized approval API
-    const { approvalsApi } = await import('@/modules/common/api');
-    await approvalsApi.approve(saleReturn.approval_id, remarks, credentials);
-
-    // Return the updated sale return
-    return saleReturnsApi.getById(id);
-  },
-
-  reject: async (id: number, reason?: string, credentials?: any) => {
-    // Get the sale return to find its approval_id
-    const saleReturn = await saleReturnsApi.getById(id);
-
-    if (!saleReturn.approval_id) {
-      throw new Error('Sale return does not have an approval record');
-    }
-
-    // Use centralized approval API
-    const { approvalsApi } = await import('@/modules/common/api');
-    await approvalsApi.reject(saleReturn.approval_id, reason || 'Rejected', credentials);
-
-    // Return the updated sale return
-    return saleReturnsApi.getById(id);
-  },
-
-  process: async (id: number) => {
-    const response = await apiClient.post<SaleReturnProcessResponse>(`/sales/returns/${id}/process`);
-    return response.data;
-  },
-
-  // Get statistics
-  getStatistics: async () => {
-    const response = await apiClient.get("/sales/returns/statistics");
-    return response.data;
-  },
-
-  // OPTIMIZED: Get returns by invoice - now uses server-side filtering
-  getByInvoice: async (invoiceId: number, skip = 0) => fetchAllRows<SaleReturn>(`/sales/returns/by-invoice/${invoiceId}`, {}, skip),
 };
 
 

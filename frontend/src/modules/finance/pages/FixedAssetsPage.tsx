@@ -84,6 +84,7 @@ import {
 import { submitOnce } from "@/modules/finance/submitOnce";
 import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
 import { localDateISO } from "@/utils/formatters";
+import CancelIcon from "@mui/icons-material/Cancel";
 
 const fmt = (v: number | string | null | undefined) =>
   Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -660,7 +661,7 @@ function DisposeDialog({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" color="error" aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} onClick={onClose}><CancelIcon fontSize="small" /></Button>
         <Button variant="contained" color="warning" disabled={!valid || dispose.isPending} onClick={submit}>
           {kind === "sold" ? "Record sale…" : "Scrap…"}
         </Button>

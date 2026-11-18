@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import CancelIcon from "@mui/icons-material/Cancel";
 import {
   Alert,
   Button,
@@ -90,9 +91,7 @@ export default function ReclassifyDialog({
         {error && <Alert severity="error">{error}</Alert>}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={isSubmitting}>
-          Cancel
-        </Button>
+        <Button variant="contained" color="error" aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} onClick={onClose} disabled={isSubmitting}><CancelIcon fontSize="small" /></Button>
         <Button
           variant="contained"
           disabled={!reasonValid || isSubmitting}

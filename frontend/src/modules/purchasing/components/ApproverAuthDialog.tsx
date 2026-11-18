@@ -97,9 +97,7 @@ export default function ApproverAuthDialog({
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={onClose} disabled={loading}>
-            Cancel
-          </Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={onClose} disabled={loading}><CancelIcon fontSize="small" /></Button>
           <Button
             type="submit"
             variant="contained"

@@ -69,7 +69,7 @@ def _supplier(c, **extra):
         json={
             "company_name": _uid("Supplier "),
             "billing_address_line1": "1 Main St",
-            "mobile_contact_number": "0771234567",
+            "mobile_contact_number": "0771234567", "tax_area": "domestic_standard", "default_currency": "LKR", "incoterm": "FOB", "shipment_method": "sea",
             "max_credit_limit": 500000,
             **extra,
         },
@@ -407,7 +407,7 @@ class TestSupplierDuplicatesAndDefaults:
     def test_duplicate_company_name_ignores_case_and_spaces(self, superclient):
         s = _supplier(superclient)
         r = superclient.post(f"{PUR}/suppliers", json={
-            "company_name": f"  {s['company_name'].upper()} ", "mobile_contact_number": "0771234567",
+            "company_name": f"  {s['company_name'].upper()} ", "mobile_contact_number": "0771234567", "tax_area": "domestic_standard", "default_currency": "LKR", "incoterm": "FOB", "shipment_method": "sea",
         })
         assert r.status_code == 400
 
@@ -417,7 +417,7 @@ class TestSupplierDuplicatesAndDefaults:
         s = _supplier(superclient)
         monkeypatch.setattr(SupplierService, "_check_duplicate_fields", lambda self, data, exclude_id=None: None)
         r = superclient.post(f"{PUR}/suppliers", json={
-            "company_name": s["company_name"].lower(), "mobile_contact_number": "0771234567",
+            "company_name": s["company_name"].lower(), "mobile_contact_number": "0771234567", "tax_area": "domestic_standard", "default_currency": "LKR", "incoterm": "FOB", "shipment_method": "sea",
         })
         assert r.status_code == 400, r.text
         assert "Company name" in r.json()["detail"]

@@ -13,6 +13,7 @@ import {
 import SendIcon from "@mui/icons-material/Send";
 import apiClient from "@/api/client";
 import { showSuccessToast, showErrorToast, showWarningToast } from "@/components/tijaero";
+import CancelIcon from "@mui/icons-material/Cancel";
 
 export interface TEmailDialogProps {
   open: boolean;
@@ -148,9 +149,7 @@ export function TEmailDialog({
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={sending}>
-          Cancel
-        </Button>
+        <Button variant="contained" color="error" aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} onClick={onClose} disabled={sending}><CancelIcon fontSize="small" /></Button>
         <Button
           variant="contained"
           color="primary"

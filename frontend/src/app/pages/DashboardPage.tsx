@@ -33,7 +33,6 @@ import { formatRelativeTime } from "@/utils/formatters";
 import { useCurrencyStore } from "@/state/currencyStore";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import AssignmentIcon from "@mui/icons-material/Assignment";
-import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
@@ -647,13 +646,6 @@ export default function DashboardPage() {
                       icon={<LocalShippingIcon sx={{ fontSize: 14 }} />}
                       color={theme.palette.primary.main}
                       onClick={() => navigate("/purchasing/approvals")}
-                    />
-                    <ApprovalRow
-                      label="Returns"
-                      count={metrics.pending_return_approvals}
-                      icon={<AssignmentReturnIcon sx={{ fontSize: 14 }} />}
-                      color={theme.palette.warning.main}
-                      onClick={() => navigate("/sales/return-approvals")}
                     />
                     <ApprovalRow
                       label="Expenses"

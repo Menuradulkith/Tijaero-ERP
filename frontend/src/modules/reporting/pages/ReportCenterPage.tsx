@@ -56,6 +56,7 @@ import ReportParamsForm from "../components/ReportParamsForm";
 import ReportResultView from "../components/ReportResultView";
 
 import { formatDateTimeReadable } from "@/utils/formatters";
+import CancelIcon from "@mui/icons-material/Cancel";
 const FAVOURITES_KEY = "report-center-favourites";
 
 function readFavourites(): string[] {
@@ -420,9 +421,7 @@ export default function ReportCenterPage() {
                     </MenuItem>
                   ))}
                 </Menu>
-                <Button variant="outlined" startIcon={<SaveIcon />} onClick={() => setSaveOpen(true)}>
-                  {saved?.can_edit ? "Save changes" : "Save as…"}
-                </Button>
+                <Button aria-label="Save" title="Save" sx={{ minWidth: 36, px: 1 }} variant="outlined"  onClick={() => setSaveOpen(true)}><SaveIcon fontSize="small" /></Button>
                 {saved?.can_edit && (
                   <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={deleteSaved}>
                     Delete
@@ -550,7 +549,7 @@ function SaveDialog({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" color="error" aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} onClick={onClose}><CancelIcon fontSize="small" /></Button>
         {updating && (
           <Button onClick={() => submit(true)} disabled={busy || !name.trim()}>
             Save as new

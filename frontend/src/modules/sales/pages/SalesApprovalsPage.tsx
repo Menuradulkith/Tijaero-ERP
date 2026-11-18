@@ -11,7 +11,6 @@ import { useNavigate } from "react-router-dom";
 import {
   FactCheck as ApprovalIcon,
   PointOfSale as SOIcon,
-  AssignmentReturn as ReturnIcon,
   MonetizationOn as CommissionIcon,
 } from "@mui/icons-material";
 
@@ -35,13 +34,6 @@ const approvalTypes: ApprovalCard[] = [
     color: "primary",
   },
   {
-    title: "Return Approvals",
-    description: "Review and approve pending sales return requests",
-    icon: <ReturnIcon sx={{ fontSize: 48 }} />,
-    path: "/sales/approvals/return-approvals",
-    color: "warning",
-  },
-  {
     title: "Commission Approvals",
     description: "Review and approve agent commission claims",
     icon: <CommissionIcon sx={{ fontSize: 48 }} />,
@@ -58,7 +50,7 @@ export default function SalesApprovalsPage() {
       {/* Page Header */}
       <TPageHeader
         title="Sales Approvals"
-        subtitle="Manage sales order, return, and commission approvals"
+        subtitle="Manage sales order and commission approvals"
         icon={<ApprovalIcon />}
       />
 

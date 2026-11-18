@@ -1,5 +1,5 @@
 ---
-import { t, pathFor, contact, phoneDigits, type Lang } from '../i18n';
+import { t, pathFor, contact, whatsappUrl, telUrl, type Lang, type Page } from '../i18n';
 interface Props { lang: Lang }
 const { lang } = Astro.props;
 const d = t(lang);
@@ -8,37 +8,42 @@ const d = t(lang);
   <div class="container stack" style="gap: 40px">
     <div class="footer-top">
       <div class="stack" style="gap: 12px; max-width: 320px">
-        <span class="footer-brand">Tijaero<span>ERP</span></span>
+        <span class="footer-brand">Tijaero</span>
         <p class="footer-tag">{d.footer.tag}</p>
       </div>
       <div class="footer-cols">
         <div class="stack" style="gap: 10px">
-          <span class="footer-h">{d.footer.product}</span>
-          <a href={pathFor(lang, '', '#modules')}>{d.nav.modules}</a>
-          <a href={pathFor(lang, '', '#srilanka')}>{d.nav.srilanka}</a>
-          <a href={pathFor(lang, 'pricing')}>{d.nav.pricing}</a>
+          <span class="footer-h">{d.footer.solutions}</span>
+          {d.nav.products.map((p) => <a href={pathFor(lang, p.page as Page)}>{p.name}</a>)}
         </div>
         <div class="stack" style="gap: 10px">
           <span class="footer-h">{d.footer.company}</span>
+          <a href={pathFor(lang, 'pricing')}>{d.nav.pricing}</a>
           <a href={pathFor(lang, 'demo')}>{d.nav.demo}</a>
+          <a href={pathFor(lang, 'privacy')}>{d.footer.privacy}</a>
+          <a href={pathFor(lang, 'terms')}>{d.footer.terms}</a>
+        </div>
+        <div class="stack" style="gap: 10px">
+          <span class="footer-h">{d.footer.contact}</span>
+          <a href={whatsappUrl} rel="noopener">{d.nav.whatsapp}</a>
+          <a href={telUrl}>{contact.phone}</a>
           <a href={`mailto:${contact.email}`}>{contact.email}</a>
-          <a href={`tel:+${phoneDigits}`}>{contact.phone}</a>
         </div>
       </div>
     </div>
     <div class="footer-bottom">
       <span>{d.footer.rights}</span>
-      <span>{d.footer.privacy} · {d.footer.terms}</span>
+      <span><a href={pathFor(lang, 'privacy')}>{d.footer.privacy}</a> · <a href={pathFor(lang, 'terms')}>{d.footer.terms}</a></span>
     </div>
   </div>
 </footer>
 
 <style>
   .footer-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 40px; }
-  .footer-brand { font-family: var(--font-display); font-weight: 700; font-size: 19px; }
-  .footer-brand span { color: var(--plum); }
+  .footer-brand { font-family: var(--font-display); font-weight: 700; font-size: 20px; }
   .footer-tag { font-size: 15px; line-height: 1.6; color: var(--muted); }
   .footer-cols { display: flex; flex-wrap: wrap; gap: 64px; font-size: 15px; }
   .footer-h { font-weight: 600; }
   .footer-bottom { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted-2); border-top: 1px solid var(--line); padding-top: 24px; }
+  .footer-bottom a { color: var(--muted-2); }
 </style>

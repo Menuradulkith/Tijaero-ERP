@@ -241,9 +241,7 @@ export default function ProfileSettings() {
                   </Grid>
 
                   <Grid item xs={12}>
-                    <Button type="submit" variant="contained" startIcon={<SaveIcon />} disabled={loading}>
-                      Save Profile Changes
-                    </Button>
+                    <Button aria-label="Save Profile Changes" title="Save Profile Changes" sx={{ minWidth: 36, px: 1 }} type="submit" variant="contained"  disabled={loading}><SaveIcon fontSize="small" /></Button>
                   </Grid>
                 </Grid>
               </CardContent>

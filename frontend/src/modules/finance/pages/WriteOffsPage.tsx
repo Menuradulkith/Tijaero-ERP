@@ -54,6 +54,7 @@ import { customersApi, type OutstandingDocumentItem } from "@/modules/customers/
 import { writeOffsApi, type WriteOff } from "@/modules/finance/api/receivables";
 import { submitOnce } from "@/modules/finance/submitOnce";
 import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
+import CancelIcon from "@mui/icons-material/Cancel";
 
 const fmt = (v: number | string | null | undefined) =>
   Number(v ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -94,7 +95,7 @@ function ReverseDialog({ wo, onClose, onDone }: { wo: WriteOff; onClose: () => v
         <TextField label="Why?" size="small" fullWidth required value={reason} onChange={(e) => setReason(e.target.value)} />
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" color="error" aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} onClick={onClose}><CancelIcon fontSize="small" /></Button>
         <Button
           variant="contained"
           disabled={!reason.trim() || reverse.isPending}

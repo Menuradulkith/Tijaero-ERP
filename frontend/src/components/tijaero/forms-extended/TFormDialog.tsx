@@ -178,21 +178,27 @@ export const TFormDialog: React.FC<TFormDialogProps> = ({
             <>
               <TButton
                 variant="danger"
-                startIcon={<CancelIcon />}
+                startIcon={cancelText === "Cancel" ? undefined : <CancelIcon />}
                 onClick={onClose}
                 disabled={isSubmitting}
+                aria-label={cancelText}
+                title={cancelText}
+                sx={cancelText === "Cancel" ? { minWidth: 36, px: 1 } : undefined}
               >
-                {cancelText}
+                {cancelText === "Cancel" ? <CancelIcon fontSize="small" /> : cancelText}
               </TButton>
               {onSubmit && (
                 <TButton
                   variant="success"
-                  startIcon={<SaveIcon />}
+                  startIcon={/^Save/.test(submitText) ? undefined : <SaveIcon />}
                   type="submit"
                   loading={isSubmitting}
                   disabled={submitDisabled}
+                  aria-label={submitText}
+                  title={submitText}
+                  sx={/^Save/.test(submitText) ? { minWidth: 36, px: 1 } : undefined}
                 >
-                  {submitText}
+                  {/^Save/.test(submitText) ? <SaveIcon fontSize="small" /> : submitText}
                 </TButton>
               )}
             </>

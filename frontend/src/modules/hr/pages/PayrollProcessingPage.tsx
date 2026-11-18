@@ -509,10 +509,8 @@ export default function PayrollProcessingPage() {
               size="small" disabled={anyWorkflowPending}>
               Submit for Approval
             </Button>
-            <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelBatch}
-              size="small" disabled={anyWorkflowPending}>
-              Cancel
-            </Button>
+            <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={handleCancelBatch}
+              size="small" disabled={anyWorkflowPending}><CancelIcon fontSize="small" /></Button>
           </>
         );
       case "pending_approval":

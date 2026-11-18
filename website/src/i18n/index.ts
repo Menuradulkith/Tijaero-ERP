@@ -4,13 +4,14 @@ import en from './en';
 
 export type Lang = 'en';
 export type Dict = typeof en;
+export type Page = '' | 'erp' | 'pos' | 'distribution' | 'pricing' | 'demo' | 'privacy' | 'terms';
 
 export function t(_lang: Lang = 'en'): Dict {
   return en;
 }
 
-/** Path for a page. `page` is '' (home), 'pricing' or 'demo'. */
-export function pathFor(_lang: Lang, page: '' | 'pricing' | 'demo', hash = ''): string {
+/** Path for a page, e.g. pathFor('en', 'erp', '#tour') -> '/erp/#tour'. */
+export function pathFor(_lang: Lang, page: Page, hash = ''): string {
   return `/${page ? `${page}/` : ''}${hash}`;
 }
 
@@ -23,3 +24,5 @@ export const contact = {
 
 /** Digits-only phone for tel: and wa.me links. */
 export const phoneDigits = contact.phone.replace(/\D/g, '');
+export const whatsappUrl = `https://wa.me/${phoneDigits}`;
+export const telUrl = `tel:+${phoneDigits}`;
