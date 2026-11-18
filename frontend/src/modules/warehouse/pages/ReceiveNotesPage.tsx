@@ -211,7 +211,7 @@ export default function ReceiveNotesPage() {
         received_note: data.notes,
       });
     },
-    onSuccess: () => {
+    onSuccess: async (result) => {
       queryClient.invalidateQueries({ queryKey: ["itemReceiveNotes"] });
       queryClient.invalidateQueries({ queryKey: ["availableTransferNotes"] });
       queryClient.invalidateQueries({ queryKey: ["salesStock"] });
@@ -223,6 +223,13 @@ export default function ReceiveNotesPage() {
         success: true,
         message: "Items received successfully!",
       });
+      // Show the saved receive note, not the table.
+      try {
+        const saved = await receiveNotesApi.getByTransferNote(result.transfer_note_id);
+        if (saved?.id) handleSelectIRN(saved);
+      } catch {
+        // fall back to the table when the note cannot be loaded
+      }
     },
     onError: (error: unknown) => {
       setScanResult({

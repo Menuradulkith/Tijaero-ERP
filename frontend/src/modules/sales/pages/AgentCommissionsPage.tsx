@@ -522,9 +522,7 @@ export default function AgentCommissionsPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setPayDialogOpen(false)} disabled={paying}>
-            Cancel
-          </Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setPayDialogOpen(false)} disabled={paying}><CancelIcon fontSize="small" /></Button>
           <Button variant="contained" color="success" onClick={handlePay} disabled={paying}>
             {paying ? "Recording\u2026" : "Confirm Payment"}
           </Button>

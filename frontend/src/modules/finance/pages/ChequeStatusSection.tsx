@@ -12,6 +12,7 @@ import { TChip, handleApiError, showSuccessToast } from "@/components/tijaero";
 import { CHEQUE_STATUS_LABEL, chequeActionsApi, type ChequeStatus } from "@/modules/finance/api/receivables";
 import { submitOnce } from "@/modules/finance/submitOnce";
 import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
+import CancelIcon from "@mui/icons-material/Cancel";
 
 export interface ChequeRegisterFields {
   id: number;
@@ -114,7 +115,7 @@ export default function ChequeStatusSection({ cheque, onChanged }: { cheque: Che
             />
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setBouncing(false)}>Cancel</Button>
+            <Button variant="contained" color="error" aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} onClick={() => setBouncing(false)}><CancelIcon fontSize="small" /></Button>
             <Button variant="contained" color="error" disabled={!reason.trim() || bounce.isPending} onClick={() => submitOnce("ChequeStatusSection-bounce-2", bounce)}>
               Mark bounced
             </Button>

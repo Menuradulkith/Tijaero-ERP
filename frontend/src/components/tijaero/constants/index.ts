@@ -114,6 +114,37 @@ export const SUPPLIER_TAX_AREA = [
   { value: 'import', label: 'Import' },
 ] as const;
 
+// A supplier's payables group (cf. IFS supplier accounting group / SAP vendor
+// account group). Values must match backend app.common.enums.SupplierAccountingGroup.
+export const SUPPLIER_ACCOUNTING_GROUP = [
+  { value: 'local_trade', label: 'Local Trade Suppliers' },
+  { value: 'foreign_trade', label: 'Foreign Trade Suppliers' },
+  { value: 'related_party', label: 'Related Party' },
+  { value: 'services', label: 'Service Providers' },
+  { value: 'other', label: 'Other' },
+] as const;
+
+// Incoterms 2020 (ICC). Values must match backend app.common.enums.Incoterm.
+export const INCOTERMS = [
+  { value: 'EXW', label: 'EXW — Ex Works' },
+  { value: 'FCA', label: 'FCA — Free Carrier' },
+  { value: 'CPT', label: 'CPT — Carriage Paid To' },
+  { value: 'CIP', label: 'CIP — Carriage and Insurance Paid To' },
+  { value: 'DAP', label: 'DAP — Delivered at Place' },
+  { value: 'DPU', label: 'DPU — Delivered at Place Unloaded' },
+  { value: 'DDP', label: 'DDP — Delivered Duty Paid' },
+  { value: 'FAS', label: 'FAS — Free Alongside Ship' },
+  { value: 'FOB', label: 'FOB — Free on Board' },
+  { value: 'CFR', label: 'CFR — Cost and Freight' },
+  { value: 'CIF', label: 'CIF — Cost, Insurance and Freight' },
+] as const;
+
+// Supplier's usual shipment method. Values must match backend app.common.enums.ShipmentMethod.
+export const SHIPMENT_METHODS = [
+  { value: 'air', label: 'Flight (Air Freight)' },
+  { value: 'sea', label: 'Sea Freight' },
+] as const;
+
 // Standard ERP payment terms (cf. SAP/Odoo/NetSuite) — each maps to a fixed
 // number of days added to the invoice/GRN date to get the due date
 // (Supplier.credit_days is still stored as that plain integer; this list is

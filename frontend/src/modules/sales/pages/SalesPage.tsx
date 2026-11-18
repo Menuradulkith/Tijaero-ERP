@@ -35,11 +35,7 @@ import {
 } from "@/components/tijaero";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useReferenceData } from "@/hooks";
-import { couponsApi, customersApi, vouchersApi } from "@/modules/customers/api";
-import {
-    CouponValidationResponse,
-    VoucherValidationResponse,
-} from "@/modules/customers/types";
+import { customersApi } from "@/modules/customers/api";
 import { customerDisplayName } from "@/modules/customers/types";
 import { creditNotesApi } from "@/modules/finance/api";
 import { settingsApi } from "@/modules/settings/api";
@@ -49,7 +45,6 @@ import {
     Add as AddIcon,
     ThumbUp as ApproveIcon,
     Cancel as CancelIcon,
-    LocalOffer as CouponIcon,
     Delete as DeleteIcon,
     Edit as EditIcon,
     Email as EmailIcon,
@@ -65,7 +60,6 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import HistoryIcon from "@mui/icons-material/History";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
-import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import SearchIcon from "@mui/icons-material/Search";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
@@ -272,24 +266,6 @@ export default function SalesPage() {
   // Validated items tracking (for visual feedback on scanned items)
   const [validatedBarcodes, setValidatedBarcodes] = useState<string[]>([]);
 
-  // Coupon/Discount code state
-  const [couponCode, setCouponCode] = useState("");
-  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
-  const [couponValidation, setCouponValidation] =
-    useState<CouponValidationResponse | null>(null);
-  const [couponError, setCouponError] = useState<string | null>(null);
-
-  // Gift Voucher payment state - Support multiple vouchers
-  const [voucherCode, setVoucherCode] = useState("");
-  const [isValidatingVoucher, setIsValidatingVoucher] = useState(false);
-  const [appliedVouchers, setAppliedVouchers] = useState<
-    Array<{
-      validation: VoucherValidationResponse;
-      amountToRedeem: number;
-    }>
-  >([]);
-  const [voucherError, setVoucherError] = useState<string | null>(null);
-
   // Credit Note state
   const [creditNoteAmount, setCreditNoteAmount] = useState(0);
   const [availableCreditBalance, setAvailableCreditBalance] = useState(0);
@@ -413,7 +389,6 @@ export default function SalesPage() {
   const canDelete = usePermission("sales_orders", "delete");
   const canUpdate = usePermission("sales_orders", "update");
   const canApprove = usePermission("so_approvals", "approve");
-  const canCreateReturn = usePermission("sales_returns", "create");
 
   // Confirm dialogs
   const deleteDialog = useTConfirmDialog();
@@ -602,7 +577,7 @@ export default function SalesPage() {
 
   /**
    * Centralized order totals calculation.
-   * Order: Normalize → Item Discount → Coupon → Invoice Discount → Tax → Payments
+   * Order: Normalize → Item Discount → Invoice Discount → Tax → Payments
    */
   const calcOrderTotals = () => {
     const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -611,14 +586,11 @@ export default function SalesPage() {
     const subtotal = r2((taxMode === "inclusive" && effectiveTaxRate > 0)
       ? grossSubtotal / (1 + effectiveTaxRate / 100)
       : grossSubtotal);
-    // Step 4: Coupon Discount (on subtotal)
-    const couponDiscount = r2(couponValidation?.calculated_discount || 0);
-    const afterCoupon = r2(subtotal - couponDiscount);
-    // Step 5: Invoice Discount (after coupon)
+    // Step 4: Invoice Discount (on subtotal)
     const invoiceDiscount = r2(discountType === "percent"
-      ? afterCoupon * (discountValue / 100)
+      ? subtotal * (discountValue / 100)
       : discountValue);
-    const finalNet = r2(afterCoupon - invoiceDiscount);
+    const finalNet = r2(subtotal - invoiceDiscount);
     // Step 7: Tax - recalculate on final net (same for inclusive & exclusive)
     const taxAmount = r2(effectiveTaxRate > 0
       ? finalNet * (effectiveTaxRate / 100)
@@ -626,10 +598,8 @@ export default function SalesPage() {
     // Step 8: Grand total = Net + Tax
     const afterTax = r2(finalNet + taxAmount);
     // Step 9: Payments
-    const totalVoucherPayment = r2(appliedVouchers.reduce((sum, v) => sum + Number(v.amountToRedeem), 0));
-    const afterVoucher = r2(afterTax - totalVoucherPayment);
-    const appliedCreditNote = r2(Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterVoucher)));
-    const afterCreditNote = r2(afterVoucher - appliedCreditNote);
+    const appliedCreditNote = r2(Math.min(creditNoteAmount, availableCreditBalance, Math.max(0, afterTax)));
+    const afterCreditNote = r2(afterTax - appliedCreditNote);
     let serviceCharge = 0;
     if (selectedPaymentCard && (selectedPaymentCard.service_charge_percent || 0) > 0) {
       const chargePercent = selectedPaymentCard.service_charge_percent || 0;
@@ -650,10 +620,8 @@ export default function SalesPage() {
     const grandTotal = r2(Math.max(0, afterCreditNote + serviceCharge));
     return {
       grossSubtotal, subtotal,
-      couponDiscount, afterCoupon,
       invoiceDiscount, finalNet,
       taxAmount, afterTax,
-      totalVoucherPayment, afterVoucher,
     appliedCreditNote, afterCreditNote,
       serviceCharge, grandTotal,
     };
@@ -673,7 +641,7 @@ export default function SalesPage() {
       });
     }
     prevGrandTotalRef.current = currentTotal;
-  }, [lineItems, discountType, discountValue, taxRate, taxMode, appliedVouchers, creditNoteAmount, selectedPaymentCard, splitPayments]);
+  }, [lineItems, discountType, discountValue, taxRate, taxMode, creditNoteAmount, selectedPaymentCard, splitPayments]);
   // Filter and sort invoices
   const filteredInvoices = useMemo(() => {
     if (!invoices) return [];
@@ -912,12 +880,6 @@ export default function SalesPage() {
       setBarcodeInput("");
       setBarcodeError(null);
       setValidatedBarcodes([]);
-      setCouponCode("");
-      setCouponValidation(null);
-      setCouponError(null);
-      setVoucherCode("");
-      setAppliedVouchers([]);
-      setVoucherError(null);
       setCreditNoteAmount(0);
       setDiscountType("percent");
       setDiscountValue(0);
@@ -1020,9 +982,6 @@ export default function SalesPage() {
       setDiscountType("percent");
       setDiscountValue(0);
       setTaxRate(companySettings?.default_tax_rate ?? 0);
-      setCouponCode("");
-      setCouponValidation(null);
-      setAppliedVouchers([]);
       state.setSelectedItem(createdInvoice as Invoice);
       setPendingPaymentMethod("");
 
@@ -1104,36 +1063,6 @@ export default function SalesPage() {
     },
   });
 
-  // Return-entire-invoice ("Return Invoice") state + mutation
-  const [returnInvoiceDialogOpen, setReturnInvoiceDialogOpen] = useState(false);
-  const [returnPaymentMethod, setReturnPaymentMethod] = useState("credit_note");
-  const [returnReason, setReturnReason] = useState("customer_changed_mind");
-
-  const returnFullMutation = useCrudMutation({
-    mutationFn: (vars: {
-      id: number;
-      data: { payment_method: string; return_reason?: string };
-    }) => salesApi.returnFull(vars.id, vars.data),
-    invalidateQueryKeys: [["sales"], ["sales-approved"], ["sale-returns"]],
-    successMessage:
-      "Return invoice created. It now needs approval and processing to post the reversing financial records.",
-    errorMessage: "Failed to create return invoice",
-    onSuccess: () => {
-      setReturnInvoiceDialogOpen(false);
-    },
-  });
-
-  const handleReturnInvoice = () => {
-    if (!state.selectedItem) return;
-    returnFullMutation.mutate({
-      id: state.selectedItem.id,
-      data: {
-        payment_method: returnPaymentMethod,
-        return_reason: returnReason,
-      },
-    });
-  };
-
   const handleCreate = () => {
     state.setSelectedItem(null);
     state.setIsCreating(true);
@@ -1145,14 +1074,6 @@ export default function SalesPage() {
     setManualBrandId(null);
     setManualProductId(null);
     setManualStockItems([]);
-    // Reset coupon state
-    setCouponCode("");
-    setCouponValidation(null);
-    setCouponError(null);
-    // Reset voucher state
-    setVoucherCode("");
-    setAppliedVouchers([]);
-    setVoucherError(null);
     // Reset credit note state
     setCreditNoteAmount(0);
     // Reset discount and tax state
@@ -1214,14 +1135,6 @@ export default function SalesPage() {
     setManualBrandId(null);
     setManualProductId(null);
     setManualStockItems([]);
-    // Reset coupon state when editing
-    setCouponCode("");
-    setCouponValidation(null);
-    setCouponError(null);
-    // Reset voucher state when editing
-    setVoucherCode("");
-    setAppliedVouchers([]);
-    setVoucherError(null);
 
     // Reset payment details - could be enhanced to load from related tables
     setPaymentDetails({
@@ -1320,9 +1233,9 @@ export default function SalesPage() {
       return;
     }
 
-    // Calculate effective price per item after all discounts (item + coupon + invoice discount)
+    // Calculate effective price per item after all discounts (item + invoice discount)
     // and validate that no item goes below minimum price
-    // Flow: Normalize → Item Discount → Coupon → Invoice Discount → Tax
+    // Flow: Normalize → Item Discount → Invoice Discount → Tax
     const subtotalAfterItemDiscounts = calculateLineItemsTotal();
 
     // For inclusive, normalize to net for discount calculations
@@ -1330,21 +1243,11 @@ export default function SalesPage() {
       ? subtotalAfterItemDiscounts / (1 + effectiveTaxRate / 100)
       : subtotalAfterItemDiscounts;
 
-    // Calculate coupon discount percentage (applied first on net subtotal)
-    const validationCouponDiscount = couponValidation?.calculated_discount || 0;
-    const couponDiscountPercent =
-      netSubtotalForValidation > 0
-        ? (validationCouponDiscount / netSubtotalForValidation) * 100
-        : 0;
-
-    // Calculate amount after coupon for invoice discount percentage
-    const afterCouponValidation =
-      netSubtotalForValidation * (1 - couponDiscountPercent / 100);
     const invoiceDiscountPercent =
       discountType === "percent"
         ? discountValue
-        : afterCouponValidation > 0
-          ? (discountValue / afterCouponValidation) * 100
+        : netSubtotalForValidation > 0
+          ? (discountValue / netSubtotalForValidation) * 100
           : 0;
 
     // Check each item's effective price after all discounts
@@ -1360,13 +1263,9 @@ export default function SalesPage() {
         priceAfterItemDiscount = priceAfterItemDiscount / (1 + effectiveTaxRate / 100);
       }
 
-      // Step 2: Apply coupon discount (proportionally)
-      const priceAfterCoupon =
-        priceAfterItemDiscount * (1 - couponDiscountPercent / 100);
-
-      // Step 3: Apply invoice discount (proportionally)
+      // Step 2: Apply invoice discount (proportionally)
       const effectivePrice =
-        priceAfterCoupon * (1 - invoiceDiscountPercent / 100);
+        priceAfterItemDiscount * (1 - invoiceDiscountPercent / 100);
 
       return effectivePrice < item.minimum_selling_price;
     });
@@ -1539,14 +1438,10 @@ export default function SalesPage() {
     }
 
     // Use centralized calculation following the flow:
-    // Normalize → Item Discount → Coupon → Invoice Discount → Tax → Payments
+    // Normalize → Item Discount → Invoice Discount → Tax → Payments
     const t = calcOrderTotals();
     const invoiceDiscount = t.invoiceDiscount;
-    const couponDiscount = t.couponDiscount;
     const taxAmount = t.taxAmount;
-    const afterTax = t.afterTax;
-    const totalVoucherPayment = t.totalVoucherPayment;
-    const afterVoucher = t.afterVoucher;
     const appliedCreditNote = t.appliedCreditNote;
     const afterCreditNote = t.afterCreditNote;
     let serviceCharge = 0;
@@ -1605,11 +1500,6 @@ export default function SalesPage() {
       discount_percent: discountType === "percent" ? discountValue : 0,
       discount_amount:
         discountType === "amount" ? discountValue : invoiceDiscount, // Store calculated amount
-      // Coupon/Discount code fields
-      ...(couponValidation?.coupon_id && {
-        cupon_id: couponValidation.coupon_id,
-        cupon_amount: couponDiscount,
-      }),
       // Pass agent commission rate and amount overrides
       agent_commission_rate: manualCommissionRate !== null ? manualCommissionRate : undefined,
       agent_commission_amount: manualCommissionAmount !== null ? manualCommissionAmount : undefined,
@@ -1617,18 +1507,6 @@ export default function SalesPage() {
       credit_note_amount: appliedCreditNote,
       // Credit validation override flag
       override_credit_validation: creditValidationOverridden,
-      // Gift voucher payment fields - send as array for multiple vouchers
-      ...(appliedVouchers.length > 0 &&
-        totalVoucherPayment > 0 && {
-          gift_voucher_id: appliedVouchers[0].validation.voucher_id, // Legacy field
-          gift_voucher_amount: totalVoucherPayment, // Total from all vouchers
-          voucher_redemptions: appliedVouchers
-            .filter((v) => v.validation.voucher_id) // Ensure voucher_id exists
-            .map((v) => ({
-              voucher_id: v.validation.voucher_id!,
-              amount_to_redeem: Number(v.amountToRedeem),
-            })),
-        }),
       // Include payment details from split rows
       ...(firstChequeRow && {
         cheque_number: firstChequeRow.cheque_number,
@@ -1691,10 +1569,6 @@ export default function SalesPage() {
     setManualBrandId(null);
     setManualProductId(null);
     setManualStockItems([]);
-    // Reset coupon state
-    setCouponCode("");
-    setCouponValidation(null);
-    setCouponError(null);
   };
 
   const handleDelete = () => {
@@ -2014,210 +1888,12 @@ export default function SalesPage() {
     [lineItems, products, state.formData.branch_code, state.formData],
   );
 
-  // Coupon validation handler
-  const handleValidateCoupon = useCallback(async () => {
-    if (!couponCode.trim()) {
-      setCouponError("Please enter a coupon code");
-      return;
-    }
-
-    if (!state.formData.customer_id) {
-      setCouponError("Please select a customer first");
-      return;
-    }
-
-    setIsValidatingCoupon(true);
-    setCouponError(null);
-
-    try {
-      // Send normalized net subtotal (after tax normalization for inclusive)
-      const gross = calculateLineItemsTotal();
-      const netSubtotal = (taxMode === "inclusive" && effectiveTaxRate > 0)
-        ? Math.round((gross / (1 + effectiveTaxRate / 100)) * 100) / 100
-        : gross;
-      const productIds = lineItems.map((item) => item.product_id);
-
-      const response = await couponsApi.validate({
-        coupon_code: couponCode.trim(),
-        customer_id: state.formData.customer_id,
-        invoice_subtotal: netSubtotal,
-        invoice_discount_type: discountType,
-        invoice_discount_value: discountValue,
-        product_ids: productIds,
-        line_items: lineItems.map((item) => ({
-          product_id: item.product_id,
-          quantity: item.quantity,
-          selling_price: item.selling_price,
-        })),
-      });
-
-      if (response.valid) {
-        setCouponValidation(response);
-        showSuccessToast(
-          `Coupon applied! Discount: ${currencySymbol} ${fmtLKR(response.calculated_discount || 0)}`,
-        );
-      } else {
-        setCouponError(response.message);
-        setCouponValidation(null);
-      }
-    } catch (error) {
-      setCouponError(handleApiError(error, "Failed to validate coupon"));
-      setCouponValidation(null);
-    } finally {
-      setIsValidatingCoupon(false);
-    }
-  }, [couponCode, state.formData.customer_id, lineItems]);
-
-  // Clear coupon
-  const handleClearCoupon = () => {
-    setCouponCode("");
-    setCouponValidation(null);
-    setCouponError(null);
-  };
-
-  // Gift Voucher validation handler
-  const handleValidateVoucher = useCallback(async () => {
-    if (!voucherCode.trim()) {
-      setVoucherError("Please enter a voucher code");
-      return;
-    }
-
-    setIsValidatingVoucher(true);
-    setVoucherError(null);
-
-    try {
-      // Calculate amount due using centralized calculation (correct order)
-      const t = calcOrderTotals();
-      const amountDue = t.afterTax - t.totalVoucherPayment;
-
-      const response = await vouchersApi.validate({
-        barcode_no: voucherCode.trim(),
-        invoice_amount_due: amountDue,
-      });
-
-      if (response.valid) {
-        // Check if this voucher is already applied
-        const alreadyApplied = appliedVouchers.some(
-          (v) => v.validation.voucher_id === response.voucher_id,
-        );
-        if (alreadyApplied) {
-          setVoucherError("This voucher has already been applied");
-          showErrorToast("This voucher has already been applied");
-        } else {
-          // Add voucher to the list
-          setAppliedVouchers((prev) => [
-            ...prev,
-            {
-              validation: response,
-              amountToRedeem: Number(response.redeemable_amount) || 0,
-            },
-          ]);
-          setVoucherCode(""); // Clear input for next voucher
-          showSuccessToast(
-            `Voucher added! Balance: ${currencySymbol} ${fmtLKR(response.balance || 0)}`,
-          );
-        }
-      } else {
-        setVoucherError(response.message);
-      }
-    } catch (error) {
-      setVoucherError(handleApiError(error, "Failed to validate voucher"));
-    } finally {
-      setIsValidatingVoucher(false);
-    }
-  }, [voucherCode, lineItems, couponValidation, appliedVouchers]);
-
-  // Remove a specific voucher
-  const handleRemoveVoucher = (voucherId: number) => {
-    setAppliedVouchers((prev) =>
-      prev.filter((v) => v.validation.voucher_id !== voucherId),
-    );
-  };
-
-  // Clear all vouchers
-  const handleClearAllVouchers = () => {
-    setVoucherCode("");
-    setAppliedVouchers([]);
-    setVoucherError(null);
-  };
-
   // Auto-focus barcode field when entering Step 2
   useEffect(() => {
     if (formStep === 1) {
       setTimeout(() => barcodeInputRef.current?.focus(), 150);
     }
   }, [formStep]);
-
-  // Stable fingerprint of line items data for dependency tracking
-  // Changes when any item's price, quantity, or discount changes
-  const lineItemsFingerprint = useMemo(
-    () => lineItems.map(i => `${i.product_id}:${i.quantity}:${i.selling_price}:${i.discount_percent || 0}`).join('|'),
-    [lineItems],
-  );
-
-  // Auto-revalidate coupon when line items change (with debouncing)
-  useEffect(() => {
-    if (
-      !couponValidation ||
-      !couponCode ||
-      lineItems.length === 0 ||
-      !state.formData.customer_id
-    ) {
-      if (couponValidation && lineItems.length === 0) {
-        // Clear coupon if all items removed
-        setCouponValidation(null);
-        setCouponError("No items in invoice");
-      }
-      return;
-    }
-
-    // Debounce the revalidation to avoid excessive API calls
-    const timeoutId = setTimeout(async () => {
-      try {
-        // Send normalized net subtotal (after tax normalization for inclusive)
-        const gross = calculateLineItemsTotal();
-        const netSubtotal = (taxMode === "inclusive" && effectiveTaxRate > 0)
-          ? Math.round((gross / (1 + effectiveTaxRate / 100)) * 100) / 100
-          : gross;
-        const productIds = lineItems.map((item) => item.product_id);
-
-        const response = await couponsApi.validate({
-          coupon_code: couponCode.trim(),
-          customer_id: state.formData.customer_id!,
-          invoice_subtotal: netSubtotal,
-          invoice_discount_type: discountType,
-          invoice_discount_value: discountValue,
-          product_ids: productIds,
-          line_items: lineItems.map((item) => ({
-            product_id: item.product_id,
-            quantity: item.quantity,
-            selling_price: item.selling_price,
-          })),
-        });
-
-        if (response.valid) {
-          setCouponValidation(response);
-          setCouponError(null);
-        } else {
-          // Coupon is no longer valid, clear it
-          setCouponValidation(null);
-          setCouponError(response.message);
-          showErrorToast(`Coupon no longer valid: ${response.message}`);
-        }
-      } catch (error: unknown) {
-        setCouponValidation(null);
-        setCouponError("Coupon validation failed");
-      }
-    }, 500); // Wait 500ms after last change before revalidating
-
-    return () => clearTimeout(timeoutId);
-  }, [
-    lineItemsFingerprint,
-    couponCode,
-    state.formData.customer_id,
-    taxMode,
-    effectiveTaxRate,
-  ]); // Revalidate when items, prices, discounts, or tax mode changes
 
   // Custom actions for toolbar
   const customActions =
@@ -2255,25 +1931,6 @@ export default function SalesPage() {
             setPrintDialogOpen(true);
           }}
         />
-        {canCreateReturn &&
-          (state.selectedItem.approval_status === "completed" ||
-            state.selectedItem.approval_status === "approved") && (
-            <Tooltip title="Return the entire invoice (creates a full sale return for approval)">
-              <Button
-                size="small"
-                variant="outlined"
-                color="warning"
-                startIcon={<AssignmentReturnIcon />}
-                onClick={() => {
-                  setReturnPaymentMethod("credit_note");
-                  setReturnReason("customer_changed_mind");
-                  setReturnInvoiceDialogOpen(true);
-                }}
-              >
-                Return Invoice
-              </Button>
-            </Tooltip>
-          )}
       </Box>
     ) : undefined;
 
@@ -3866,37 +3523,7 @@ export default function SalesPage() {
                       </Typography>
                     </TableCell>
                   </TableRow>
-                  {/* Coupon Discount Row - applied on subtotal (step 4) */}
-                  {couponValidation &&
-                    couponValidation.calculated_discount &&
-                    couponValidation.calculated_discount > 0 && (
-                      <TableRow sx={{ bgcolor: "success.lighter" }}>
-                        <TableCell colSpan={7} align="right">
-                          <Box
-                            sx={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "flex-end",
-                              gap: 1,
-                            }}
-                          >
-                            <CouponIcon fontSize="small" color="success" />
-                            <Typography
-                              fontWeight="medium"
-                              color="success.dark"
-                            >
-                              Coupon Discount ({couponCode}):
-                            </Typography>
-                          </Box>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography fontWeight="medium" color="success.dark">
-                            -{fmtLKR(couponValidation.calculated_discount)}
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  {/* Invoice Discount Row - applied after coupon (step 5) */}
+                  {/* Invoice Discount Row - applied on subtotal */}
                   {discountValue > 0 && (
                     <TableRow sx={{ bgcolor: "warning.lighter" }}>
                       <TableCell colSpan={7} align="right">
@@ -3950,48 +3577,6 @@ export default function SalesPage() {
                       </TableCell>
                     </TableRow>
                   )}
-                  {/* Gift Voucher Payment Row - Only if vouchers are applied */}
-                  {appliedVouchers.length > 0 &&
-                    appliedVouchers.reduce(
-                      (sum, v) => sum + Number(v.amountToRedeem),
-                      0,
-                    ) > 0 && (
-                      <TableRow sx={{ bgcolor: "secondary.lighter" }}>
-                        <TableCell colSpan={7} align="right">
-                          <Box
-                            sx={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "flex-end",
-                              gap: 1,
-                            }}
-                          >
-                            <ReceiptIcon fontSize="small" color="secondary" />
-                            <Typography
-                              fontWeight="medium"
-                              color="secondary.dark"
-                            >
-                              Gift Voucher Payment ({appliedVouchers.length}{" "}
-                              voucher{appliedVouchers.length > 1 ? "s" : ""}):
-                            </Typography>
-                          </Box>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography
-                            fontWeight="medium"
-                            color="secondary.dark"
-                          >
-                            -
-                            {fmtLKR(
-                              appliedVouchers.reduce(
-                                (sum, v) => sum + Number(v.amountToRedeem),
-                                0,
-                              ),
-                            )}
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )}
                   {/* Credit Note Payment Row - Only if applied */}
                   {creditNoteAmount > 0 && (
                     <TableRow sx={{ bgcolor: "success.lighter" }}>
@@ -4069,137 +3654,14 @@ export default function SalesPage() {
 
           {/* When editing an existing order, financial fields are locked: the
               backend update only accepts line-item changes, so showing editable
-              payment/discount/tax/coupon/voucher controls would silently discard
+              payment/discount/tax controls would silently discard
               those changes. Surface that clearly and hide the controls. */}
           {state.isEditing && (
             <Alert severity="info" sx={{ mb: 2 }}>
               Editing an order updates its line items only. Payment method,
-              discounts, tax, coupons and gift vouchers can’t be changed after an
+              discounts and tax can’t be changed after an
               order is created — those sections are hidden while editing.
             </Alert>
-          )}
-
-          {/* Coupon/Discount Code Section - After adding items */}
-          {lineItems.length > 0 && !state.isEditing && (
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 2,
-                mb: 2,
-                bgcolor: couponValidation ? "success.50" : "grey.50",
-                borderColor: couponValidation ? "success.main" : "divider",
-              }}
-            >
-              <Box
-                sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}
-              >
-                <CouponIcon color={couponValidation ? "success" : "action"} />
-                <Typography variant="subtitle2" fontWeight="bold">
-                  Apply Coupon / Discount Code
-                </Typography>
-              </Box>
-
-              {!couponValidation ? (
-                <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
-                  <TextField
-                    size="small"
-                    fullWidth
-                    placeholder="Scan barcode or enter coupon code..."
-                    value={couponCode}
-                    onChange={(e) => {
-                      setCouponCode(e.target.value.toUpperCase());
-                      if (couponError) setCouponError(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleValidateCoupon();
-                      }
-                    }}
-                    disabled={
-                      isValidatingCoupon ||
-                      !state.formData.customer_id ||
-                      lineItems.length === 0
-                    }
-                    error={!!couponError}
-                    helperText={
-                      couponError ||
-                      (lineItems.length === 0
-                        ? "Add items first"
-                        : "Scan barcode or type code and press Enter/Apply")
-                    }
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <QrCodeScannerIcon fontSize="small" color="action" />
-                        </InputAdornment>
-                      ),
-                      endAdornment: isValidatingCoupon ? (
-                        <InputAdornment position="end">
-                          <CircularProgress size={20} />
-                        </InputAdornment>
-                      ) : null,
-                    }}
-                  />
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={handleValidateCoupon}
-                    disabled={
-                      isValidatingCoupon ||
-                      !couponCode.trim() ||
-                      !state.formData.customer_id ||
-                      lineItems.length === 0
-                    }
-                    sx={{ minWidth: 100 }}
-                  >
-                    {isValidatingCoupon ? (
-                      <CircularProgress size={20} />
-                    ) : (
-                      "Apply"
-                    )}
-                  </Button>
-                </Box>
-              ) : (
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Box>
-                    <TChip
-                      icon={<CouponIcon />}
-                      label={couponCode}
-                      color="success"
-                      variant="filled"
-                      sx={{ mr: 1 }}
-                    />
-                    <Typography
-                      variant="body2"
-                      component="span"
-                      color="success.dark"
-                      fontWeight="medium"
-                    >
-                      {couponValidation.discount_type === "PERCENT"
-                        ? `${couponValidation.discount_value}% off`
-                        : `${currencySymbol} ${fmtLKR(couponValidation.discount_value || 0)} off`}
-                      {` - Discount: ${currencySymbol} `}
-                      {fmtLKR(couponValidation.calculated_discount || 0)}
-                    </Typography>
-                  </Box>
-                  <Button
-                    size="small"
-                    color="error"
-                    onClick={handleClearCoupon}
-                    startIcon={<DeleteIcon />}
-                  >
-                    Remove
-                  </Button>
-                </Box>
-              )}
-            </Paper>
           )}
 
           {/* Invoice Discount & Tax Section */}
@@ -4262,7 +3724,7 @@ export default function SalesPage() {
                         if (discountType === "percent" && val > 100) return;
                         if (
                           discountType === "amount" &&
-                          val > calcOrderTotals().afterCoupon
+                          val > calcOrderTotals().subtotal
                         )
                           return;
                         setDiscountValue(val);
@@ -4281,7 +3743,7 @@ export default function SalesPage() {
                         max:
                           discountType === "percent"
                             ? 100
-                            : calcOrderTotals().afterCoupon,
+                            : calcOrderTotals().subtotal,
                         step: discountType === "percent" ? 0.5 : 100,
                       }}
                     />
@@ -4386,219 +3848,6 @@ export default function SalesPage() {
             </Paper>
           )}
 
-          {/* Gift Voucher Payment Section - After adding items */}
-          {lineItems.length > 0 && !state.isEditing && (
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 2,
-                mb: 2,
-                bgcolor: appliedVouchers.length > 0 ? "info.50" : "grey.50",
-                borderColor:
-                  appliedVouchers.length > 0 ? "info.main" : "divider",
-              }}
-            >
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  mb: 1,
-                }}
-              >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <ReceiptIcon
-                    color={appliedVouchers.length > 0 ? "info" : "action"}
-                  />
-                  <Typography variant="subtitle2" fontWeight="bold">
-                    Apply Gift Vouchers
-                  </Typography>
-                  {appliedVouchers.length > 0 && (
-                    <TChip
-                      label={`${appliedVouchers.length} applied`}
-                      size="small"
-                      color="info"
-                      sx={{ height: 20 }}
-                    />
-                  )}
-                </Box>
-                {appliedVouchers.length > 0 && (
-                  <Button
-                    size="small"
-                    color="error"
-                    onClick={handleClearAllVouchers}
-                    startIcon={<DeleteIcon />}
-                  >
-                    Remove All
-                  </Button>
-                )}
-              </Box>
-
-              {/* Voucher input - always visible */}
-              <Box
-                sx={{
-                  display: "flex",
-                  gap: 1,
-                  alignItems: "flex-start",
-                  mb: appliedVouchers.length > 0 ? 2 : 0,
-                }}
-              >
-                <TextField
-                  size="small"
-                  fullWidth
-                  placeholder="Scan barcode or enter voucher code..."
-                  value={voucherCode}
-                  onChange={(e) => {
-                    setVoucherCode(e.target.value.toUpperCase());
-                    if (voucherError) setVoucherError(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleValidateVoucher();
-                    }
-                  }}
-                  disabled={isValidatingVoucher || lineItems.length === 0}
-                  error={!!voucherError}
-                  helperText={
-                    voucherError ||
-                    (lineItems.length === 0
-                      ? "Add items first"
-                      : "Scan voucher barcode or type code and press Enter/Apply")
-                  }
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <QrCodeScannerIcon fontSize="small" color="action" />
-                      </InputAdornment>
-                    ),
-                    endAdornment: isValidatingVoucher ? (
-                      <InputAdornment position="end">
-                        <CircularProgress size={20} />
-                      </InputAdornment>
-                    ) : null,
-                  }}
-                />
-                <Button
-                  variant="contained"
-                  color="info"
-                  onClick={handleValidateVoucher}
-                  disabled={
-                    isValidatingVoucher ||
-                    !voucherCode.trim() ||
-                    lineItems.length === 0
-                  }
-                  sx={{ minWidth: 100 }}
-                >
-                  {isValidatingVoucher ? (
-                    <CircularProgress size={20} />
-                  ) : (
-                    "Apply"
-                  )}
-                </Button>
-              </Box>
-
-              {/* List of applied vouchers */}
-              {appliedVouchers.length > 0 && (
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                  {appliedVouchers.map((voucher) => (
-                    <Box
-                      key={voucher.validation.voucher_id}
-                      sx={{
-                        p: 1.5,
-                        bgcolor: "white",
-                        borderRadius: 1,
-                        border: "1px solid",
-                        borderColor: "info.light",
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          mb: 1,
-                        }}
-                      >
-                        <Box
-                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                        >
-                          <TChip
-                            icon={<ReceiptIcon />}
-                            label={voucher.validation.barcode_no || ""}
-                            color="info"
-                            size="small"
-                          />
-                          <Typography variant="caption" color="text.secondary">
-                            {`Full Value: ${currencySymbol}`}{" "}
-                            {fmtLKR(voucher.validation.balance || 0)}
-                            {voucher.validation.expiry_date &&
-                              ` • Expires: ${new Date(voucher.validation.expiry_date).toLocaleDateString()}`}
-                          </Typography>
-                        </Box>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() =>
-                            voucher.validation.voucher_id &&
-                            handleRemoveVoucher(voucher.validation.voucher_id)
-                          }
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                      <Box
-                        sx={{ display: "flex", gap: 2, alignItems: "center" }}
-                      >
-                        <Typography
-                          variant="body2"
-                          color="info.dark"
-                          fontWeight="bold"
-                        >
-                          {`Applying: ${currencySymbol}`} {fmtLKR(voucher.amountToRedeem)}
-                        </Typography>
-                        {(voucher.validation.balance || 0) >
-                          voucher.amountToRedeem && (
-                          <Typography variant="caption" color="warning.main">
-                            {`(One-time use - ${currencySymbol}`}{" "}
-                            {fmtLKR(
-                              (voucher.validation.balance || 0) -
-                                voucher.amountToRedeem,
-                            )}{" "}
-                            will be forfeited)
-                          </Typography>
-                        )}
-                      </Box>
-                    </Box>
-                  ))}
-                  {/* Total voucher payment */}
-                  <Box
-                    sx={{
-                      p: 1,
-                      bgcolor: "success.lighter",
-                      borderRadius: 1,
-                      textAlign: "right",
-                    }}
-                  >
-                    <Typography
-                      variant="body2"
-                      color="success.dark"
-                      fontWeight="bold"
-                    >
-                      {`Total Voucher Payment: ${currencySymbol}`}{" "}
-                      {fmtLKR(
-                        appliedVouchers.reduce(
-                          (sum, v) => sum + Number(v.amountToRedeem),
-                          0,
-                        ),
-                      )}
-                    </Typography>
-                  </Box>
-                </Box>
-              )}
-            </Paper>
-          )}
-
           {/* Credit Note Payment Section */}
           {lineItems.length > 0 &&
             !state.isEditing &&
@@ -4650,7 +3899,7 @@ export default function SalesPage() {
                         // Max is minimum of: available balance or remaining invoice amount
                         const maxAllowed = Math.min(
                           availableCreditBalance,
-                          Math.max(0, totals.afterVoucher),
+                          Math.max(0, totals.afterTax),
                         );
                         const value = Math.min(inputValue, maxAllowed);
 
@@ -4669,7 +3918,7 @@ export default function SalesPage() {
                       helperText={`Max: ${currencySymbol} ${fmtLKR(
                         Math.min(
                           availableCreditBalance,
-                          Math.max(0, calcOrderTotals().afterVoucher),
+                          Math.max(0, calcOrderTotals().afterTax),
                         ),
                       )}`}
                     />
@@ -5013,30 +4262,7 @@ export default function SalesPage() {
                 </Typography>
               </Box>
 
-              {/* Coupon Discount - applied on subtotal (step 4) */}
-              {couponValidation &&
-                (couponValidation.calculated_discount ?? 0) > 0 && (
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Typography variant="body1" color="text.secondary">
-                      Coupon (ID: {couponValidation.coupon_id}):
-                    </Typography>
-                    <Typography
-                      variant="body1"
-                      fontWeight="medium"
-                      color="error.main"
-                    >
-                      - {currencySymbol} {fmtLKR(couponValidation.calculated_discount ?? 0)}
-                    </Typography>
-                  </Box>
-                )}
-
-              {/* Invoice Discount - applied after coupon (step 5) */}
+              {/* Invoice Discount - applied on subtotal */}
               {discountValue > 0 && (
                 <Box
                   sx={{
@@ -5083,38 +4309,6 @@ export default function SalesPage() {
                   </Typography>
                 </Box>
               )}
-
-              {/* Gift Voucher */}
-              {appliedVouchers.length > 0 &&
-                appliedVouchers.reduce(
-                  (sum, v) => sum + Number(v.amountToRedeem),
-                  0,
-                ) > 0 && (
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Typography variant="body1" color="text.secondary">
-                      Gift Voucher ({appliedVouchers.length}):
-                    </Typography>
-                    <Typography
-                      variant="body1"
-                      fontWeight="medium"
-                      color="secondary.main"
-                    >
-                      - {currencySymbol}{" "}
-                      {fmtLKR(
-                        appliedVouchers.reduce(
-                          (sum, v) => sum + Number(v.amountToRedeem),
-                          0,
-                        ),
-                      )}
-                    </Typography>
-                  </Box>
-                )}
 
               {/* Credit Note */}
               {creditNoteAmount > 0 && (
@@ -5471,68 +4665,6 @@ export default function SalesPage() {
       />
       <TConfirmDialog {...creditWarningDialog.dialogProps} />
 
-      {/* Return Entire Invoice Dialog */}
-      <Dialog
-        open={returnInvoiceDialogOpen}
-        onClose={() => setReturnInvoiceDialogOpen(false)}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>Return Entire Invoice</DialogTitle>
-        <DialogContent>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            This creates a full sale return for{" "}
-            <strong>{state.selectedItem?.invoice_no}</strong> covering every
-            not-yet-returned item. It must be approved and processed before the
-            reversing financial records are posted.
-          </Alert>
-          <TextField
-            select
-            fullWidth
-            size="small"
-            label="Refund Method"
-            value={returnPaymentMethod}
-            onChange={(e) => setReturnPaymentMethod(e.target.value)}
-            sx={{ mb: 2 }}
-          >
-            <MenuItem value="credit_note">Store Credit (Credit Note)</MenuItem>
-            <MenuItem value="cash">Cash Refund</MenuItem>
-            <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-            <MenuItem value="cheque">Cheque</MenuItem>
-          </TextField>
-          <TextField
-            select
-            fullWidth
-            size="small"
-            label="Return Reason"
-            value={returnReason}
-            onChange={(e) => setReturnReason(e.target.value)}
-          >
-            <MenuItem value="customer_changed_mind">
-              Customer Changed Mind
-            </MenuItem>
-            <MenuItem value="defective">Defective Product</MenuItem>
-            <MenuItem value="wrong_item">Wrong Item Delivered</MenuItem>
-            <MenuItem value="damaged">Damaged in Transit</MenuItem>
-            <MenuItem value="other">Other</MenuItem>
-          </TextField>
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setReturnInvoiceDialogOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            color="warning"
-            onClick={handleReturnInvoice}
-            disabled={returnFullMutation.isPending}
-            startIcon={<AssignmentReturnIcon />}
-          >
-            Create Return
-          </Button>
-        </DialogActions>
-      </Dialog>
-
       {/* Invoice Details Dialog */}
       <InvoiceDetailsDialog
         open={invoiceDetailsOpen}
@@ -5564,11 +4696,8 @@ export default function SalesPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRemarksDialogOpen(false)}>OK</Button>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />}
-            onClick={() => setRemarksDialogOpen(false)}
-          >
-            Cancel
-          </Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error" 
+            onClick={() => setRemarksDialogOpen(false)}><CancelIcon fontSize="small" /></Button>
         </DialogActions>
       </Dialog>
 

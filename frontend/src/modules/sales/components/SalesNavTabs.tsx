@@ -3,7 +3,6 @@ import {
     Dashboard as DashboardIcon,
     Receipt as OrdersIcon,
     Description as QuotationsIcon,
-    AssignmentReturn as ReturnsIcon,
 } from "@mui/icons-material";
 import { Box, Tab, Tabs } from "@mui/material";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -17,7 +16,6 @@ const salesTabs = [
   { value: "/sales/customers", label: "Customers", icon: <CustomersIcon />, path: "/sales/customers" },
   { value: "/sales/quotations", label: "Quotations", icon: <QuotationsIcon />, path: "/sales/quotations" },
   { value: "/sales", label: "Orders", icon: <OrdersIcon />, path: "/sales" },
-  { value: "/sales/returns", label: "Returns", icon: <ReturnsIcon />, path: "/sales/returns" },
 ];
 
 export default function SalesNavTabs({ value }: SalesNavTabsProps) {

@@ -17,14 +17,28 @@
   --white: #ffffff;
   --on-dark: #f6eff4;
   --on-dark-muted: #c9b8c4;
-  --ok-bg: #e3f4ea; --ok: #0b6b34;
-  --info-bg: #e0f3f2; --info: #00605e;
-  --warn-bg: #fdf1dd; --warn: #8a5300;
 
-  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-display: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  --font: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Inter Tight Variable', 'Inter Variable', system-ui, sans-serif;
   --radius: 24px;
   --max: 1240px;
+
+  /* Motion tokens. Durations follow Material 3 / Apple HIG ranges: quick feedback ~150ms,
+     hover/state ~250ms, content entering ~600ms. Curves: ease-out for things arriving,
+     standard for state changes. Everything is gated on prefers-reduced-motion below. */
+  --dur-fast: 150ms;
+  --dur-base: 250ms;
+  --dur-slow: 600ms;
+  --ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --lift: -4px;                 /* hover lift for cards */
+  --reveal-shift: 18px;         /* how far content travels when it scrolls in */
+
+  /* Cursor spotlight colours, per surface (light card vs. dark band). */
+  --spot: rgba(113, 75, 103, .09);
+  --spot-dark: rgba(215, 169, 201, .14);
+  --glow: rgba(176, 122, 162, .5);
+  --lift-shadow: 0 18px 44px rgba(43, 27, 39, .14);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -68,8 +82,9 @@ button, input, select, textarea { font: inherit; }
 .grad-text { background: linear-gradient(92deg, #f6ddee 0%, #d7a9c9 45%, #8fd3cf 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
 /* ---------- buttons ---------- */
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 14px 26px; border-radius: 999px; font-weight: 600; font-size: 16px; text-decoration: none; border: 0; cursor: pointer; transition: transform .15s ease, box-shadow .15s ease, background .15s ease; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 14px 26px; border-radius: 999px; font-weight: 600; font-size: 16px; text-decoration: none; border: 0; cursor: pointer; transition: transform var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
 .btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0) scale(.97); }
 .btn-lg { font-size: 17px; padding: 17px 30px; }
 .btn-primary { background: linear-gradient(135deg, var(--plum-light), var(--plum)); color: #fff; box-shadow: 0 0 0 1px rgba(255,255,255,.18) inset, 0 12px 36px rgba(155,107,143,.5); }
 .btn-primary:hover { color: #fff; }
@@ -109,24 +124,125 @@ button, input, select, textarea { font: inherit; }
 .span2 { grid-column: span 2; }
 @media (max-width: 900px) { .bento { grid-template-columns: minmax(0, 1fr); } .span2 { grid-column: auto; } }
 
-.chip { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 600; }
-.chip-ok { background: var(--ok-bg); color: var(--ok); }
-.chip-info { background: var(--info-bg); color: var(--info); }
-.chip-warn { background: var(--warn-bg); color: var(--warn); }
 .pill { border-radius: 999px; padding: 10px 16px; font-size: 14px; }
 
 /* ---------- footer ---------- */
 .site-footer { border-top: 1px solid var(--line); background: #fff; padding: 56px 0 40px; }
 .site-footer a { text-decoration: none; }
 
-/* ---------- motion ---------- */
-@media (prefers-reduced-motion: no-preference) {
-  .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
-  .reveal.in { opacity: 1; transform: none; }
+/* ---------- motion ----------
+   A small, consistent set (patterns used on Linear / Stripe / Vercel style product sites):
+   1. hero entrance  2. scroll reveal with stagger  3. hover lift on cards and buttons
+   4. cursor spotlight on cards + glow on dark bands (mouse only)  5. tab panel cross-fade.
+   Only opacity, transform/translate and a promoted gradient layer animate: no layout changes.
+   Reveal uses the `translate` property and hover uses `transform`, so they never fight. */
+
+@keyframes rise-in { from { opacity: 0; translate: 0 var(--reveal-shift); } to { opacity: 1; translate: 0 0; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+/* screenshots: settle from a laid-back angle, a light sweep across the screen, a slow breathing glow behind */
+@keyframes shot-settle { from { transform: perspective(1800px) rotateX(16deg) scale(.96); } to { transform: perspective(1800px) rotateX(0) scale(1); } }
+@keyframes shot-settle-soft { from { transform: perspective(1600px) rotateX(8deg) scale(.98); } to { transform: perspective(1600px) rotateX(0) scale(1); } }
+@keyframes shot-sweep { from { translate: -110% 0; } to { translate: 110% 0; } }
+@keyframes glow-breathe { 0%, 100% { opacity: 1; scale: 1; } 50% { opacity: .7; scale: 1.06; } }
+
+/* Cursor glare over a screenshot, positioned by motion.ts (--gx/--gy). */
+.glare {
+  position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: radial-gradient(560px circle at var(--gx, 50%) var(--gy, 50%), rgba(255,255,255,.22), transparent 65%);
 }
-@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn { transition: none; } }
+
+/* Hover lift: transform for the card, an opacity-faded shadow layer instead of animating box-shadow. */
+.card, .mod, .plan, .flow-card, .chat, .sol-card, .biz-card, .why-card, .other { position: relative; isolation: isolate; }
+.card::before, .mod::before, .plan::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+  box-shadow: var(--lift-shadow); opacity: 0;
+}
+
+/* Cursor spotlight: a soft radial highlight that follows the mouse inside a card. */
+.card::after, .mod::after, .plan::after, .flow-card::after, .chat::after, .sol-card::after, .biz-card::after, .why-card::after, .other::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), var(--spot), transparent 70%);
+}
+.card-dark::after, .plan.featured::after, .flow-card::after, .why-card::after { --spot: var(--spot-dark); }
+
+/* Big glow on dark bands, moved by transform from motion.ts. */
+.dark { isolation: isolate; }
+.cursor-glow {
+  position: absolute; left: 0; top: 0; z-index: -1; width: 720px; height: 720px; margin: -360px 0 0 -360px;
+  border-radius: 50%; pointer-events: none; opacity: 0;
+  background: radial-gradient(closest-side, var(--glow), transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* 1. hero entrance, children staggered */
+  :is(.hero:not(:has(> .hero-copy)), .hero-copy, .p-copy, .l-hero, .demo .intro) > * { animation: rise-in var(--dur-slow) var(--ease-out) both; }
+  :is(.hero:not(:has(> .hero-copy)), .hero-copy, .p-copy, .l-hero, .demo .intro) > :nth-child(2) { animation-delay: 60ms; }
+  :is(.hero:not(:has(> .hero-copy)), .hero-copy, .p-copy, .l-hero, .demo .intro) > :nth-child(3) { animation-delay: 120ms; }
+  :is(.hero:not(:has(> .hero-copy)), .hero-copy, .p-copy, .l-hero, .demo .intro) > :nth-child(4) { animation-delay: 180ms; }
+  :is(.hero:not(:has(> .hero-copy)), .hero-copy, .p-copy, .l-hero, .demo .intro) > :nth-child(5) { animation-delay: 240ms; }
+  :is(.hero:not(:has(> .hero-copy)), .hero-copy, .p-copy, .l-hero, .demo .intro) > :nth-child(n+6) { animation-delay: 320ms; animation-duration: 900ms; }
+  /* two-column heroes: the screenshot side arrives last */
+  :is(.hero, .p-hero) > :is(.hero-shot, .p-shot) { animation: rise-in 900ms var(--ease-out) 320ms both; }
+
+  /* screenshots: hero ones settle in after the copy, others as they scroll in; the sweep runs once */
+  :is(.hero-shot, .p-shot) > .shot { transform-origin: 50% 100%; animation: shot-settle 1200ms var(--ease-out) 320ms backwards; }
+  .reveal.in .shot:not(.tile-shot) { transform-origin: 50% 100%; animation: shot-settle-soft 900ms var(--ease-out) var(--reveal-delay, 0ms) backwards; }
+  .shot .view::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; translate: -110% 0;
+    background: linear-gradient(105deg, transparent 38%, rgba(255,255,255,.45) 50%, transparent 62%);
+  }
+  :is(.hero-shot, .p-shot) .shot .view::after { animation: shot-sweep 1400ms var(--ease-standard) 1300ms both; }
+  :is(.reveal.in, [role="tabpanel"]:not([hidden])) .shot:not(.tile-shot) .view::after { animation: shot-sweep 1300ms var(--ease-standard) 500ms both; }
+  :is(.hero-glow, .p-shot > .glow) { animation: glow-breathe 7s ease-in-out 1.4s infinite; }
+
+  /* 2. scroll reveal; only hidden when JS runs, delay set per sibling by motion.ts */
+  .js .reveal:not(.in) { opacity: 0; }
+  .js .reveal.in { animation: rise-in var(--dur-slow) var(--ease-out) var(--reveal-delay, 0ms) both; }
+
+  /* 3. hover lift */
+  .card, .mod, .plan { transition: transform var(--dur-base) var(--ease-standard), border-color var(--dur-base) var(--ease-standard); }
+  .card::before, .mod::before, .plan::before { transition: opacity var(--dur-base) var(--ease-standard); }
+  @media (hover: hover) {
+    .card:hover, .mod:hover, .plan:hover { transform: translateY(var(--lift)); }
+    .card:hover::before, .mod:hover::before, .plan:hover::before { opacity: 1; }
+  }
+
+  /* 4. cursor effects: only switched on by motion.ts for a fine pointer */
+  .cursor-fx :is(.card, .mod, .plan, .flow-card, .chat, .sol-card, .biz-card, .why-card, .other)::after { transition: opacity var(--dur-base) var(--ease-standard); }
+  /* only the hovered card gets its own layer, so moving the highlight repaints just that layer */
+  .cursor-fx .spot-on::after { opacity: 1; will-change: opacity, background; }
+  .cursor-fx .cursor-glow { transition: opacity var(--dur-slow) var(--ease-standard); will-change: transform, opacity; }
+  .cursor-fx .glow-on > .cursor-glow { opacity: 1; }
+  /* screenshot tilt + glare: eases back flat when the cursor leaves, follows quickly while it moves */
+  .cursor-fx :is(.hero-shot, .p-shot, .shot) { transition: transform 700ms var(--ease-out); }
+  .cursor-fx .tilt-on { transition-duration: 160ms; will-change: transform; }
+  .cursor-fx .glare { transition: opacity var(--dur-slow) var(--ease-standard); }
+  .cursor-fx :is(.tilt-on.shot, .tilt-on .shot) > .glare { opacity: 1; }
+
+  /* 5. tab panels */
+  [role="tabpanel"]:not([hidden]) { animation: fade-in var(--dur-base) var(--ease-standard); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .btn { transition: none; }
+  .btn:hover, .btn:active { transform: none; }
+}
+@media (hover: none) { .cursor-glow { display: none; } }
 
 /* The top dark band holds the sticky nav; overflow: clip (not hidden) keeps sticky working. */
+/* The nav is rendered before this band (not inside it): .dark is `isolation: isolate` for the cursor
+   glow, and a fixed nav inside it would have its z-index trapped and slide under the page content. */
 .page-top { overflow: clip; padding-top: 72px; }
 /* Anchored sections should not hide under the fixed nav */
 [id] { scroll-margin-top: 96px; }
+
+/* Floating WhatsApp button: phones only (the nav carries WhatsApp/Call on wider screens) */
+.wa-float { display: none; }
+@media (max-width: 960px) {
+  .wa-float { display: grid; place-items: center; position: fixed; right: 18px; bottom: 18px; z-index: 60; width: 58px; height: 58px; border-radius: 50%; background: #1f9d55; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  .wa-float:hover { background: #17864a; }
+}
+
+/* Visible marker for copy that still needs confirming before launch */
+.draft-note { background: #fdf1dd; color: #6b4100; border: 1px solid #f3d9a6; border-radius: 12px; padding: 12px 16px; font-size: 14px; font-weight: 500; }

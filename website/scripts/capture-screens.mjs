@@ -21,15 +21,10 @@ const ensure = fs.readFileSync(new URL('../../backend/scripts/ensure_admin.py', 
 const pass = (ensure.match(/get_password_hash\(["']([^"']+)["']\)/) || ensure.match(/password\s*=\s*["']([^"']+)["']/))[1];
 
 const pages = [
-  ['dashboard', '/dashboard'],
   ['sales-dashboard', '/sales/dashboard'],
   ['sales-orders', '/sales/orders'],
-  ['quotations', '/sales/quotations'],
-  ['customers', '/sales/customers'],
   ['purchase-orders', '/purchasing/orders'],
-  ['grn', '/purchasing/grn'],
   ['transfers', '/warehouse/item-transfer-notes'],
-  ['general-ledger', '/finance/general-ledger'],
   ['income-statement', '/finance/income-statement'],
   ['vat-return', '/finance/vat-return', async (p) => {
     // show October, a closed period with output and input VAT
@@ -39,15 +34,8 @@ const pages = [
   ['customer-payments', '/finance/customer-payments'],
   ['payroll', '/hr/payroll'],
   ['payroll-processing', '/hr/payroll-processing'],
-  ['employees', '/hr/employees'],
   ['report-receivables', '/reporting', async (p) => {
     await p.getByText('Receivables aging', { exact: true }).first().click();
-    await p.waitForTimeout(1500);
-    const run = p.getByRole('button', { name: /run|generate|view/i }).first();
-    if (await run.count()) await run.click().catch(() => {});
-  }],
-  ['report-sales-by-customer', '/reporting', async (p) => {
-    await p.getByText('Sales by customer', { exact: true }).first().click();
     await p.waitForTimeout(1500);
     const run = p.getByRole('button', { name: /run|generate|view/i }).first();
     if (await run.count()) await run.click().catch(() => {});

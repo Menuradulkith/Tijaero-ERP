@@ -1,7 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import Icon from '../Icon.astro';
-import { t, pathFor, contact, phoneDigits, type Lang } from '../../i18n';
+import { t, pathFor, contact, whatsappUrl, type Lang } from '../../i18n';
 
 interface Props { lang: Lang }
 const { lang } = Astro.props;
@@ -21,22 +21,22 @@ const endpoint = import.meta.env.PUBLIC_DEMO_ENDPOINT ?? '';
       </ol>
       <p class="call">
         {f.callUs}
-        <a href={`https://wa.me/${phoneDigits}`} rel="noopener"><Icon name="phone" size={16} stroke="#fff" />{contact.phone}</a>
+        <a href={whatsappUrl} rel="noopener"><Icon name="phone" size={16} stroke="#fff" />{contact.phone}</a>
       </p>
     </div>
 
     <div class="panel">
-      <form id="demo-form" novalidate
+      <form id="demo-form" method="post" novalidate
         data-endpoint={endpoint}
         data-err-required={f.errRequired}
         data-err-phone={f.errPhone}
         data-err-send={f.errSend}
         data-sending={f.sending}>
         <div class="grid">
-          <div class="field"><label for="d-name">{f.name}</label><input id="d-name" name="name" type="text" required autocomplete="name" /></div>
-          <div class="field"><label for="d-company">{f.company}</label><input id="d-company" name="company" type="text" required autocomplete="organization" /></div>
-          <div class="field"><label for="d-phone">{f.phone}</label><input id="d-phone" name="phone" type="tel" required autocomplete="tel" inputmode="tel" placeholder="077 123 4567" /></div>
-          <div class="field"><label for="d-email">{f.email} <span class="opt">({f.optional})</span></label><input id="d-email" name="email" type="email" autocomplete="email" /></div>
+          <div class="field"><label for="d-name">{f.name}</label><input id="d-name" name="name" type="text" required maxlength="100" autocomplete="name" /></div>
+          <div class="field"><label for="d-company">{f.company}</label><input id="d-company" name="company" type="text" required maxlength="150" autocomplete="organization" /></div>
+          <div class="field"><label for="d-phone">{f.phone}</label><input id="d-phone" name="phone" type="tel" required maxlength="20" autocomplete="tel" inputmode="tel" placeholder="077 123 4567" /></div>
+          <div class="field"><label for="d-email">{f.email} <span class="opt">({f.optional})</span></label><input id="d-email" name="email" type="email" maxlength="254" autocomplete="email" /></div>
           <div class="field"><label for="d-prov">{f.province}</label><select id="d-prov" name="province">{f.provinces.map((p) => <option>{p}</option>)}</select></div>
           <div class="field"><label for="d-branches">{f.branches}</label><select id="d-branches" name="branches"><option>1</option><option>2–5</option><option>6–20</option><option>20+</option></select></div>
           <div class="field"><label for="d-type">{f.bizType}</label><select id="d-type" name="businessType">{f.types.map((x) => <option>{x}</option>)}</select></div>
@@ -47,6 +47,12 @@ const endpoint = import.meta.env.PUBLIC_DEMO_ENDPOINT ?? '';
             </select>
           </div>
         </div>
+        <fieldset>
+          <legend>{f.productQ}</legend>
+          <div class="chips">
+            {f.products.map((p, i) => <label class="pick"><input type="radio" name="product" value={p.v} checked={i === f.products.length - 1} /><span>{p.label}</span></label>)}
+          </div>
+        </fieldset>
         <fieldset>
           <legend>{f.interest}</legend>
           <div class="chips">
@@ -72,6 +78,13 @@ const endpoint = import.meta.env.PUBLIC_DEMO_ENDPOINT ?? '';
 
 <script>
   const form = document.getElementById('demo-form') as HTMLFormElement | null;
+  // ?product=erp|pos|distributor preselects a product. Compared as plain text, never built into a selector,
+  // so a crafted link cannot break the script (which would leave the form without its submit handler).
+  const want = new URLSearchParams(location.search).get('product');
+  if (want) {
+    const radios = form?.querySelectorAll<HTMLInputElement>('input[name="product"]') ?? [];
+    for (const r of radios) if (r.value === want) r.checked = true;
+  }
   const thanks = document.querySelector<HTMLElement>('.thanks');
   const errorEl = form?.querySelector<HTMLElement>('.error');
   const submitBtn = form?.querySelector<HTMLButtonElement>('button[type="submit"]');
@@ -97,20 +110,22 @@ const endpoint = import.meta.env.PUBLIC_DEMO_ENDPOINT ?? '';
     const data = new FormData(form);
     if (String(data.get('website') ?? '')) return; // bot
 
-    const name = String(data.get('name') ?? '').trim();
-    const company = String(data.get('company') ?? '').trim();
-    const phoneRaw = String(data.get('phone') ?? '').trim();
+    const text = (k: string, max: number) => String(data.get(k) ?? '').trim().slice(0, max);
+    const name = text('name', 100);
+    const company = text('company', 150);
+    const phoneRaw = text('phone', 20);
     if (!name || !company || !phoneRaw) { showError(ds.errRequired!); return; }
     const phone = normalizeLkPhone(phoneRaw);
     if (!phone) { showError(ds.errPhone!); (form.elements.namedItem('phone') as HTMLInputElement).focus(); return; }
 
     const payload = {
       name, company, phone,
-      email: String(data.get('email') ?? '').trim() || null,
+      email: text('email', 254) || null,
       province: data.get('province'),
       branches: data.get('branches'),
       businessType: data.get('businessType'),
       demoLanguage: data.get('demoLanguage'),
+      product: data.get('product'),
       modules: data.getAll('modules'),
       submittedAt: new Date().toISOString(),
     };
@@ -125,6 +140,7 @@ const endpoint = import.meta.env.PUBLIC_DEMO_ENDPOINT ?? '';
       } else {
         const res = await fetch(ds.endpoint, {
           method: 'POST',
+          signal: AbortSignal.timeout(15000), // never leave the button stuck on "Sending…"
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify(payload),
         });
@@ -167,7 +183,7 @@ const endpoint = import.meta.env.PUBLIC_DEMO_ENDPOINT ?? '';
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .pick { position: relative; font-weight: 500; }
   .pick input { position: absolute; opacity: 0; width: 1px; height: 1px; min-height: 0; }
-  .pick span { display: flex; align-items: center; min-height: 44px; padding: 0 16px; border: 1px solid #d9cfd7; border-radius: 999px; font-size: 14px; cursor: pointer; background: #fff; transition: background .15s, border-color .15s; }
+  .pick span { display: flex; align-items: center; min-height: 44px; padding: 0 16px; border: 1px solid #d9cfd7; border-radius: 999px; font-size: 14px; cursor: pointer; background: #fff; transition: background-color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
   .pick span:hover { border-color: var(--plum); }
   .pick input:checked + span { background: var(--plum); border-color: var(--plum); color: #fff; }
   .pick input:focus-visible + span { outline: 2px solid var(--plum); outline-offset: 2px; }

@@ -1,0 +1,5 @@
+# Demo stack for website screenshots: only the database runs in Docker, on host port 5441 (5432 is the ERP's).
+services:
+  db:
+    ports: !override
+      - "127.0.0.1:5441:5432"

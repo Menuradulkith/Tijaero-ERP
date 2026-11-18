@@ -662,7 +662,7 @@ export default function AccountingPeriodsPage() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setGenerateDialogOpen(false)}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setGenerateDialogOpen(false)}><CancelIcon fontSize="small" /></Button>
           <Button
             variant="contained"
             onClick={() =>

@@ -12,7 +12,6 @@ export { default as SalesOrderDialog } from "./components/SalesOrderDialog";
 // Pages
 export { default as CustomersPage } from "./pages/CustomersPage";
 export { default as QuotationsPage } from "./pages/QuotationsPage";
-export { default as SaleReturnsPage } from "./pages/SaleReturnsPage";
 export { default as SalesDashboard } from "./pages/SalesDashboard";
 export { default as SalesPage } from "./pages/SalesPage";
 

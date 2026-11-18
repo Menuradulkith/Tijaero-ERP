@@ -10,7 +10,7 @@ export { authApi } from "@/auth/api";
 
 // Export module APIs
 export { customersApi } from "@/modules/customers/api";
-export { salesApi, saleReturnsApi } from "@/modules/sales/api";
+export { salesApi } from "@/modules/sales/api";
 export { productsApi, categoriesApi, brandsApi } from "@/modules/inventory/api";
 export {
   suppliersApi,

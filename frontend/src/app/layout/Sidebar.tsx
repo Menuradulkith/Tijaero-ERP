@@ -24,7 +24,6 @@ import FactCheckIcon from "@mui/icons-material/FactCheck";
 import GroupIcon from "@mui/icons-material/Group";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import Inventory2Icon from "@mui/icons-material/Inventory2";
-import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
 import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
@@ -134,12 +133,6 @@ const menuItems: MenuItem[] = [
             permission: PERMISSIONS.SO_APPROVALS_VIEW,
           },
           {
-            text: "Return Approvals",
-            icon: <FactCheckIcon />,
-            path: "/sales/approvals/return-approvals",
-            permission: PERMISSIONS.SALES_RETURN_APPROVALS_VIEW,
-          },
-          {
             text: "Commission Approvals",
             icon: <FactCheckIcon />,
             path: "/sales/approvals/commission-approvals",
@@ -147,14 +140,6 @@ const menuItems: MenuItem[] = [
           },
         ],
       },
-      {
-        text: "Sales Returns",
-        icon: <AssignmentReturnIcon />,
-        path: "/sales/returns",
-        permission: PERMISSIONS.SALES_RETURNS_VIEW,
-      },
-      { text: "Coupons", icon: <LocalOfferIcon />, path: "/sales/coupons", permission: PERMISSIONS.COUPONS_VIEW },
-      { text: "Gift Vouchers", icon: <ReceiptIcon />, path: "/sales/vouchers", permission: PERMISSIONS.GIFT_VOUCHERS_VIEW },
       {
         text: "Agent Commissions",
         icon: <MonetizationOnIcon />,
@@ -393,6 +378,7 @@ const menuItems: MenuItem[] = [
     permission: PERMISSIONS.SALES_STOCK_VIEW,
     subItems: [
       { text: "Dashboard", icon: <SpeedIcon />, path: "/warehouse", permission: PERMISSIONS.SALES_STOCK_VIEW },
+      { text: "Stocks", icon: <Inventory2Icon />, path: "/warehouse/stocks", permission: PERMISSIONS.SALES_STOCK_VIEW },
       {
         text: "Sales Track",
         icon: <ReceiptLongIcon />,

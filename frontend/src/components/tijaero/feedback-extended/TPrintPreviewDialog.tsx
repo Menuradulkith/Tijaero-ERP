@@ -23,6 +23,7 @@ import apiClient from "@/api/client";
 import { useAuthStore } from "@/state/authStore";
 import { TButton } from "../base/TButton";
 import { getReportUrl, TPrintDocumentType } from "../base/TPrintButton";
+import CancelIcon from "@mui/icons-material/Cancel";
 
 interface PrintTemplateOption {
     id: number;
@@ -279,9 +280,7 @@ export const TPrintPreviewDialog: React.FC<TPrintPreviewDialogProps> = ({
             </DialogContent>
 
             <DialogActions sx={{ px: 2, py: 1.5, borderTop: 1, borderColor: "divider" }}>
-                <TButton variant="text" onClick={onClose}>
-                    Cancel
-                </TButton>
+                <TButton variant="danger" aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} onClick={onClose}><CancelIcon fontSize="small" /></TButton>
                 <TButton
                     variant="primary"
                     startIcon={<PrintIcon />}

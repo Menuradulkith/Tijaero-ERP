@@ -183,6 +183,19 @@ class Supplier(Base, AuditMixin):
     # app/modules/settings/models.py) and validated against the
     # currencies table's `code` at the API layer, not via a DB constraint.
     default_currency = Column(String(3))
+    # A second currency this supplier also bills in (ISO 4217 code, same
+    # convention as default_currency). Must differ from default_currency.
+    other_currency = Column(String(3))
+    # True for an overseas supplier (imports); local suppliers are False.
+    is_foreign = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # Payables grouping — see app.common.enums.SupplierAccountingGroup.
+    accounting_group = Column(String(30))
+    # Shipping info — Incoterms 2020 code (see app.common.enums.Incoterm),
+    # the named place it applies to (e.g. "FOB Shanghai" -> "Shanghai"),
+    # and the usual shipment method (air / sea).
+    incoterm = Column(String(3))
+    incoterm_place = Column(String(120))
+    shipment_method = Column(String(10))
 
     country = relationship("Country", back_populates="suppliers", foreign_keys=[country_id])
     purchasing_orders_first = relationship("PurchasingOrder", foreign_keys="PurchasingOrder.first_suppliers_id", back_populates="first_supplier")

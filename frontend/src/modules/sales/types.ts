@@ -129,19 +129,8 @@ export interface InvoiceCreate {
   tax_rate?: number;
   discount_percent?: number;
   discount_amount?: number;
-  // Coupon/discount code
-  cupon_id?: number;
-  cupon_amount?: number;
   // Credit note redemption
   credit_note_amount?: number;
-  // Gift voucher (legacy single voucher)
-  gift_voucher_id?: number;
-  gift_voucher_amount?: number;
-  // Multiple voucher redemptions
-  voucher_redemptions?: Array<{
-    voucher_id: number;
-    amount_to_redeem: number;
-  }>;
   // Credit validation override
   override_credit_validation?: boolean;
 }
@@ -153,91 +142,6 @@ export interface InvoiceUpdate {
 
 export interface InvoiceWithItems extends Invoice {
   items: InvoiceItem[];
-}
-
-export interface SaleReturnItem {
-  id: number;
-  barcode: string;
-  return_price: number;
-  sold_price: number;
-  branch_code: string;
-  invoice_item_id?: number;
-  sale_return_id: number;
-  added_date: string;
-  sales_stock_id?: number;
-  product_id?: number;
-  quantity: number;
-  condition: string;  // good, damaged, defective, opened
-  restockable: boolean;
-  restocked: boolean;
-}
-
-export interface SaleReturnItemCreate {
-  barcode: string;
-  return_price: number;
-  sold_price: number;
-  branch_code: string;
-  invoice_item_id?: number;
-  product_id?: number;
-  quantity?: number;
-  condition?: string;
-  restockable?: boolean;
-}
-
-export interface SaleReturn {
-  id: number;
-  sale_return_no: string;
-  branch_code: string;
-  invoice_id: number;
-  invoice_no?: string;  // Populated from backend join
-  good_received_locations_id: number;
-  payment_method: string;
-  remark?: string;
-  added_date: string;
-  cheque_date: string;
-  approval_id?: number;
-  // Status
-  status: string;  // pending, approved, processed, rejected
-  return_reason?: string;
-  // Totals
-  subtotal: number;
-  tax_refund: number;
-  total_refund: number;
-  // Refund tracking
-  refund_status: string;  // pending, processed, partial
-  refund_amount: number;
-  refund_date?: string;
-  refund_reference?: string;
-  credit_note_id?: number;
-  // User tracking
-  created_by?: number;
-  approved_by?: number;
-  processed_by?: number;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface SaleReturnCreate {
-  sale_return_no: string;
-  branch_code: string;
-  invoice_id: number;
-  good_received_locations_id: number;
-  payment_method: string;
-  remark?: string;
-  return_reason?: string;
-  items: SaleReturnItemCreate[];
-}
-
-export interface SaleReturnWithItems extends SaleReturn {
-  items: SaleReturnItem[];
-}
-
-export interface SaleReturnProcessResponse {
-  sale_return: SaleReturn;
-  credit_note_id?: number;
-  refund_reference?: string;
-  items_restocked: number;
-  message: string;
 }
 
 // Sales Statistics Types
@@ -281,14 +185,6 @@ export interface SalesStatsInvoice {
 // Paginated Response Types (for load balancing)
 export interface PaginatedInvoices {
   items: Invoice[];
-  total: number;
-  page: number;
-  page_size: number;
-  total_pages: number;
-}
-
-export interface PaginatedSaleReturns {
-  items: SaleReturn[];
   total: number;
   page: number;
   page_size: number;

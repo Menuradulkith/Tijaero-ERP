@@ -235,13 +235,15 @@ export default function ReimbursementsPage() {
   // Mutations
   const createMutation = useMutation({
     mutationFn: reimbursementsApi.create,
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["reimbursements"] });
       showSuccessToast("Reimbursement claim submitted successfully");
       setIsCreating(false);
       setIsEditing(false);
-      setSelectedItem(null);
       setLineItems([]);
+      // Show the saved claim, not the table.
+      if (created?.id) setTimeout(() => handleSelectReimbursement(created), 0);
+      else setSelectedItem(null);
     },
     onError: (error: unknown) => {
       showErrorToast(handleApiError(error, "Failed to create reimbursement"));

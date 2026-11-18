@@ -19,7 +19,7 @@ def _u() -> str:
 
 
 def _supplier_body(**kw):
-    return {"company_name": f"QA Sup {_u()}", "mobile_contact_number": "+94771234567",
+    return {"company_name": f"QA Sup {_u()}", "mobile_contact_number": "+94771234567", "tax_area": "domestic_standard", "default_currency": "LKR", "incoterm": "FOB", "shipment_method": "sea",
             "billing_address_line1": "1 Road", **kw}
 
 

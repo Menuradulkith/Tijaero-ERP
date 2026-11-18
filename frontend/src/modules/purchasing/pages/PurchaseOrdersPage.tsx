@@ -558,7 +558,7 @@ export default function PurchaseOrdersPage() {
     setLineItems((prev) =>
       prev.map((lineItem) =>
         lineItem._id === compareSuppliersFor.itemId
-          ? { ...lineItem, unit_price: supplier.cost_price }
+          ? { ...lineItem, unit_price: Number(supplier.cost_price) }
           : lineItem
       )
     );
@@ -1372,13 +1372,10 @@ export default function PurchaseOrdersPage() {
         endActions={
           isCreating ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Button variant="contained" color="error" startIcon={<CancelIcon />}
+              <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error" 
                 size="small"
                 onClick={() => handleCancel(filteredOrders)}
-                disabled={wizardState?.isSubmitting}
-              >
-                Cancel
-              </Button>
+                disabled={wizardState?.isSubmitting}><CancelIcon fontSize="small" /></Button>
               <Button
                 size="small"
                 variant="contained"
@@ -1553,26 +1550,23 @@ export default function PurchaseOrdersPage() {
                       });
                       handleBlur("first_suppliers_id");
 
-                      // Re-price every cart line for the newly chosen supplier:
-                      // their listed cost if they carry the product, otherwise
-                      // fall back to the product's own default cost price.
+                      // Re-price every cart line for the newly chosen supplier from
+                      // that supplier's own listed cost. The product's own cost price
+                      // is never used on a purchase order.
                       if (newValue && lineItems.length > 0) {
                         const supplierProducts = await queryClient.fetchQuery({
                           queryKey: ["supplier-products", newValue.id],
                           queryFn: () => suppliersApi.getProducts(newValue.id),
                         });
                         const costByProduct = new Map(
-                          supplierProducts.map((sp) => [sp.product_id, sp.cost_price]),
+                          supplierProducts.map((sp) => [sp.product_id, Number(sp.cost_price)]),
                         );
                         setLineItems((prev) =>
                           prev.map((item) => {
                             if (!item.product_id) return item;
-                            const baseCost =
-                              products.find((p: any) => p.id === item.product_id)
-                                ?.cost_price ?? 0;
                             return {
                               ...item,
-                              unit_price: costByProduct.get(item.product_id) ?? baseCost,
+                              unit_price: costByProduct.get(item.product_id) ?? 0,
                             };
                           }),
                         );
@@ -1639,7 +1633,6 @@ export default function PurchaseOrdersPage() {
                           <TableHead>
                             <TableRow sx={modernTableStyles.headerRow}>
                               <TableCell>Product</TableCell>
-                              <TableCell align="right">{`Base Cost (${currencySymbol})`}</TableCell>
                               <TableCell align="right">
                                 {(suppliers?.find(
                                   (s: Supplier) => s.id === formData.first_suppliers_id,
@@ -1655,17 +1648,15 @@ export default function PurchaseOrdersPage() {
                                   (p: any) => p.id === item.product_id,
                                 );
                                 const mapping = supplierProductMap.get(item.product_id);
-                                const baseCost = product?.cost_price ?? 0;
                                 return (
                                   <TableRow key={item._id}>
                                     <TableCell>{product?.name || "-"}</TableCell>
-                                    <TableCell align="right">{fmtLKR(baseCost)}</TableCell>
                                     <TableCell align="right">
                                       {mapping ? (
                                         fmtLKR(mapping.cost_price)
                                       ) : (
-                                        <Typography variant="body2" color="text.secondary">
-                                          {fmtLKR(baseCost)} (base)
+                                        <Typography variant="body2" color="error">
+                                          No cost price for this supplier
                                         </Typography>
                                       )}
                                     </TableCell>
@@ -1948,8 +1939,7 @@ export default function PurchaseOrdersPage() {
                                                 ? {
                                                     ...lineItem,
                                                     product_id: newValue?.id || 0,
-                                                    unit_price:
-                                                      supplierMapping?.cost_price ?? newValue?.cost_price ?? 0,
+                                                    unit_price: Number(supplierMapping?.cost_price ?? 0),
                                                   }
                                                 : lineItem,
                                           );
@@ -2263,9 +2253,7 @@ export default function PurchaseOrdersPage() {
             {isEditing || isCreating ? "Cancel" : "Close"}
           </Button>
           {(isEditing || isCreating) && (
-            <Button variant="contained" color="success" startIcon={<SaveIcon />} onClick={handleSaveItemRemark}>
-              Save
-            </Button>
+            <Button aria-label="Save" title="Save" sx={{ minWidth: 36, px: 1 }} variant="contained" color="success"  onClick={handleSaveItemRemark}><SaveIcon fontSize="small" /></Button>
           )}
         </DialogActions>
       </Dialog>

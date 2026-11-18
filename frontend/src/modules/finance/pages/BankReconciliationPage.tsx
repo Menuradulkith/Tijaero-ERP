@@ -91,6 +91,7 @@ import type {
 import { submitOnce } from "@/modules/finance/submitOnce";
 import { invalidateLedgerQueries } from "@/modules/finance/ledgerQueries";
 import { localDateISO } from "@/utils/formatters";
+import CancelIcon from "@mui/icons-material/Cancel";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v: BankAmount | null | undefined) =>
@@ -445,7 +446,7 @@ function MatchDialog({
             {selected.size === 0 ? "Tick at least one entry" : gap === 0 ? "Adds up exactly" : `Still ${fmt(gap)} apart`}
           </Typography>
         </Box>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" color="error" aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} onClick={onClose}><CancelIcon fontSize="small" /></Button>
         <Button
           variant="contained"
           disabled={selected.size === 0 || gap !== 0 || pending}
@@ -530,7 +531,7 @@ function BookEntryDialog({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" color="error" aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} onClick={onClose}><CancelIcon fontSize="small" /></Button>
         <Button
           variant="contained"
           disabled={accountId === null || pending}

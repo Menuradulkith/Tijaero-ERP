@@ -10,7 +10,7 @@ B = "/api/v1/purchasing"
 def supplier(superclient):
     u = uuid.uuid4().hex[:8]
     r = superclient.post(f"{B}/suppliers", json={
-        "company_name": f"QA Sup {u}", "mobile_contact_number": "+94771234567",
+        "company_name": f"QA Sup {u}", "mobile_contact_number": "+94771234567", "tax_area": "domestic_standard", "default_currency": "LKR", "incoterm": "FOB", "shipment_method": "sea",
         "billing_address_line1": "1 Road", "credit_days": 30, "max_credit_limit": 1000,
     })
     assert r.status_code == 201, r.text

@@ -987,7 +987,7 @@ export default function SalesOrderApprovalsPage() {
                     />
                 </DialogContent>
                 <DialogActions>
-                    <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+                    <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setRejectDialogOpen(false)}><CancelIcon fontSize="small" /></Button>
                     <Button
                         variant="contained"
                         color="error"
@@ -1015,9 +1015,7 @@ export default function SalesOrderApprovalsPage() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setRemarksDialogOpen(false)}>OK</Button>
-                    <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRemarksDialogOpen(false)}>
-                        Cancel
-                    </Button>
+                    <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setRemarksDialogOpen(false)}><CancelIcon fontSize="small" /></Button>
                 </DialogActions>
             </Dialog>
 

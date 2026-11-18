@@ -25,6 +25,7 @@ import ReclassifyDialog from "@/modules/inventory/components/ReclassifyDialog";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { goodReceivedNotesApi } from "@/modules/purchasing/api";
 import type { LandedCostCreate } from "@/modules/purchasing/types";
+import CancelIcon from "@mui/icons-material/Cancel";
 
 const CHARGE_TYPES = [
   { value: "freight", label: "Freight" },
@@ -142,16 +143,14 @@ export default function LandedCostPanel({ grnId, grnStatus }: Props) {
                 {canEdit && (
                   <TableCell align="right">
                     {v.status === "posted" && (
-                      <Button
+                      <Button variant="contained" color="error" aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }}
                         size="small"
-                        color="error"
+                       
                         onClick={() => {
                           setCancelError(null);
                           setCancelId(v.id);
                         }}
-                      >
-                        Cancel
-                      </Button>
+                      ><CancelIcon fontSize="small" /></Button>
                     )}
                   </TableCell>
                 )}
@@ -222,7 +221,7 @@ export default function LandedCostPanel({ grnId, grnStatus }: Props) {
           {formError && <Alert severity="error">{formError}</Alert>}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAddOpen(false)} disabled={addMutation.isPending}>Cancel</Button>
+          <Button variant="contained" color="error" aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} onClick={() => setAddOpen(false)} disabled={addMutation.isPending}><CancelIcon fontSize="small" /></Button>
           <Button
             variant="contained"
             disabled={!(form.amount > 0) || addMutation.isPending}

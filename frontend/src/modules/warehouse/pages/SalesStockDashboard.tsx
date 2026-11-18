@@ -42,8 +42,6 @@ import {
   IconButton,
   InputAdornment,
   Paper,
-  Tab,
-  Tabs,
   TextField,
   Tooltip,
   Typography,
@@ -52,6 +50,7 @@ import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { todayISO } from "@/utils/formatters";
 
 // Selectable status filter options (mirrors backend StockStatus); rendered
@@ -554,8 +553,11 @@ const StockDetailsPanel = ({
   );
 };
 
-// Main Component
-export default function SalesStockDashboard() {
+// Main Component. The warehouse dashboard shows the unit list (view="units");
+// the Stocks page shows the per-product stock summary (view="summary").
+export default function SalesStockDashboard({ view = "units" }: { view?: "units" | "summary" }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const currencySymbol = useCurrencyStore((s) => s.symbol);
   // Whether the current user may see cost/buying price
   const canViewCost = usePermission("cost_price", "view");
@@ -568,13 +570,16 @@ export default function SalesStockDashboard() {
   // fire a query on every keystroke.
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedBrand, setSelectedBrand] = useState<string>("all");
-  const [selectedProduct, setSelectedProduct] = useState<string>("all");
+  // A Stocks-page row click opens the dashboard filtered to that product.
+  const [selectedProduct, setSelectedProduct] = useState<string>(() => {
+    const pid = (location.state as { productId?: number } | null)?.productId;
+    return pid ? String(pid) : "all";
+  });
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
 
-  // Unit list vs. per-product aggregated summary
-  const [viewMode, setViewMode] = useState<"units" | "summary">("units");
+  const viewMode = view;
 
   // Show / hide the filter panel (hiding keeps the chosen filters applied); remembered per browser.
   const [showFilters, setShowFilters] = useState<boolean>(() => {
@@ -1044,16 +1049,11 @@ export default function SalesStockDashboard() {
           : "linear-gradient(180deg, #f6f8fc 0%, #ffffff 280px)",
       })}
     >
-      {/* View Mode */}
+      {/* Header */}
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
-        <Tabs
-          value={viewMode}
-          onChange={(_, value) => setViewMode(value)}
-          sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, py: 0.5 } }}
-        >
-          <Tab value="units" label="Unit List" />
-          <Tab value="summary" label="Stock Summary" />
-        </Tabs>
+        <Typography variant="h6" fontWeight={600}>
+          {viewMode === "summary" ? "Stocks" : "Unit List"}
+        </Typography>
         <Button
           size="small"
           variant="outlined"
@@ -1065,7 +1065,8 @@ export default function SalesStockDashboard() {
         </Button>
       </Box>
 
-      {/* Summary Cards */}
+      {/* Summary Cards (dashboard only) */}
+      {viewMode === "units" && (
       <Grid container spacing={2.25}>
         <Grid item xs={12} sm={6} md="auto" sx={{ width: { md: 183 } }}>
           <KpiSparkCard
@@ -1122,6 +1123,7 @@ export default function SalesStockDashboard() {
           />
         </Grid>
       </Grid>
+      )}
 
       {/* Filters */}
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: showFilters ? undefined : "none" }}>
@@ -1374,8 +1376,7 @@ export default function SalesStockDashboard() {
             getRowId={(row) => row.product_id}
             onRowClick={(row) => {
               // Drill down into that product's individual units.
-              setSelectedProduct(String(row.product_id));
-              setViewMode("units");
+              navigate("/warehouse", { state: { productId: row.product_id } });
             }}
             emptyMessage={hasActiveFilters ? "No stock matches your filters" : "No stock found"}
             autoHeight={false}

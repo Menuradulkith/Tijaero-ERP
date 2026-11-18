@@ -404,7 +404,7 @@ export default function CustomerDialog({
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={onClose}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={onClose}><CancelIcon fontSize="small" /></Button>
           <Button
             type="submit"
             variant="contained"

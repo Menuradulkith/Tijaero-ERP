@@ -1346,7 +1346,7 @@ export default function JournalEntriesPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setReverseDialogOpen(false)}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setReverseDialogOpen(false)}><CancelIcon fontSize="small" /></Button>
           <Button
             variant="contained"
             color="warning"
@@ -1386,7 +1386,7 @@ export default function JournalEntriesPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setRejectDialogOpen(false)}><CancelIcon fontSize="small" /></Button>
           <Button
             variant="contained"
             color="warning"

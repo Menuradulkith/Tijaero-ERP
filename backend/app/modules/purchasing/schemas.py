@@ -6,7 +6,7 @@ from decimal import Decimal
 import re
 
 from app.common.base_schemas import TijaeroBaseSchema, AuditSchema, VersionedSchema, format_datetime
-from app.common.enums import PurchaseOrderStatus, DocumentStatus, SupplierTaxArea, SupplierPaymentMethodType
+from app.common.enums import PurchaseOrderStatus, DocumentStatus, SupplierTaxArea, SupplierAccountingGroup, SupplierPaymentMethodType, Incoterm, ShipmentMethod
 
 
 T = TypeVar("T")
@@ -133,6 +133,25 @@ class SupplierBase(BaseModel):
     lead_time_days: Optional[int] = Field(default=None, ge=0)
     # 3-letter ISO 4217 code (e.g. "LKR", "USD") — see models.Supplier.default_currency.
     default_currency: Optional[str] = Field(default=None, max_length=3)
+    other_currency: Optional[str] = Field(default=None, max_length=3)
+    is_foreign: bool = False
+    accounting_group: Optional[SupplierAccountingGroup] = None
+    incoterm: Optional[Incoterm] = None
+    incoterm_place: Optional[str] = None
+    shipment_method: Optional[ShipmentMethod] = None
+
+
+def _upper_or_none(v):
+    if v is None:
+        return None
+    v = str(v).strip().upper()
+    return v or None
+
+
+def _check_other_currency(default_currency, other_currency):
+    if other_currency and default_currency and other_currency == default_currency:
+        raise ValueError("Other currency must be different from the default currency")
+
 
 class SupplierInputBase(BaseModel):
     company_name: ReqStr(255)
@@ -168,19 +187,31 @@ class SupplierInputBase(BaseModel):
     # 3-letter ISO 4217 code (e.g. "LKR", "USD"); upper-cased here and checked
     # against the currencies table by SupplierService.
     default_currency: Optional[str] = None
+    other_currency: Optional[str] = None
+    is_foreign: bool = False
+    accounting_group: Optional[SupplierAccountingGroup] = None
+    incoterm: Optional[Incoterm] = None
+    incoterm_place: OptStr(120) = None
+    shipment_method: Optional[ShipmentMethod] = None
 
+    _v_incoterm = field_validator("incoterm", mode="before")(_upper_or_none)
     _v_website = field_validator("company_website")(_check_website)
     _v_email_len = field_validator("email")(_check_email_len)
-    _v_currency = field_validator("default_currency", mode="before")(_upper_currency)
+    _v_currency = field_validator("default_currency", "other_currency", mode="before")(_upper_currency)
 
 class SupplierCreate(SupplierInputBase):
+    # Mandatory on a new supplier.
+    tax_area: SupplierTaxArea
+    default_currency: str
+    incoterm: Incoterm
+    shipment_method: ShipmentMethod
     _v_phone = field_validator("mobile_contact_number", "home_contact_number", mode="before")(normalize_phone_number)
 
     @model_validator(mode="after")
     def check_distinct_phones(self):
         _check_distinct_phones(self.mobile_contact_number, self.home_contact_number)
+        _check_other_currency(self.default_currency, self.other_currency)
         return self
-    pass
 
 class SupplierUpdate(BaseModel):
     _v_phone = field_validator("mobile_contact_number", "home_contact_number", mode="before")(normalize_phone_number)
@@ -215,10 +246,23 @@ class SupplierUpdate(BaseModel):
     country_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
     lead_time_days: Optional[int] = Field(default=None, ge=0, le=3650)
     default_currency: Optional[str] = None
+    other_currency: Optional[str] = None
+    is_foreign: Optional[bool] = None
+    accounting_group: Optional[SupplierAccountingGroup] = None
+    incoterm: Optional[Incoterm] = None
+    incoterm_place: OptStr(120) = None
+    shipment_method: Optional[ShipmentMethod] = None
 
+    _v_incoterm = field_validator("incoterm", mode="before")(_upper_or_none)
+    _v_nn_incoterm = field_validator("incoterm")(_not_null("Incoterm"))
+    _v_nn_shipment = field_validator("shipment_method")(_not_null("Shipment method"))
     _v_website = field_validator("company_website")(_check_website)
     _v_email_len = field_validator("email")(_check_email_len)
-    _v_currency = field_validator("default_currency", mode="before")(_upper_currency)
+    _v_currency = field_validator("default_currency", "other_currency", mode="before")(_upper_currency)
+    # Mandatory fields: once set they cannot be cleared.
+    _v_nn_tax_area = field_validator("tax_area")(_not_null("Tax area"))
+    _v_nn_currency = field_validator("default_currency")(_not_null("Default currency"))
+    _v_nn_foreign = field_validator("is_foreign")(_not_null("Foreign"))
     _v_nn_company = field_validator("company_name")(_not_null("Company name"))
     _v_nn_mobile = field_validator("mobile_contact_number")(_not_null("Contact No 1 (mobile)"))
     _v_nn_billing = field_validator("billing_address_line1")(_not_null("Billing address line 1"))
@@ -544,7 +588,8 @@ class SupplierPaymentMethod(SupplierPaymentMethodBase, AuditSchema):
 class SupplierProductBase(BaseModel):
     product_id: int = Field(..., ge=1, le=INT4_MAX)
     supplier_sku: OptStr(255) = None
-    cost_price: Decimal = Field(..., ge=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
+    # The price purchase orders pick up for this supplier, so it must be a real (> 0) price.
+    cost_price: Decimal = Field(..., gt=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
     minimum_order_qty: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
     is_preferred: bool = False
     active: bool = True
@@ -559,7 +604,7 @@ class SupplierProductUpdate(BaseModel):
     _v_nn_active = field_validator("active")(_not_null("Active"))
     _v_nn_pref = field_validator("is_preferred")(_not_null("Preferred flag"))
     supplier_sku: OptStr(255) = None
-    cost_price: Optional[Decimal] = Field(default=None, ge=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
+    cost_price: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
     minimum_order_qty: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
     is_preferred: Optional[bool] = None
     active: Optional[bool] = None

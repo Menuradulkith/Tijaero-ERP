@@ -43,24 +43,6 @@ export const PERMISSIONS = {
   // SO Approvals
   SO_APPROVALS_VIEW: { resource: "so_approvals", action: "view" },
   SO_APPROVALS_APPROVE: { resource: "so_approvals", action: "approve" },
-  // Sales Returns
-  SALES_RETURNS_VIEW: { resource: "sales_returns", action: "view" },
-  SALES_RETURNS_CREATE: { resource: "sales_returns", action: "create" },
-  SALES_RETURNS_UPDATE: { resource: "sales_returns", action: "update" },
-  SALES_RETURNS_DELETE: { resource: "sales_returns", action: "delete" },
-  // Sales Return Approvals
-  SALES_RETURN_APPROVALS_VIEW: { resource: "sales_return_approvals", action: "view" },
-  SALES_RETURN_APPROVALS_APPROVE: { resource: "sales_return_approvals", action: "approve" },
-  // Coupons
-  COUPONS_VIEW: { resource: "coupons", action: "view" },
-  COUPONS_CREATE: { resource: "coupons", action: "create" },
-  COUPONS_UPDATE: { resource: "coupons", action: "update" },
-  COUPONS_DELETE: { resource: "coupons", action: "delete" },
-  // Gift Vouchers
-  GIFT_VOUCHERS_VIEW: { resource: "gift_vouchers", action: "view" },
-  GIFT_VOUCHERS_CREATE: { resource: "gift_vouchers", action: "create" },
-  GIFT_VOUCHERS_UPDATE: { resource: "gift_vouchers", action: "update" },
-  GIFT_VOUCHERS_DELETE: { resource: "gift_vouchers", action: "delete" },
   // Agent Commissions
   AGENT_COMMISSIONS_VIEW: { resource: "agent_commissions", action: "view" },
   AGENT_COMMISSIONS_CREATE: { resource: "agent_commissions", action: "create" },

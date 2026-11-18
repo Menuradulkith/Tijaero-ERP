@@ -1096,7 +1096,7 @@ export default function SupplierAdvancePaymentsPage() {
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setReturnDialogOpen(false)} disabled={returningAdvance}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setReturnDialogOpen(false)} disabled={returningAdvance}><CancelIcon fontSize="small" /></Button>
           <Button
             variant="contained"
             color="warning"

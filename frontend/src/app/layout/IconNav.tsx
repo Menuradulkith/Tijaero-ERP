@@ -30,7 +30,6 @@ const PAGE_PERMISSIONS: Record<string, { resource: string; action: string }> = {
   "/sales/customers": { resource: "customers", action: "view" },
   "/sales/dashboard": { resource: "sales_dashboard", action: "view" },
   "/sales/orders": { resource: "sales_orders", action: "view" },
-  "/sales/returns": { resource: "sales_returns", action: "view" },
   "/purchasing/suppliers": { resource: "suppliers", action: "view" },
   "/purchasing/orders": { resource: "purchase_orders", action: "view" },
   "/purchasing/approvals/po-approvals": { resource: "po_approvals", action: "view" },
@@ -81,12 +80,6 @@ const allPages = [
     text: "Sales Orders",
     path: "/sales/orders",
     keywords: ["invoices", "transactions"],
-    module: "/sales",
-  },
-  {
-    text: "Sales Returns",
-    path: "/sales/returns",
-    keywords: ["refunds"],
     module: "/sales",
   },
   {
@@ -191,6 +184,12 @@ const allPages = [
     text: "Warehouse",
     path: "/warehouse",
     keywords: ["warehouse", "storage", "logistics", "sales stock"],
+    module: "/warehouse",
+  },
+  {
+    text: "Stocks",
+    path: "/warehouse/stocks",
+    keywords: ["stock summary", "on hand", "stock position"],
     module: "/warehouse",
   },
   {

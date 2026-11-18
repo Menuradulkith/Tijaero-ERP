@@ -1636,9 +1636,7 @@ export default function SupplierPaymentsPage() {
 
       {/* Actions */}
       <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
-        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelPayment}>
-          Cancel
-        </Button>
+        <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={handleCancelPayment}><CancelIcon fontSize="small" /></Button>
         <Button
           variant="contained"
           onClick={handleProceedToPayment}
@@ -1867,9 +1865,7 @@ export default function SupplierPaymentsPage() {
 
       {/* Actions */}
       <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
-        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelPayment}>
-          Cancel
-        </Button>
+        <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={handleCancelPayment}><CancelIcon fontSize="small" /></Button>
         <Button variant="contained" onClick={handleProceedToReview}>
           Review Payment
         </Button>
@@ -1997,9 +1993,7 @@ export default function SupplierPaymentsPage() {
 
       {/* Actions */}
       <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
-        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleCancelPayment}>
-          Cancel
-        </Button>
+        <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={handleCancelPayment}><CancelIcon fontSize="small" /></Button>
         <Button
           variant="contained"
           color="success"

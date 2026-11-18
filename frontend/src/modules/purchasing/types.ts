@@ -40,6 +40,18 @@ export interface Supplier {
   /** 3-letter ISO 4217 code, e.g. "LKR" — options come from the
    * currencies reference data (useReferenceData(["currencies"])). */
   default_currency?: string | null;
+  /** A second currency the supplier also bills in (differs from default_currency). */
+  other_currency?: string | null;
+  /** Overseas (import) supplier. */
+  is_foreign?: boolean;
+  /** Payables group — see SUPPLIER_ACCOUNTING_GROUP. */
+  accounting_group?: string | null;
+  /** Incoterms 2020 code — see INCOTERMS. */
+  incoterm?: string | null;
+  /** Named place the Incoterm applies to, e.g. "Shanghai Port". */
+  incoterm_place?: string | null;
+  /** "air" | "sea" — see SHIPMENT_METHODS. */
+  shipment_method?: string | null;
   created_at?: string;
   updated_at?: string;
   created_by?: number;
@@ -263,6 +275,12 @@ export interface SupplierCreate {
   country_id?: number;
   lead_time_days?: number;
   default_currency?: string;
+  other_currency?: string | null;
+  is_foreign?: boolean;
+  accounting_group?: string | null;
+  incoterm?: string;
+  incoterm_place?: string | null;
+  shipment_method?: string;
 }
 
 export interface SupplierUpdate {
@@ -292,6 +310,12 @@ export interface SupplierUpdate {
   country_id?: number;
   lead_time_days?: number;
   default_currency?: string;
+  other_currency?: string | null;
+  is_foreign?: boolean;
+  accounting_group?: string | null;
+  incoterm?: string;
+  incoterm_place?: string | null;
+  shipment_method?: string;
   /** The `updated_at` this edit was based on — lets the backend reject the
    * save with a 409 if someone else changed the record in the meantime,
    * instead of silently overwriting their change. Omit to skip the check. */

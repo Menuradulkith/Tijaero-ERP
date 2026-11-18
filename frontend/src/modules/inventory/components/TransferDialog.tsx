@@ -185,9 +185,7 @@ export const TransferDialog: React.FC<TransferDialogProps> = ({
       </DialogContent>
 
       <DialogActions sx={{ p: 2 }}>
-        <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={handleClose} disabled={loading}>
-          Cancel
-        </Button>
+        <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={handleClose} disabled={loading}><CancelIcon fontSize="small" /></Button>
         <Button
           onClick={handleConfirm}
           variant="contained"

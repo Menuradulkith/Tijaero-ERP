@@ -168,24 +168,16 @@ export const TFormActions: React.FC<TFormActionsProps> = ({
       {isEditing && (
         <>
           {onSave && (
-            <TButton
+            <TButton aria-label="Save" title="Save" sx={{ minWidth: 36, px: 1 }}
               variant="success"
-              startIcon={<SaveIcon />}
               onClick={onSave}
               loading={isSaving}
-              disabled={saveDisabled}
-            >
-              {isSaving ? "Saving..." : "Save"}
-            </TButton>
+              disabled={saveDisabled}><SaveIcon fontSize="small" /></TButton>
           )}
           {onCancel && (
-            <TButton
+            <TButton aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }}
               variant="danger"
-              startIcon={<CancelIcon />}
-              onClick={onCancel}
-            >
-              Cancel
-            </TButton>
+              onClick={onCancel}><CancelIcon fontSize="small" /></TButton>
           )}
         </>
       )}

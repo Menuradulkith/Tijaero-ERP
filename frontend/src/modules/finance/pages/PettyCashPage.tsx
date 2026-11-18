@@ -804,7 +804,7 @@ export default function PettyCashPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowExpenseDialog(false)}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setShowExpenseDialog(false)}><CancelIcon fontSize="small" /></Button>
           <Button
             onClick={handleRecordExpense}
             variant="contained"
@@ -880,7 +880,7 @@ export default function PettyCashPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowReplenishDialog(false)}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setShowReplenishDialog(false)}><CancelIcon fontSize="small" /></Button>
           <Button
             onClick={handleReplenish}
             variant="contained"
@@ -933,7 +933,7 @@ export default function PettyCashPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" color="error" startIcon={<CancelIcon />} onClick={() => setShowReconcileDialog(false)}>Cancel</Button>
+          <Button aria-label="Cancel" title="Cancel" sx={{ minWidth: 36, px: 1 }} variant="contained" color="error"  onClick={() => setShowReconcileDialog(false)}><CancelIcon fontSize="small" /></Button>
           <Button
             onClick={handleReconcile}
             variant="contained"

@@ -3,14 +3,13 @@
  *
  * A modern ERP order tracking page that allows users to search for invoices
  * and view a complete lifecycle timeline, payment breakdown, payment history,
- * returns, and line items — all in one view.
+ * and line items — all in one view.
  *
  * Uses MasterDetailLayout pattern with Tijaero components.
  */
 
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
-import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
@@ -40,7 +39,6 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography,
   useTheme,
 } from "@mui/material";
@@ -75,8 +73,8 @@ import { customersApi } from "@/modules/customers/api";
 import { Customer } from "@/modules/customers/types";
 import { productsApi } from "@/modules/inventory/api";
 import { Product } from "@/modules/inventory/types";
-import { salesApi, saleReturnsApi } from "@/modules/sales/api";
-import { Invoice, InvoiceWithItems, SaleReturn } from "@/modules/sales/types";
+import { salesApi } from "@/modules/sales/api";
+import { Invoice, InvoiceWithItems } from "@/modules/sales/types";
 
 const SORT_OPTIONS: SortOption[] = [
   { value: "created_date", label: "Date" },
@@ -186,13 +184,6 @@ export default function SalesTrackPage() {
   const { data: paymentHistory = [], isLoading: isDetailLoading } = useQuery({
     queryKey: ["payment-history", selectedOrder?.id],
     queryFn: () => salesApi.getPaymentHistory(selectedOrder!.id),
-    enabled: !!selectedOrder,
-  });
-
-  // Fetch returns for selected order
-  const { data: returns = [] } = useQuery({
-    queryKey: ["order-returns", selectedOrder?.id],
-    queryFn: () => saleReturnsApi.getByInvoice(selectedOrder!.id),
     enabled: !!selectedOrder,
   });
 
@@ -776,51 +767,6 @@ export default function SalesTrackPage() {
               </TInfoCard>
             )}
 
-            {/* Returns */}
-            {returns.length > 0 && (
-              <TInfoCard title="Returns" icon={<AssignmentReturnIcon />} collapsible defaultCollapsed>
-                <Box sx={{ overflow: "auto" }}>
-                  <Table size="small" sx={modernTableStyles}>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Return No</TableCell>
-                        <TableCell>Date</TableCell>
-                        <TableCell>Status</TableCell>
-                        <TableCell>Refund Status</TableCell>
-                        <TableCell align="right">Refund Amount</TableCell>
-                        <TableCell>Reason</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {returns.map((ret: SaleReturn) => (
-                        <TableRow key={ret.id}>
-                          <TableCell>{ret.sale_return_no}</TableCell>
-                          <TableCell>{format(new Date(ret.added_date), "MMM dd, yyyy")}</TableCell>
-                          <TableCell>
-                            <TStatusChip status={ret.status} statusMap="salesReturn" />
-                          </TableCell>
-                          <TableCell>
-                            <TStatusChip status={ret.refund_status} statusMap="paymentStatus" />
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" fontWeight={600} color="error.main">
-                              {fmtLKR(ret.total_refund)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Tooltip title={ret.return_reason || "No reason provided"}>
-                              <Typography variant="caption" noWrap sx={{ maxWidth: 150, display: "block" }}>
-                                {ret.return_reason || "-"}
-                              </Typography>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </Box>
-              </TInfoCard>
-            )}
           </Stack>
         )}
       </Box>

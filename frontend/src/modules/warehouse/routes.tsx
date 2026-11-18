@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "@/auth/components/ProtectedRoute";
 import SalesStockDashboard from "./pages/SalesStockDashboard";
 import SalesTrackPage from "./pages/SalesTrackPage";
+import StocksPage from "./pages/StocksPage";
 import StockTransferNotesPage from "./pages/StockTransferNotesPage";
 import ItemTransferNotesPage from "./pages/ItemTransferNotesPage";
 import ItemTransferNoteApprovalsPage from "./pages/ItemTransferNoteApprovalsPage";
@@ -12,6 +13,7 @@ export default function WarehouseRoutes() {
   return (
     <Routes>
       <Route index element={<ProtectedRoute resource="sales_stock" action="view"><SalesStockDashboard /></ProtectedRoute>} />
+      <Route path="stocks" element={<ProtectedRoute resource="sales_stock" action="view"><StocksPage /></ProtectedRoute>} />
       <Route path="company-assets" element={<ProtectedRoute resource="company_assets" action="view"><CompanyAssetsDashboard /></ProtectedRoute>} />
       <Route path="sales-track" element={<ProtectedRoute resource="warehouse_sales_track" action="view"><SalesTrackPage /></ProtectedRoute>} />
       <Route path="transfer-notes" element={<ProtectedRoute resource="item_transfer_notes" action="view"><StockTransferNotesPage /></ProtectedRoute>} />

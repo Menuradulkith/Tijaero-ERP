@@ -1,0 +1,36 @@
+---
+import Base from '../../layouts/Base.astro';
+import { t, type Lang } from '../../i18n';
+
+interface Props { lang: Lang; doc: 'privacy' | 'terms' }
+const { lang, doc } = Astro.props;
+const d = t(lang);
+const L = d.legal;
+const title = doc === 'privacy' ? L.privacyTitle : L.termsTitle;
+const sections = doc === 'privacy' ? L.privacy : L.terms;
+const metaTitle = doc === 'privacy' ? d.meta.privacyTitle : d.meta.termsTitle;
+---
+<Base lang={lang} page={doc} title={metaTitle} description={title}>
+  <section slot="hero" class="container l-hero">
+    <h1>{title}</h1>
+    <p>{L.updated}</p>
+  </section>
+  <article class="container legal">
+    <p class="draft-note">{L.draftNote}</p>
+    {sections.map((s) => (
+      <section>
+        <h2>{s.h}</h2>
+        <p>{s.p}</p>
+      </section>
+    ))}
+  </article>
+</Base>
+
+<style>
+  .l-hero { position: relative; padding-top: 64px; padding-bottom: 64px; display: flex; flex-direction: column; gap: 12px; }
+  .l-hero h1 { font-size: clamp(36px, 5vw, 56px); font-weight: 800; letter-spacing: -1.6px; color: #fff; }
+  .l-hero p { color: var(--on-dark-muted); font-size: 15px; }
+  .legal { max-width: 820px; padding-top: 48px; padding-bottom: 112px; display: flex; flex-direction: column; gap: 28px; }
+  .legal h2 { font-size: 22px; margin-bottom: 8px; }
+  .legal p { font-size: 16px; line-height: 1.7; color: var(--ink-2); }
+</style>

@@ -248,7 +248,8 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
               // unit price with that supplier's listed cost — it's a
               // starting point the user can still edit afterward, not a
               // merge with whatever was there before.
-              unit_price: supplierProduct?.cost_price ?? 0,
+              // The API sends decimals as strings ("100.00"); a string price fails the > 0 check.
+              unit_price: Number(supplierProduct?.cost_price ?? 0),
             }
           : l,
       ),

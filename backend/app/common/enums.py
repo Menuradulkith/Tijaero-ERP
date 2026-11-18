@@ -140,6 +140,38 @@ class SupplierTaxArea(str, Enum):
     IMPORT = "import"
 
 
+class SupplierAccountingGroup(str, Enum):
+    """Which payables group a supplier belongs to, used to group suppliers for
+    accounting and reporting (cf. IFS supplier accounting group / SAP vendor
+    account group). A small fixed set, not a table."""
+    LOCAL_TRADE = "local_trade"
+    FOREIGN_TRADE = "foreign_trade"
+    RELATED_PARTY = "related_party"
+    SERVICES = "services"
+    OTHER = "other"
+
+
+class Incoterm(str, Enum):
+    """Incoterms 2020 (ICC) — who pays freight/insurance and where risk passes."""
+    EXW = "EXW"  # Ex Works
+    FCA = "FCA"  # Free Carrier
+    CPT = "CPT"  # Carriage Paid To
+    CIP = "CIP"  # Carriage and Insurance Paid To
+    DAP = "DAP"  # Delivered at Place
+    DPU = "DPU"  # Delivered at Place Unloaded
+    DDP = "DDP"  # Delivered Duty Paid
+    FAS = "FAS"  # Free Alongside Ship (sea only)
+    FOB = "FOB"  # Free on Board (sea only)
+    CFR = "CFR"  # Cost and Freight (sea only)
+    CIF = "CIF"  # Cost, Insurance and Freight (sea only)
+
+
+class ShipmentMethod(str, Enum):
+    """How goods from a supplier are normally shipped."""
+    AIR = "air"
+    SEA = "sea"
+
+
 class SupplierPaymentMethodType(str, Enum):
     """A supplier's standing/preferred payment method — master data on the
     supplier record (how they're set up to be paid), not a one-off

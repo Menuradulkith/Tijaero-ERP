@@ -420,7 +420,7 @@ export default function PurchaseInvoicesPage() {
     invalidateQueryKeys: [["purchaseInvoices"]],
     successMessage: "Purchase invoice created successfully",
     errorMessage: "Failed to create purchase invoice",
-    onSuccess: () => {
+    onSuccess: (created) => {
       setIsCreating(false);
       setIsEditing(false);
       setSelectedGRNs([]);
@@ -429,6 +429,8 @@ export default function PurchaseInvoicesPage() {
       setTaxCode("");
       setVatAmount("");
       setVatEdited(false);
+      // Show the saved invoice, not the table.
+      if (created?.id) setTimeout(() => handleSelectInvoiceWithDetail(created as unknown as PurchaseInvoiceListItem), 0);
     },
   });
 

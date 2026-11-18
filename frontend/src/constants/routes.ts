@@ -48,7 +48,6 @@ export const ROUTES = {
     INVOICE_CREATE: '/sales/invoices/new',
     INVOICE_VIEW: (id: string | number = ':id') => `/sales/invoices/${id}`,
     INVOICE_EDIT: (id: string | number = ':id') => `/sales/invoices/${id}/edit`,
-    RETURNS: '/sales/returns',
     CUSTOMERS: '/sales/customers',
   },
   
