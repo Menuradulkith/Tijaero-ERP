@@ -44,9 +44,11 @@ import { usePermission } from "@/auth/permissions";
 import { useReferenceData } from "@/hooks";
 import { productionOrdersApi, shopFloorApi, workCentersApi } from "@/modules/manufacturing/api";
 import type { JobCard, Operator, TimeLogInput } from "@/modules/manufacturing/types";
+import { ItemLink } from "@/modules/manufacturing/components/ItemFields";
+import { mfgItemCode, mfgItemName } from "@/modules/manufacturing/itemDisplay";
 import { formatDate } from "@/utils/formatters";
 
-type JobCardRow = JobCard & { id: number };
+type JobCardRow = JobCard & { id: number; item_display: string };
 
 // Outside (subcontracted) operations are charged per unit by the supplier, so no time is booked on them.
 const canBookTime = (c: JobCard) => c.status !== "completed" && !c.is_outside;
@@ -122,11 +124,12 @@ export default function JobCardsPage() {
         (c) =>
           !q ||
           c.order_no.toLowerCase().includes(q) ||
-          (c.product_name || "").toLowerCase().includes(q) ||
+          mfgItemName(c).toLowerCase().includes(q) ||
+          mfgItemCode(c).toLowerCase().includes(q) ||
           c.name.toLowerCase().includes(q) ||
           (c.work_center_code || "").toLowerCase().includes(q)
       )
-      .map((c) => ({ ...c, id: c.operation_id }));
+      .map((c) => ({ ...c, id: c.operation_id, item_display: mfgItemName(c) }));
   }, [cards, searchQuery]);
 
   const [printOrder, setPrintOrder] = useState<{ id: number; no: string } | null>(null);
@@ -192,14 +195,14 @@ export default function JobCardsPage() {
         ),
       },
       {
-        field: "product_name",
-        header: "Product",
+        field: "item_display",
+        header: "Item",
         flex: 1,
         minWidth: 180,
         renderCell: (params: GridRenderCellParams<JobCardRow>) => (
           <Box sx={{ lineHeight: 1.2, py: 0.5 }}>
-            <Typography variant="body2" noWrap>{params.row.product_name}</Typography>
-            <Typography variant="caption" color="text.secondary">{params.row.product_code}</Typography>
+            <Typography variant="body2" noWrap><ItemLink row={params.row} /></Typography>
+            <Typography variant="caption" color="text.secondary">{mfgItemCode(params.row)}{params.row.unit_of_measure ? ` · ${params.row.unit_of_measure}` : ""}</Typography>
           </Box>
         ),
       },

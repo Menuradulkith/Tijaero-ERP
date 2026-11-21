@@ -64,6 +64,9 @@ import {
   TTabPanel,
   type TTabConfig,
   SelectableListItem,
+  SUPPLIER_TAX_AREA,
+  CUSTOMER_CATEGORY,
+  CUSTOMER_ACCOUNTING_GROUP,
 } from "@/components/tijaero";
 
 import { usePermission } from "@/auth/permissions";
@@ -106,6 +109,10 @@ const CUSTOMER_DETAIL_TABS: (TTabConfig & { id: CustomerSection })[] = [
   { id: "payment", label: "Payment", icon: <AccountBalanceWalletOutlinedIcon fontSize="small" /> },
 ];
 
+// Formats for the correspondent bank SWIFT/BIC and IBAN (backend checks the same).
+const SWIFT_RE = /^[A-Za-z0-9]{8}([A-Za-z0-9]{3})?$/;
+const IBAN_RE = /^[A-Za-z]{2}[0-9]{2}[A-Za-z0-9]{11,30}$/;
+
 const INITIAL_FORM_DATA: CustomerCreate = {
   customer_type: "individual",
   customer_name: "",
@@ -115,6 +122,10 @@ const INITIAL_FORM_DATA: CustomerCreate = {
   home_contact_number: "",
   company_name: "",
   tax_registration_number: "",
+  vat_registration_number: "",
+  tax_area: undefined,
+  accounting_group: undefined,
+  customer_category: undefined,
   company_registration_number: "",
   occupation: "",
   gender: "m",
@@ -143,6 +154,10 @@ const INITIAL_FORM_DATA: CustomerCreate = {
   bank_branch: "",
   bank_branch_code: "",
   bank_swift_code: "",
+  correspondent_bank_name: "",
+  correspondent_bank_location: "",
+  correspondent_bank_swift_code: "",
+  correspondent_bank_iban: "",
   credit_days: 0,
   max_credit_limit: 0,
   default_currency: undefined,
@@ -161,6 +176,10 @@ const resetFormFromCustomer = (customer: Customer): CustomerCreate => ({
   home_contact_number: normalizePhone(customer.home_contact_number),
   company_name: customer.company_name || "",
   tax_registration_number: customer.tax_registration_number || "",
+  vat_registration_number: customer.vat_registration_number || "",
+  tax_area: customer.tax_area || undefined,
+  accounting_group: customer.accounting_group || undefined,
+  customer_category: customer.customer_category || undefined,
   company_registration_number: customer.company_registration_number || "",
   occupation: customer.occupation || "",
   gender: customer.gender,
@@ -189,6 +208,10 @@ const resetFormFromCustomer = (customer: Customer): CustomerCreate => ({
   bank_branch: customer.bank_branch || "",
   bank_branch_code: customer.bank_branch_code || "",
   bank_swift_code: customer.bank_swift_code || "",
+  correspondent_bank_name: customer.correspondent_bank_name || "",
+  correspondent_bank_location: customer.correspondent_bank_location || "",
+  correspondent_bank_swift_code: customer.correspondent_bank_swift_code || "",
+  correspondent_bank_iban: customer.correspondent_bank_iban || "",
   name_in_cheque_card: customer.name_in_cheque_card || "",
   credit_days: customer.credit_days,
   max_credit_limit: customer.max_credit_limit,
@@ -431,7 +454,11 @@ export default function CustomersPage() {
     isValidPhone(formData.home_contact_number) &&
     !phonesMatch &&
     formData.active !== undefined &&
-    formData.is_customer_agent !== undefined
+    formData.is_customer_agent !== undefined &&
+    formData.customer_category &&
+    formData.tax_area &&
+    formData.accounting_group &&
+    formData.vat_registration_number?.trim()
   );
   const isAddressValid = !!(
     formData.billing_address_line1?.trim() &&
@@ -445,7 +472,9 @@ export default function CustomersPage() {
   const isPaymentValid = !!(
     formData.bank_account_name?.trim() &&
     formData.bank_name?.trim() &&
-    formData.bank_account_no?.trim()
+    formData.bank_account_no?.trim() &&
+    (!formData.correspondent_bank_swift_code?.trim() || SWIFT_RE.test(formData.correspondent_bank_swift_code.trim())) &&
+    (!formData.correspondent_bank_iban?.trim() || IBAN_RE.test(formData.correspondent_bank_iban.replace(/\s/g, "")))
   );
   // A new customer only needs General; afterwards Save validates the tab it is on.
   const isFormValid = isCreating
@@ -777,7 +806,7 @@ export default function CustomersPage() {
                 />
               )}
               <TextField
-                label="Customer Category"
+                label="Customer Type"
                 size="small"
                 select
                 value={formData.customer_type ?? "individual"}
@@ -792,6 +821,26 @@ export default function CustomersPage() {
                 disabled={!isCreating}
               >
                 {CUSTOMER_TYPE_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Category"
+                size="small"
+                required
+                value={formData.customer_category ?? ""}
+                onChange={(e) => setFormData({ ...formData, customer_category: e.target.value || undefined })}
+                disabled={isDisabled}
+                SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
+              >
+                <MenuItem value="" disabled>
+                  <em>Select category</em>
+                </MenuItem>
+                {CUSTOMER_CATEGORY.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
                     {option.label}
                   </MenuItem>
@@ -841,21 +890,65 @@ export default function CustomersPage() {
                   required
                 />
               )}
+              <TextField
+                label="VAT Registration No"
+                inputProps={{ maxLength: 50 }}
+                size="small"
+                required
+                value={formData.vat_registration_number ?? ""}
+                onChange={(e) => setFormData({ ...formData, vat_registration_number: e.target.value })}
+                disabled={isDisabled}
+              />
+              <TextField
+                label="Tax Registration No"
+                inputProps={{ maxLength: 50 }}
+                size="small"
+                value={formData.tax_registration_number ?? ""}
+                onChange={(e) => setFormData({ ...formData, tax_registration_number: e.target.value })}
+                disabled={isDisabled}
+              />
+              <TextField
+                select
+                label="Tax Area"
+                size="small"
+                required
+                value={formData.tax_area ?? ""}
+                onChange={(e) => setFormData({ ...formData, tax_area: e.target.value || undefined })}
+                disabled={isDisabled}
+                SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
+              >
+                <MenuItem value="" disabled>
+                  <em>Select tax area</em>
+                </MenuItem>
+                {SUPPLIER_TAX_AREA.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Accounting Group"
+                size="small"
+                required
+                value={formData.accounting_group ?? ""}
+                onChange={(e) => setFormData({ ...formData, accounting_group: e.target.value || undefined })}
+                disabled={isDisabled}
+                SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
+              >
+                <MenuItem value="" disabled>
+                  <em>Select accounting group</em>
+                </MenuItem>
+                {CUSTOMER_ACCOUNTING_GROUP.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
               {isBusiness ? (
                 <>
-                  <TextField
-                    label="Tax Registration No"
-                    inputProps={{ maxLength: 50 }}
-                    size="small"
-                    value={formData.tax_registration_number}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        tax_registration_number: e.target.value,
-                      })
-                    }
-                    disabled={isDisabled}
-                  />
                   <TextField
                     label="Company Registration No"
                     inputProps={{ maxLength: 50 }}
@@ -1175,6 +1268,9 @@ export default function CustomersPage() {
             <TTabPanel value={currentSection} index="payment" padding={0} sx={{ pt: 2 }}>
             {/* Banking Details */}
             <FormSection title="Banking Details" columns={3}>
+              <Typography variant="body2" fontWeight={600} color="text.secondary" sx={{ gridColumn: "1 / -1" }}>
+                Bank Account Info
+              </Typography>
               <TextField
                 label="Account Name"
                 size="small"
@@ -1225,6 +1321,60 @@ export default function CustomersPage() {
                 onChange={(e) => setFormData({ ...formData, bank_swift_code: e.target.value })}
                 disabled={!isPaymentEditable}
                 inputProps={{ maxLength: 20 }}
+              />
+
+              <Box sx={{ gridColumn: "1 / -1", borderTop: 1, borderColor: "divider", pt: 1.5, mt: 0.5 }}>
+                <Typography variant="body2" fontWeight={600} color="text.secondary">
+                  Correspondent Bank Info
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Intermediary bank used for international transfers (optional)
+                </Typography>
+              </Box>
+              <TextField
+                label="Correspondent Bank Name"
+                size="small"
+                value={formData.correspondent_bank_name ?? ""}
+                onChange={(e) => setFormData({ ...formData, correspondent_bank_name: e.target.value })}
+                disabled={!isPaymentEditable}
+                inputProps={{ maxLength: 255 }}
+              />
+              <TextField
+                label="Correspondent Bank Location"
+                size="small"
+                placeholder="City, Country"
+                value={formData.correspondent_bank_location ?? ""}
+                onChange={(e) => setFormData({ ...formData, correspondent_bank_location: e.target.value })}
+                disabled={!isPaymentEditable}
+                inputProps={{ maxLength: 255 }}
+              />
+              <TextField
+                label="Correspondent SWIFT Code"
+                size="small"
+                value={formData.correspondent_bank_swift_code ?? ""}
+                onChange={(e) => setFormData({ ...formData, correspondent_bank_swift_code: e.target.value.toUpperCase() })}
+                disabled={!isPaymentEditable}
+                inputProps={{ maxLength: 11 }}
+                error={!!formData.correspondent_bank_swift_code && !SWIFT_RE.test(formData.correspondent_bank_swift_code.trim())}
+                helperText={
+                  formData.correspondent_bank_swift_code && !SWIFT_RE.test(formData.correspondent_bank_swift_code.trim())
+                    ? "8 or 11 letters/digits"
+                    : undefined
+                }
+              />
+              <TextField
+                label="Correspondent IBAN"
+                size="small"
+                value={formData.correspondent_bank_iban ?? ""}
+                onChange={(e) => setFormData({ ...formData, correspondent_bank_iban: e.target.value.toUpperCase() })}
+                disabled={!isPaymentEditable}
+                inputProps={{ maxLength: 42 }}
+                error={!!formData.correspondent_bank_iban && !IBAN_RE.test(formData.correspondent_bank_iban.replace(/\s/g, ""))}
+                helperText={
+                  formData.correspondent_bank_iban && !IBAN_RE.test(formData.correspondent_bank_iban.replace(/\s/g, ""))
+                    ? "Country code, 2 check digits, then account (15-34 chars)"
+                    : undefined
+                }
               />
             </FormSection>
 

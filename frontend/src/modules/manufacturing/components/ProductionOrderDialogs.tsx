@@ -25,6 +25,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { fmtLKR, modernTableStyles, TChip, TSidePanel } from "@/components/tijaero";
 import { shopFloorApi } from "@/modules/manufacturing/api";
+import { mfgItemCode, mfgItemName } from "@/modules/manufacturing/itemDisplay";
 import {
   SCRAP_REASONS,
   type MaterialMoveInput,
@@ -116,7 +117,7 @@ export function MaterialMovePanel({ open, mode, order, saving, onClose, onSubmit
         <Table size="small">
           <TableHead>
             <TableRow sx={modernTableStyles.headerRow}>
-              <TableCell>Component</TableCell>
+              <TableCell>Component Item</TableCell>
               <TableCell>Method</TableCell>
               <TableCell align="right">Required</TableCell>
               <TableCell align="right">Issued</TableCell>
@@ -131,8 +132,8 @@ export function MaterialMovePanel({ open, mode, order, saving, onClose, onSubmit
               return (
                 <TableRow key={m.id} sx={modernTableStyles.bodyRow}>
                   <TableCell>
-                    <Typography variant="body2" fontWeight={600}>{m.product_name}</Typography>
-                    <Typography variant="caption" color="text.secondary">{m.product_code}</Typography>
+                    <Typography variant="body2" fontWeight={600}>{mfgItemName(m)}</Typography>
+                    <Typography variant="caption" color="text.secondary">{mfgItemCode(m)}{m.unit_of_measure ? ` · ${m.unit_of_measure}` : ""}</Typography>
                   </TableCell>
                   <TableCell>
                     <TChip size="small" label={m.issue_method === "backflush" ? "Backflush" : "Manual"}
@@ -181,7 +182,7 @@ interface OutputPanelProps {
   open: boolean;
   order: ProductionOrder | null;
   locations: { id: number; name: string; branch_code: string }[];
-  /** The product is held for a quality check when output is recorded */
+  /** The item is held for a quality check when output is recorded */
   requiresQc: boolean;
   saving: boolean;
   onClose: () => void;
@@ -278,7 +279,7 @@ export function OutputPanel({ open, order, locations, requiresQc, saving, onClos
       </Typography>
       {requiresQc && (
         <Alert severity="info">
-          This product needs a quality check: good units are held (not available for sale) until an approver passes them.
+          This item needs a quality check: good units are held (not available) until an approver passes them.
         </Alert>
       )}
       <Box sx={grid}>
@@ -326,7 +327,7 @@ export function OutputPanel({ open, order, locations, requiresQc, saving, onClos
           <Table size="small">
             <TableHead>
               <TableRow sx={modernTableStyles.headerRow}>
-                <TableCell>By-product</TableCell>
+                <TableCell>By-product Item</TableCell>
                 <TableCell align="right">Per Unit</TableCell>
                 <TableCell align="right" sx={{ width: 120 }}>Quantity</TableCell>
               </TableRow>
@@ -335,8 +336,8 @@ export function OutputPanel({ open, order, locations, requiresQc, saving, onClos
               {byProducts.map((b) => (
                 <TableRow key={b.id} sx={modernTableStyles.bodyRow}>
                   <TableCell>
-                    <Typography variant="body2" fontWeight={600}>{b.product_name}</Typography>
-                    <Typography variant="caption" color="text.secondary">{b.product_code}</Typography>
+                    <Typography variant="body2" fontWeight={600}>{mfgItemName(b)}</Typography>
+                    <Typography variant="caption" color="text.secondary">{mfgItemCode(b)}</Typography>
                   </TableCell>
                   <TableCell align="right">{Number(b.quantity_per_unit)} {b.unit_of_measure || ""}</TableCell>
                   <TableCell align="right">
@@ -355,7 +356,7 @@ export function OutputPanel({ open, order, locations, requiresQc, saving, onClos
       )}
       {backflush.length > 0 && (
         <Alert severity="info">
-          Backflushed components are consumed automatically for the units recorded: {backflush.map((m) => m.product_name).join(", ")}.
+          Backflushed components are consumed automatically for the units recorded: {backflush.map((m) => mfgItemName(m)).join(", ")}.
         </Alert>
       )}
       {error && (goodQty > 0 || scrapQty > 0 || good !== "") && <Alert severity="warning">{error}</Alert>}

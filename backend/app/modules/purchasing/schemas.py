@@ -621,8 +621,48 @@ class SupplierProduct(SupplierProductBase, AuditSchema):
     supplier_company_name: Optional[str] = None
 
 
+class SupplierItemCreate(BaseModel):
+    """A supplier's price for an Item Catalog item, entered from the supplier side."""
+    material_id: int = Field(..., ge=1, le=INT4_MAX)
+    supplier_sku: OptStr(255) = None
+    cost_price: Decimal = Field(..., gt=0, le=MAX_MONEY, max_digits=18, decimal_places=2)
+    minimum_order_qty: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
+    is_preferred: bool = False
+    active: bool = True
+
+
+class SupplierItemUpdate(SupplierProductUpdate):
+    pass
+
+
+class SupplierItem(BaseModel):
+    """One row of a supplier's item price list (a material_suppliers link)."""
+    model_config = {"from_attributes": True}
+
+    id: int
+    supplier_id: int
+    material_id: int
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
+    supplier_sku: Optional[str] = None
+    cost_price: Decimal
+    minimum_order_qty: Optional[int] = None
+    is_preferred: bool = False
+    active: bool = True
+    supplier_company_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 class PurchasingOrderItemBase(BaseModel):
-    product_id: int
+    # Old (pre item) lines carry product_id; new lines carry material_id only.
+    product_id: Optional[int] = None
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
+    product_name: Optional[str] = None
     quantity: int
     unit_price: Decimal
     warrenty_month: str
@@ -654,19 +694,30 @@ def _zero_to_none(v):
 
 
 class PurchasingOrderItemCreate(BaseModel):
-    """A purchase-order line as submitted (strict). The response model above stays lenient."""
-    product_id: int = Field(..., ge=1, le=INT4_MAX)
+    """A purchase-order line as submitted (strict). The response model above stays lenient.
+    Purchasing buys Item Catalog items: a line names the item (material_id); unit_price
+    defaults to the supplier's price on the item's Suppliers tab."""
+    material_id: int = Field(..., ge=1, le=INT4_MAX)
     quantity: int = Field(..., ge=1, le=1_000_000)
-    unit_price: Decimal = Field(..., gt=0, le=MAX_MONEY, allow_inf_nan=False)
-    warrenty_month: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^\d{1,3}$")]
+    unit_price: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY, allow_inf_nan=False)
+    warrenty_month: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^\d{1,3}$")] = "0"
     remark: OptStr(500) = None
     # Set when this line was sourced from a Sales Quotation (links to the exact SalesQuoteItem).
     quote_item_id: Optional[int] = Field(default=None, ge=1, le=INT4_MAX)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _items_only(cls, values):
+        if isinstance(values, dict) and values.get("product_id") not in (None, 0, ""):
+            raise ValueError(
+                "Purchase order lines buy Item Catalog items: send material_id (the item) instead of product_id"
+            )
+        return values
+
     @field_validator("unit_price")
     @classmethod
     def _two_decimals(cls, v):
-        return v.quantize(Decimal("0.01"))
+        return v.quantize(Decimal("0.01")) if v is not None else v
 
 
 class PurchasingOrderItem(PurchasingOrderItemBase, TijaeroBaseSchema):
@@ -868,6 +919,13 @@ class ProcurementQueueItem(BaseModel):
     supplier_name: Optional[str] = None
     product_id: int
     product_name: Optional[str] = None
+    # The Item Catalog item a PO line for this row buys (the product's item).
+    # NULL when the product sells no item (service / non-stock): see item_missing_reason.
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
+    item_missing_reason: Optional[str] = None
     quantity: int
     unit_price: Decimal
     added_date: datetime
@@ -881,7 +939,9 @@ class ProcurementQueueItem(BaseModel):
 
 
 class PurchasingReturnItemBase(BaseModel):
-    product_id: int
+    # Taken from the stock row on create (item-only stock has no product).
+    product_id: Optional[int] = None
+    material_id: Optional[int] = None
     purchasing_price: Decimal
     return_price: Decimal  # per unit
     # Required for serial units; omitted for batch/none lots, which are
@@ -901,6 +961,9 @@ class PurchasingReturnItem(PurchasingReturnItemBase, TijaeroBaseSchema):
     branch_code: str
     added_date: datetime
     product_name: Optional[str] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
     warranty_month: Optional[str] = None
 
 PURCHASE_RETURN_REASONS = (
@@ -969,6 +1032,9 @@ class BarcodeValidationResponse(BaseModel):
     sales_stock_id: Optional[int] = None
     product_id: Optional[int] = None
     product_name: Optional[str] = None
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
     purchasing_price: Optional[Decimal] = None
     status: Optional[str] = None
     warranty_month: Optional[str] = None  # Warranty period from stock item
@@ -989,6 +1055,9 @@ class LotReturnValidationResponse(BaseModel):
     sales_stock_id: Optional[int] = None
     product_id: Optional[int] = None
     product_name: Optional[str] = None
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
     batch_no: Optional[str] = None
     available_quantity: int = 0
     purchasing_price: Optional[Decimal] = None  # per unit
@@ -1134,6 +1203,10 @@ class LandedCostVoucherOut(BaseModel):
 class LandedCostLineOut(BaseModel):
     purchasing_order_items_id: int
     product_name: Optional[str] = None
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
     quantity: int
     unit_price: Decimal
     landed_total: Decimal
@@ -1153,6 +1226,10 @@ class GoodReceivedRejectionOut(BaseModel):
     quantity: int
     reason: str
     product_name: Optional[str] = None
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
 
 class GoodReceivedNote(GoodReceivedNoteBase, TijaeroBaseSchema):
     id: int
@@ -1216,6 +1293,10 @@ class GoodReceivedItem(GoodReceivedItemBase, TijaeroBaseSchema):
 class GoodReceivedItemWithDetails(GoodReceivedItem):
     product_id: Optional[int] = None
     product_name: Optional[str] = None
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
     saved_to_sales_stock: bool = False
     saved_to_company_assets: bool = False
 

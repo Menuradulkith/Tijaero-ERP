@@ -6,6 +6,7 @@ from datetime import date, datetime
 import pytest
 
 from app.modules.purchasing.models import GoodReceivedNote, PurchasingOrder, PurchasingOrderItems
+from tests.conftest import item_id_for
 
 P = "/api/v1/purchasing"
 A = "/api/v1/common/approvals"
@@ -21,7 +22,7 @@ def _po_body(branch, supplier, product, **kw):
     b = {
         "branch_code": branch.branch_code, "payment_method": "Non-credit", "purchasing_order_date": today,
         "good_received_note_date": today, "first_suppliers_id": supplier.id,
-        "items": [{"product_id": product.id, "quantity": 2, "unit_price": 10, "warrenty_month": "12"}],
+        "items": [{"material_id": item_id_for(product, supplier, 10), "quantity": 2, "unit_price": 10, "warrenty_month": "12"}],
     }
     b.update(kw)
     return b

@@ -651,6 +651,59 @@ def update_supplier_product(
     return service.SupplierProductService(db).update_mapping(supplier_id, mapping_id, payload)
 
 
+# ==================== Supplier price list on Item Catalog items ====================
+# The supplier side of material_suppliers (the item's Suppliers tab). Purchase
+# orders buy items at these prices; /suppliers/{id}/products stays for history.
+
+_SUPPLIER_ITEM_WRITE = (
+    Permissions.SUPPLIER_CREATE,
+    Permissions.SUPPLIER_UPDATE,
+    Permissions.PRODUCT_CREATE,
+    Permissions.PRODUCT_UPDATE,
+)
+
+
+@router.get(
+    "/suppliers/{supplier_id}/items",
+    response_model=List[schemas.SupplierItem],
+)
+def list_supplier_items(
+    supplier_id: RowId,
+    active_only: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_permission(*SUPPLIER_LOOKUP_PERMISSIONS)),
+):
+    return service.SupplierItemService(db).list_items(supplier_id, active_only=active_only)
+
+
+@router.post(
+    "/suppliers/{supplier_id}/items",
+    response_model=schemas.SupplierItem,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_supplier_item(
+    supplier_id: RowId,
+    payload: schemas.SupplierItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_permission(*_SUPPLIER_ITEM_WRITE)),
+):
+    return service.SupplierItemService(db).create_item(supplier_id, payload)
+
+
+@router.put(
+    "/suppliers/{supplier_id}/items/{link_id}",
+    response_model=schemas.SupplierItem,
+)
+def update_supplier_item(
+    supplier_id: RowId,
+    link_id: RowId,
+    payload: schemas.SupplierItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_permission(*_SUPPLIER_ITEM_WRITE)),
+):
+    return service.SupplierItemService(db).update_item(supplier_id, link_id, payload)
+
+
 @router.get(
     "/orders/daily-limit/{branch_code}",
     response_model=schemas.DailyPOLimitCheck,
@@ -668,28 +721,48 @@ def check_daily_po_limit(
     return order_service.check_daily_limit(branch_code, check_date)
 
 
+def _id_list(values: Optional[List[str]], name: str) -> List[int]:
+    """Ids from a query parameter given as a comma list and/or repeated."""
+    try:
+        ids = [int(p) for v in (values or []) for p in v.split(",") if p.strip()]
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"{name} must be a comma-separated list of integers")
+    if len(ids) > 200 or any(i < 1 or i > 2_147_483_647 for i in ids):
+        raise HTTPException(status_code=422, detail=f"{name} must hold at most 200 ids between 1 and 2147483647")
+    return ids
+
+
+def _ids_param(product_ids: Optional[List[str]], material_ids: Optional[List[str]]):
+    if not product_ids and not material_ids:
+        raise HTTPException(status_code=422, detail="Send material_ids (items) or product_ids")
+    if product_ids and material_ids:
+        raise HTTPException(status_code=422, detail="Send either material_ids or product_ids, not both")
+    if material_ids:
+        return "material", _id_list(material_ids, "material_ids")
+    return "product", _id_list(product_ids, "product_ids")
+
+
 @router.get(
     "/orders/available-stock",
     dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
 )
 def get_available_stock_for_products(
-    product_ids: Annotated[str, Query(max_length=2000)],
     branch_code: Annotated[str, Query(min_length=1, max_length=200)],
+    product_ids: Annotated[Optional[List[str]], Query()] = None,
+    material_ids: Annotated[Optional[List[str]], Query()] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Available stock count per product at a branch — lets the PO creation
-    wizard show what's already in stock before the user orders more.
-    `product_ids` is a comma-separated list of product ids."""
+    """Available stock quantity at a branch — lets the PO creation wizard show
+    what's already in stock before the user orders more. `material_ids` (items)
+    returns {material_id: qty}; the older `product_ids` returns {product_id: qty}.
+    Either is a comma-separated list and/or a repeated parameter."""
     if not validate_branch_access(current_user, branch_code):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
-    try:
-        ids = [int(p) for p in product_ids.split(",") if p.strip()]
-    except ValueError:
-        raise HTTPException(status_code=422, detail="product_ids must be a comma-separated list of integers")
-    if len(ids) > 200 or any(i < 1 or i > 2_147_483_647 for i in ids):
-        raise HTTPException(status_code=422, detail="product_ids must hold at most 200 ids between 1 and 2147483647")
+    kind, ids = _ids_param(product_ids, material_ids)
     order_service = service.PurchasingOrderService(db)
+    if kind == "material":
+        return order_service.get_available_stock_by_material(ids, branch_code)
     return order_service.get_available_stock_by_product(ids, branch_code)
 
 
@@ -698,8 +771,9 @@ def get_available_stock_for_products(
     dependencies=[Depends(require_permission(*Permissions.PURCHASE_ORDER_VIEW))],
 )
 def get_in_transit_for_products(
-    product_ids: Annotated[str, Query(max_length=2000)],
     branch_code: Annotated[str, Query(min_length=1, max_length=200)],
+    product_ids: Annotated[Optional[List[str]], Query()] = None,
+    material_ids: Annotated[Optional[List[str]], Query()] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -708,12 +782,9 @@ def get_in_transit_for_products(
     wizard so the user doesn't re-order what is already coming."""
     if not validate_branch_access(current_user, branch_code):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Access denied to branch: {branch_code}")
-    try:
-        ids = [int(p) for p in product_ids.split(",") if p.strip()]
-    except ValueError:
-        raise HTTPException(status_code=422, detail="product_ids must be a comma-separated list of integers")
-    if len(ids) > 200 or any(i < 1 or i > 2_147_483_647 for i in ids):
-        raise HTTPException(status_code=422, detail="product_ids must hold at most 200 ids between 1 and 2147483647")
+    kind, ids = _ids_param(product_ids, material_ids)
+    if kind == "material":
+        return service.PurchasingOrderService(db).get_in_transit_by_material(ids, branch_code)
     return service.PurchasingOrderService(db).get_in_transit_by_product(ids, branch_code)
 
 
@@ -1166,7 +1237,11 @@ def get_purchase_return(return_id: int, db: Session = Depends(get_db), current_u
             "branch_code": item.branch_code,
             "added_date": item.added_date,
             "sales_stock_id": item.sales_stock_id,
-            "product_name": item.product.name if item.product else None,
+            "product_name": item.product.name if item.product else (item.material.name if item.material else None),
+            "material_id": item.material_id,
+            "material_item_code": item.material_item_code,
+            "material_name": item.material_name,
+            "unit_of_measure": item.unit_of_measure,
             "warranty_month": warranty_month,
         }
         items_with_names.append(item_dict)
@@ -1461,7 +1536,8 @@ def get_grn_items(grn_id: int, db: Session = Depends(get_db), current_user: User
     # Sales stock items
     stock_items = db.query(SalesStock).filter(SalesStock.good_received_note_id == grn_id).all()
     for s in stock_items:
-        product_name = s.product.name if s.product else None
+        m = s.material
+        product_name = s.product.name if s.product else (m.name if m else None)
         results.append({
             "id": s.id,
             "barcode": s.barcode,
@@ -1474,6 +1550,10 @@ def get_grn_items(grn_id: int, db: Session = Depends(get_db), current_user: User
             "purchasing_order_items_id": s.purchasing_order_items_id,
             "product_id": s.product_id,
             "product_name": product_name,
+            "material_id": s.material_id,
+            "material_item_code": m.item_code if m else None,
+            "material_name": m.name if m else None,
+            "unit_of_measure": m.unit_of_measure if m else None,
             "warranty_month": s.warranty_month,
             "saved_to_sales_stock": True,
             "saved_to_company_assets": False,

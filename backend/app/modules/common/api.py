@@ -269,6 +269,8 @@ ACTIVITY_LOG_ENTITY_TYPES: Dict[str, tuple] = {
     "product": (P.PRODUCT_VIEW, None),
     "category": (P.CATEGORY_VIEW, None),
     "brand": (P.BRAND_VIEW, None),
+    "material": (P.MATERIAL_VIEW, None),
+    "material_category": (P.MATERIAL_VIEW, None),
     "chart_of_account": (P.CHART_OF_ACCOUNTS_VIEW, None),
     "journal_entry": (P.JOURNAL_ENTRY_VIEW, "JournalEntry"),
     "cash_flow_statement": (P.CASH_FLOW_VIEW, "CashFlowStatement"),

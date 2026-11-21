@@ -5,7 +5,7 @@ boms           bills of materials with routing, cost roll-up, versioning
 orders         production orders: lifecycle, material issue / return, output, time
 job-cards      open operations for the shop floor
 mrp            demand-driven requirements planning, firming into PO / production orders
-reorder-rules  min / max stock levels per product and branch
+reorder-rules  min / max stock levels per item and branch
 quote-demand   open quotation lines for make-to-order production
 dashboard      KPIs
 """
@@ -110,8 +110,8 @@ def delete_work_center(wc_id: RowId, db: Session = Depends(get_db),
 @router.get("/boms", response_model=List[s.BOMOut], dependencies=[BOM_READ])
 def list_boms(q: Optional[str] = Query(None, max_length=100),
               status_: Optional[Literal["draft", "active", "archived"]] = Query(None, alias="status"),
-              product_id: OptQueryId = None, db: Session = Depends(get_db)):
-    return BOMService(db).list(q, status_, product_id)
+              product_id: OptQueryId = None, material_id: OptQueryId = None, db: Session = Depends(get_db)):
+    return BOMService(db).list(q, status_, product_id, material_id)
 
 
 @router.get("/boms/{bom_id}", response_model=s.BOMOut, dependencies=[BOM_READ])
@@ -166,11 +166,12 @@ def update_product_cost(bom_id: RowId, db: Session = Depends(get_db),
 @router.get("/orders", response_model=s.ProductionOrderPage)
 def list_orders(q: Optional[str] = Query(None, max_length=100), status_: Optional[List[str]] = Query(None, alias="status"),
                 branch_code: Optional[str] = Query(None, max_length=200), product_id: OptQueryId = None,
-                late_only: bool = False, page: int = Query(1, ge=1, le=100000), size: int = Query(50, ge=1, le=500),
+                material_id: OptQueryId = None, late_only: bool = False, page: int = Query(1, ge=1, le=100000), size: int = Query(50, ge=1, le=500),
                 db: Session = Depends(get_db), branches: Optional[List[str]] = Depends(get_user_branch_filter),
                 _user: User = Depends(ORDER_READ)):
     return ProductionOrderService(db).list(q=q, status_=status_, branch_codes=_scope(branches, branch_code),
-                                           product_id=product_id, late_only=late_only, page=page, size=size)
+                                           product_id=product_id, material_id=material_id, late_only=late_only,
+                                           page=page, size=size)
 
 
 @router.get("/orders/{order_id}", response_model=s.ProductionOrderOut)
@@ -193,9 +194,9 @@ def create_order(data: s.ProductionOrderIn, db: Session = Depends(get_db),
     created = ProductionOrderService(db).create(data, user.id)
     from app.modules.notifications import events
     events.tell_branch(
-        created.branch_code,
+        created["branch_code"],
         title="Production order opened",
-        message=f"Production order {created.order_no} was opened.",
+        message=f"Production order {created['order_no']} was opened.",
         category="manufacturing",
         action_url="/manufacturing/orders",
         exclude_user_id=user.id,
@@ -215,9 +216,9 @@ def create_order_from_quote(data: s.FromQuoteIn, db: Session = Depends(get_db),
     created = ProductionOrderService(db).create_from_quote_item(data, user.id)
     from app.modules.notifications import events
     events.tell_branch(
-        created.branch_code,
+        created["branch_code"],
         title="Production order opened",
-        message=f"Production order {created.order_no} was opened from a quotation.",
+        message=f"Production order {created['order_no']} was opened from a quotation.",
         category="manufacturing",
         action_url="/manufacturing/orders",
         exclude_user_id=user.id,
@@ -306,9 +307,9 @@ def quality_decision(order_id: RowId, data: s.QcDecisionIn, db: Session = Depend
     from app.modules.notifications import events
     failed = data.failed_quantity > 0
     events.tell_branch(
-        result.branch_code,
+        result["branch_code"],
         title="Quality check failed" if failed else "Quality check passed",
-        message=f"Production order {result.order_no}: {data.passed_quantity} passed, {data.failed_quantity} failed.",
+        message=f"Production order {result['order_no']}: {data.passed_quantity} passed, {data.failed_quantity} failed.",
         category="manufacturing",
         notification_type="warning" if failed else "success",
         action_url="/manufacturing/orders",
@@ -333,9 +334,9 @@ def complete_order(order_id: RowId, data: Optional[s.CompleteIn] = None, db: Ses
                                                book_planned_time=data.book_planned_time if data else True)
     from app.modules.notifications import events
     events.tell_branch(
-        result.branch_code,
+        result["branch_code"],
         title="Production order completed",
-        message=f"Production order {result.order_no} was completed.",
+        message=f"Production order {result['order_no']} was completed.",
         category="manufacturing",
         notification_type="success",
         action_url="/manufacturing/orders",
@@ -351,9 +352,9 @@ def close_order(order_id: RowId, db: Session = Depends(get_db),
     result = ProductionOrderService(db).close(order_id, user.id)
     from app.modules.notifications import events
     events.tell_branch(
-        result.branch_code,
+        result["branch_code"],
         title="Production order closed",
-        message=f"Production order {result.order_no} was closed.",
+        message=f"Production order {result['order_no']} was closed.",
         category="manufacturing",
         action_url="/manufacturing/orders",
         exclude_user_id=user.id,

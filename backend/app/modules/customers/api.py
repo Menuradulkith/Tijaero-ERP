@@ -144,6 +144,14 @@ def export_customers_csv(
             "Billing Country",
             "Shipping Country",
             "Currency",
+            "Correspondent Bank Name",
+            "Correspondent Bank Location",
+            "Correspondent SWIFT Code",
+            "Correspondent IBAN",
+            "Category",
+            "Tax Area",
+            "Accounting Group",
+            "VAT Registration No",
         ]
     )
 
@@ -194,6 +202,14 @@ def export_customers_csv(
                 country_names.get(customer.billing_country_id, ""),
                 country_names.get(customer.shipping_country_id, ""),
                 customer.default_currency or "",
+                customer.correspondent_bank_name or "",
+                customer.correspondent_bank_location or "",
+                customer.correspondent_bank_swift_code or "",
+                customer.correspondent_bank_iban or "",
+                customer.customer_category or "",
+                customer.tax_area or "",
+                customer.accounting_group or "",
+                customer.vat_registration_number or "",
             ]]
         )
 

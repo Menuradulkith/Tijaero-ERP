@@ -15,11 +15,17 @@ from app.modules.hr_core.api import router as hr_core_router, employee_router as
 from app.modules.hr.sales_commission_api import router as sales_commissions_router
 from app.modules.attendance.api import router as attendance_router
 from app.modules.inventory.api import router as inventory_router
+from app.modules.inventory.warehouse_stock_api import router as warehouse_stock_router
+from app.modules.inventory.stock_counts import router as stock_count_router
 from app.modules.manufacturing.api import router as manufacturing_router
 from app.modules.notifications.api import router as notifications_router
 from app.modules.permissions.api import router as permissions_router
+from app.modules.materials.api import router as materials_router
 from app.modules.products.api import router as products_router
 from app.modules.products.price_tier_api import router as price_tier_router
+from app.modules.products.design_brief_api import router as design_brief_router
+from app.modules.products.design_detail_api import router as design_detail_router
+from app.modules.products.bom_structure_api import router as bom_structure_router
 from app.modules.purchasing.api import router as purchasing_router
 from app.modules.purchasing.invoice_api import router as purchase_invoice_router
 from app.modules.reporting.api import router as reporting_router
@@ -46,9 +52,15 @@ api_router.include_router(
     commissions_router, prefix="/customers/commissions", tags=["agent-commissions"]
 )
 api_router.include_router(customers_router, prefix="/customers", tags=["customers"])
+api_router.include_router(warehouse_stock_router, prefix="/inventory/warehouse-stock", tags=["inventory"])
+api_router.include_router(stock_count_router, prefix="/inventory/stock-counts", tags=["inventory"])
 api_router.include_router(inventory_router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(products_router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(price_tier_router, prefix="/inventory", tags=["inventory"])
+api_router.include_router(design_brief_router, prefix="/inventory", tags=["inventory"])
+api_router.include_router(design_detail_router, prefix="/inventory", tags=["inventory"])
+api_router.include_router(bom_structure_router, prefix="/inventory", tags=["inventory"])
+api_router.include_router(materials_router)
 api_router.include_router(sales_router, prefix="/sales", tags=["sales"])
 api_router.include_router(
     quotation_router, prefix="/sales/quotes", tags=["sales-quotes"]

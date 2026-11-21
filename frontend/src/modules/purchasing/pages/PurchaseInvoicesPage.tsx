@@ -66,6 +66,8 @@ import {
   GRNInvoiceableItem,
 } from "@/modules/purchasing/purchaseInvoiceApi";
 import { Supplier } from "@/modules/purchasing/types";
+import LineItemLink from "@/modules/purchasing/components/LineItemLink";
+import { lineItemCode, lineItemUom } from "@/modules/purchasing/utils/itemDisplay";
 import { useAuthStore } from "@/state/authStore";
 import { hasPermission, usePermission } from "@/auth/permissions";
 import { taxCodesApi } from "@/modules/finance/api";
@@ -462,12 +464,13 @@ export default function PurchaseInvoicesPage() {
       calculatedDueDate = localYmd(new Date(y, m - 1, d + creditPeriod));
     }
     
-    // Build per-product items from selected GRNs
+    // Build per-item lines from selected GRNs (old GRN lines keep their product)
     const items = selectedGRNs.flatMap((grn) =>
       (grn.products || []).map((p) => ({
         grn_id: grn.grn_id,
         purchasing_order_id: grn.po_id,
-        product_id: p.product_id,
+        product_id: p.product_id ?? undefined,
+        material_id: p.material_id ?? undefined,
         quantity: p.quantity,
         unit_price: p.unit_price,
         line_total: p.line_total,
@@ -948,7 +951,9 @@ export default function PurchaseInvoicesPage() {
                       <TableRow sx={modernTableStyles.headerRow}>
                         <TableCell>GRN No</TableCell>
                         <TableCell>PO No</TableCell>
-                        <TableCell>Product</TableCell>
+                        <TableCell>Item Code</TableCell>
+                        <TableCell>Item</TableCell>
+                        <TableCell>UOM</TableCell>
                         <TableCell align="right">Quantity</TableCell>
                         <TableCell align="right">Unit Price</TableCell>
                         <TableCell align="right">Line Total</TableCell>
@@ -959,14 +964,18 @@ export default function PurchaseInvoicesPage() {
                         <TableRow key={item.id} sx={modernTableStyles.bodyRow}>
                           <TableCell>{item.grn_no || "-"}</TableCell>
                           <TableCell>{item.po_no || "-"}</TableCell>
-                          <TableCell>{item.product_name || item.description || "-"}</TableCell>
+                          <TableCell>{lineItemCode(item) || "-"}</TableCell>
+                          <TableCell>
+                            <LineItemLink line={item} label={item.material_name || item.product_name || item.description || "-"} />
+                          </TableCell>
+                          <TableCell>{lineItemUom(item)}</TableCell>
                           <TableCell align="right">{item.quantity}</TableCell>
                           <TableCell align="right">{fmtLKR(item.unit_price)}</TableCell>
                           <TableCell align="right">{fmtLKR(item.line_total)}</TableCell>
                         </TableRow>
                       ))}
                       <TableRow sx={modernTableStyles.footerRow}>
-                        <TableCell colSpan={5} align="right">
+                        <TableCell colSpan={7} align="right">
                           <Typography fontWeight="bold">Total:</Typography>
                         </TableCell>
                         <TableCell align="right">

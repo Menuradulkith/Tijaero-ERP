@@ -10,6 +10,7 @@ import { TPageSkeleton } from "./components/tijaero";
 const DashboardPage = lazy(() => import("./app/pages/DashboardPage"));
 const SalesRoutes = lazy(() => import("./modules/sales/routes"));
 const InventoryRoutes = lazy(() => import("./modules/inventory/routes"));
+const MaterialsRoutes = lazy(() => import("./modules/materials/routes"));
 const PurchasingRoutes = lazy(() => import("./modules/purchasing/routes"));
 const ManufacturingRoutes = lazy(() => import("./modules/manufacturing/routes"));
 const FinanceRoutes = lazy(() => import("./modules/finance/routes"));
@@ -70,6 +71,16 @@ function App() {
               <ProtectedRoute>
                 <Suspense fallback={<RouteLoadingFallback />}>
                   <SalesRoutes />
+                </Suspense>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/materials/*"
+            element={
+              <ProtectedRoute>
+                <Suspense fallback={<RouteLoadingFallback />}>
+                  <MaterialsRoutes />
                 </Suspense>
               </ProtectedRoute>
             }

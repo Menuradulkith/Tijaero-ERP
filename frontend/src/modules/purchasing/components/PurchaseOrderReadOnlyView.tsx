@@ -17,11 +17,17 @@ import {
   getPaymentTermsLabel,
   modernTableStyles,
 } from "@/components/tijaero";
+import { lineItemCode, lineItemName } from "@/modules/purchasing/utils/itemDisplay";
 
 interface OrderItem {
   id: number;
-  product_id: number;
-  product_name: string;
+  /** Item Catalog item bought (new lines); old lines only have a product. */
+  material_id?: number | null;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
+  product_id?: number | null;
+  product_name?: string | null;
   uom?: string | null;
   quantity: number;
   unit_price?: number | string;
@@ -140,7 +146,8 @@ export default function PurchaseOrderReadOnlyView({ order, show_pricing, branch_
         <Table size="small">
           <TableHead>
             <TableRow sx={modernTableStyles.headerRow}>
-              <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
+              <TableCell sx={{ width: 110 }}>Item Code</TableCell>
+              <TableCell sx={{ minWidth: 200 }}>Item</TableCell>
               <TableCell sx={{ width: 80 }}>UOM</TableCell>
               <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
               {show_pricing && <TableCell align="right" sx={{ width: 120 }}>{`Unit Price (${currencySymbol})`}</TableCell>}
@@ -151,17 +158,18 @@ export default function PurchaseOrderReadOnlyView({ order, show_pricing, branch_
           <TableBody>
             {order.items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={show_pricing ? 6 : 4} sx={modernTableStyles.emptyCell}>
+                <TableCell colSpan={show_pricing ? 7 : 5} sx={modernTableStyles.emptyCell}>
                   No items
                 </TableCell>
               </TableRow>
             ) : (
               order.items.map((item, index) => (
                 <TableRow key={item.id} sx={{ ...modernTableStyles.bodyRow, ...(index % 2 === 1 && { bgcolor: "grey.25" }) }}>
-                  <TableCell>{item.product_name}</TableCell>
+                  <TableCell>{lineItemCode(item) || "-"}</TableCell>
+                  <TableCell>{lineItemName(item)}</TableCell>
                   <TableCell>
                     <Typography variant="body2" color="text.secondary">
-                      {item.uom || "-"}
+                      {item.unit_of_measure || item.uom || "-"}
                     </Typography>
                   </TableCell>
                   <TableCell align="right">{item.quantity}</TableCell>
@@ -177,7 +185,7 @@ export default function PurchaseOrderReadOnlyView({ order, show_pricing, branch_
             )}
             {show_pricing && (
               <TableRow sx={modernTableStyles.footerRow}>
-                <TableCell colSpan={5} align="right">
+                <TableCell colSpan={6} align="right">
                   <Typography fontWeight="bold">Total:</Typography>
                 </TableCell>
                 <TableCell align="right">

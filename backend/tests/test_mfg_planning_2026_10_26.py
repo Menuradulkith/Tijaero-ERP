@@ -12,6 +12,7 @@ from app.modules.manufacturing.planning import MrpService, ReorderRuleService
 from app.modules.manufacturing.service import ProductionOrderService
 from app.modules.purchasing.models import PurchasingOrder
 from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem
+from tests.conftest import purchasable_item
 from tests.test_manufacturing_2026_10_26 import _order, plant  # noqa: F401  (fixture)
 
 Q = "/api/v1/sales/quotes"
@@ -19,8 +20,16 @@ A = "/api/v1/common/approvals"
 M = "/api/v1/manufacturing"
 
 
+def _sup(db, plant, make_supplier, cost=200):  # noqa: F811
+    """A supplier selling the top component's item (purchasing buys items, central stock phase 3)."""
+    sup = make_supplier()
+    purchasable_item(db, sup, cost, product=plant["top"])
+    return sup
+
+
 def _rows(db, p, product):
-    return {r["product_id"]: r for r in MrpService(db).run(branch_codes=[p["branch"].branch_code])}.get(product.id)
+    """The MRP line of the product's item (MRP plans per item, central stock phase 4)."""
+    return {r["material_id"]: r for r in MrpService(db).run(branch_codes=[p["branch"].branch_code])}.get(product.material_id)
 
 
 @pytest.fixture
@@ -60,7 +69,7 @@ class TestDemandDrivenMrp:
 
     def test_reorder_rule_orders_up_to_max_in_multiples(self, db, plant):  # noqa: F811
         ReorderRuleService(db).create(s.ReorderRuleIn(
-            product_id=plant["leg"].id, branch_code=plant["branch"].branch_code,
+            material_id=plant["leg"].material_id, branch_code=plant["branch"].branch_code,
             min_quantity=50, max_quantity=100, multiple_quantity=25), plant["user"].id)
         leg = _rows(db, plant, plant["leg"])
         projected = 40 + leg["on_order_quantity"]
@@ -69,7 +78,7 @@ class TestDemandDrivenMrp:
         assert leg["demand_sources"][-1]["source_type"] == "reorder"
 
     def test_rule_is_unique_per_product_and_branch(self, db, plant):  # noqa: F811
-        data = s.ReorderRuleIn(product_id=plant["leg"].id, branch_code=plant["branch"].branch_code, min_quantity=5)
+        data = s.ReorderRuleIn(material_id=plant["leg"].material_id, branch_code=plant["branch"].branch_code, min_quantity=5)
         ReorderRuleService(db).create(data, plant["user"].id)
         with pytest.raises(Exception) as exc:
             ReorderRuleService(db).create(data, plant["user"].id)
@@ -79,39 +88,51 @@ class TestDemandDrivenMrp:
 class TestFirming:
     def test_purchase_suggestion_becomes_a_po_that_covers_it(self, db, plant, make_supplier):  # noqa: F811
         _order(db, plant, qty=12)  # needs 12 tops, 10 free + 1 on order
-        sup = make_supplier()
+        sup = _sup(db, plant, make_supplier, cost=180)
         res = MrpService(db).create_purchase_orders(s.MrpPurchaseIn(
             branch_code=plant["branch"].branch_code, payment_method="cash",
-            lines=[s.MrpPurchaseLineIn(product_id=plant["top"].id, quantity=1, supplier_id=sup.id)]), plant["user"].id)
+            lines=[s.MrpPurchaseLineIn(material_id=plant["top"].material_id, quantity=1, supplier_id=sup.id)]), plant["user"].id)
         po = db.query(PurchasingOrder).filter(PurchasingOrder.id == res["documents"][0]["id"]).one()
         assert po.status == "pending_approval" and po.first_suppliers_id == sup.id
-        assert po.items[0].unit_price == 200  # the component's standard cost when the supplier has no price
+        assert po.items[0].unit_price == 180  # the supplier's price on the component's item
+        assert po.items[0].material_id == plant["top"].material_id and po.items[0].product_id is None
         assert _rows(db, plant, plant["top"])["suggested_quantity"] == 0
+
+    def test_supplier_without_a_price_for_the_item_is_refused(self, db, plant, make_supplier):  # noqa: F811
+        from fastapi import HTTPException
+        _sup(db, plant, make_supplier)  # the item exists, sold by another supplier
+        with pytest.raises(HTTPException) as exc:
+            MrpService(db).create_purchase_orders(s.MrpPurchaseIn(
+                branch_code=plant["branch"].branch_code, payment_method="cash",
+                lines=[s.MrpPurchaseLineIn(material_id=plant["top"].material_id, quantity=1, supplier_id=make_supplier().id)]),
+                plant["user"].id)
+        assert exc.value.status_code == 400 and "Suppliers tab" in exc.value.detail
 
     def test_expected_date_in_the_past_is_moved_to_today(self, db, plant, make_supplier):  # noqa: F811
         # a browser in a timezone ahead of UTC can send yesterday's date
         res = MrpService(db).create_purchase_orders(s.MrpPurchaseIn(
             branch_code=plant["branch"].branch_code, payment_method="cash", expected_date=date.today() - timedelta(days=1),
-            lines=[s.MrpPurchaseLineIn(product_id=plant["top"].id, quantity=1, supplier_id=make_supplier().id)]),
+            lines=[s.MrpPurchaseLineIn(material_id=plant["top"].material_id, quantity=1,
+                                       supplier_id=_sup(db, plant, make_supplier).id)]),
             plant["user"].id)
         po = db.query(PurchasingOrder).filter(PurchasingOrder.id == res["documents"][0]["id"]).one()
         assert po.required_date >= po.purchasing_order_date
 
     def test_credit_po_for_a_supplier_with_a_credit_limit(self, db, plant, make_supplier):  # noqa: F811
         # the PO credit check used to multiply the Decimal credit limit by a float
-        sup = make_supplier()
+        sup = _sup(db, plant, make_supplier)
         sup.max_credit_limit = 100000
         db.flush()
         res = MrpService(db).create_purchase_orders(s.MrpPurchaseIn(
             branch_code=plant["branch"].branch_code, payment_method="Credit",
-            lines=[s.MrpPurchaseLineIn(product_id=plant["top"].id, quantity=1, supplier_id=sup.id)]), plant["user"].id)
+            lines=[s.MrpPurchaseLineIn(material_id=plant["top"].material_id, quantity=1, supplier_id=sup.id)]), plant["user"].id)
         assert len(res["documents"]) == 1
 
     def test_production_suggestion_becomes_a_draft_order(self, db, plant, quote):  # noqa: F811
         quote(qty=5)
         res = MrpService(db).create_production_orders(s.MrpProduceIn(
             branch_code=plant["branch"].branch_code, lines=[s.MrpProduceLineIn(
-                product_id=plant["fg"].id, quantity=5, planned_start_date=date.today(),
+                material_id=plant["fg"].material_id, quantity=5, planned_start_date=date.today(),
                 planned_end_date=date.today())]), plant["user"].id)
         order = ProductionOrderService(db).get_out(res["documents"][0]["id"])
         assert order["status"] == "draft" and order["planned_quantity"] == 5
@@ -165,11 +186,11 @@ class TestPermissions:
         _u, token = make_user(permissions=[("mrp", "update")], branches=[plant["branch"]])
         r = api(token).post(f"{M}/mrp/purchase-orders", json={
             "branch_code": plant["branch"].branch_code,
-            "lines": [{"product_id": plant["top"].id, "quantity": 1, "supplier_id": make_supplier().id}]})
+            "lines": [{"material_id": plant["top"].material_id, "quantity": 1, "supplier_id": make_supplier().id}]})
         assert r.status_code == 403 and "purchase_orders:create" in r.json()["detail"]
 
     def test_reorder_rules_need_mrp_update(self, api, plant, make_user):  # noqa: F811
         _u, token = make_user(permissions=[("mrp", "view")], branches=[plant["branch"]])
         r = api(token).post(f"{M}/reorder-rules", json={
-            "product_id": plant["leg"].id, "branch_code": plant["branch"].branch_code, "min_quantity": 5})
+            "material_id": plant["leg"].material_id, "branch_code": plant["branch"].branch_code, "min_quantity": 5})
         assert r.status_code == 403

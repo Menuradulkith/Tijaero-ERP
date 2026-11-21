@@ -51,7 +51,8 @@ import {
   useTConfirmDialog,
 } from "@/components/tijaero";
 import { useCurrencyStore } from "@/state/currencyStore";
-import { procurementQueueApi, purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import { procurementQueueApi, purchaseOrdersApi, suppliersApi, supplierItemsApi } from "@/modules/purchasing/api";
+import LineItemLink from "@/modules/purchasing/components/LineItemLink";
 import type { PurchasingOrderCreate, Supplier } from "@/modules/purchasing/types";
 
 interface QueueLine {
@@ -59,6 +60,10 @@ interface QueueLine {
   quote_item_id: number;
   product_id: number;
   product_name: string;
+  /** The quoted product's Item Catalog item: what the PO line buys. */
+  material_id?: number | null;
+  material_item_code?: string | null;
+  material_name?: string | null;
   quantity: number;
   unit_price: number;
   requiredQuantity: number;
@@ -141,7 +146,7 @@ export default function ProcurementQueuePage() {
       if (branchFilter !== null && item.branch_code !== branchFilter) return false;
       if (!term) return true;
       const supplierName = (suppliers as Supplier[] | undefined)?.find((s) => s.id === item.supplier_id)?.company_name || "";
-      return [item.quote_no, item.product_name, supplierName].some((v) => (v || "").toLowerCase().includes(term));
+      return [item.quote_no, item.product_name, item.material_item_code, item.material_name, supplierName].some((v) => (v || "").toLowerCase().includes(term));
     });
   }, [queue, search, supplierFilter, branchFilter, suppliers]);
 
@@ -163,6 +168,9 @@ export default function ProcurementQueuePage() {
         quote_item_id: item.quote_item_id,
         product_id: item.product_id,
         product_name: item.product_name || `Product #${item.product_id}`,
+        material_id: item.material_id,
+        material_item_code: item.material_item_code,
+        material_name: item.material_name,
         quantity: item.quantity,
         unit_price: item.unit_price,
         requiredQuantity: item.required_quantity,
@@ -231,7 +239,8 @@ export default function ProcurementQueuePage() {
       items: group.lines
         .filter((l) => effectiveQty(l) > 0)
         .map((l) => ({
-          product_id: l.product_id,
+          // PO lines buy the quoted product's Item Catalog item.
+          material_id: l.material_id ?? undefined,
           quantity: effectiveQty(l),
           unit_price: l.unit_price,
           warrenty_month: "0",
@@ -248,9 +257,9 @@ export default function ProcurementQueuePage() {
       for (const { supplierId, group } of targets) {
         const items = group.lines
           .filter((l) => effectiveQty(l) > 0)
-          .map((l) => ({ product_id: l.product_id, quantity: effectiveQty(l) }));
+          .map((l) => ({ material_id: l.material_id, quantity: effectiveQty(l) }));
         const shortfalls = await findMoqShortfalls(supplierId, items, (id) =>
-          queryClient.fetchQuery({ queryKey: ["supplier-products", id], queryFn: () => suppliersApi.getProducts(id) }),
+          queryClient.fetchQuery({ queryKey: ["supplier-items", id], queryFn: () => supplierItemsApi.list(id) }),
         );
         if (shortfalls.length > 0) {
           messages.push(`Quotation ${group.quoteNo}\n${formatMoqMessage(getSupplier(supplierId)?.company_name || "Unknown", shortfalls)}`);
@@ -292,7 +301,22 @@ export default function ProcurementQueuePage() {
       new Set(targets.filter((t) => !getSupplierSettings(t.supplierId).orderDate).map((t) => t.supplierId)),
     );
 
+  // Purchase orders buy items: a quoted product with no linked item cannot be ordered yet.
+  const reportLinesWithoutItem = (targets: { group: QuoteSubGroup }[]): boolean => {
+    const names = Array.from(
+      new Set(
+        targets.flatMap((t) =>
+          t.group.lines.filter((l) => effectiveQty(l) > 0 && !l.material_id).map((l) => l.product_name),
+        ),
+      ),
+    );
+    if (names.length === 0) return false;
+    showErrorToast(`Link these products to an Item Catalog item before ordering: ${names.join(", ")}`);
+    return true;
+  };
+
   const handleCreateGroup = async (supplierId: number, group: QuoteSubGroup) => {
+    if (reportLinesWithoutItem([{ group }])) return;
     if (missingRequiredFieldSuppliers([{ supplierId }]).length > 0) {
       showErrorToast(`Set the Order Date for ${getSupplier(supplierId)?.company_name || "this supplier"} before creating its PO.`);
       return;
@@ -315,6 +339,7 @@ export default function ProcurementQueuePage() {
 
   const handleCreateMany = async (targets: { supplierId: number; group: QuoteSubGroup }[], mode: "selected") => {
     if (targets.length === 0) return;
+    if (reportLinesWithoutItem(targets)) return;
     const missing = missingRequiredFieldSuppliers(targets);
     if (missing.length > 0) {
       const names = missing.map((id) => getSupplier(id)?.company_name || `Supplier #${id}`).join(", ");
@@ -542,6 +567,7 @@ export default function ProcurementQueuePage() {
                               <TableRow sx={modernTableStyles.headerRow}>
                                 <TableCell sx={{ width: 40 }} />
                                 <TableCell>Product</TableCell>
+                                <TableCell>Item</TableCell>
                                 <TableCell align="right">Required</TableCell>
                                 <TableCell align="right">Available</TableCell>
                                 <TableCell align="right">Ordered</TableCell>
@@ -570,6 +596,18 @@ export default function ProcurementQueuePage() {
                                     </Tooltip>
                                   </TableCell>
                                   <TableCell>{line.product_name}</TableCell>
+                                  <TableCell>
+                                    {line.material_id ? (
+                                      <LineItemLink
+                                        line={line}
+                                        label={`${line.material_item_code ? `${line.material_item_code} - ` : ""}${line.material_name || `Item #${line.material_id}`}`}
+                                      />
+                                    ) : (
+                                      <Typography component="span" variant="body2" color="warning.main">
+                                        No item linked
+                                      </Typography>
+                                    )}
+                                  </TableCell>
                                   <TableCell align="right">{line.requiredQuantity}</TableCell>
                                   <TableCell align="right">{line.availableQuantity}</TableCell>
                                   <TableCell align="right">{line.orderedQuantity}</TableCell>
@@ -586,7 +624,7 @@ export default function ProcurementQueuePage() {
                                 );
                               })}
                               <TableRow sx={modernTableStyles.footerRow}>
-                                <TableCell colSpan={7} align="right">
+                                <TableCell colSpan={8} align="right">
                                   <strong>PO Total:</strong>
                                 </TableCell>
                                 <TableCell align="right">

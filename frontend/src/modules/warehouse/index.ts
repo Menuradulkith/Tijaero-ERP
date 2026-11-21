@@ -2,7 +2,8 @@ export * from "./api";
 export * from "./types";
 
 // Pages
-export { default as SalesStockDashboard } from "./pages/SalesStockDashboard";
+export { default as StockPage } from "./pages/StockPage";
+export { default as StockMovementsPage } from "./pages/StockMovementsPage";
 export { default as SalesTrackPage } from "./pages/SalesTrackPage";
 export { default as StockTransferNotesPage } from "./pages/StockTransferNotesPage";
 export { default as ItemTransferNotesPage } from "./pages/ItemTransferNotesPage";

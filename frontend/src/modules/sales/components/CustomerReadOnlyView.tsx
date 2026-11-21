@@ -25,6 +25,9 @@ import {
   TTabs,
   type TDataGridColumn,
   type TTabConfig,
+  SUPPLIER_TAX_AREA,
+  CUSTOMER_CATEGORY,
+  CUSTOMER_ACCOUNTING_GROUP,
 } from "@/components/tijaero";
 import type { Customer, CustomerContactPerson } from "@/modules/customers/types";
 
@@ -114,17 +117,24 @@ export default function CustomerReadOnlyView({ customer, contact_persons, show_s
 
       <TTabPanel value={tab} index="general" padding={0} sx={{ pt: 2 }}>
         <FormSection title={isBusiness ? "Company Information" : "Personal Information"} columns={2}>
-          <Field label="Customer Category" value={isBusiness ? "Company" : "Individual"} />
+          <Field label="Customer Type" value={isBusiness ? "Company" : "Individual"} />
+          <Field label="Category" value={CUSTOMER_CATEGORY.find((c) => c.value === customer.customer_category)?.label ?? customer.customer_category} />
+          <Field label="Tax Area" value={SUPPLIER_TAX_AREA.find((t) => t.value === customer.tax_area)?.label ?? customer.tax_area} />
+          <Field
+            label="Accounting Group"
+            value={CUSTOMER_ACCOUNTING_GROUP.find((g) => g.value === customer.accounting_group)?.label ?? customer.accounting_group}
+          />
           {isBusiness ? (
             <Field label="Company Name" value={customer.company_name} />
           ) : (
             <Field label="Title" value={customer.title} />
           )}
           {!isBusiness && <Field label="Customer Name" value={customer.customer_name} />}
-          {isBusiness && show_sensitive && (
+          {show_sensitive && (
             <>
+              <Field label="VAT Registration No" value={customer.vat_registration_number} />
               <Field label="Tax Registration No" value={customer.tax_registration_number} />
-              <Field label="Company Registration No" value={customer.company_registration_number} />
+              {isBusiness && <Field label="Company Registration No" value={customer.company_registration_number} />}
             </>
           )}
           <Field

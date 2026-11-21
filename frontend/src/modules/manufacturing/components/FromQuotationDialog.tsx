@@ -70,6 +70,8 @@ export default function FromQuotationDialog({ open, branchCode, onClose, onCreat
         (!q ||
           l.quote_no.toLowerCase().includes(q) ||
           (l.product_name || "").toLowerCase().includes(q) ||
+          (l.material_name || "").toLowerCase().includes(q) ||
+          (l.material_item_code || "").toLowerCase().includes(q) ||
           (l.customer_name || "").toLowerCase().includes(q))
     );
   }, [lines, search]);
@@ -133,7 +135,7 @@ export default function FromQuotationDialog({ open, branchCode, onClose, onCreat
       </Typography>
       <TextField
         size="small"
-        placeholder="Search quotation, product or customer..."
+        placeholder="Search quotation, product, item or customer..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         fullWidth
@@ -179,7 +181,12 @@ export default function FromQuotationDialog({ open, branchCode, onClose, onCreat
                   <TableCell>{l.customer_name || "-"}</TableCell>
                   <TableCell>
                     <Typography variant="body2">{l.product_name}</Typography>
-                    <Typography variant="caption" color="text.secondary">{l.product_code}</Typography>
+                    <Typography variant="caption" color="text.secondary" component="div">{l.product_code}</Typography>
+                    {!!l.material_id && (
+                      <Typography variant="caption" color="text.secondary" component="div">
+                        Makes item: {l.material_item_code ? `${l.material_item_code} — ` : ""}{l.material_name || `#${l.material_id}`}
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell align="right">{l.quantity}</TableCell>
                   <TableCell align="right">{l.in_production_quantity}</TableCell>

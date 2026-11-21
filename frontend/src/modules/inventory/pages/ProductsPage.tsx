@@ -7,9 +7,7 @@ import {
     EmptyState,
     fmtLKR,
     FormSection,
-    getChoiceLabel,
     MasterDetailLayout,
-    PRODUCT_ITEM_TYPE,
     PRODUCT_TRACKING_TYPE,
     PRODUCT_UOM,
     showErrorToast,
@@ -35,9 +33,11 @@ import {
     AttachMoney as PricingIcon,
     Sell as BrandIcon,
     Category as CategoryIcon,
+    DesignServicesOutlined as DesignBriefIcon,
+    Straighten as DesignDetailIcon,
+    AccountTreeOutlined as BomStructureIcon,
     History as HistoryIcon,
     Inventory as InventoryIcon,
-    LocalShipping as SuppliersIcon,
     Search as SearchIcon,
     OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
@@ -63,13 +63,15 @@ import {
 import { fetchAllPages } from "@/utils/fetchAllPages";
 import axios from "axios";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link as RouterLink, useSearchParams } from "react-router-dom";
+import { materialsApi } from "@/modules/materials/api";
 import { brandsApi, categoriesApi, minimumPriceApi, productImageUrl, productsApi } from "../api";
 import ProductImageUploader from "../components/ProductImageUploader";
-import ProductSuppliersList, {
-    PendingSupplierMapping,
-} from "../components/ProductSuppliersList";
-import { suppliersApi } from "@/modules/purchasing/api";
-import type { Supplier } from "@/modules/purchasing/types";
+import { useProductDesignBrief } from "../components/ProductDesignBrief";
+import { useProductDesignDetail } from "../components/ProductDesignDetail";
+import { useProductBomStructure } from "../components/ProductBomStructure";
+import QuickCreateLookupDialog, { type LookupKind } from "../components/QuickCreateLookupDialog";
+import { hsCodesApi, productTypesApi } from "../api";
 import {
     Brand,
     BrandCreate,
@@ -99,7 +101,9 @@ const isNotFound = (error: unknown) =>
 const PRODUCT_DETAIL_TABS: TTabConfig[] = [
   { id: "general", label: "General", icon: <InventoryIcon fontSize="small" /> },
   { id: "pricing", label: "Pricing", icon: <PricingIcon fontSize="small" /> },
-  { id: "suppliers", label: "Suppliers", icon: <SuppliersIcon fontSize="small" /> },
+  { id: "designBrief", label: "Design Brief", icon: <DesignBriefIcon fontSize="small" /> },
+  { id: "designDetail", label: "Design Detail", icon: <DesignDetailIcon fontSize="small" /> },
+  { id: "bomStructure", label: "BOM Structure", icon: <BomStructureIcon fontSize="small" /> },
 ];
 
 const PRODUCT_ACTIVE_FILTER_OPTIONS = [
@@ -145,6 +149,12 @@ const emptyProductForm: ProductCreate = {
   tax_rate: 0,
   category_id: 0,
   items_brand_id: 0,
+  // General section: chosen by the user (product type / HS code / family are mandatory).
+  product_type_id: 0,
+  hs_code_id: 0,
+  product_family: "",
+  target_market: "",
+  required_certificate: "",
   // No image_url: the image is written only by the upload/remove endpoints
   // (ProductImageUploader), never by the form save.
 };
@@ -233,6 +243,8 @@ export default function ProductsPage({
   const canUpdateBrand = usePermission("brands", "update");
 
   const queryClient = useQueryClient();
+  // "+" next to Category / Brand: create one in a dialog without leaving the form.
+  const [quickCreate, setQuickCreate] = useState<LookupKind | null>(null);
 
   // Confirm dialog - unified for all tabs
   const confirmDialog = useConfirmDialog();
@@ -260,7 +272,6 @@ export default function ProductsPage({
   // Product filter states - all filters apply live as the user types/selects,
   // no separate "Search" step needed.
   const [productActiveFilter, setProductActiveFilter] = useState<string | null>(null);
-  const [productSupplierFilter, setProductSupplierFilter] = useState<Supplier | null>(null);
   const [productCategoryFilter, setProductCategoryFilter] = useState<Category | null>(null);
   const [productBrandFilter, setProductBrandFilter] = useState<Brand | null>(null);
   const [categoryActiveFilter, setCategoryActiveFilter] = useState<string | null>(null);
@@ -275,20 +286,13 @@ export default function ProductsPage({
   // updateProductMutation.onSuccess.
   const [minPriceInput, setMinPriceInput] = useState<number | "">("");
 
-  // Which of the General / Pricing / Suppliers tabs is active, shown in the
+  // Which of the General / Pricing tabs is active, shown in the
   // detail header below the breadcrumb+title.
   // The product just created in this session: it is walked through the remaining tabs with Next.
   const [justCreatedId, setJustCreatedId] = useState<number | null>(null);
   const [activeProductSection, setActiveProductSection] = useState<
-    "general" | "pricing" | "suppliers"
+    "general" | "pricing" | "designBrief" | "designDetail" | "bomStructure"
   >("general");
-
-  // Supplier mappings staged while creating a new product — there's no
-  // product id yet to attach them to, so they're held here and pushed to
-  // the backend once the product is created (see createProductMutation).
-  const [pendingSupplierMappings, setPendingSupplierMappings] = useState<
-    PendingSupplierMapping[]
-  >([]);
 
   // Image file staged while creating a new product — no product id yet to
   // upload against, so it's held here and pushed right after the product is
@@ -345,7 +349,6 @@ export default function ProductsPage({
   const handleClearProductFilters = useCallback(() => {
     productState.setSearchQuery("");
     setProductActiveFilter(null);
-    setProductSupplierFilter(null);
     setProductCategoryFilter(null);
     setProductBrandFilter(null);
   }, [productState.setSearchQuery]);
@@ -378,7 +381,7 @@ export default function ProductsPage({
   // Any change to a filter or search starts again from the first page.
   useEffect(() => {
     setProductPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
-  }, [productSearch, productActiveFilter, productSupplierFilter?.id, productCategoryFilter?.id, productBrandFilter?.id, productSort]);
+  }, [productSearch, productActiveFilter, productCategoryFilter?.id, productBrandFilter?.id, productSort]);
   useEffect(() => {
     setCategoryPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
   }, [categorySearch, categoryActiveFilter, categorySort]);
@@ -392,7 +395,7 @@ export default function ProductsPage({
   } = useQuery({
     queryKey: [
       "products", "paged", productPaging.page, productPaging.pageSize, productSearch.trim(), productActiveFilter,
-      productSupplierFilter?.id, productCategoryFilter?.id, productBrandFilter?.id, productSort?.field, productSort?.sort,
+      productCategoryFilter?.id, productBrandFilter?.id, productSort?.field, productSort?.sort,
     ],
     queryFn: () =>
       productsApi.getPage({
@@ -402,7 +405,6 @@ export default function ProductsPage({
         active: activeParam(productActiveFilter),
         category_id: productCategoryFilter?.id,
         brand_id: productBrandFilter?.id,
-        supplier_id: productSupplierFilter?.id,
         sort_by: productSort?.field,
         order: productSort?.sort,
       }),
@@ -484,6 +486,38 @@ export default function ProductsPage({
     [brands],
   );
 
+  // Product types and HS codes (lists users can add to from the form).
+  const { data: activeProductTypes = [] } = useQuery({
+    queryKey: ["product-types"],
+    queryFn: () => productTypesApi.getAll(true),
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: activeHsCodes = [] } = useQuery({
+    queryKey: ["hs-codes"],
+    queryFn: () => hsCodesApi.getAll(true),
+    staleTime: 5 * 60 * 1000,
+  });
+  // Active Item Catalog items for the Stock Item picker (the stocked part this product sells).
+  const { data: activeStockItems = [] } = useQuery({
+    queryKey: ["materials", "picker", "active"],
+    queryFn: () => materialsApi.getAll(0, 100000, true),
+    staleTime: 5 * 60 * 1000,
+    enabled: activeTab === 0,
+  });
+
+  const stockItemOptions = useMemo(() => {
+    const opts: { id: number; item_code: string; name: string }[] = activeStockItems.map((m) => ({
+      id: m.id,
+      item_code: m.item_code,
+      name: m.name,
+    }));
+    const linked = productState.selectedItem;
+    if (linked?.material_id && !opts.some((o) => o.id === linked.material_id)) {
+      opts.push({ id: linked.material_id, item_code: linked.material_item_code ?? "", name: linked.material_name ?? "" });
+    }
+    return opts;
+  }, [activeStockItems, productState.selectedItem]);
+
   // Fetch current minimum selling price for selected product
   const { data: currentMinPrice } = useQuery({
     queryKey: ["minimum-price", productState.selectedItem?.id],
@@ -505,51 +539,31 @@ export default function ProductsPage({
     }
   }, [productState.selectedItem?.id, currentMinPrice, productState.isCreating]);
 
-  // Same query key ProductSuppliersList uses for the selected product, so
-  // this just reads the shared cache (no extra request) — needed here only
-  // to know whether the Suppliers tab is still empty.
-  const { data: productSupplierMappings = [] } = useQuery({
-    queryKey: ["product-suppliers", productState.selectedItem?.id],
-    queryFn: () => productsApi.getSuppliers(productState.selectedItem!.id),
-    enabled: !!productState.selectedItem?.id && !productState.isCreating,
-  });
-
-  // The Suppliers tab stays fillable without an Edit click for as long as it has
-  // nothing in it yet. Pricing does not: once the product is saved the tab is
-  // read-only (Edit button), even when the optional Website / Minimum prices are
-  // still empty — otherwise Save / Cancel would never go away after saving.
-  const isProductSuppliersUnfilled =
-    productState.isCreating
-      ? pendingSupplierMappings.length === 0
-      : productSupplierMappings.length === 0;
-
-  // Filling an empty section is still an update: it needs the update permission.
+  // Pricing is read-only once saved (Edit button), like General.
   const isPricingEditable = productState.isEditing || productState.isCreating;
-  const isProductSuppliersEditable =
-    productState.isEditing || productState.isCreating || (canUpdate && isProductSuppliersUnfilled);
 
-  // Supplier mappings are added/edited through their own side-panel dialog
-  // (its own Save button) — the main toolbar's Save/Cancel is redundant
-  // there regardless of whether the list is still empty.
-  const hideToolbarSaveForSection = activeProductSection === "suppliers";
+  const designProductId = productState.selectedItem && !productState.isCreating ? productState.selectedItem.id : null;
+  // Design Brief / Design Detail / BOM Structure tabs: their own edit state, driven from the same toolbar
+  // as General / Pricing.
+  const designBrief = useProductDesignBrief(designProductId, canUpdate);
+  const designDetail = useProductDesignDetail(designProductId, canUpdate);
+  const bomStructure = useProductBomStructure(designProductId, canUpdate);
+  const designDoc = productState.isCreating
+    ? null
+    : activeProductSection === "designBrief"
+      ? designBrief
+      : activeProductSection === "designDetail"
+        ? designDetail
+        : activeProductSection === "bomStructure"
+          ? bomStructure
+          : null;
 
-  // The main toolbar's Save/Cancel only cover fields on formData — General
-  // and Pricing (once in Edit mode); Suppliers saves through its own dialog,
-  // never this button.
+  // The main toolbar's Save/Cancel cover General and Pricing (once in Edit mode).
   const showToolbarSaveForSection =
-    !hideToolbarSaveForSection &&
-    (activeProductSection === "pricing"
+    activeProductSection === "pricing"
       ? isPricingEditable
-      : productState.isEditing || productState.isCreating);
+      : productState.isEditing || productState.isCreating;
 
-  // Suppliers list for the product filter bar's "Supplier" picker
-  const { data: suppliersForFilter = [] } = useQuery({
-    queryKey: ["suppliers-for-product-filter"],
-    queryFn: () => suppliersApi.getAll({ active: true }),
-    enabled: activeTab === 0,
-    staleTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
-  });
 
 
   // Browse-table rows/columns. Rows add display-only lookup fields (category
@@ -592,13 +606,6 @@ export default function ProductsPage({
     () => [
       { field: "item_code", header: "Item Code", width: 140 },
       {
-        field: "item_type",
-        header: "Item Type",
-        width: 110,
-        renderCell: (params: GridRenderCellParams<ProductRow>) =>
-          getChoiceLabel(PRODUCT_ITEM_TYPE, params.row.item_type),
-      },
-      {
         field: "name",
         header: "Name",
         flex: 1,
@@ -612,31 +619,28 @@ export default function ProductsPage({
           </Box>
         ),
       },
-      { field: "category_name", header: "Category", width: 160 },
-      { field: "brand_name", header: "Brand", width: 140 },
       {
-        field: "unit_of_measure",
-        header: "UOM",
-        width: 90,
-        renderCell: (params: GridRenderCellParams<ProductRow>) =>
-          getChoiceLabel(PRODUCT_UOM, params.row.unit_of_measure),
+        field: "product_type_name",
+        header: "Product Type",
+        width: 130,
+        sortable: false,
+        renderCell: (params: GridRenderCellParams<ProductRow>) => params.row.product_type_name || "-",
+      },
+      { field: "category_name", header: "Category", width: 150 },
+      { field: "brand_name", header: "Brand", width: 130 },
+      {
+        field: "product_family",
+        header: "Product Family",
+        width: 150,
+        sortable: false,
+        renderCell: (params: GridRenderCellParams<ProductRow>) => params.row.product_family || "-",
       },
       {
-        field: "tracking_type",
-        header: "Tracking",
-        width: 100,
-        renderCell: (params: GridRenderCellParams<ProductRow>) =>
-          ({ serial: "Serial", batch: "Batch", none: "None" } as Record<string, string>)[
-            params.row.tracking_type || "serial"
-          ] ?? "-",
-      },
-      {
-        field: "preferred_supplier_name",
-        header: "Preferred Supplier",
-        flex: 1,
-        minWidth: 160,
-        renderCell: (params: GridRenderCellParams<ProductRow>) =>
-          params.row.preferred_supplier_name || "-",
+        field: "hs_code",
+        header: "HS Code",
+        width: 120,
+        sortable: false,
+        renderCell: (params: GridRenderCellParams<ProductRow>) => params.row.hs_code || "-",
       },
       {
         field: "cost_price",
@@ -653,15 +657,6 @@ export default function ProductsPage({
         align: "right",
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<ProductRow>) => `${currencySymbol} ${fmtLKR(params.row.selling_price || 0)}`,
-      },
-      {
-        field: "minimum_selling_price",
-        header: "Min. Sell Price",
-        width: 130,
-        align: "right",
-        headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<ProductRow>) =>
-          params.row.minimum_selling_price != null ? `${currencySymbol} ${fmtLKR(params.row.minimum_selling_price)}` : "-",
       },
       {
         field: "active",
@@ -856,7 +851,7 @@ export default function ProductsPage({
     mutationFn: (data: ProductCreate) => productsApi.create(data),
     // Also invalidate the referenceData cache so product selectors in purchasing,
     // sales, warehouse etc. immediately reflect the new product without a hard refresh.
-    invalidateQueryKeys: [["products"], ["referenceData"]],
+    invalidateQueryKeys: [["products"], ["referenceData"], ["materials"]],
     successMessage: "Product created successfully",
     errorMessage: "Failed to create product",
     onSuccess: (newProduct) => {
@@ -884,41 +879,13 @@ export default function ProductsPage({
           );
       }
 
-      if (pendingSupplierMappings.length > 0) {
-        const mappingsToCreate = pendingSupplierMappings;
-        setPendingSupplierMappings([]);
-        // allSettled, not all: refresh the list whether some or all of the
-        // mappings failed, so the Suppliers section shows what actually saved.
-        Promise.allSettled(
-          mappingsToCreate.map((m) =>
-            suppliersApi.createProduct(m.supplier_id, {
-              product_id: newProduct.id,
-              supplier_sku: m.supplier_sku || undefined,
-              cost_price: m.cost_price,
-              minimum_order_qty: m.minimum_order_qty,
-              is_preferred: m.is_preferred,
-              active: m.active,
-            }),
-          ),
-        ).then((results) => {
-          queryClient.invalidateQueries({
-            queryKey: ["product-suppliers", newProduct.id],
-          });
-          queryClient.invalidateQueries({ queryKey: ["products"] });
-          if (results.some((r) => r.status === "rejected")) {
-            showErrorToast(
-              "Product created, but some supplier mappings failed to save",
-            );
-          }
-        });
-      }
     },
   });
 
   const updateProductMutation = useCrudMutation({
     mutationFn: ({ id, data }: { id: number; data: ProductUpdate }) =>
       productsApi.update(id, data),
-    invalidateQueryKeys: [["products"], ["referenceData"]],
+    invalidateQueryKeys: [["products"], ["referenceData"], ["materials"]],
     getInvalidateQueryKeys: (_data, variables) => [["minimum-price", variables.id]],
     successMessage: "Product updated successfully",
     errorMessage: "Failed to update product",
@@ -1091,10 +1058,40 @@ export default function ProductsPage({
       tax_rate: product.tax_rate ?? 0,
       category_id: product.category_id,
       items_brand_id: product.items_brand_id,
+      product_type_id: product.product_type_id ?? 0,
+      hs_code_id: product.hs_code_id ?? 0,
+      product_family: product.product_family || "",
+      target_market: product.target_market || "",
+      required_certificate: product.required_certificate || "",
+      material_id: product.material_id ?? undefined,
     });
     productState.setIsEditing(false);
     productState.setIsCreating(false);
   };
+
+  // Open the ?focus=<id> deep-link target (e.g. from an item's Linked Products
+  // in the Item Catalog). Nothing is auto-selected otherwise.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusHandled = useRef(false);
+  useEffect(() => {
+    if (activeTab !== 0) return;
+    const focusId = Number(searchParams.get("focus"));
+    if (focusId && !focusHandled.current) {
+      focusHandled.current = true;
+      productsApi
+        .getById(focusId)
+        .then((target) => {
+          setActiveProductSection("general");
+          selectProductInternal(target);
+        })
+        .catch(() => showErrorToast("Could not open that product"));
+      const next = new URLSearchParams(searchParams);
+      next.delete("focus");
+      setSearchParams(next, { replace: true });
+    }
+    // selectProductInternal is recreated each render; the ref guard runs this once per link.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, searchParams, setSearchParams]);
 
   const handleNewProduct = () => {
     // Category/Brand start unselected — the user must explicitly choose,
@@ -1103,7 +1100,6 @@ export default function ProductsPage({
     productState.setFormData(emptyProductForm);
     setMinPriceInput("");
     setProductTouched({});
-    setPendingSupplierMappings([]);
     setDraftImageFile(null);
     productState.setIsCreating(true);
     productState.setIsEditing(true);
@@ -1116,7 +1112,6 @@ export default function ProductsPage({
         name: `${productState.selectedItem.name} (Copy)`,
       });
       setMinPriceInput("");
-      setPendingSupplierMappings([]);
       setDraftImageFile(null);
       productState.setIsCreating(true);
       productState.setIsEditing(true);
@@ -1143,10 +1138,22 @@ export default function ProductsPage({
       !(productState.formData.name ?? "").trim() ||
       !productState.formData.tracking_type ||
       !productState.formData.category_id ||
-      !productState.formData.items_brand_id
+      !productState.formData.items_brand_id ||
+      !productState.formData.product_type_id ||
+      !productState.formData.hs_code_id ||
+      !(productState.formData.product_family ?? "").trim()
     ) {
       showErrorToast("Please fill in all required fields");
-      setProductTouched({ name: true, tracking_type: true, category_id: true, items_brand_id: true });
+      setActiveProductSection("general");
+      setProductTouched({
+        name: true,
+        tracking_type: true,
+        category_id: true,
+        items_brand_id: true,
+        product_type_id: true,
+        hs_code_id: true,
+        product_family: true,
+      });
       return;
     }
     if (
@@ -1229,6 +1236,9 @@ export default function ProductsPage({
     const minimumSellingPrice =
       typeof minPriceInput === "number" ? minPriceInput : undefined;
 
+    // No Stock Item chosen: omit it, so the backend creates and links an item.
+    if (!dataToSave.material_id) delete dataToSave.material_id;
+
     if (productState.isCreating) {
       await createProductMutation
         .mutateAsync({
@@ -1241,13 +1251,18 @@ export default function ProductsPage({
       // actually changed, so sending the current value is a no-op.
       // image_url is owned by the image upload/remove endpoints — it
       // doesn't belong in a form-save update.
-      const updateFields: Partial<ProductCreate> = { ...dataToSave };
+      const { material_id: chosenItemId, ...updateFields }: Partial<ProductCreate> = { ...dataToSave };
       delete updateFields.image_url;
+      // Send the Stock Item only when it changed (null clears the link); the
+      // backend refuses a change while the product has stock.
+      const prevItemId = productState.selectedItem.material_id ?? null;
+      const nextItemId = chosenItemId ?? null;
       await updateProductMutation
         .mutateAsync({
           id: productState.selectedItem.id,
           data: {
             ...updateFields,
+            ...(nextItemId !== prevItemId ? { material_id: nextItemId } : {}),
             minimum_selling_price: minimumSellingPrice,
             expected_updated_at: productState.selectedItem.updated_at,
             expected_version: productState.selectedItem.version,
@@ -1269,7 +1284,6 @@ export default function ProductsPage({
       productState.setSelectedItem(null);
       setMinPriceInput("");
       setProductTouched({});
-      setPendingSupplierMappings([]);
       setDraftImageFile(null);
     } else if (productState.selectedItem) {
       selectProductInternal(productState.selectedItem);
@@ -1472,7 +1486,10 @@ export default function ProductsPage({
     !(productState.formData.name ?? "").trim() ||
     !productState.formData.tracking_type ||
     !productState.formData.category_id ||
-    !productState.formData.items_brand_id;
+    !productState.formData.items_brand_id ||
+    !productState.formData.product_type_id ||
+    !productState.formData.hs_code_id ||
+    !(productState.formData.product_family ?? "").trim();
 
   // Whether we're showing a single product's / category's / brand's detail
   // view (selected or being created) instead of that tab's browse table.
@@ -1509,7 +1526,6 @@ export default function ProductsPage({
                 active: activeParam(productActiveFilter),
                 category_id: productCategoryFilter?.id,
                 brand_id: productBrandFilter?.id,
-                supplier_id: productSupplierFilter?.id,
                 sort_by: productSort?.field,
                 order: productSort?.sort,
               })
@@ -1569,9 +1585,7 @@ export default function ProductsPage({
                       ? "success"
                       : "default",
                   },
-                  ...(productState.selectedItem.website_active
-                    ? [{ label: "Website Active", color: "info" as const }]
-                    : []),
+                  ...(designDoc?.statusChip ? [designDoc.statusChip] : []),
                 ]
               : undefined
           }
@@ -1597,13 +1611,14 @@ export default function ProductsPage({
 
         <ActionToolbar
           canCreate={canCreate}
-          canUpdate={canUpdate}
-          isEditing={showToolbarSaveForSection}
+          canUpdate={designDoc ? designDoc.canEdit : canUpdate}
+          isEditing={designDoc ? designDoc.editing : showToolbarSaveForSection}
           isCreating={productState.isCreating}
           hasSelection={!!productState.selectedItem}
           onAdd={handleNewProduct}
           onDuplicate={handleDuplicateProduct}
-          onSave={handleSaveProduct}
+          onSave={designDoc ? designDoc.save : handleSaveProduct}
+          endActions={designDoc ? designDoc.decisionActions : undefined}
           onBack={
             prevProductTab && !productState.isCreating && productState.selectedItem?.id === justCreatedId
               ? () => setActiveProductSection(prevProductTab.id as typeof activeProductSection)
@@ -1617,16 +1632,22 @@ export default function ProductsPage({
                   )
               : undefined
           }
-          onCancel={handleCancelProduct}
-          onEdit={() => {
-            setMinPriceInput(currentMinPrice?.minimum_price ?? "");
-            productState.setIsEditing(true);
-          }}
-          isSaving={
-            createProductMutation.isPending || updateProductMutation.isPending
+          onCancel={designDoc ? designDoc.cancelEdit : handleCancelProduct}
+          onEdit={
+            designDoc
+              ? designDoc.startEdit
+              : () => {
+                  setMinPriceInput(currentMinPrice?.minimum_price ?? "");
+                  productState.setIsEditing(true);
+                }
           }
-          saveDisabled={isProductGeneralIncomplete}
-          onInvalidSave={() => setProductTouched((t) => ({ ...t, name: true, tracking_type: true, category_id: true, items_brand_id: true }))}
+          isSaving={
+            designDoc
+              ? designDoc.isSaving
+              : createProductMutation.isPending || updateProductMutation.isPending
+          }
+          saveDisabled={designDoc ? false : isProductGeneralIncomplete}
+          onInvalidSave={() => setProductTouched((t) => ({ ...t, name: true, tracking_type: true, category_id: true, items_brand_id: true, product_type_id: true, hs_code_id: true, product_family: true }))}
         />
 
         <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -1646,16 +1667,62 @@ export default function ProductsPage({
                       </Alert>
                     )}
 
-                  <FormSection title="Basic Information">
-                    {!productState.isCreating && (
-                      <TextField
-                        label="Item Code"
-                        size="small"
-                        value={productState.selectedItem?.item_code ?? ""}
-                        disabled
-                        helperText="Generated automatically"
-                      />
+                  <FormSection title="General">
+                    <Box sx={{ position: "relative" }}>
+                    {(productState.isEditing || productState.isCreating) && canCreateBrand && (
+                      <Box sx={{ position: "absolute", top: -10, right: 34, zIndex: 1, bgcolor: "background.paper", px: 0.25, lineHeight: 1 }}>
+                        <Button
+                          size="small"
+                          variant="text"
+                          startIcon={<AddIcon fontSize="small" />}
+                          onClick={() => setQuickCreate("brand")}
+                          sx={{ textTransform: "none", py: 0, px: 0.5, minHeight: 0, lineHeight: 1.3, fontSize: "0.75rem" }}
+                        >
+                          Add Brand
+                        </Button>
+                      </Box>
                     )}
+                    <Autocomplete
+                      size="small"
+                      sx={{ flex: 1 }}
+                      options={activeBrands}
+                      getOptionLabel={(option) => option.brand_name}
+                      value={
+                        activeBrands.find(
+                          (b) => b.id === productState.formData.items_brand_id,
+                        ) ||
+                        brands?.find(
+                          (b) => b.id === productState.formData.items_brand_id,
+                        ) ||
+                        null
+                      }
+                      onChange={(_, newValue) =>
+                        productState.setFormData({
+                          ...productState.formData,
+                          items_brand_id: newValue?.id || 0,
+                        })
+                      }
+                      disabled={!productState.isEditing && !productState.isCreating}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Brand"
+                          required
+                          error={productTouched.items_brand_id && !productState.formData.items_brand_id}
+                          helperText={
+                            productTouched.items_brand_id && !productState.formData.items_brand_id
+                              ? "Brand is required"
+                              : productState.isEditing || productState.isCreating
+                              ? "Only active brands can be selected"
+                              : ""
+                          }
+                        />
+                      )}
+                      isOptionEqualToValue={(option, value) =>
+                        option.id === value.id
+                      }
+                    />
+                    </Box>
                     <TextField
                       label="Product Name"
                       inputProps={{ maxLength: 255 }}
@@ -1678,37 +1745,250 @@ export default function ProductsPage({
                       }
                     />
                     <TextField
-                      label="Model"
-                      inputProps={{ maxLength: 255 }}
+                      label="Description"
+                      inputProps={{ maxLength: 5000 }}
                       size="small"
-                      value={productState.formData.model}
+                      value={productState.formData.description}
                       onChange={(e) =>
                         productState.setFormData({
                           ...productState.formData,
-                          model: e.target.value,
+                          description: e.target.value,
                         })
                       }
                       disabled={!productState.isEditing && !productState.isCreating}
+                      multiline
+                      rows={2}
+                      sx={{ gridColumn: { sm: "1 / -1" } }}
+                    />
+                    <Box sx={{ position: "relative" }}>
+                    {(productState.isEditing || productState.isCreating) && canCreateCategory && (
+                      <Box sx={{ position: "absolute", top: -10, right: 34, zIndex: 1, bgcolor: "background.paper", px: 0.25, lineHeight: 1 }}>
+                        <Button
+                          size="small"
+                          variant="text"
+                          startIcon={<AddIcon fontSize="small" />}
+                          onClick={() => setQuickCreate("category")}
+                          sx={{ textTransform: "none", py: 0, px: 0.5, minHeight: 0, lineHeight: 1.3, fontSize: "0.75rem" }}
+                        >
+                          Add Category
+                        </Button>
+                      </Box>
+                    )}
+                    <Autocomplete
+                      size="small"
+                      sx={{ flex: 1 }}
+                      options={activeCategories}
+                      getOptionLabel={(option) => option.name}
+                      value={
+                        activeCategories.find(
+                          (c) => c.id === productState.formData.category_id,
+                        ) ||
+                        categories?.find(
+                          (c) => c.id === productState.formData.category_id,
+                        ) ||
+                        null
+                      }
+                      onChange={(_, newValue) =>
+                        productState.setFormData({
+                          ...productState.formData,
+                          category_id: newValue?.id || 0,
+                        })
+                      }
+                      disabled={!productState.isEditing && !productState.isCreating}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Category"
+                          required
+                          error={productTouched.category_id && !productState.formData.category_id}
+                          helperText={
+                            productTouched.category_id && !productState.formData.category_id
+                              ? "Category is required"
+                              : productState.isEditing || productState.isCreating
+                              ? "Only active categories can be selected"
+                              : ""
+                          }
+                        />
+                      )}
+                      isOptionEqualToValue={(option, value) =>
+                        option.id === value.id
+                      }
+                    />
+                    </Box>
+                    <Box sx={{ position: "relative" }}>
+                    {(productState.isEditing || productState.isCreating) && canCreate && (
+                      <Box sx={{ position: "absolute", top: -10, right: 34, zIndex: 1, bgcolor: "background.paper", px: 0.25, lineHeight: 1 }}>
+                        <Button
+                          size="small"
+                          variant="text"
+                          startIcon={<AddIcon fontSize="small" />}
+                          onClick={() => setQuickCreate("product_type")}
+                          sx={{ textTransform: "none", py: 0, px: 0.5, minHeight: 0, lineHeight: 1.3, fontSize: "0.75rem" }}
+                        >
+                          Add Product Type
+                        </Button>
+                      </Box>
+                    )}
+                    <Autocomplete
+                      size="small"
+                      sx={{ flex: 1 }}
+                      options={activeProductTypes}
+                      getOptionLabel={(option) => option.name}
+                      value={activeProductTypes.find((o) => o.id === productState.formData.product_type_id) || null}
+                      onChange={(_, newValue) =>
+                        productState.setFormData({ ...productState.formData, product_type_id: newValue?.id || 0 })
+                      }
+                      disabled={!productState.isEditing && !productState.isCreating}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Product Type"
+                          required
+                          error={productTouched.product_type_id && !productState.formData.product_type_id}
+                          helperText={productTouched.product_type_id && !productState.formData.product_type_id ? "Product type is required" : ""}
+                        />
+                      )}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                    />
+                    </Box>
+                    <TextField
+                      label="Product Family"
+                      size="small"
+                      inputProps={{ maxLength: 120 }}
+                      value={productState.formData.product_family ?? ""}
+                      onChange={(e) => productState.setFormData({ ...productState.formData, product_family: e.target.value })}
+                      disabled={!productState.isEditing && !productState.isCreating}
+                      required
+                      error={productTouched.product_family && !(productState.formData.product_family ?? "").trim()}
+                      helperText={
+                        productTouched.product_family && !(productState.formData.product_family ?? "").trim()
+                          ? "Product family is required"
+                          : ""
+                      }
+                    />
+                    <Box sx={{ position: "relative" }}>
+                    {(productState.isEditing || productState.isCreating) && canCreate && (
+                      <Box sx={{ position: "absolute", top: -10, right: 34, zIndex: 1, bgcolor: "background.paper", px: 0.25, lineHeight: 1 }}>
+                        <Button
+                          size="small"
+                          variant="text"
+                          startIcon={<AddIcon fontSize="small" />}
+                          onClick={() => setQuickCreate("hs_code")}
+                          sx={{ textTransform: "none", py: 0, px: 0.5, minHeight: 0, lineHeight: 1.3, fontSize: "0.75rem" }}
+                        >
+                          Add HS Code
+                        </Button>
+                      </Box>
+                    )}
+                    <Autocomplete
+                      size="small"
+                      sx={{ flex: 1 }}
+                      options={activeHsCodes}
+                      getOptionLabel={(option) => option.description ? `${option.code} — ${option.description}` : option.code}
+                      value={activeHsCodes.find((o) => o.id === productState.formData.hs_code_id) || null}
+                      onChange={(_, newValue) =>
+                        productState.setFormData({ ...productState.formData, hs_code_id: newValue?.id || 0 })
+                      }
+                      disabled={!productState.isEditing && !productState.isCreating}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="HS Code"
+                          required
+                          error={productTouched.hs_code_id && !productState.formData.hs_code_id}
+                          helperText={productTouched.hs_code_id && !productState.formData.hs_code_id ? "HS code is required" : ""}
+                        />
+                      )}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                    />
+                    </Box>
+                    <TextField
+                      label="Target Market"
+                      size="small"
+                      inputProps={{ maxLength: 120 }}
+                      value={productState.formData.target_market ?? ""}
+                      onChange={(e) => productState.setFormData({ ...productState.formData, target_market: e.target.value })}
+                      disabled={!productState.isEditing && !productState.isCreating}
+                      placeholder="e.g. Sri Lanka, EU"
                     />
                     <TextField
-                      label="Item Type"
+                      label="Required Certificate"
                       size="small"
-                      select
-                      value={productState.formData.item_type}
-                      onChange={(e) =>
-                        productState.setFormData({
-                          ...productState.formData,
-                          item_type: e.target.value,
-                        })
-                      }
+                      inputProps={{ maxLength: 255 }}
+                      value={productState.formData.required_certificate ?? ""}
+                      onChange={(e) => productState.setFormData({ ...productState.formData, required_certificate: e.target.value })}
                       disabled={!productState.isEditing && !productState.isCreating}
-                    >
-                      {PRODUCT_ITEM_TYPE.map((option) => (
-                        <MenuItem key={option.value} value={option.value}>
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </TextField>
+                      placeholder="e.g. CE, ISO 9001"
+                    />
+                  </FormSection>
+
+                  <FormSection title="Stock & Receiving">
+                    {!productState.isCreating && (
+                      <TextField
+                        label="Product Code"
+                        size="small"
+                        value={productState.selectedItem?.item_code ?? ""}
+                        disabled
+                        helperText="Generated automatically"
+                      />
+                    )}
+                    {productState.isEditing || productState.isCreating ? (
+                      <Autocomplete
+                        size="small"
+                        options={stockItemOptions}
+                        getOptionLabel={(option) => [option.item_code, option.name].filter(Boolean).join(" — ")}
+                        value={stockItemOptions.find((m) => m.id === productState.formData.material_id) || null}
+                        onChange={(_, newValue) =>
+                          productState.setFormData({ ...productState.formData, material_id: newValue?.id })
+                        }
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="Stock Item"
+                            placeholder="Search Item Catalog"
+                            helperText={
+                              productState.isCreating
+                                ? "Leave empty to create an item automatically when saving"
+                                : "The Item Catalog item this product sells"
+                            }
+                          />
+                        )}
+                        isOptionEqualToValue={(option, value) => option.id === value.id}
+                      />
+                    ) : (
+                      <TextField
+                        label="Stock Item"
+                        size="small"
+                        value={
+                          productState.selectedItem?.material_id
+                            ? [productState.selectedItem.material_item_code, productState.selectedItem.material_name]
+                                .filter(Boolean)
+                                .join(" — ") || `Item #${productState.selectedItem.material_id}`
+                            : ""
+                        }
+                        placeholder="No stock item (service / non-stock)"
+                        InputLabelProps={{ shrink: true }}
+                        disabled
+                        helperText={productState.selectedItem?.material_id ? "Stocked and bought as this item" : "Not stocked"}
+                        InputProps={{
+                          endAdornment: productState.selectedItem?.material_id ? (
+                            <InputAdornment position="end">
+                              <Tooltip title="Open in Item Catalog">
+                                <IconButton
+                                  size="small"
+                                  component={RouterLink}
+                                  to={`/materials/item-catalog?focus=${productState.selectedItem.material_id}`}
+                                  aria-label="Open in Item Catalog"
+                                  sx={{ pointerEvents: "auto" }}
+                                >
+                                  <OpenInNewIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </InputAdornment>
+                          ) : undefined,
+                        }}
+                      />
+                    )}
                     <TextField
                       label="Unit of Measure"
                       size="small"
@@ -1760,178 +2040,8 @@ export default function ProductsPage({
                         </MenuItem>
                       ))}
                     </TextField>
-                    <TextField
-                      label="Over-receipt tolerance (%)"
-                      size="small"
-                      type="number"
-                      value={productState.formData.over_receipt_tolerance_pct ?? 0}
-                      onChange={(e) =>
-                        productState.setFormData({
-                          ...productState.formData,
-                          over_receipt_tolerance_pct: Number(e.target.value) || 0,
-                        })
-                      }
-                      disabled={!productState.isEditing && !productState.isCreating}
-                      inputProps={{ min: 0, max: 100, step: 0.5 }}
-                      error={Boolean(toleranceError(productState.formData.over_receipt_tolerance_pct))}
-                      helperText={toleranceError(productState.formData.over_receipt_tolerance_pct) ?? "A PO line may be received up to this % over the ordered quantity (0 = exact)."}
-                    />
-                    <TextField
-                      label="Under-receipt tolerance (%)"
-                      size="small"
-                      type="number"
-                      value={productState.formData.under_receipt_tolerance_pct ?? 0}
-                      onChange={(e) =>
-                        productState.setFormData({
-                          ...productState.formData,
-                          under_receipt_tolerance_pct: Number(e.target.value) || 0,
-                        })
-                      }
-                      disabled={!productState.isEditing && !productState.isCreating}
-                      inputProps={{ min: 0, max: 100, step: 0.5 }}
-                      error={Boolean(toleranceError(productState.formData.under_receipt_tolerance_pct))}
-                      helperText={toleranceError(productState.formData.under_receipt_tolerance_pct) ?? "A PO line counts as fully received once it is this % short (0 = exact)."}
-                    />
-                    <TextField
-                      label="Description"
-                      inputProps={{ maxLength: 5000 }}
-                      size="small"
-                      value={productState.formData.description}
-                      onChange={(e) =>
-                        productState.setFormData({
-                          ...productState.formData,
-                          description: e.target.value,
-                        })
-                      }
-                      disabled={!productState.isEditing && !productState.isCreating}
-                      multiline
-                      rows={2}
-                      sx={{ gridColumn: { sm: "1 / -1" } }}
-                    />
                   </FormSection>
 
-                  <FormSection title="Manufacturing">
-                    <TextField
-                      label="Shelf life (days)"
-                      size="small"
-                      type="number"
-                      value={productState.formData.shelf_life_days ?? ""}
-                      onChange={(e) =>
-                        productState.setFormData({
-                          ...productState.formData,
-                          shelf_life_days: e.target.value === "" ? null : Number(e.target.value),
-                        })
-                      }
-                      disabled={!productState.isEditing && !productState.isCreating}
-                      inputProps={{ min: 1, max: 3650, step: 1 }}
-                      error={Boolean(shelfLifeError(productState.formData.shelf_life_days))}
-                      helperText={
-                        shelfLifeError(productState.formData.shelf_life_days) ??
-                        "A finished batch expires this many days after it is produced"
-                      }
-                    />
-                    <Box>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={!!productState.formData.requires_qc}
-                            onChange={(e) =>
-                              productState.setFormData({
-                                ...productState.formData,
-                                requires_qc: e.target.checked,
-                              })
-                            }
-                            disabled={!productState.isEditing && !productState.isCreating}
-                          />
-                        }
-                        label="Hold output for quality check"
-                      />
-                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", ml: 0.5 }}>
-                        Production output stays frozen until someone passes it
-                      </Typography>
-                    </Box>
-                  </FormSection>
-
-                  <FormSection title="Classification">
-                    <Autocomplete
-                      size="small"
-                      options={activeCategories}
-                      getOptionLabel={(option) => option.name}
-                      value={
-                        activeCategories.find(
-                          (c) => c.id === productState.formData.category_id,
-                        ) ||
-                        categories?.find(
-                          (c) => c.id === productState.formData.category_id,
-                        ) ||
-                        null
-                      }
-                      onChange={(_, newValue) =>
-                        productState.setFormData({
-                          ...productState.formData,
-                          category_id: newValue?.id || 0,
-                        })
-                      }
-                      disabled={!productState.isEditing && !productState.isCreating}
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
-                          label="Category"
-                          required
-                          error={productTouched.category_id && !productState.formData.category_id}
-                          helperText={
-                            productTouched.category_id && !productState.formData.category_id
-                              ? "Category is required"
-                              : productState.isEditing || productState.isCreating
-                              ? "Only active categories can be selected"
-                              : ""
-                          }
-                        />
-                      )}
-                      isOptionEqualToValue={(option, value) =>
-                        option.id === value.id
-                      }
-                    />
-                    <Autocomplete
-                      size="small"
-                      options={activeBrands}
-                      getOptionLabel={(option) => option.brand_name}
-                      value={
-                        activeBrands.find(
-                          (b) => b.id === productState.formData.items_brand_id,
-                        ) ||
-                        brands?.find(
-                          (b) => b.id === productState.formData.items_brand_id,
-                        ) ||
-                        null
-                      }
-                      onChange={(_, newValue) =>
-                        productState.setFormData({
-                          ...productState.formData,
-                          items_brand_id: newValue?.id || 0,
-                        })
-                      }
-                      disabled={!productState.isEditing && !productState.isCreating}
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
-                          label="Brand"
-                          required
-                          error={productTouched.items_brand_id && !productState.formData.items_brand_id}
-                          helperText={
-                            productTouched.items_brand_id && !productState.formData.items_brand_id
-                              ? "Brand is required"
-                              : productState.isEditing || productState.isCreating
-                              ? "Only active brands can be selected"
-                              : ""
-                          }
-                        />
-                      )}
-                      isOptionEqualToValue={(option, value) =>
-                        option.id === value.id
-                      }
-                    />
-                  </FormSection>
 
                   <FormSection title="Product Image" columns={1}>
                     <ProductImageUploader
@@ -1986,40 +2096,12 @@ export default function ProductsPage({
                           }
                           label="Active"
                         />
-                        <FormControlLabel
-                          control={
-                            <Switch
-                              checked={productState.formData.website_active}
-                              onChange={(e) =>
-                                productState.setFormData({
-                                  ...productState.formData,
-                                  website_active: e.target.checked,
-                                })
-                              }
-                              // Website active can only be enabled if product is active
-                              disabled={
-                                (!productState.isEditing &&
-                                  !productState.isCreating) ||
-                                !productState.formData.active
-                              }
-                            />
-                          }
-                          label="Website Active"
-                        />
                       </Box>
                       {!productState.formData.active &&
                         (productState.isEditing || productState.isCreating) && (
                           <Typography variant="caption" color="warning.main">
                             Note: Inactive products cannot be used in sales,
                             purchases, or displayed on the website.
-                          </Typography>
-                        )}
-                      {productState.formData.active &&
-                        !productState.formData.website_active &&
-                        (productState.isEditing || productState.isCreating) && (
-                          <Typography variant="caption" color="text.secondary">
-                            Enable "Website Active" to display this product on the
-                            website.
                           </Typography>
                         )}
                     </Box>
@@ -2244,27 +2326,22 @@ export default function ProductsPage({
                 </FormSection>
               </TTabPanel>
 
-              {/* ── Suppliers (vendor pricelist) ─────────────────────────── */}
-              <TTabPanel value={activeProductSection} index="suppliers" padding={0} sx={{ pt: 2 }}>
-                <FormSection title="Suppliers" isLast>
-                  <Box sx={{ gridColumn: "1 / -1" }}>
-                    {productState.isCreating ? (
-                      <ProductSuppliersList
-                        canEdit={canCreate}
-                        pendingMappings={pendingSupplierMappings}
-                        onPendingMappingsChange={setPendingSupplierMappings}
-                      />
-                    ) : (
-                      productState.selectedItem && (
-                        <ProductSuppliersList
-                          productId={productState.selectedItem.id}
-                          canEdit={canUpdate || isProductSuppliersEditable}
-                        />
-                      )
-                    )}
-                  </Box>
-                </FormSection>
-              </TTabPanel>
+              {productState.selectedItem && !productState.isCreating && (
+                <TTabPanel value={activeProductSection} index="designBrief" padding={0}>
+                  {designBrief.panel}
+                </TTabPanel>
+              )}
+              {productState.selectedItem && !productState.isCreating && (
+                <TTabPanel value={activeProductSection} index="designDetail" padding={0}>
+                  {designDetail.panel}
+                </TTabPanel>
+              )}
+              {productState.selectedItem && !productState.isCreating && (
+                <TTabPanel value={activeProductSection} index="bomStructure" padding={0}>
+                  {bomStructure.panel}
+                </TTabPanel>
+              )}
+
             </>
           )}
         </Box>
@@ -2792,17 +2869,6 @@ export default function ProductsPage({
                 />
               </Box>
               <Box sx={{ width: 130, flexShrink: 0 }}>
-                <TAutocomplete<Supplier>
-                  label=""
-                  placeholder="All Suppliers"
-                  options={suppliersForFilter}
-                  value={productSupplierFilter}
-                  onChange={(value) => setProductSupplierFilter(value as Supplier | null)}
-                  getOptionLabel={(s) => s.company_name}
-                  size="small"
-                />
-              </Box>
-              <Box sx={{ width: 130, flexShrink: 0 }}>
                 <TAutocomplete<Category>
                   label=""
                   placeholder="All Categories"
@@ -2824,7 +2890,7 @@ export default function ProductsPage({
                   size="small"
                 />
               </Box>
-              {(productState.searchQuery || productActiveFilter || productSupplierFilter || productCategoryFilter || productBrandFilter) && (
+              {(productState.searchQuery || productActiveFilter || productCategoryFilter || productBrandFilter) && (
                 <Button size="small" onClick={handleClearProductFilters} sx={{ textTransform: "none" }}>
                   Clear
                 </Button>
@@ -2984,6 +3050,36 @@ export default function ProductsPage({
             : isBrandDetailMode
               ? { children: brandDetailPanel }
               : { children: brandTablePanel })}
+      />
+
+      <QuickCreateLookupDialog<{ id: number }>
+        open={quickCreate !== null}
+        kind={quickCreate ?? "category"}
+        onClose={() => setQuickCreate(null)}
+        create={(d) =>
+          quickCreate === "brand"
+            ? brandsApi.create({ brand_name: d.name, description: d.description })
+            : quickCreate === "product_type"
+              ? productTypesApi.create({ name: d.name })
+              : quickCreate === "hs_code"
+                ? hsCodesApi.create({ code: d.name, description: d.description })
+                : categoriesApi.create({ name: d.name, description: d.description })
+        }
+        onCreated={(record) => {
+          if (quickCreate === "product_type") {
+            queryClient.invalidateQueries({ queryKey: ["product-types"] });
+            productState.setFormData({ ...productState.formData, product_type_id: record.id });
+          } else if (quickCreate === "hs_code") {
+            queryClient.invalidateQueries({ queryKey: ["hs-codes"] });
+            productState.setFormData({ ...productState.formData, hs_code_id: record.id });
+          } else if (quickCreate === "brand") {
+            queryClient.invalidateQueries({ queryKey: ["brands"] });
+            productState.setFormData({ ...productState.formData, items_brand_id: record.id });
+          } else {
+            queryClient.invalidateQueries({ queryKey: ["categories"] });
+            productState.setFormData({ ...productState.formData, category_id: record.id });
+          }
+        }}
       />
 
       {/* Single unified confirm dialog */}

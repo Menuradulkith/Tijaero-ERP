@@ -218,11 +218,12 @@ def _customer(db: Session, user: User, rid: int) -> dict:
     customer = customer_service.get_customer(db, rid)
     detail = cs.Customer.model_validate(customer).model_dump(mode="json")
     for field in ("bank_details", "bank_account_name", "bank_name", "bank_account_no", "bank_branch",
-                  "bank_branch_code", "bank_swift_code"):
+                  "bank_branch_code", "bank_swift_code", "correspondent_bank_name",
+                  "correspondent_bank_location", "correspondent_bank_swift_code", "correspondent_bank_iban"):
         detail.pop(field, None)
     show_sensitive = _full(user, "customer")
     if not show_sensitive:
-        for field in ("id_card_number", "passport_no", "tax_registration_number",
+        for field in ("id_card_number", "passport_no", "tax_registration_number", "vat_registration_number",
                       "company_registration_number", "created_by_name", "updated_by_name"):
             detail[field] = None
     name = customer.company_name if customer.customer_type == "business" and customer.company_name else customer.customer_name

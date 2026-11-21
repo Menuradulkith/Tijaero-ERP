@@ -207,6 +207,11 @@ class Permissions:
     BRAND_CREATE = ("brands", "create")
     BRAND_UPDATE = ("brands", "update")
     BRAND_DELETE = ("brands", "delete")
+    # Material master (own item catalog; shares categories and brands)
+    MATERIAL_VIEW = ("materials", "view")
+    MATERIAL_CREATE = ("materials", "create")
+    MATERIAL_UPDATE = ("materials", "update")
+    MATERIAL_DELETE = ("materials", "delete")
 
     # ═══════════════════════════════════════════════════════════════════
     # FINANCE — per sub-page
@@ -366,6 +371,10 @@ class Permissions:
     # of the ability to view/manage the underlying records.
     COST_PRICE_VIEW = ("cost_price", "view")
     WAREHOUSE_SALES_TRACK_VIEW = ("warehouse_sales_track", "view")
+    # Stock counts (warehouse.stock_count.*): view, start a count / enter counts, post
+    STOCK_COUNT_VIEW = ("stock_count", "view")
+    STOCK_COUNT_CREATE = ("stock_count", "create")
+    STOCK_COUNT_POST = ("stock_count", "post")
     ITN_VIEW = ("item_transfer_notes", "view")
     ITN_CREATE = ("item_transfer_notes", "create")
     ITN_UPDATE = ("item_transfer_notes", "update")

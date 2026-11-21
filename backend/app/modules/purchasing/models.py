@@ -419,7 +419,11 @@ class PurchasingOrderItems(Base, AuditMixin):
     warrenty_month = Column(String(30), nullable=False)
     remark = Column(String(200))
     created_date = Column(Date, nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    # Legacy: lines created before central stock phase 3 bought a product. New
+    # lines buy an Item Catalog item (material_id) and leave product_id NULL.
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    # The Item Catalog item bought on this line (backfilled from the product's item for old lines).
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     purchasingorders_id = Column(Integer, ForeignKey("purchasing_orders.id"), nullable=False)
     added_date = Column(TIMESTAMP, nullable=False)
     # Links this line back to the exact SalesQuoteItem it fulfills, when this
@@ -427,6 +431,26 @@ class PurchasingOrderItems(Base, AuditMixin):
     quote_item_id = Column(Integer, ForeignKey("sales_quote_items.id"), nullable=True, index=True)
 
     product = relationship("Product", back_populates="purchasing_order_items")
+    material = relationship("Material")
+
+    # Display fields for responses (item first, product for old lines).
+    @property
+    def material_item_code(self):
+        return self.material.item_code if self.material is not None else None
+
+    @property
+    def material_name(self):
+        return self.material.name if self.material is not None else None
+
+    @property
+    def unit_of_measure(self):
+        if self.material is not None:
+            return self.material.unit_of_measure
+        return getattr(self.product, "unit_of_measure", None) if self.product is not None else None
+
+    @property
+    def product_name(self):
+        return self.product.name if self.product is not None else None
     purchasing_order = relationship("PurchasingOrder", back_populates="items")
     quote_item = relationship("SalesQuoteItem", foreign_keys=[quote_item_id], backref="purchasing_order_items")
     good_received_items = relationship("GoodReceivedItems", back_populates="purchasing_order_item")
@@ -492,11 +516,28 @@ class PurchasingReturnItems(Base, AuditMixin):
     quantity = Column(Integer, nullable=False, default=1, server_default="1")
     branch_code = Column(String(200), nullable=False)
     added_date = Column(TIMESTAMP, nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    # NULL for item-only stock (an item no product sells); material_id is the item returned.
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     purchasingreturn_id = Column(Integer, ForeignKey("purchasing_return.id"), nullable=False)
     sales_stock_id = Column(Integer, ForeignKey("sales_stock.id"), nullable=True)
-    
+
     product = relationship("Product", back_populates="purchasing_return_items")
+    material = relationship("Material")
+
+    @property
+    def material_item_code(self):
+        return self.material.item_code if self.material is not None else None
+
+    @property
+    def material_name(self):
+        return self.material.name if self.material is not None else None
+
+    @property
+    def unit_of_measure(self):
+        if self.material is not None:
+            return self.material.unit_of_measure
+        return getattr(self.product, "unit_of_measure", None) if self.product is not None else None
     purchasing_return = relationship("PurchasingReturn", back_populates="items")
     sales_stock = relationship("SalesStock")
 

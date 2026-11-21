@@ -15,6 +15,9 @@ class PurchaseInvoiceItemBase(BaseModel):
     grn_id: int
     purchasing_order_id: Optional[int] = None
     product_id: Optional[int] = None
+    # The Item Catalog item billed (from the PO / GRN line); filled server-side from
+    # product_id on an old product line when not sent.
+    material_id: Optional[int] = None
     quantity: int
     unit_price: Decimal
     line_total: Decimal
@@ -36,6 +39,9 @@ class PurchaseInvoiceItemResponse(PurchaseInvoiceItemBase):
     grn_no: Optional[str] = None
     po_no: Optional[str] = None
     product_name: Optional[str] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -204,9 +210,13 @@ class PurchaseInvoiceListFilter(BaseModel):
 # ==================== GRN INVOICEABLE STATUS ====================
 
 class GRNInvoiceableProductDetail(BaseModel):
-    """Product-level breakdown within a GRN."""
-    product_id: int
+    """Line-level breakdown within a GRN (the item; product_id only on old product lines)."""
+    product_id: Optional[int] = None
     product_name: str
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
     po_item_id: int
     unit_price: float
     quantity: int

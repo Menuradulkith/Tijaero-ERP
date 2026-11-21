@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
+import re
+
+from pydantic import BaseModel, BeforeValidator, Field, StringConstraints, field_validator, model_validator
 from typing import Annotated, Generic, Literal, Optional, List, TypeVar
 
 T = TypeVar("T")
@@ -13,7 +15,14 @@ from app.modules.products.price_tier_schemas import MAX_PRICE, PriceTierOut
 # limits. Without this, blank names/codes were accepted, and one bad row could make a
 # whole list endpoint return 500.
 _Id = Annotated[int, Field(ge=1, le=2_147_483_647)]
-_Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+def _collapse_spaces(value):
+    """Names compare as the words they contain: "A  B" is the same name as "A B", so runs of
+    whitespace are stored as one space (keeps the case/space-insensitive duplicate check honest)."""
+    return re.sub(r"\s+", " ", value) if isinstance(value, str) else value
+
+
+# BeforeValidator last: it wraps (runs before) the constraints, which still apply afterwards.
+_Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255), BeforeValidator(_collapse_spaces)]
 _Memo = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
 _Description = Annotated[str, StringConstraints(strip_whitespace=True, max_length=5000)]
 _Model = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
@@ -146,13 +155,23 @@ class ProductBase(BaseModel):
     category_id: int
     items_brand_id: int
     image_url: Optional[str] = None
+    product_type_id: Optional[int] = None
+    hs_code_id: Optional[int] = None
+    product_family: Optional[str] = None
+    target_market: Optional[str] = None
+    required_certificate: Optional[str] = None
+
+_Family = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+_Market = Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)]
+_Certificate = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
 
 class ProductCreate(BaseModel):
     # item_code is generated server-side (see ProductRepository.create) and
     # is immutable afterwards — never part of create or update input.
     name: _Name
     model: Optional[_Model] = None
-    item_type: _ItemType
+    # Product Type replaced Item Type on the form; products are inventory items unless told otherwise.
+    item_type: _ItemType = "inventory"
     unit_of_measure: _Uom = "pcs"
     tracking_type: _TrackingType  # required: no default is assumed
     over_receipt_tolerance_pct: _Tolerance = 0
@@ -168,6 +187,15 @@ class ProductCreate(BaseModel):
     tax_rate: _TaxRate = 0
     category_id: _Id
     items_brand_id: _Id
+    # General section (product master)
+    product_type_id: _Id
+    hs_code_id: _Id
+    product_family: _Family
+    target_market: Optional[_Market] = None
+    required_certificate: Optional[_Certificate] = None
+    # Item Catalog item this product sells. Omitted on a stocked product
+    # (item_type 'inventory'): an item is created from the product's data.
+    material_id: Optional[_Id] = None
     # NB: no image_url — the upload/remove image endpoints are its only writers.
     # Optional initial minimum selling price, recorded as a MinimumPrice
     # history row in the same transaction as the product itself.
@@ -207,6 +235,13 @@ class ProductUpdate(BaseModel):
     tax_rate: Optional[_TaxRate] = None
     category_id: Optional[_Id] = None
     items_brand_id: Optional[_Id] = None
+    product_type_id: Optional[_Id] = None
+    hs_code_id: Optional[_Id] = None
+    product_family: Optional[_Family] = None
+    target_market: Optional[_Market] = None
+    required_certificate: Optional[_Certificate] = None
+    # Item link; null clears it. Refused while the product has active stock rows.
+    material_id: Optional[_Id] = None
     # image_url is intentionally absent: the upload/remove image endpoints
     # are its only writers, so a form save can't revert a just-uploaded image.
     # When set, a new MinimumPrice history row is written in the same
@@ -220,12 +255,12 @@ class ProductUpdate(BaseModel):
     # response (full precision, so same-second changes are caught too).
     expected_version: Optional[str] = None
 
-    _v_blank = field_validator("model", "description", mode="before")(_blank_to_none)
+    _v_blank = field_validator("model", "description", "target_market", "required_certificate", mode="before")(_blank_to_none)
 
     @field_validator(
         "name", "item_type", "unit_of_measure", "tracking_type", "over_receipt_tolerance_pct",
         "under_receipt_tolerance_pct", "website_active", "active", "cost_price", "category_id", "items_brand_id",
-        "requires_qc",
+        "requires_qc", "product_type_id", "hs_code_id", "product_family",
     )
     @classmethod
     def _required_not_null(cls, value):
@@ -258,6 +293,39 @@ class Product(ProductBase, TijaeroBaseSchema, VersionedSchema):
     # Filled by the paged list so the grid needn't load every category/brand.
     category_name: Optional[str] = None
     brand_name: Optional[str] = None
+    # Read from the product type / HS code relationships.
+    product_type_name: Optional[str] = None
+    hs_code: Optional[str] = None
+    hs_code_description: Optional[str] = None
+    # Linked Item Catalog item (central stock), read from the material relationship.
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+
+
+# ---- Product types / HS codes (lists users add to from the product form) ----
+class ProductTypeCreate(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120), BeforeValidator(_collapse_spaces)]
+
+class ProductTypeOut(BaseModel):
+    model_config = {"from_attributes": True}
+    id: int
+    name: str
+    active: bool
+
+class HsCodeCreate(BaseModel):
+    # 4-12 digits, optionally grouped with dots (e.g. 8471, 8471.30, 8471.30.10)
+    code: Annotated[str, StringConstraints(strip_whitespace=True, min_length=4, max_length=20, pattern=r"^[0-9]{4}([.]?[0-9]{1,2}){0,4}$")]
+    description: Optional[_Certificate] = None
+
+    _v_blank = field_validator("description", mode="before")(_blank_to_none)
+
+class HsCodeOut(BaseModel):
+    model_config = {"from_attributes": True}
+    id: int
+    code: str
+    description: Optional[str] = None
+    active: bool
 
 class ProductWithDetails(Product):
     category: Optional[Category] = None

@@ -24,7 +24,9 @@ class Product(ProductBase, TijaeroBaseSchema):
 
 # Sales Stock Schemas
 class SalesStockBase(BaseModel):
-    product_id: int
+    # NULL for item-only stock (an Item Catalog item no product sells)
+    product_id: Optional[int] = None
+    material_id: Optional[int] = None  # Item Catalog item this stock belongs to (central stock)
     # Required for serial-tracked products; None for batch/none lots.
     barcode: Optional[str] = None
     branch_code: str
@@ -53,6 +55,10 @@ class SalesStock(SalesStockBase, TijaeroBaseSchema):
     grn_no: Optional[str] = None  # GRN number from relationship
     location_name: Optional[str] = None  # Location name from GRN
     cost_price: Optional[Decimal] = None  # Cost price from product/tier
+    unit_cost: Optional[Decimal] = None  # cost of one unit captured when the row was created
+    product_name: Optional[str] = None  # the product's name, else the item's (item-only stock)
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
     selling_price: Optional[Decimal] = None  # Selling price from product/tier
     minimum_price: Optional[Decimal] = None  # Minimum price from product/tier
     # Set server-side (never client-supplied) when this unit was received
@@ -81,9 +87,13 @@ class SalesStockPaginated(BaseModel):
 
 
 class StockSummaryRow(BaseModel):
-    """One product's aggregated on-hand position, for the Stock Summary view
-    of the sales-stock dashboard (see SalesStockService.get_stock_summary)."""
-    product_id: int
+    """One item's aggregated on-hand position, for the Stock Summary view
+    of the sales-stock dashboard (see SalesStockService.get_stock_summary).
+    Stock is keyed by Item Catalog item; a row without an item is shown by its product."""
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    product_id: Optional[int] = None  # the item's only linked product (None: item-only / several)
     item_code: str
     product_name: str
     brand_name: Optional[str] = None

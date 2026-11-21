@@ -16,6 +16,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
+from tests.conftest import item_id_for
 
 
 def _uid(prefix=""):
@@ -45,7 +46,7 @@ class TestPurchaseOrderCRUD:
                 second_suppliers_id=None,
                 items=[
                     schemas.PurchasingOrderItemCreate(
-                        product_id=product.id,
+                        material_id=item_id_for(product, supplier, 200),
                         quantity=5,
                         unit_price=Decimal("200.00"),
                         warrenty_month="12",

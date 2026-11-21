@@ -44,6 +44,7 @@ class SalesStockService:
         location_id: Optional[int] = None,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
+        material_id: Optional[int] = None,
     ):
         """Build the filtered SalesStock query shared by list, paginated and CSV export."""
         from app.modules.products.models import Product
@@ -68,6 +69,8 @@ class SalesStockService:
             query = query.filter(models.SalesStock.branch_code.in_(branch_codes))
         if product_id:
             query = query.filter(models.SalesStock.product_id == product_id)
+        if material_id:
+            query = query.filter(models.SalesStock.material_id == material_id)
         if status:
             query = query.filter(models.SalesStock.status == status)
         if brand_id:
@@ -148,8 +151,11 @@ class SalesStockService:
         date_to: Optional[str] = None,
         skip: int = 0,
         limit: int = 50,
+        on_hand: bool = False,
+        material_id: Optional[int] = None,
     ) -> dict:
-        """Server-side paginated + filtered sales stock, with a branch-scoped summary."""
+        """Server-side paginated + filtered sales stock, with a branch-scoped summary.
+        ``on_hand`` limits the rows to units physically on hand or in transit."""
         query = self._base_query(
             branch_code=branch_code,
             branch_codes=branch_codes,
@@ -160,7 +166,11 @@ class SalesStockService:
             location_id=location_id,
             date_from=date_from,
             date_to=date_to,
+            material_id=material_id,
         )
+        if on_hand:
+            from app.modules.inventory.ledger import ON_HAND_STATUSES
+            query = query.filter(models.SalesStock.status.in_(sorted(ON_HAND_STATUSES) + [StockStatus.IN_TRANSIT.value]))
         total = query.count()
         items = (
             query.order_by(models.SalesStock.added_date.desc())
@@ -259,49 +269,46 @@ class SalesStockService:
         skip: int = 0,
         limit: int = 50,
     ) -> dict:
-        """Per-product aggregated on-hand position for the Stock Summary view:
-        total/allocated/available/issued/freezed quantities, on-hand value,
-        ageing of the oldest batch still on hand, and that batch's supplier /
-        invoice for traceability.
+        """Per-item aggregated on-hand position for the Stock Summary view (central stock:
+        stock is keyed by Item Catalog item, so item-only stock counts too; a stock row
+        without an item yet is grouped under its product): total/allocated/available/
+        issued/freezed quantities, on-hand value, ageing of the oldest batch still on
+        hand, and that batch's supplier / invoice for traceability.
         """
         from sqlalchemy import case, func, or_
+        from app.modules.materials.models import Material, MaterialCategory
         from app.modules.products.models import Product, ItemsBrand, Category
         from app.modules.purchasing.models import (
             GoodReceivedNote, PurchasingOrder, PurchasingOrderItems, Supplier,
         )
         from app.modules.purchasing.invoice_models import PurchaseInvoiceItem, PurchaseInvoice
-
+        S = models.SalesStock
         relevant_statuses = (
             self._SUMMARY_ON_HAND_STATUSES + self._SUMMARY_ISSUED_STATUSES + self._SUMMARY_TRANSIT_STATUSES
             + (StockStatus.DAMAGED.value,)
         )
+        # Group key: the item, or the product for a row with no item
+        mkey = S.material_id
+        pkey = case((S.material_id.is_(None), S.product_id), else_=None)
 
         def bucket(*statuses):
-            return func.coalesce(
-                func.sum(case((models.SalesStock.status.in_(statuses), models.SalesStock.quantity), else_=0)),
-                0,
-            )
+            return func.coalesce(func.sum(case((S.status.in_(statuses), S.quantity), else_=0)), 0)
 
-        # On-hand value at what each unit was bought for (its purchase-order line), not at the product's
-        # current cost price: a later cost change must not revalue stock that is already on the shelf.
-        # Units without a purchase line fall back to the product cost.
-        unit_cost_expr = func.coalesce(PurchasingOrderItems.unit_price, Product.cost_price)
+        # On-hand value at what each unit was bought for (its purchase-order line), not at the current
+        # cost price: a later cost change must not revalue stock that is already on the shelf. Units
+        # without a purchase line (production output, item-only stock) use the cost the row captured.
+        # Central stock phase 5: the issue cost (inventory/costing.py) — the row's captured cost
+        # (PO price + landed share / production cost), or the average cost for WAC items.
+        from app.modules.inventory.costing import stock_cost_expr
+
+        unit_cost_expr = stock_cost_expr(S, Material, Product)
         on_hand_value = func.coalesce(
-            func.sum(
-                case(
-                    (
-                        models.SalesStock.status.in_(self._SUMMARY_ON_HAND_STATUSES),
-                        models.SalesStock.quantity * unit_cost_expr,
-                    ),
-                    else_=0,
-                )
-            ),
-            0,
-        )
+            func.sum(case((S.status.in_(self._SUMMARY_ON_HAND_STATUSES), S.quantity * unit_cost_expr), else_=0)), 0)
 
         agg = (
             self.db.query(
-                models.SalesStock.product_id.label("product_id"),
+                mkey.label("material_id"),
+                pkey.label("product_id"),
                 bucket(StockStatus.AVAILABLE.value).label("available_quantity"),
                 bucket(StockStatus.RESERVED.value).label("allocated_quantity"),
                 bucket(StockStatus.FROZEN.value).label("freezed_quantity"),
@@ -309,81 +316,78 @@ class SalesStockService:
                 bucket(*self._SUMMARY_TRANSIT_STATUSES).label("in_transit_quantity"),
                 bucket(StockStatus.DAMAGED.value).label("damaged_quantity"),
                 on_hand_value.label("on_hand_value"),
-                func.min(
-                    case(
-                        (models.SalesStock.status.in_(self._SUMMARY_ON_HAND_STATUSES), models.SalesStock.added_date),
-                        else_=None,
-                    )
-                ).label("in_house_date"),
+                func.min(case((S.status.in_(self._SUMMARY_ON_HAND_STATUSES), S.added_date), else_=None)).label("in_house_date"),
             )
-            .join(Product, Product.id == models.SalesStock.product_id)
-            .outerjoin(
-                PurchasingOrderItems,
-                PurchasingOrderItems.id == models.SalesStock.purchasing_order_items_id,
-            )
-            .filter(models.SalesStock.status.in_(relevant_statuses))
+            .outerjoin(Material, Material.id == S.material_id)
+            .outerjoin(Product, Product.id == S.product_id)
+            .outerjoin(PurchasingOrderItems, PurchasingOrderItems.id == S.purchasing_order_items_id)
+            .filter(S.status.in_(relevant_statuses))
         )
         if branch_code:
-            agg = agg.filter(models.SalesStock.branch_code == branch_code)
+            agg = agg.filter(S.branch_code == branch_code)
         elif branch_codes:
-            agg = agg.filter(models.SalesStock.branch_code.in_(branch_codes))
+            agg = agg.filter(S.branch_code.in_(branch_codes))
         if brand_id:
-            agg = agg.filter(Product.items_brand_id == brand_id)
+            agg = agg.filter(func.coalesce(Material.items_brand_id, Product.items_brand_id) == brand_id)
         if search:
             term = f"%{search.strip()}%"
-            agg = agg.filter(or_(Product.name.ilike(term), Product.item_code.ilike(term)))
-        agg = agg.group_by(models.SalesStock.product_id)
+            agg = agg.filter(or_(Material.name.ilike(term), Material.item_code.ilike(term),
+                                 Product.name.ilike(term), Product.item_code.ilike(term)))
+        agg = agg.group_by(mkey, pkey)
 
         total = agg.count()
-        rows = agg.order_by(models.SalesStock.product_id).offset(skip).limit(limit).all()
+        rows = agg.order_by(mkey, pkey).offset(skip).limit(limit).all()
         if not rows:
             return {"items": [], "total": total}
 
-        product_ids = [r.product_id for r in rows]
-        products = {
-            p.id: p
-            for p in self.db.query(Product).filter(Product.id.in_(product_ids)).all()
-        }
-        brand_ids = {p.items_brand_id for p in products.values() if p.items_brand_id}
-        category_ids = {p.category_id for p in products.values() if p.category_id}
+        material_ids = [r.material_id for r in rows if r.material_id]
+        product_ids = [r.product_id for r in rows if r.product_id]
+        items_by_id = {m.id: m for m in self.db.query(Material).filter(Material.id.in_(material_ids)).all()} if material_ids else {}
+        products = {p.id: p for p in self.db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
+        brand_ids = {x.items_brand_id for x in [*items_by_id.values(), *products.values()] if x.items_brand_id}
         brands_map = {
             b.id: b.brand_name
             for b in (self.db.query(ItemsBrand).filter(ItemsBrand.id.in_(brand_ids)).all() if brand_ids else [])
         }
-        categories_map = {
-            c.id: c.name
-            for c in (self.db.query(Category).filter(Category.id.in_(category_ids)).all() if category_ids else [])
-        }
+        # The product each item's stock is filed under: its only linked product
+        sellers: dict = {}
+        for pid, mid in (self.db.query(Product.id, Product.material_id)
+                         .filter(Product.material_id.in_(material_ids)).all() if material_ids else []):
+            sellers.setdefault(mid, []).append(pid)
+        linked = {mid: pids[0] for mid, pids in sellers.items() if len(pids) == 1}
+        pcat_ids = {p.category_id for p in products.values() if p.category_id}
+        mcat_ids = {m.category_id for m in items_by_id.values() if m.category_id}
+        pcats = dict(self.db.query(Category.id, Category.name).filter(Category.id.in_(pcat_ids)).all()) if pcat_ids else {}
+        mcats = dict(self.db.query(MaterialCategory.id, MaterialCategory.name)
+                     .filter(MaterialCategory.id.in_(mcat_ids)).all()) if mcat_ids else {}
 
-        # The single oldest on-hand unit per product — drives ageing and the
-        # representative supplier/invoice shown for that product.
-        same_filters = models.SalesStock.product_id.in_(product_ids)
+        # The single oldest on-hand unit per item (product) — drives ageing and the
+        # representative supplier/invoice shown for it.
         oldest_subq = (
             self.db.query(
-                models.SalesStock.product_id.label("product_id"),
-                models.SalesStock.good_received_note_id.label("good_received_note_id"),
+                mkey.label("material_id"),
+                pkey.label("product_id"),
+                S.good_received_note_id.label("good_received_note_id"),
                 func.row_number()
-                .over(
-                    partition_by=models.SalesStock.product_id,
-                    order_by=[models.SalesStock.added_date.asc(), models.SalesStock.id.asc()],
-                )
+                .over(partition_by=[mkey, pkey], order_by=[S.added_date.asc(), S.id.asc()])
                 .label("rn"),
             )
-            .filter(same_filters, models.SalesStock.status.in_(self._SUMMARY_ON_HAND_STATUSES))
+            .filter(or_(S.material_id.in_(material_ids or [0]),
+                        (S.material_id.is_(None)) & S.product_id.in_(product_ids or [0])),
+                    S.status.in_(self._SUMMARY_ON_HAND_STATUSES))
         )
         if branch_code:
-            oldest_subq = oldest_subq.filter(models.SalesStock.branch_code == branch_code)
+            oldest_subq = oldest_subq.filter(S.branch_code == branch_code)
         elif branch_codes:
-            oldest_subq = oldest_subq.filter(models.SalesStock.branch_code.in_(branch_codes))
+            oldest_subq = oldest_subq.filter(S.branch_code.in_(branch_codes))
         oldest_subq = oldest_subq.subquery()
-        oldest_rows = (
-            self.db.query(oldest_subq.c.product_id, oldest_subq.c.good_received_note_id)
-            .filter(oldest_subq.c.rn == 1)
-            .all()
-        )
-        oldest_grn_by_product = {r.product_id: r.good_received_note_id for r in oldest_rows}
+        oldest_grn = {
+            (r.material_id, r.product_id): r.good_received_note_id
+            for r in self.db.query(oldest_subq.c.material_id, oldest_subq.c.product_id,
+                                   oldest_subq.c.good_received_note_id).filter(oldest_subq.c.rn == 1).all()
+        }
 
-        grn_ids = {g for g in oldest_grn_by_product.values() if g}
+        grn_ids = {g for g in oldest_grn.values() if g}
         grns = {
             g.id: g
             for g in (self.db.query(GoodReceivedNote).filter(GoodReceivedNote.id.in_(grn_ids)).all() if grn_ids else [])
@@ -402,25 +406,38 @@ class SalesStockService:
             for s in (self.db.query(Supplier).filter(Supplier.id.in_(supplier_ids)).all() if supplier_ids else [])
         }
 
-        # Representative invoice for that same (grn, product) pair, if the
+        # Representative invoice for that same (grn, item / product) pair, if the
         # supplier's bill for that GRN has been entered.
-        invoice_by_grn_product = {}
+        invoice_by_key = {}
         if grn_ids:
             inv_rows = (
                 self.db.query(PurchaseInvoiceItem, PurchaseInvoice)
                 .join(PurchaseInvoice, PurchaseInvoice.id == PurchaseInvoiceItem.purchase_invoice_id)
-                .filter(PurchaseInvoiceItem.grn_id.in_(grn_ids), PurchaseInvoiceItem.product_id.in_(product_ids))
+                .filter(PurchaseInvoiceItem.grn_id.in_(grn_ids))
                 .all()
             )
-            for item, invoice in inv_rows:
-                invoice_by_grn_product.setdefault((item.grn_id, item.product_id), invoice)
+            for line, invoice in inv_rows:
+                if line.material_id:
+                    invoice_by_key.setdefault((line.grn_id, ("m", line.material_id)), invoice)
+                if line.product_id:
+                    invoice_by_key.setdefault((line.grn_id, ("p", line.product_id)), invoice)
 
         today = tz.today()
         items = []
         for r in rows:
-            product = products.get(r.product_id)
-            if not product:
+            item = items_by_id.get(r.material_id) if r.material_id else None
+            product = products.get(r.product_id) if r.product_id else None
+            src = item or product
+            if src is None:
                 continue
+            if item is not None:
+                one_id = linked.get(item.id)
+                category = mcats.get(item.category_id)
+                part = ("m", item.id)
+            else:
+                one_id = product.id
+                category = pcats.get(product.category_id)
+                part = ("p", product.id)
             available = int(r.available_quantity)
             allocated = int(r.allocated_quantity)
             freezed = int(r.freezed_quantity)
@@ -428,21 +445,25 @@ class SalesStockService:
             on_hand = available + allocated + freezed
             in_transit = int(r.in_transit_quantity)
             total_value = Decimal(str(r.on_hand_value or 0))
-            # average purchase cost of what is on hand (product cost when nothing is)
-            unit_cost = (total_value / on_hand).quantize(Decimal("0.01")) if on_hand else product.cost_price
-            grn_id = oldest_grn_by_product.get(r.product_id)
+            # average purchase cost of what is on hand (item / product cost when nothing is)
+            unit_cost = (total_value / on_hand).quantize(Decimal("0.01")) if on_hand else src.cost_price
+            grn_id = oldest_grn.get((r.material_id, r.product_id))
             grn = grns.get(grn_id) if grn_id else None
             po = pos.get(grn.purchasingorders_id) if grn else None
             supplier = suppliers.get(po.first_suppliers_id) if po else None
-            invoice = invoice_by_grn_product.get((grn_id, r.product_id)) if grn_id else None
+            invoice = invoice_by_key.get((grn_id, part)) if grn_id else None
             in_house_date = r.in_house_date
             items.append({
-                "product_id": product.id,
-                "item_code": product.item_code,
-                "product_name": product.name,
-                "brand_name": brands_map.get(product.items_brand_id),
-                "category_name": categories_map.get(product.category_id),
-                "unit_of_measure": product.unit_of_measure,
+                "material_id": item.id if item else None,
+                "material_item_code": item.item_code if item else None,
+                "material_name": item.name if item else None,
+                # the item's only linked product (the row's product for stock without an item)
+                "product_id": one_id,
+                "item_code": src.item_code,
+                "product_name": src.name,
+                "brand_name": brands_map.get(src.items_brand_id),
+                "category_name": category,
+                "unit_of_measure": src.unit_of_measure or "pcs",
                 "total_quantity": on_hand + issued,
                 "allocated_quantity": allocated,
                 "available_quantity": available,
@@ -526,10 +547,12 @@ class SalesStockService:
             item_dict = {
                 "id": item.id,
                 "product_id": item.product_id,
+                "material_id": item.material_id,
                 "barcode": item.barcode,
                 "quantity": item.quantity,
                 "batch_no": item.batch_no,
                 "expiry_date": item.expiry_date,
+                "unit_cost": item.unit_cost,
                 "branch_code": item.branch_code,
                 "location_id": item.location_id,
                 "good_received_note_id": item.good_received_note_id,
@@ -549,8 +572,11 @@ class SalesStockService:
                 "minimum_selling_price": active_tier.minimum_selling_price if active_tier else minimum_price,
                 "price_tier_id": active_tier.id if active_tier else None,
                 # Add product details directly
-                "product_name": item.product.name if item.product else None,
-                "item_code": item.product.item_code if item.product else None,
+                # item-only stock (no product): the Item Catalog item's name / code
+                "product_name": item.product.name if item.product else (item.material.name if item.material else None),
+                "item_code": item.product.item_code if item.product else (item.material.item_code if item.material else None),
+                "material_item_code": item.material.item_code if item.material else None,
+                "material_name": item.material.name if item.material else None,
                 "brand_id": item.product.items_brand_id if item.product else None,
                 "brand_name": brands_map.get(item.product.items_brand_id) if item.product else None,
                 "category_id": item.product.category_id if item.product else None,
@@ -620,7 +646,14 @@ class SalesStockService:
         ).with_for_update().first()
         if not po_item:
             raise ValueError(f"Purchase order item {item.purchasing_order_items_id} not found")
-        if po_item.product_id != item.product_id:
+        if po_item.material_id and not po_item.product_id:
+            # Item line (central stock phase 3): the stock is that item.
+            if item.material_id != po_item.material_id:
+                raise ValueError(
+                    f"Item {item.material_id} does not match the item of purchase order item "
+                    f"{po_item.id} (item {po_item.material_id})."
+                )
+        elif po_item.product_id != item.product_id:
             raise ValueError(
                 f"Product {item.product_id} does not match the product of purchase order item "
                 f"{po_item.id} (product {po_item.product_id})."
@@ -682,6 +715,8 @@ class SalesStockService:
             )
 
     def create(self, item: schemas.SalesStockCreate) -> models.SalesStock:
+        from app.modules.inventory.ledger import set_stock_reference
+        set_stock_reference(self.db, "manual")
         try:
             rows = self.create_in_txn(item)
             self.db.commit()
@@ -695,11 +730,17 @@ class SalesStockService:
         """Validate and add the stock row(s) for a received unit/lot WITHOUT committing,
         so a caller (e.g. an atomic GRN receipt) can commit or roll back as one unit.
         Returns the rows (two when a lot is partly reserved for a quotation)."""
+        from app.modules.materials.models import Material
         from app.modules.products.models import Product
 
-        tracking_type = self.db.query(Product.tracking_type).filter(
-            Product.id == item.product_id
-        ).scalar() or "serial"
+        if not item.product_id and not item.material_id:
+            raise ValueError("Stock needs an item (material_id) or a product.")
+        # The item decides tracking (central stock); a product without an item keeps its own.
+        if item.material_id:
+            tracking_type = self.db.query(Material.tracking_type).filter(Material.id == item.material_id).scalar()
+        else:
+            tracking_type = self.db.query(Product.tracking_type).filter(Product.id == item.product_id).scalar()
+        tracking_type = tracking_type or "serial"
         barcode = (item.barcode or "").strip() or None
         batch_no = (item.batch_no or "").strip() or None
 
@@ -743,6 +784,7 @@ class SalesStockService:
         def _row(quantity: int, status, quote_item_id):
             return models.SalesStock(
                 product_id=item.product_id,
+                material_id=item.material_id,
                 barcode=barcode,
                 quantity=quantity,
                 batch_no=batch_no,
@@ -837,6 +879,7 @@ class SalesStockService:
         return {
             "id": item.id,
             "product_id": item.product_id,
+            "material_id": item.material_id,
             "barcode": item.barcode,
             "branch_code": item.branch_code,
             "good_received_note_id": item.good_received_note_id,
@@ -847,8 +890,10 @@ class SalesStockService:
             "cost_price": item.product.cost_price if item.product else None,
             "selling_price": item.product.selling_price if item.product else None,
             "minimum_price": minimum_price,
-            "product_name": item.product.name if item.product else None,
-            "item_code": item.product.item_code if item.product else None,
+            "product_name": item.product.name if item.product else (item.material.name if item.material else None),
+            "item_code": item.product.item_code if item.product else (item.material.item_code if item.material else None),
+            "material_item_code": item.material.item_code if item.material else None,
+            "material_name": item.material.name if item.material else None,
             "product": {
                 "id": item.product.id if item.product else None,
                 "product_name": item.product.name if item.product else None,
@@ -896,6 +941,8 @@ class SalesStockService:
         if old_status == status:
             return item
 
+        from app.modules.inventory.ledger import set_stock_reference
+        set_stock_reference(self.db, "manual")
         item.status = status
         log_audit(
             self.db,

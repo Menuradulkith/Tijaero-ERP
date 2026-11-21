@@ -12,6 +12,7 @@ from .models import (
     TransferNoteStatus,
 )
 from app.modules.inventory.models import SalesStock
+from app.modules.inventory.ledger import set_stock_reference
 from app.modules.common.models import Locations, Approvals
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.common.enums import StockStatus
@@ -37,6 +38,24 @@ def _product_tracking(db, product_id: int) -> str:
     return db.query(Product.tracking_type).filter(Product.id == product_id).scalar() or "serial"
 
 
+def _line_tracking(db, item) -> str:
+    """Tracking of what a transfer line moves: its item's (central stock), else the product's."""
+    if getattr(item, "material_id", None):
+        from app.modules.materials.models import Material
+        return db.query(Material.tracking_type).filter(Material.id == item.material_id).scalar() or "serial"
+    return _product_tracking(db, item.product_id)
+
+
+def _line_stock_filter(item):
+    """SalesStock condition for the stock a transfer line moves: its item's rows, else the product's."""
+    from app.modules.inventory.item_stock import stock_key_condition
+    return stock_key_condition(item.product_id, getattr(item, "material_id", None))
+
+
+def _line_label(item) -> str:
+    return f"item ID {item.material_id}" if getattr(item, "material_id", None) else f"product ID {item.product_id}"
+
+
 def _reserve_lots(db, transfer_note, items) -> list:
     """Allocate every unallocated batch/none line of a transfer note to real
     stock at the source location, splitting lots so exactly the requested
@@ -50,13 +69,13 @@ def _reserve_lots(db, transfer_note, items) -> list:
     for item in list(items):
         if item.barcode or item.sales_stock_id:
             continue
-        if _product_tracking(db, item.product_id) == "serial":
+        if _line_tracking(db, item) == "serial":
             continue  # product-only line of a serial product: no stock effect (as before)
         needed = item.quantity or 1
         rows = (
             db.query(SalesStock)
             .filter(
-                SalesStock.product_id == item.product_id,
+                _line_stock_filter(item),
                 SalesStock.branch_code == (source.branch_code if source and source.branch_code else item.branch_code),
                 SalesStock.status == StockStatus.AVAILABLE,
                 SalesStock.is_active == True,  # noqa: E712
@@ -72,7 +91,7 @@ def _reserve_lots(db, transfer_note, items) -> list:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    f"Only {units_in(pieces)} unit(s) of product ID {item.product_id} are available at the "
+                    f"Only {units_in(pieces)} unit(s) of {_line_label(item)} are available at the "
                     f"source location ({needed} requested). They may have been sold or committed elsewhere."
                 ),
             )
@@ -86,6 +105,7 @@ def _reserve_lots(db, transfer_note, items) -> list:
         for extra in pieces[1:]:
             db.add(ItemTransferNoteItems(
                 product_id=item.product_id,
+                material_id=item.material_id,
                 branch_code=item.branch_code,
                 itemtransfernote_id=item.itemtransfernote_id,
                 remark=item.remark,
@@ -365,6 +385,8 @@ class ItemTransferNoteService:
         transfer_note = self.db.query(ItemTransferNote).filter(
             ItemTransferNote.id == transfer_note_id
         ).with_for_update().first()
+        if transfer_note:
+            set_stock_reference(self.db, "item_transfer_note", transfer_note.id, transfer_note.item_transfer_note)
         if not transfer_note:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer note not found")
         if transfer_note.status not in (TransferNoteStatus.PENDING, TransferNoteStatus.APPROVED):
@@ -436,9 +458,10 @@ class ItemTransferNoteService:
                 current_status=stock_item.status
             )
         
-        # Get product name and cost price
-        product_name = stock_item.product.name if stock_item.product else None
-        cost_price = None
+        # Get product (else item) name and cost price
+        material = stock_item.material
+        product_name = stock_item.product.name if stock_item.product else (material.name if material else None)
+        cost_price = stock_item.unit_cost
         if stock_item.product:
             active_tiers = [t for t in stock_item.product.price_tiers if t.is_active] if hasattr(stock_item.product, "price_tiers") else []
             if active_tiers:
@@ -454,6 +477,9 @@ class ItemTransferNoteService:
             sales_stock_id=stock_item.id,
             product_id=stock_item.product_id,
             product_name=product_name,
+            material_id=stock_item.material_id,
+            material_item_code=material.item_code if material else None,
+            material_name=material.name if material else None,
             current_location_id=stock_item.location_id,
             current_status=stock_item.status,
             cost_price=cost_price
@@ -462,9 +488,12 @@ class ItemTransferNoteService:
     def validate_lot_for_transfer(self, request: schemas.LotValidationRequest) -> schemas.LotValidationResponse:
         """Check that `quantity` units of a batch/none product are available at the source location."""
         from sqlalchemy import func, or_
+        from app.modules.materials.models import Material
         from app.modules.products.models import Product
 
-        product = self.db.query(Product).filter(Product.id == request.product_id).first()
+        product = self.db.query(Product).filter(Product.id == request.product_id).first() if request.product_id else None
+        material_id = request.material_id or (product.material_id if product else None)
+        material = self.db.query(Material).filter(Material.id == material_id).first() if material_id else None
         source = self.db.query(Locations).filter(Locations.id == request.from_location_id).first()
 
         def reply(valid, message, available=0):
@@ -472,16 +501,21 @@ class ItemTransferNoteService:
                 valid=valid,
                 message=message,
                 product_id=request.product_id,
-                product_name=product.name if product else None,
+                product_name=product.name if product else (material.name if material else None),
+                material_id=material.id if material else None,
+                material_item_code=material.item_code if material else None,
+                material_name=material.name if material else None,
                 available_quantity=available,
             )
 
-        if not product:
-            return reply(False, "Product not found")
-        if (product.tracking_type or "serial") == "serial":
-            return reply(False, "This product is serial-tracked; transfer it by barcode.")
+        if material is None and product is None:
+            return reply(False, "Item not found" if request.material_id else "Product not found")
+        tracking = (material.tracking_type if material is not None else product.tracking_type) or "serial"
+        if tracking == "serial":
+            return reply(False, "This item is serial-tracked; transfer it by barcode.")
+        from app.modules.inventory.item_stock import stock_key_condition
         query = self.db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
-            SalesStock.product_id == request.product_id,
+            stock_key_condition(request.product_id, material.id if material else None),
             SalesStock.status == StockStatus.AVAILABLE,
             SalesStock.is_active == True,  # noqa: E712
             or_(SalesStock.location_id == request.from_location_id, SalesStock.location_id.is_(None)),
@@ -499,6 +533,8 @@ class ItemTransferNoteService:
         db_transfer_note = self.db.query(ItemTransferNote).filter(
             ItemTransferNote.id == transfer_note_id
         ).with_for_update().first()
+        if db_transfer_note:
+            set_stock_reference(self.db, "item_transfer_note", db_transfer_note.id, db_transfer_note.item_transfer_note)
 
         if db_transfer_note.status != TransferNoteStatus.APPROVED:
             raise HTTPException(
@@ -601,6 +637,8 @@ class ItemTransferNoteService:
         transfer_note = self.db.query(ItemTransferNote).filter(
             ItemTransferNote.id == transfer_note_id
         ).with_for_update().first()
+        if transfer_note:
+            set_stock_reference(self.db, "item_transfer_note", transfer_note.id, transfer_note.item_transfer_note)
         if transfer_note.status != TransferNoteStatus.PENDING:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -671,6 +709,8 @@ class ItemTransferNoteService:
         transfer_note = self.db.query(ItemTransferNote).filter(
             ItemTransferNote.id == transfer_note_id
         ).with_for_update().first()
+        if transfer_note:
+            set_stock_reference(self.db, "item_transfer_note", transfer_note.id, transfer_note.item_transfer_note)
         if transfer_note.status != TransferNoteStatus.PENDING:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -731,7 +771,7 @@ class ItemTransferNoteItemService:
         """A lot line cannot ask for more than the source location holds, counting the note's other lines of the same product."""
         from sqlalchemy import func, or_
         held = self.db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
-            SalesStock.product_id == item.product_id,
+            _line_stock_filter(item),
             SalesStock.branch_code == note.branch_code,
             SalesStock.status == StockStatus.AVAILABLE,
             SalesStock.is_active.is_(True),
@@ -739,7 +779,8 @@ class ItemTransferNoteItemService:
         ).scalar() or 0
         others = self.db.query(func.coalesce(func.sum(ItemTransferNoteItems.quantity), 0)).filter(
             ItemTransferNoteItems.itemtransfernote_id == note.id,
-            ItemTransferNoteItems.product_id == item.product_id,
+            (ItemTransferNoteItems.material_id == item.material_id) if item.material_id
+            else (ItemTransferNoteItems.product_id == item.product_id),
         )
         if exclude_item_id is not None:
             others = others.filter(ItemTransferNoteItems.id != exclude_item_id)
@@ -752,8 +793,10 @@ class ItemTransferNoteItemService:
 
     def _validate_line(self, note: ItemTransferNote, item: schemas.ItemTransferNoteItemCreate, exclude_item_id: Optional[int] = None) -> None:
         """What the scan box checks in the page, enforced for every caller: the unit exists, is the product
-        named, is free, sits at the note's branch and source location, and is on no other open note."""
-        tracking = _product_tracking(self.db, item.product_id)
+        named, is free, sits at the note's branch and source location, and is on no other open note.
+        The line is keyed by its item: material_id is filled from the scanned unit or the product's item."""
+        self._resolve_line_item(item)
+        tracking = _line_tracking(self.db, item)
         if tracking == "serial" and item.quantity != 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -780,10 +823,12 @@ class ItemTransferNoteItemService:
         unit = self.db.query(SalesStock).filter(SalesStock.barcode == item.barcode).first()
         if unit is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Barcode {item.barcode} not found in inventory.")
-        if unit.product_id != item.product_id:
+        by_item = bool(item.material_id and unit.material_id)
+        same = (unit.material_id == item.material_id) if by_item else (unit.product_id == item.product_id)
+        if not same:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Barcode {item.barcode} belongs to a different product than the line.",
+                detail=f"Barcode {item.barcode} belongs to a different {'item' if by_item else 'product'} than the line.",
             )
         if unit.status != StockStatus.AVAILABLE or not unit.is_active:
             raise HTTPException(
@@ -815,6 +860,23 @@ class ItemTransferNoteItemService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Barcode {item.barcode} is already on transfer note {found[1]}.",
+            )
+
+    def _resolve_line_item(self, item) -> None:
+        """Fill the line's item: from the scanned unit (serial) or the product's item; a line
+        naming neither item nor product takes the unit's. Item-only stock has no product."""
+        from app.modules.products.models import Product
+
+        if item.barcode and not item.material_id and not item.product_id:
+            unit = self.db.query(SalesStock).filter(SalesStock.barcode == item.barcode).first()
+            if unit is not None:
+                item.material_id, item.product_id = unit.material_id, unit.product_id
+        if not item.material_id and item.product_id:
+            item.material_id = self.db.query(Product.material_id).filter(Product.id == item.product_id).scalar()
+        if not item.material_id and not item.product_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A transfer line needs the item (material_id) or a product.",
             )
 
     def add_line(self, note: ItemTransferNote, item: schemas.ItemTransferNoteItemCreate) -> ItemTransferNoteItems:
@@ -867,8 +929,14 @@ class ItemTransferNoteItemService:
             l.id: l for l in (self.db.query(SalesStock).filter(SalesStock.id.in_(lot_ids)).all() if lot_ids else [])
         }
         for item in items:
+            material = item.material
             if item.product:
                 item.product_name = item.product.name or item.product.item_code
+            elif material is not None:
+                item.product_name = material.name
+            item.material_item_code = material.item_code if material else None
+            item.material_name = material.name if material else None
+            item.unit_of_measure = material.unit_of_measure if material else None
             lot = lots.get(item.sales_stock_id)
             item.batch_no = lot.batch_no if lot else None
             item.expiry_date = lot.expiry_date if lot else None
@@ -997,6 +1065,8 @@ class ItemReceiveNoteService:
         transfer_note = self.db.query(ItemTransferNote).filter(
             ItemTransferNote.id == transfer_note_id
         ).with_for_update().first()
+        if transfer_note:
+            set_stock_reference(self.db, "item_transfer_note", transfer_note.id, transfer_note.item_transfer_note)
         
         if not transfer_note:
             raise HTTPException(
@@ -1116,7 +1186,7 @@ class ItemReceiveNoteService:
                 # Update status back to available
                 stock_item.status = StockStatus.AVAILABLE
                 stock_item.is_active = True
-                product_name = stock_item.product.name if stock_item.product else None
+                product_name = stock_item.product.name if stock_item.product else (stock_item.material.name if stock_item.material else None)
 
             # What the receiver found: a damaged unit arrives but is not sellable; the line note is kept.
             line = line_by_barcode.get(barcode)
@@ -1183,7 +1253,7 @@ class ItemReceiveNoteService:
                 item_id=item_id,
                 success=True,
                 message=f"Received {lot_item.quantity} unit(s)" + (f", {damaged_units} damaged" if damaged_units else ""),
-                product_name=lot_stock.product.name if lot_stock.product else None,
+                product_name=lot_stock.product.name if lot_stock.product else (lot_stock.material.name if lot_stock.material else None),
             ))
             received_count += 1
 

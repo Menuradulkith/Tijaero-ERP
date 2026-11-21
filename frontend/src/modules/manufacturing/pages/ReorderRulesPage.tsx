@@ -1,5 +1,5 @@
 /**
- * ReorderRulesPage - min / max stock levels per product and branch (Odoo "Reordering
+ * ReorderRulesPage - min / max stock levels per Item Catalog item and branch (Odoo "Reordering
  * Rules", Business Central "Reorder Point"). MRP plans a purchase or production order
  * when the projected stock falls below the minimum, up to the maximum (the minimum when
  * no maximum), rounded up to the multiple.
@@ -41,13 +41,15 @@ import {
   useTConfirmDialog,
 } from "@/components/tijaero";
 import { usePermission } from "@/auth/permissions";
-import { useReferenceData, type ProductRef } from "@/hooks";
+import { useReferenceData } from "@/hooks";
 import { reorderRulesApi } from "@/modules/manufacturing/api";
+import { ItemAutocomplete, ItemLink } from "@/modules/manufacturing/components/ItemFields";
+import { mfgItemCode, mfgItemLabel, mfgItemName, useMfgItems } from "@/modules/manufacturing/itemDisplay";
 import type { ReorderRule, ReorderRuleInput } from "@/modules/manufacturing/types";
 import { suppliersApi } from "@/modules/purchasing/api";
 
 interface RuleForm {
-  product_id: number | null;
+  material_id: number | null;
   branch_code: string;
   min_quantity: string;
   max_quantity: string;
@@ -57,7 +59,7 @@ interface RuleForm {
 }
 
 const EMPTY_FORM: RuleForm = {
-  product_id: null,
+  material_id: null,
   branch_code: "",
   min_quantity: "",
   max_quantity: "",
@@ -79,9 +81,9 @@ export default function ReorderRulesPage() {
   const saveBusyRef = useRef(false);
   const deleteBusyRef = useRef(false);
 
-  const { filteredBranches, defaultBranchCode, data: refData } = useReferenceData(["branches", "products"], { productsLimit: 2000 });
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
-  const products: ProductRef[] = useMemo(() => (refData?.products || []).filter((p) => p.active !== false), [refData]);
+  const { items: catalogItems, isLoading: itemsLoading } = useMfgItems(!!editing);
 
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) setFilterBranch(defaultBranchCode);
@@ -104,8 +106,8 @@ export default function ReorderRulesPage() {
   const rows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return rules.filter(
-      (r) => !q || (r.product_name || "").toLowerCase().includes(q) || (r.product_code || "").toLowerCase().includes(q)
-    );
+      (r) => !q || mfgItemName(r).toLowerCase().includes(q) || mfgItemCode(r).toLowerCase().includes(q)
+    ).map((r) => ({ ...r, item_display: mfgItemName(r) }));
   }, [rules, searchQuery]);
 
   const invalidate = [["reorder-rules"], ["mrp"], ["manufacturing-dashboard"]];
@@ -138,7 +140,7 @@ export default function ReorderRulesPage() {
 
   const openEdit = (rule: ReorderRule) => {
     setForm({
-      product_id: rule.product_id,
+      material_id: rule.material_id ?? null,
       branch_code: rule.branch_code,
       min_quantity: String(rule.min_quantity),
       max_quantity: rule.max_quantity != null ? String(rule.max_quantity) : "",
@@ -156,7 +158,7 @@ export default function ReorderRulesPage() {
     try {
     const ok = await confirmDialog.confirm({
       title: "Delete Reordering Rule",
-      message: `Delete the rule for "${rule.product_name}" in ${rule.branch_code}? MRP stops planning stock for it.`,
+      message: `Delete the rule for "${mfgItemLabel(rule)}" in ${rule.branch_code}? MRP stops planning stock for it.`,
       confirmText: "Delete",
       confirmColor: "error",
     });
@@ -172,7 +174,8 @@ export default function ReorderRulesPage() {
   const min = Number(form.min_quantity);
   const max = form.max_quantity === "" ? null : Number(form.max_quantity);
   const formError =
-    !form.product_id ? "Choose a product"
+    // The item identifies an existing rule and is not sent on edit (old rules may only have a product)
+    editing === "new" && !form.material_id ? "Choose an item"
       : !form.branch_code ? "Choose a branch"
         : form.min_quantity === "" || !(min >= 0) ? "Enter a minimum of 0 or more"
           : max !== null && !(max >= min) ? "Maximum cannot be below the minimum"
@@ -180,9 +183,9 @@ export default function ReorderRulesPage() {
               : null;
 
   const handleSave = () => {
-    if (formError || !form.product_id || saving || saveBusyRef.current) return;
+    if (formError || saving || saveBusyRef.current) return;
     const data: ReorderRuleInput = {
-      product_id: form.product_id,
+      material_id: form.material_id || 0,
       branch_code: form.branch_code,
       min_quantity: Math.floor(min),
       max_quantity: max === null ? null : Math.floor(max),
@@ -195,7 +198,7 @@ export default function ReorderRulesPage() {
       saveBusyRef.current = true;
       createMutation.mutate(data, release);
     } else if (editing) {
-      // Product and branch identify the rule and cannot change
+      // Item and branch identify the rule and cannot change
       const changes = {
         min_quantity: data.min_quantity,
         max_quantity: data.max_quantity,
@@ -211,18 +214,24 @@ export default function ReorderRulesPage() {
   const columns: TDataGridColumn<ReorderRule>[] = useMemo(
     () => [
       {
-        field: "product_name",
-        header: "Product",
+        field: "item_display",
+        header: "Item",
         flex: 1,
         minWidth: 200,
         renderCell: (params: GridRenderCellParams<ReorderRule>) => (
           <Box sx={{ lineHeight: 1.2, py: 0.5 }}>
-            <Typography variant="body2" fontWeight={600} noWrap>{params.row.product_name}</Typography>
+            <Typography variant="body2" fontWeight={600} noWrap><ItemLink row={params.row} /></Typography>
             <Typography variant="caption" color="text.secondary">
-              {params.row.product_code}{params.row.is_manufactured ? " · manufactured" : ""}
+              {mfgItemCode(params.row)}{params.row.is_manufactured ? " · manufactured" : ""}
             </Typography>
           </Box>
         ),
+      },
+      {
+        field: "unit_of_measure",
+        header: "UOM",
+        width: 80,
+        renderCell: (params: GridRenderCellParams<ReorderRule>) => params.row.unit_of_measure || "-",
       },
       { field: "branch_code", header: "Branch", width: 130 },
       { field: "min_quantity", header: "Min", width: 90, type: "number" },
@@ -300,7 +309,7 @@ export default function ReorderRulesPage() {
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
-              placeholder="Search products..."
+              placeholder="Search items..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               InputProps={{
@@ -360,16 +369,24 @@ export default function ReorderRulesPage() {
         width={560}
       >
         <FormSection title="Reordering Rule" columns={1} isLast>
-            <Autocomplete<ProductRef>
-              size="small"
-              options={products}
-              disabled={editing !== "new"}
-              getOptionLabel={(p) => `${p.name} (${p.item_code})`}
-              value={products.find((p) => p.id === form.product_id) || null}
-              onChange={(_, v) => setForm({ ...form, product_id: v?.id ?? null })}
-              isOptionEqualToValue={(o, v) => o.id === v.id}
-              renderInput={(params) => <TextField {...params} label="Product" required />}
-            />
+            {editing === "new" ? (
+              <ItemAutocomplete
+                items={catalogItems}
+                loading={itemsLoading}
+                value={form.material_id}
+                onChange={(m) => setForm({ ...form, material_id: m?.id ?? null })}
+                label="Item"
+                required
+              />
+            ) : (
+              <TextField
+                size="small"
+                label="Item"
+                disabled
+                value={editing ? mfgItemLabel(editing) : ""}
+                helperText={editing?.unit_of_measure ? `UOM: ${editing.unit_of_measure}` : undefined}
+              />
+            )}
             <TextField
               select
               size="small"

@@ -2,6 +2,7 @@
 from datetime import date, timedelta
 
 import pytest
+from tests.conftest import item_id_for
 
 P = "/api/v1/purchasing"
 A = "/api/v1/common/approvals"
@@ -12,7 +13,7 @@ def _body(branch, supplier, product, **kw):
     b = {
         "branch_code": branch.branch_code, "purchasing_order_date": today,
         "good_received_note_date": today, "first_suppliers_id": supplier.id,
-        "items": [{"product_id": product.id, "quantity": 2, "unit_price": 10, "warrenty_month": "12"}],
+        "items": [{"material_id": item_id_for(product, supplier, 10), "quantity": 2, "unit_price": 10, "warrenty_month": "12"}],
     }
     b.update(kw)
     return b
@@ -31,7 +32,8 @@ def po(superclient, world):
 
 
 def _item(world, **kw):
-    return {"product_id": world["product"].id, "quantity": 2, "unit_price": 10, "warrenty_month": "12", **kw}
+    return {"material_id": item_id_for(world["product"], world["supplier"], 10), "quantity": 2, "unit_price": 10,
+            "warrenty_month": "12", **kw}
 
 
 class TestNoPaymentMethodOnPO:
@@ -63,7 +65,7 @@ class TestCreateValidation:
     @pytest.mark.parametrize("patch", [
         {"quantity": 0}, {"quantity": -3}, {"quantity": 2 ** 40}, {"unit_price": 0}, {"unit_price": -5}, {"unit_price": 1e30},
         {"warrenty_month": ""}, {"warrenty_month": "forever"}, {"warrenty_month": "9" * 10000}, {"remark": "r" * 501},
-        {"product_id": 2 ** 40}, {"product_id": 0},
+        {"material_id": 2 ** 40}, {"material_id": 0}, {"product_id": 1},
     ])
     def test_line_rejected(self, superclient, world, patch):
         r = superclient.post(f"{P}/orders", json=_body(world["branch"], world["supplier"], world["product"], items=[_item(world, **patch)]))
@@ -102,7 +104,7 @@ class TestUpdateRules:
         assert superclient.get(f"{P}/orders/{po['id']}").json()["status"] == "pending_approval"
 
     @pytest.mark.parametrize("patch", [
-        {"branch_code": None}, {"items": []}, {"items": [{"product_id": 1, "quantity": -1, "unit_price": 1, "warrenty_month": "1"}]},
+        {"branch_code": None}, {"items": []}, {"items": [{"material_id": 1, "quantity": -1, "unit_price": 1, "warrenty_month": "1"}]},
         {"credit_date": -1}, {"first_suppliers_id": 2 ** 40}, {"purchasing_order_date": "x"}, {"remarks": "R" * 2001}, {"purchasing_order_date": None},
     ])
     def test_rejected(self, superclient, po, patch):

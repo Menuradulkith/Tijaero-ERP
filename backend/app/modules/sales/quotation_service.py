@@ -239,7 +239,7 @@ class SalesQuoteService:
             db,
             user_id=created_by or 0,
             action="create",
-            entity_type="sales_quote",
+            entity_type="quotation",
             entity_id=created.id,
             changes={"quote_no": created.quote_no},
         )
@@ -411,7 +411,7 @@ class SalesQuoteService:
                 db,
                 user_id=user_id or 0,
                 action="update",
-                entity_type="sales_quote",
+                entity_type="quotation",
                 entity_id=updated.id,
                 changes=changes or {"fields": sorted(changed_fields)},
             )
@@ -518,7 +518,7 @@ class SalesQuoteService:
             db,
             user_id=user_id or 0,
             action="status_change",
-            entity_type="sales_quote",
+            entity_type="quotation",
             entity_id=updated.id,
             changes={"status": new_status},
         )
@@ -562,7 +562,7 @@ class SalesQuoteService:
             db,
             user_id=user_id or 0,
             action="status_change",
-            entity_type="sales_quote",
+            entity_type="quotation",
             entity_id=quote.id,
             changes={"status": quote.status},
         )
@@ -621,7 +621,7 @@ class SalesQuoteService:
             db,
             user_id=user_id,
             action="approve" if approve else "reject",
-            entity_type="sales_quote",
+            entity_type="quotation",
             entity_id=quote.id,
             changes={"status": quote.status, "remarks": remarks},
         )
@@ -767,7 +767,7 @@ class SalesQuoteService:
             db,
             user_id=user_id or 0,
             action="reject",
-            entity_type="sales_quote",
+            entity_type="quotation",
             entity_id=updated.id,
             changes={"reason": reason},
         )
@@ -810,7 +810,7 @@ class SalesQuoteService:
         quote.confirmed_date = tz.now()
         updated = self.repository.update(db, quote)
         from app.common.audit import log_audit
-        log_audit(db, user_id=user_id or 0, action="confirm", entity_type="sales_quote", entity_id=updated.id, changes={})
+        log_audit(db, user_id=user_id or 0, action="confirm", entity_type="quotation", entity_id=updated.id, changes={})
         db.commit()
         return updated
 
@@ -855,6 +855,8 @@ class SalesQuoteService:
         # 500 — it just needs manual follow-up via the release_reservation
         # endpoint.
         try:
+            from app.modules.inventory.ledger import set_stock_reference
+            set_stock_reference(db, "quotation", quote.id, quote.quote_no)
             self._release_reservations_for_items(db, [i.id for i in quote.items])
         except Exception as e:
             import logging
@@ -899,6 +901,8 @@ class SalesQuoteService:
         else:
             target_ids = [i.id for i in quote.items]
 
+        from app.modules.inventory.ledger import set_stock_reference
+        set_stock_reference(db, "quotation", quote.id, quote.quote_no)
         released = self._release_reservations_for_items(db, target_ids, user_id=user_id)
 
         from app.common.audit import log_audit
@@ -906,7 +910,7 @@ class SalesQuoteService:
             db,
             user_id=user_id or 0,
             action="release_reservation",
-            entity_type="sales_quote",
+            entity_type="quotation",
             entity_id=quote.id,
             changes={"item_id": item_id, "units_released": released, "reason": reason},
         )
@@ -966,6 +970,7 @@ class SalesQuoteService:
         from app.modules.inventory.models import SalesStock
         from app.common.enums import StockStatus
         from app.modules.inventory.lots import FEFO_ORDER, take_units, units_in
+        from app.modules.inventory.item_stock import stock_key_filter
 
         # Prefer units already reserved/committed to this quote item
         # (received via a PO raised specifically for this quotation) over
@@ -992,7 +997,7 @@ class SalesQuoteService:
             extra_rows = (
                 db.query(SalesStock)
                 .filter(
-                    SalesStock.product_id == qi.product_id,
+                    stock_key_filter(db, qi.product_id),
                     SalesStock.branch_code == quote.branch_code,
                     SalesStock.status == StockStatus.AVAILABLE,
                     SalesStock.is_active == True,
@@ -1139,6 +1144,8 @@ class SalesQuoteService:
         )
         db.add(invoice)
         db.flush()
+        from app.modules.inventory.ledger import set_stock_reference
+        set_stock_reference(db, "sales_order", invoice.id, invoice.invoice_no)
 
         for qi, units in invoice_items_to_create:
             # One InvoiceItems row per physical unit consumed — same
@@ -1505,7 +1512,7 @@ class SalesQuoteService:
             db,
             user_id=converted_by or 0,
             action="convert",
-            entity_type="sales_quote",
+            entity_type="quotation",
             entity_id=quote.id,
             changes={"invoice_id": invoice.id, "invoice_no": getattr(invoice, "invoice_no", None)},
         )
@@ -1766,6 +1773,7 @@ class SalesQuoteService:
     def check_stock_availability(self, db: Session, quote_id: int, update_items: bool = True) -> dict:
         """Check stock availability for all items in a quote and optionally update item stock_status"""
         from app.modules.inventory.models import SalesStock
+        from app.modules.inventory.item_stock import stock_key_filter
         from sqlalchemy import func
         
         quote = self.repository.get_by_id_with_items(db, quote_id)
@@ -1799,7 +1807,7 @@ class SalesQuoteService:
                 SalesStock.branch_code,
                 func.coalesce(func.sum(SalesStock.quantity), 0)
             ).filter(
-                SalesStock.product_id == item.product_id,
+                stock_key_filter(db, item.product_id),
                 SalesStock.status == 'available',
                 SalesStock.is_active == True
             ).group_by(SalesStock.branch_code).all()
@@ -1868,6 +1876,7 @@ class SalesQuoteService:
         not committed to anyone) vs. outstanding (still owed by suppliers).
         """
         from app.modules.inventory.models import SalesStock
+        from app.modules.inventory.item_stock import stock_key_filter
         from app.modules.purchasing.models import PurchasingOrderItems, GoodReceivedItems
         from app.modules.products.models import Product
         from app.common.enums import StockStatus
@@ -1903,15 +1912,16 @@ class SalesQuoteService:
                 SalesStock.is_active == True,
             ).scalar() or 0
 
+            stock_key = stock_key_filter(db, item.product_id)
             on_hand_qty = db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
-                SalesStock.product_id == item.product_id,
+                stock_key,
                 SalesStock.branch_code == quote.branch_code,
                 SalesStock.status.in_([StockStatus.AVAILABLE, StockStatus.RESERVED]),
                 SalesStock.is_active == True,
             ).scalar() or 0
 
             available_qty = db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
-                SalesStock.product_id == item.product_id,
+                stock_key,
                 SalesStock.branch_code == quote.branch_code,
                 SalesStock.status == StockStatus.AVAILABLE,
                 SalesStock.is_active == True,

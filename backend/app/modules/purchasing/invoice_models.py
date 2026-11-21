@@ -128,7 +128,9 @@ class PurchaseInvoiceItem(Base, AuditMixin):
     
     # Product (optional - for line-level detail)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
-    
+    # Item Catalog item billed (from the PO / GRN line)
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
+
     # Quantities
     quantity = Column(Integer, nullable=False)  # Quantity being invoiced from this GRN
     
@@ -148,6 +150,26 @@ class PurchaseInvoiceItem(Base, AuditMixin):
     good_received_note = relationship("GoodReceivedNote", backref="invoice_items")
     purchasing_order = relationship("PurchasingOrder", backref="invoice_items")
     product = relationship("Product", backref="purchase_invoice_items")
+    material = relationship("Material")
+
+    # Display fields for responses built straight from the model.
+    @property
+    def material_item_code(self):
+        return self.material.item_code if self.material is not None else None
+
+    @property
+    def material_name(self):
+        return self.material.name if self.material is not None else None
+
+    @property
+    def unit_of_measure(self):
+        return self.material.unit_of_measure if self.material is not None else None
+
+    @property
+    def product_name(self):
+        if self.product is not None:
+            return self.product.name
+        return self.material_name
 
 
 class PurchaseInvoicePayment(Base, AuditMixin):

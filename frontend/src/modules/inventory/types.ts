@@ -97,6 +97,19 @@ export interface Product {
   category_id: number;
   items_brand_id: number;
   image_url?: string;
+  /** General section (product master). */
+  product_type_id?: number | null;
+  product_type_name?: string | null;
+  hs_code_id?: number | null;
+  hs_code?: string | null;
+  hs_code_description?: string | null;
+  product_family?: string | null;
+  target_market?: string | null;
+  required_certificate?: string | null;
+  /** Item Catalog item this product sells (null = service / non-stock). */
+  material_id?: number | null;
+  material_item_code?: string | null;
+  material_name?: string | null;
   created_date: string;
   added_date: string;
   created_at: string;
@@ -147,6 +160,181 @@ export interface PriceTierUpdate {
   is_active?: boolean;
 }
 
+// ── Product Design Brief ──────────────────────────────────────────────────────
+/** draft → confirmed (locked for good) | rejected (reason; editing returns it to draft). */
+export type DesignBriefStatus = "draft" | "confirmed" | "rejected";
+
+export interface DesignBriefLine {
+  id: number;
+  material_id: number;
+  /** Snapshot of the Item Catalog item taken when the line was saved. */
+  item_code: string;
+  item_name: string;
+  category_id?: number | null;
+  category_name?: string | null;
+  brief?: string | null;
+  sort_order: number;
+}
+
+export interface DesignBrief {
+  id: number;
+  product_id: number;
+  status: DesignBriefStatus;
+  notes?: string | null;
+  lines: DesignBriefLine[];
+  confirmed_by_name?: string | null;
+  confirmed_at?: string | null;
+  rejected_by_name?: string | null;
+  rejected_at?: string | null;
+  reject_reason?: string | null;
+  created_by_name?: string | null;
+  updated_by_name?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  /** Echo back as expected_version on every write. */
+  version?: string | null;
+}
+
+export interface DesignBriefLineInput {
+  material_id: number;
+  brief?: string | null;
+}
+
+export interface DesignBriefSave {
+  expected_version: string | null;
+  notes?: string | null;
+  lines: DesignBriefLineInput[];
+}
+
+/** An active Item Catalog item offered in the Design Brief picker. */
+export interface DesignBriefItemOption {
+  id: number;
+  item_code: string;
+  name: string;
+  category_id: number;
+  category_name?: string | null;
+  unit_of_measure?: string | null;
+  colour?: string | null;
+  unit_dimensions?: string | null;
+  design_required: boolean;
+}
+
+// ── Product Design Detail (after the Design Brief is confirmed) ──────────────
+export interface DesignDetailLine {
+  id: number;
+  material_id: number;
+  item_code: string;
+  item_name: string;
+  category_id?: number | null;
+  category_name?: string | null;
+  /** The confirmed brief's text for this item (null for items added on the detail). */
+  brief?: string | null;
+  quantity: number;
+  colour?: string | null;
+  size?: string | null;
+  design_url?: string | null;
+  sort_order: number;
+}
+
+export interface DesignDetail {
+  id: number;
+  product_id: number;
+  status: DesignBriefStatus;
+  special_instructions?: string | null;
+  packing_instructions?: string | null;
+  lines: DesignDetailLine[];
+  confirmed_by_name?: string | null;
+  confirmed_at?: string | null;
+  rejected_by_name?: string | null;
+  rejected_at?: string | null;
+  reject_reason?: string | null;
+  created_by_name?: string | null;
+  updated_by_name?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  version?: string | null;
+}
+
+export interface DesignDetailSave {
+  expected_version: string | null;
+  special_instructions?: string | null;
+  packing_instructions?: string | null;
+  lines: {
+    material_id: number;
+    quantity: number;
+    brief?: string | null;
+    colour?: string | null;
+    size?: string | null;
+    design_url?: string | null;
+  }[];
+}
+
+// ── Product BOM Structure (steps until packed, materials per step) ───────────
+/** Read-only structure of another product whose stock item is used as a material (multi-level). */
+export interface BomSubStructure {
+  product_id: number;
+  product_code: string;
+  product_name: string;
+  status: DesignBriefStatus;
+  steps: BomStep[];
+}
+
+export interface BomMaterial {
+  id: number;
+  material_id: number;
+  item_code: string;
+  item_name: string;
+  category_id?: number | null;
+  category_name?: string | null;
+  unit_of_measure?: string | null;
+  /** Per one unit of the product. */
+  quantity: number;
+  scrap_pct: number;
+  notes?: string | null;
+  sort_order: number;
+  sub_structure?: BomSubStructure | null;
+}
+
+export interface BomStep {
+  id: number;
+  sort_order: number;
+  name: string;
+  work_area?: string | null;
+  minutes_per_unit?: number | null;
+  instructions?: string | null;
+  materials: BomMaterial[];
+}
+
+export interface BomStructure {
+  id: number;
+  product_id: number;
+  status: DesignBriefStatus;
+  notes?: string | null;
+  steps: BomStep[];
+  confirmed_by_name?: string | null;
+  confirmed_at?: string | null;
+  rejected_by_name?: string | null;
+  rejected_at?: string | null;
+  reject_reason?: string | null;
+  created_by_name?: string | null;
+  updated_by_name?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  version?: string | null;
+}
+
+export interface BomStructureSave {
+  expected_version: string | null;
+  notes?: string | null;
+  steps: {
+    name: string;
+    work_area?: string | null;
+    minutes_per_unit?: number | null;
+    instructions?: string | null;
+    materials: { material_id: number; quantity: number; scrap_pct: number; notes?: string | null }[];
+  }[];
+}
+
 export interface MinimumPrice {
   id: number;
   minimum_price: number;
@@ -181,8 +369,16 @@ export interface ProductCreate {
   category_id: number;
   items_brand_id: number;
   image_url?: string;
+  /** Mandatory for products (the API enforces it); optional here so Materials can share the type. */
+  product_type_id?: number;
+  hs_code_id?: number;
+  product_family?: string;
+  target_market?: string;
+  required_certificate?: string;
   // Initial minimum selling price, saved in the same transaction as the product.
   minimum_selling_price?: number;
+  // Linked Item Catalog item; omit to let the backend create one for a stocked product.
+  material_id?: number;
 }
 
 export interface ProductUpdate {
@@ -205,6 +401,13 @@ export interface ProductUpdate {
   tax_rate?: number;
   category_id?: number;
   items_brand_id?: number;
+  product_type_id?: number;
+  hs_code_id?: number;
+  product_family?: string;
+  target_market?: string;
+  required_certificate?: string;
+  // Linked Item Catalog item (null clears the link; refused while the product has stock).
+  material_id?: number | null;
   // No image_url: the upload/remove image endpoints are its only writers, so
   // a form save can't revert a just-uploaded image.
   // Saved as a new minimum-price history row, in the same transaction as the
@@ -314,7 +517,8 @@ export interface SalesStockPaginated {
 
 // One product's aggregated on-hand position (Stock Summary view)
 export interface StockSummaryRow {
-  product_id: number;
+  product_id: number | null;
+  material_id?: number | null;
   item_code: string;
   product_name: string;
   brand_name?: string | null;

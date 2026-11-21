@@ -248,6 +248,44 @@ export interface SupplierProductCreate {
 
 export type SupplierProductUpdate = Partial<SupplierProductCreate>;
 
+// Supplier <-> Item Catalog item link (the supplier's item price list). Purchasing
+// buys items only: the link's cost_price is the PO unit price and is mandatory.
+export interface SupplierItem {
+  id: number;
+  supplier_id: number;
+  material_id: number;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
+  supplier_sku?: string | null;
+  cost_price: number | string;
+  minimum_order_qty?: number | null;
+  is_preferred: boolean;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplierItemCreate {
+  material_id: number;
+  supplier_sku?: string | null;
+  cost_price: number;
+  minimum_order_qty?: number | null;
+  is_preferred?: boolean;
+  active?: boolean;
+}
+
+export type SupplierItemUpdate = Partial<SupplierItemCreate>;
+
+/** Item display fields carried by purchasing lines (PO, GRN, return, invoice).
+ * Old documents may only have product_id / product_name. */
+export interface PurchaseLineItemFields {
+  material_id?: number | null;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
+}
+
 export interface SupplierCreate {
   company_name: string;
   company_registration_number?: string;
@@ -329,9 +367,11 @@ export interface SupplierUpdate {
 /** Supplier tax areas that charge no tax on a purchase order, whatever the product's tax rate. */
 export const UNTAXED_SUPPLIER_AREAS = ["domestic_zero_rated", "domestic_exempt", "export", "import"];
 
-export interface PurchasingOrderItem {
+export interface PurchasingOrderItem extends PurchaseLineItemFields {
   id: number;
-  product_id: number;
+  /** Only on old lines created before purchasing moved to items. */
+  product_id?: number | null;
+  product_name?: string | null;
   quantity: number;
   unit_price: number;
   /** Tax % saved on the line when the order was saved. */
@@ -346,7 +386,9 @@ export interface PurchasingOrderItem {
 }
 
 export interface PurchasingOrderItemCreate {
-  product_id: number;
+  /** The Item Catalog item bought on this line. Required on save: the API rejects
+   * product_id lines, so an old product line must be given its item first. */
+  material_id?: number;
   quantity: number;
   unit_price: number;
   warrenty_month: string;
@@ -455,9 +497,9 @@ export interface PurchasingOrderUpdate {
 // Purchase Return Types
 export type PurchaseReturnStatus = "draft" | "pending" | "approved" | "rejected";
 
-export interface PurchasingReturnItem {
+export interface PurchasingReturnItem extends PurchaseLineItemFields {
   id: number;
-  product_id: number;
+  product_id?: number | null;
   purchasing_price: number;
   return_price: number;  // per unit
   barcode?: string | null;  // null for batch/none lot returns
@@ -471,7 +513,9 @@ export interface PurchasingReturnItem {
 }
 
 export interface PurchasingReturnItemCreate {
-  product_id: number;
+  product_id?: number;
+  /** The line's item, sent alongside product_id. */
+  material_id?: number;
   purchasing_price: number;
   return_price: number;  // per unit
   barcode?: string;  // serial units; omit for batch/none lots
@@ -492,6 +536,10 @@ export interface LotReturnValidationResponse {
   sales_stock_id?: number;
   product_id?: number;
   product_name?: string;
+  material_id?: number | null;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
   batch_no?: string;
   available_quantity: number;
   purchasing_price?: number;  // per unit
@@ -563,7 +611,7 @@ export interface BarcodeValidationStockInfo {
   supplier_name?: string;
 }
 
-export interface BarcodeValidationResponse {
+export interface BarcodeValidationResponse extends PurchaseLineItemFields {
   valid: boolean;
   barcode: string;
   message: string;
@@ -687,7 +735,7 @@ export interface LandedCostVoucher {
   cancel_reason?: string | null;
 }
 
-export interface LandedCostLine {
+export interface LandedCostLine extends PurchaseLineItemFields {
   purchasing_order_items_id: number;
   product_name?: string | null;
   quantity: number;
@@ -703,7 +751,7 @@ export interface LandedCostSummary {
   total_landed: number | string;
 }
 
-export interface GRNRejection {
+export interface GRNRejection extends PurchaseLineItemFields {
   id: number;
   purchasing_order_items_id: number;
   quantity: number;
@@ -712,7 +760,7 @@ export interface GRNRejection {
 }
 
 // Good Received Items Types
-export interface GoodReceivedItem {
+export interface GoodReceivedItem extends PurchaseLineItemFields {
   id: number;
   good_received_note: string;
   barcode?: string | null;  // null for batch/none-tracked receipts
@@ -995,6 +1043,10 @@ export interface ProcurementQueueItem {
   supplier_name?: string;
   product_id: number;
   product_name?: string;
+  /** The quoted product's Item Catalog item (what the PO buys). */
+  material_id?: number | null;
+  material_item_code?: string | null;
+  material_name?: string | null;
   quantity: number;
   unit_price: number;
   added_date: string;

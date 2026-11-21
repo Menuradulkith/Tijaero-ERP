@@ -63,18 +63,26 @@ def _stock_valuation(ctx: RunContext, p: dict) -> ReportResult:
     from app.modules.inventory.models import SalesStock
     from app.modules.purchasing.models import PurchasingOrderItems
 
+    from app.modules.materials.models import Material, MaterialCategory
+
     Product, Category, ItemsBrand = _models()
     branch_code, branch_codes = ctx.branch_scope(p["branch_code"])
     group = p["group_by"]
 
-    unit_cost = func.coalesce(PurchasingOrderItems.unit_price, Product.cost_price, 0)
+    # Issue cost (inventory/costing.py): WAC items at the item's average cost, else the row's own cost
+    from app.modules.inventory.costing import stock_cost_expr
+
+    unit_cost = stock_cost_expr(SalesStock, Material, Product)
 
     def qty(*statuses):
         return func.coalesce(func.sum(case((SalesStock.status.in_(statuses), SalesStock.quantity), else_=0)), 0)
 
     value = func.coalesce(func.sum(case((SalesStock.status.in_(ON_HAND), SalesStock.quantity * unit_cost), else_=0)), 0)
-    item_code, product = Product.item_code.label("item_code"), Product.name.label("product")
-    category, brand = Category.name.label("category"), ItemsBrand.brand_name.label("brand")
+    # Stock without a product (an Item Catalog item no product sells) shows its item.
+    item_code = func.coalesce(Product.item_code, Material.item_code).label("item_code")
+    product = func.coalesce(Product.name, Material.name).label("product")
+    category = func.coalesce(Category.name, MaterialCategory.name).label("category")
+    brand = ItemsBrand.brand_name.label("brand")
     branch = SalesStock.branch_code.label("branch_code")
     keys = {
         "product": [item_code, product, category, brand],
@@ -94,9 +102,11 @@ def _stock_valuation(ctx: RunContext, p: dict) -> ReportResult:
             qty(StockStatus.DAMAGED.value).label("damaged"),
             value.label("value"),
         )
-        .join(Product, Product.id == SalesStock.product_id)
+        .outerjoin(Product, Product.id == SalesStock.product_id)
+        .outerjoin(Material, Material.id == SalesStock.material_id)
         .outerjoin(Category, Category.id == Product.category_id)
-        .outerjoin(ItemsBrand, ItemsBrand.id == Product.items_brand_id)
+        .outerjoin(MaterialCategory, and_(Product.id.is_(None), MaterialCategory.id == Material.category_id))
+        .outerjoin(ItemsBrand, ItemsBrand.id == func.coalesce(Product.items_brand_id, Material.items_brand_id))
         .outerjoin(PurchasingOrderItems, PurchasingOrderItems.id == SalesStock.purchasing_order_items_id)
         .filter(
             SalesStock.status.in_(ON_HAND + IN_TRANSIT + (StockStatus.DAMAGED.value,)),
@@ -185,8 +195,11 @@ register(ReportDef(
 # Movement
 # --------------------------------------------------------------------------- #
 def movements_query():
-    """Every document line that moved stock: date, kind, document, branch, product, qty in, qty out."""
+    """Every document line that moved stock: date, kind, document, branch, product, item, qty in, qty out.
+    ``material_id`` is the line's Item Catalog item (purchasing lines carry it; sales lines take the
+    product's item); ``product_id`` is NULL on item-only purchase / transfer lines."""
     from app.modules.common.models import Locations
+    from app.modules.products.models import Product
     from app.modules.purchasing.models import (
         GoodReceivedItems, GoodReceivedNote, PurchasingOrderItems, PurchasingReturn, PurchasingReturnItems,
     )
@@ -199,6 +212,7 @@ def movements_query():
         select(GoodReceivedNote.good_received_date.label("on"), literal("Goods received").label("kind"),
                GoodReceivedNote.good_received_no.label("document"), GoodReceivedNote.branch_code.label("branch"),
                PurchasingOrderItems.product_id.label("product_id"),
+               PurchasingOrderItems.material_id.label("material_id"),
                GoodReceivedItems.quantity.label("qty_in"), zero.label("qty_out"))
         .select_from(GoodReceivedItems)
         .join(GoodReceivedNote, GoodReceivedNote.good_received_no == GoodReceivedItems.good_received_note)
@@ -207,23 +221,25 @@ def movements_query():
     )
     sold = (
         select(Invoice.created_date, literal("Sale"), Invoice.invoice_no, Invoice.branch_code,
-               InvoiceItems.product_id, zero, InvoiceItems.quantity)
+               InvoiceItems.product_id, Product.material_id, zero, InvoiceItems.quantity)
         .select_from(InvoiceItems)
         .join(Invoice, Invoice.id == InvoiceItems.invoice_id)
+        .outerjoin(Product, Product.id == InvoiceItems.product_id)
         .where(*counted_invoice_filters())
     )
     customer_returns = (
         select(SaleReturn.added_date, literal("Customer return"), SaleReturn.sale_return_no, SaleReturn.branch_code,
-               SaleReturnItems.product_id, SaleReturnItems.quantity, zero)
+               SaleReturnItems.product_id, Product.material_id, SaleReturnItems.quantity, zero)
         .select_from(SaleReturnItems)
         .join(SaleReturn, SaleReturn.id == SaleReturnItems.sale_return_id)
+        .outerjoin(Product, Product.id == SaleReturnItems.product_id)
         .where(SaleReturn.status == "processed", SaleReturnItems.restocked.is_(True),
                SaleReturnItems.product_id.isnot(None))
     )
     supplier_returns = (
         select(func.coalesce(cast(PurchasingReturn.approved_date, Date), PurchasingReturn.added_date),
                literal("Supplier return"), PurchasingReturn.purchasing_return_no, PurchasingReturn.branch_code,
-               PurchasingReturnItems.product_id, zero, PurchasingReturnItems.quantity)
+               PurchasingReturnItems.product_id, PurchasingReturnItems.material_id, zero, PurchasingReturnItems.quantity)
         .select_from(PurchasingReturnItems)
         .join(PurchasingReturn, PurchasingReturn.id == PurchasingReturnItems.purchasingreturn_id)
         .where(PurchasingReturn.status == "approved")
@@ -231,7 +247,8 @@ def movements_query():
     src, dst = aliased(Locations), aliased(Locations)
     transfers_out = (
         select(ItemTransferNote.created_date, literal("Transfer out"), ItemTransferNote.item_transfer_note,
-               src.branch_code, ItemTransferNoteItems.product_id, zero, ItemTransferNoteItems.quantity)
+               src.branch_code, ItemTransferNoteItems.product_id, ItemTransferNoteItems.material_id, zero,
+               ItemTransferNoteItems.quantity)
         .select_from(ItemTransferNoteItems)
         .join(ItemTransferNote, ItemTransferNote.id == ItemTransferNoteItems.itemtransfernote_id)
         .join(src, src.id == ItemTransferNote.from_location_id)
@@ -246,7 +263,7 @@ def movements_query():
     transfers_in = (
         select(func.coalesce(received_on.c.on, ItemTransferNote.created_date), literal("Transfer in"),
                ItemTransferNote.item_transfer_note, dst.branch_code, ItemTransferNoteItems.product_id,
-               ItemTransferNoteItems.quantity, zero)
+               ItemTransferNoteItems.material_id, ItemTransferNoteItems.quantity, zero)
         .select_from(ItemTransferNoteItems)
         .join(ItemTransferNote, ItemTransferNote.id == ItemTransferNoteItems.itemtransfernote_id)
         .join(dst, dst.id == ItemTransferNote.to_location_id)
@@ -262,17 +279,28 @@ KINDS = ("Goods received", "Customer return", "Transfer in", "Sale", "Supplier r
 def _stock_movement(ctx: RunContext, p: dict) -> ReportResult:
     from app.modules.inventory.models import SalesStock
 
+    from app.modules.materials.models import Material
+
     Product, _Category, _Brand = _models()
     branch_code, branch_codes = ctx.branch_scope(p["branch_code"])
     by_branch = p["group_by"] == "product_branch"
     mv = movements_query()
 
-    where = [_branch_filter(mv.c.branch, branch_code, branch_codes), Product.item_type != "service"]
+    # Stock is keyed by item (central stock): lines of an item group together whichever
+    # product they moved under; a product without an item groups by itself.
+    upid = case((mv.c.material_id.is_(None), mv.c.product_id))
+    where = [_branch_filter(mv.c.branch, branch_code, branch_codes),
+             or_(Product.id.is_(None), Product.item_type != "service"),
+             or_(mv.c.material_id.isnot(None), mv.c.product_id.isnot(None))]
     if p["product_id"]:
-        where.append(mv.c.product_id == p["product_id"])
+        pmid = ctx.db.query(Product.material_id).filter(Product.id == p["product_id"]).scalar()
+        where.append(mv.c.material_id == pmid if pmid else mv.c.product_id == p["product_id"])
     start, end = p["date_from"], p["date_to"]
 
-    keys = [Product.id, Product.item_code, Product.name] + ([mv.c.branch] if by_branch else [])
+    key_id = func.coalesce(-mv.c.material_id, upid)  # items negative, products positive
+    item_code = func.coalesce(Material.item_code, Product.item_code)
+    item_name = func.coalesce(Material.name, Product.name)
+    keys = [key_id.label("id"), item_code.label("item_code"), item_name.label("name")] + ([mv.c.branch] if by_branch else [])
     net = mv.c.qty_in - mv.c.qty_out
     in_period = and_(mv.c.on >= start, mv.c.on <= end)
     agg = [func.coalesce(func.sum(case((mv.c.on < start, net), else_=0)), 0).label("opening")]
@@ -284,7 +312,8 @@ def _stock_movement(ctx: RunContext, p: dict) -> ReportResult:
     rows = (
         ctx.db.query(*keys, *agg)
         .select_from(mv)
-        .join(Product, Product.id == mv.c.product_id)
+        .outerjoin(Material, Material.id == mv.c.material_id)
+        .outerjoin(Product, Product.id == upid)
         .filter(*where, mv.c.on <= end)
         .group_by(*keys)
         .all()
@@ -293,12 +322,14 @@ def _stock_movement(ctx: RunContext, p: dict) -> ReportResult:
     show_on_hand = end >= tz.today()
     on_hand: dict = {}
     if show_on_hand:
-        q = ctx.db.query(SalesStock.product_id, *( [SalesStock.branch_code] if by_branch else []),
+        skey = func.coalesce(-SalesStock.material_id, SalesStock.product_id)
+        q = ctx.db.query(skey, *( [SalesStock.branch_code] if by_branch else []),
                          func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
             SalesStock.status.in_(ON_HAND), _branch_filter(SalesStock.branch_code, branch_code, branch_codes))
         if p["product_id"]:
-            q = q.filter(SalesStock.product_id == p["product_id"])
-        q = q.group_by(SalesStock.product_id, *([SalesStock.branch_code] if by_branch else []))
+            from app.modules.inventory.item_stock import stock_key_filter
+            q = q.filter(stock_key_filter(ctx.db, p["product_id"]))
+        q = q.group_by(skey, *([SalesStock.branch_code] if by_branch else []))
         for r in q.all():
             on_hand[tuple(r[:-1])] = int(r[-1])
 
@@ -327,10 +358,11 @@ def _stock_movement(ctx: RunContext, p: dict) -> ReportResult:
         cols += [Column("on_hand", "On hand now", "int", True), Column("difference", "Difference", "int", True)]
 
     lines = (
-        ctx.db.query(mv.c.on, mv.c.kind, mv.c.document, mv.c.branch, Product.item_code, Product.name,
+        ctx.db.query(mv.c.on, mv.c.kind, mv.c.document, mv.c.branch, item_code, item_name,
                      mv.c.qty_in, mv.c.qty_out)
         .select_from(mv)
-        .join(Product, Product.id == mv.c.product_id)
+        .outerjoin(Material, Material.id == mv.c.material_id)
+        .outerjoin(Product, Product.id == upid)
         .filter(*where, in_period)
         .order_by(mv.c.on, mv.c.document)
         .all()

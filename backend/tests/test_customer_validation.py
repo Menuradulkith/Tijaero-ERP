@@ -13,7 +13,7 @@ def _u() -> str:
 def _body(**kw):
     u = _u()
     b = {"customer_type": "individual", "customer_name": f"QA Cust {u}", "title": "Mr", "gender": "m", "civil_status": "single",
-         "no_of_kids": "0", "mobile_contact_number": "+94771234567", "email": f"qa.{u}@example.com",
+         "no_of_kids": "0", "mobile_contact_number": "+94771234567", "email": f"qa.{u}@example.com", "customer_category": "customer", "tax_area": "domestic_standard", "accounting_group": "local_trade", "vat_registration_number": "VAT-QA-1",
          "bank_account_name": "QA", "bank_name": "QA Bank", "bank_account_no": "123456", "credit_days": 30, "max_credit_limit": 1000}
     b.update(kw)
     return b
@@ -212,3 +212,48 @@ class TestContactPersons:
         assert sum(1 for x in items if x["is_primary"]) == 1
         prim = next(x for x in items if x["is_primary"])
         assert superclient.patch(f"{C}/{company['id']}/contact-persons/{prim['id']}", json={"is_primary": False}).status_code == 400
+
+
+class TestCorrespondentBank:
+    """Banking Details > Correspondent Bank Info: name, location, SWIFT, IBAN."""
+
+    def test_saved_and_normalised(self, superclient):
+        r = superclient.post("/api/v1/customers/", json=_body(
+            correspondent_bank_name="Bank of America", correspondent_bank_location="New York, USA",
+            correspondent_bank_swift_code="bofaus3n", correspondent_bank_iban="gb29 nwbk 6016 1331 9268 19",
+        ))
+        assert r.status_code == 201, r.text
+        c = r.json()
+        assert c["correspondent_bank_swift_code"] == "BOFAUS3N"
+        assert c["correspondent_bank_iban"] == "GB29NWBK60161331926819"
+        assert c["correspondent_bank_location"] == "New York, USA"
+
+    @pytest.mark.parametrize("field,value", [("correspondent_bank_swift_code", "BAD"), ("correspondent_bank_iban", "12345")])
+    def test_bad_format_rejected(self, superclient, field, value):
+        assert superclient.post("/api/v1/customers/", json=_body(**{field: value})).status_code == 422
+
+
+class TestTaxAndCategory:
+    """General section: tax area, accounting group, VAT reg no and category are mandatory."""
+
+    @pytest.mark.parametrize("field", ["tax_area", "accounting_group", "vat_registration_number", "customer_category"])
+    def test_mandatory_on_create(self, superclient, field):
+        body = _body()
+        body.pop(field)
+        assert superclient.post(f"{C}/", json=body).status_code == 422
+
+    @pytest.mark.parametrize("field", ["tax_area", "accounting_group", "vat_registration_number", "customer_category"])
+    def test_cannot_be_cleared(self, superclient, customer, field):
+        assert superclient.put(f"{C}/{customer['id']}", json={field: None}).status_code == 422
+
+    def test_saved(self, superclient):
+        r = superclient.post(f"{C}/", json=_body(customer_category="prospect", tax_area="export",
+                                                 accounting_group="foreign_trade", tax_registration_number="TIN-9"))
+        assert r.status_code == 201, r.text
+        c = r.json()
+        assert (c["customer_category"], c["tax_area"], c["accounting_group"], c["tax_registration_number"]) == (
+            "prospect", "export", "foreign_trade", "TIN-9")
+
+    @pytest.mark.parametrize("field,value", [("customer_category", "vip"), ("tax_area", "mars"), ("accounting_group", "x")])
+    def test_bad_values_rejected(self, superclient, field, value):
+        assert superclient.post(f"{C}/", json=_body(**{field: value})).status_code == 422

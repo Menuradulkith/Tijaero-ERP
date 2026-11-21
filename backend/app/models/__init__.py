@@ -90,6 +90,7 @@ from app.modules.manufacturing.models import (  # noqa: F401
 from app.modules.marketing.models import AdvanceReceipt, WebPosts
 from app.modules.notifications.models import Notification, NotificationRecipient
 from app.modules.products.models import Category, ItemsBrand, MinimumPrice, Product
+from app.modules.materials.models import Material, MaterialCategory, MaterialMinimumPrice, MaterialSupplier  # noqa: F401
 from app.modules.purchasing.models import (
     GoodReceivedItems,
     GoodReceivedNote,
@@ -136,6 +137,11 @@ from app.modules.warehouse.models import (
 )
 from app.modules.communication.models import EmailTemplate, EmailLog
 from app.modules.products.price_tier_models import ProductPriceTier
+from app.modules.products.design_brief_models import ProductDesignBrief, ProductDesignBriefLine  # noqa: F401
+from app.modules.products.design_detail_models import ProductDesignDetail, ProductDesignDetailLine  # noqa: F401
+from app.modules.products.bom_structure_models import (  # noqa: F401
+    ProductBomMaterial, ProductBomStep, ProductBomStructure,
+)
 
 __all__ = [
     "User",

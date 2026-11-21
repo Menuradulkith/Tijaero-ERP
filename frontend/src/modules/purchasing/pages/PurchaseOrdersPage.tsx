@@ -6,8 +6,8 @@
 // Confirm dialog now uses TConfirmDialog from tijaero
 import { useCurrencyStore } from "@/state/currencyStore";
 import {
-  Check as CheckIcon,
   Email as EmailIcon,
+  Star as StarIcon,
 } from "@mui/icons-material";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -49,7 +49,7 @@ import type { GridPaginationModel } from "@mui/x-data-grid";
 import { useDebounce } from "@/hooks";
 import { fetchAllPages } from "@/utils/fetchAllPages";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { Link as RouterLink, useLocation, useSearchParams } from "react-router-dom";
 // Import tijaero components
 import {
     ActionToolbar,
@@ -83,9 +83,11 @@ import {
 } from "@/components/tijaero";
 
 import { useReferenceData } from "@/hooks";
-import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
+import { purchaseOrdersApi, suppliersApi, supplierItemsApi } from "@/modules/purchasing/api";
 import { EntityLink, EntityPeekButton } from "@/components/tijaero/peek";
 import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
+import LineItemLink from "@/modules/purchasing/components/LineItemLink";
+import { itemCatalogUrl, lineItemCode, lineItemLabel, lineItemName, lineItemUom } from "@/modules/purchasing/utils/itemDisplay";
 import LineAmountField, { lineAmountError } from "@/modules/purchasing/components/LineAmountField";
 import PurchaseOrderCreateWizard, {
   type PurchaseOrderWizardHandle,
@@ -97,12 +99,14 @@ import {
     PurchasingOrder,
     PurchasingOrderCreate,
     PurchasingOrderItemCreate,
+    PurchasingOrderItem,
     PurchasingOrderWithItems,
     Supplier,
+    SupplierItem,
     SupplierProduct,
 } from "@/modules/purchasing/types";
 import { UNTAXED_SUPPLIER_AREAS } from "@/modules/purchasing/types";
-import { productsApi } from "@/modules/inventory/api";
+import { materialsApi } from "@/modules/materials/api";
 
 import { useAuthStore } from "@/state/authStore";
 import { hasPermission, usePermission } from "@/auth/permissions";
@@ -156,7 +160,41 @@ const INITIAL_FORM_DATA: PurchaseOrderFormData = {
 
 interface OrderLineItem extends PurchasingOrderItemCreate {
   _id: string;
+  // Display only (not sent): the item, or the product on an old line.
+  product_id?: number;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
+  product_name?: string | null;
 }
+
+/** A saved PO line as the edit form holds it. Old lines keep their product. */
+const lineFromOrderItem = (item: PurchasingOrderItem, idx: number): OrderLineItem => ({
+  _id: `existing-${idx}`,
+  material_id: item.material_id ?? undefined,
+  product_id: item.material_id ? undefined : item.product_id ?? undefined,
+  material_item_code: item.material_item_code,
+  material_name: item.material_name,
+  unit_of_measure: item.unit_of_measure,
+  product_name: item.product_name,
+  quantity: item.quantity,
+  unit_price: item.unit_price,
+  warrenty_month: item.warrenty_month || "0",
+  remark: item.remark || "",
+  quote_item_id: item.quote_item_id ?? null,
+});
+
+/** What the API gets for a line. Purchase orders buy items only, so an old product line
+ * must be given its item before the order can be saved again. */
+const lineToPayload = (item: OrderLineItem): PurchasingOrderItemCreate => ({
+  material_id: item.material_id || undefined,
+  quantity: item.quantity,
+  unit_price: item.unit_price,
+  warrenty_month: item.warrenty_month,
+  remark: item.remark,
+  // keep the quotation link, or the line would lose its reservation trail
+  quote_item_id: item.quote_item_id ?? null,
+});
 
 // A purchase order row as shown in the browse table, with the supplier name
 // looked up and attached directly so the table's own column-header sort
@@ -182,14 +220,7 @@ const resetFormFromOrder = (
   status: order.status || "draft",
   items:
     "items" in order && order.items
-      ? order.items.map((item) => ({
-          product_id: item.product_id,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          warrenty_month: item.warrenty_month || "0",
-          remark: item.remark || "",
-          quote_item_id: item.quote_item_id ?? null,
-        }))
+      ? order.items.map((item, idx) => lineToPayload(lineFromOrderItem(item, idx)))
       : [],
 });
 
@@ -202,9 +233,9 @@ export default function PurchaseOrdersPage() {
 
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
   // Which line item's "Compare Suppliers" dialog is open (null = closed).
-  // Tracks the line item id, not just the product, since the price it picks
+  // Tracks the line id, not just the item, since the price it picks
   // must be quick-filled back onto that specific row.
-  const [compareSuppliersFor, setCompareSuppliersFor] = useState<{ itemId: string; productId: number } | null>(null);
+  const [compareSuppliersFor, setCompareSuppliersFor] = useState<{ itemId: string; materialId: number } | null>(null);
   const [formStep, setFormStep] = useState(0);
 
   // The create wizard's own step/validity/submitting state, reported up via
@@ -328,15 +359,7 @@ export default function PurchaseOrdersPage() {
     if (selectedOrder?.items) {
       // @ts-ignore
       setLineItems(
-        (selectedOrder as any).items.map((item: any, idx: number) => ({
-          _id: `existing-${idx}`,
-          product_id: item.product_id,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          warrenty_month: item.warrenty_month || "0",
-          remark: item.remark || "",
-          quote_item_id: item.quote_item_id ?? null,
-        })),
+        ((selectedOrder as any).items as PurchasingOrderItem[]).map(lineFromOrderItem),
       );
     }
   }, [handleStartEditBase, selectedOrder]);
@@ -411,15 +434,7 @@ export default function PurchaseOrdersPage() {
         const detailedOrder = await purchaseOrdersApi.getById(order.id);
         let mappedItems: OrderLineItem[] = [];
         if (detailedOrder.items) {
-          mappedItems = detailedOrder.items.map((item, idx) => ({
-            _id: `existing-${idx}`,
-            product_id: item.product_id,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            warrenty_month: item.warrenty_month || "0",
-            remark: item.remark || "",
-            quote_item_id: item.quote_item_id ?? null,
-          }));
+          mappedItems = detailedOrder.items.map(lineFromOrderItem);
           setLineItems(mappedItems);
         } else {
           setLineItems([]);
@@ -445,89 +460,88 @@ export default function PurchaseOrdersPage() {
     enabled: canViewSuppliers,
   });
 
-  // OPTIMIZED: Single API call for products and branches (was 2 calls)
   const {
-    data: refData,
     filteredBranches,
     defaultBranchCode,
-  } = useReferenceData(["products", "branches"]);
-  const products = refData?.products || [];
+  } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
 
-  // Which products the PO's primary supplier has an approved-vendor mapping
-  // for (Suppliers -> Products), so the line-item picker can flag them and
-  // default to that supplier's own cost price instead of the product's
-  // generic cost_price or an unrelated price tier.
-  const { data: supplierProductList } = useQuery({
-    queryKey: ["supplier-products", formData.first_suppliers_id],
-    queryFn: () => suppliersApi.getProducts(formData.first_suppliers_id),
+  // The PO's supplier's item price list (Supplier -> Items, the same links as
+  // the Item Catalog's Suppliers tab). Purchasing buys these items only: the
+  // line picker lists them and a line's unit price defaults to the supplier's cost.
+  const { data: supplierItemList } = useQuery({
+    queryKey: ["supplier-items", formData.first_suppliers_id],
+    queryFn: () => supplierItemsApi.list(formData.first_suppliers_id),
     enabled: !!formData.first_suppliers_id && (isEditing || isCreating),
   });
-  const supplierProductMap = useMemo(() => {
-    const map = new Map<number, SupplierProduct>();
-    (supplierProductList || []).forEach((sp) => map.set(sp.product_id, sp));
+  const supplierItemMap = useMemo(() => {
+    const map = new Map<number, SupplierItem>();
+    (supplierItemList || []).forEach((si) => map.set(si.material_id, si));
     return map;
-  }, [supplierProductList]);
+  }, [supplierItemList]);
+  // Item tax rates for the totals preview (same rule as the server).
+  const { data: activeItems } = useQuery({
+    queryKey: ["materials", "active-all"],
+    queryFn: () => materialsApi.getAll(0, 100000, true),
+    enabled: isEditing || isCreating,
+    staleTime: 60_000,
+  });
+  const itemTaxRates = useMemo(
+    () => new Map((activeItems || []).map((m) => [m.id, Number(m.tax_rate ?? 0)])),
+    [activeItems],
+  );
+  // Active links only, preferred ones first.
+  const itemOptions = useMemo(
+    () =>
+      (supplierItemList || [])
+        .filter((si) => si.active !== false)
+        .sort((a, b) => Number(b.is_preferred) - Number(a.is_preferred)),
+    [supplierItemList],
+  );
 
-  // Mapped-to-this-supplier products first, so they're easy to find, without
-  // hiding the rest — a supplier can still occasionally send something new.
-  const productOptions = useMemo(() => {
-    if (supplierProductMap.size === 0) return products;
-    return [...products].sort((a: any, b: any) => {
-      const aMapped = supplierProductMap.has(a.id) ? 1 : 0;
-      const bMapped = supplierProductMap.has(b.id) ? 1 : 0;
-      return bMapped - aMapped;
-    });
-  }, [products, supplierProductMap]);
-
-  // Currently-available stock for every product on this order's line items,
-  // at the order's branch — lets the user see what's already on hand before
-  // deciding how much more to order.
-  const lineItemProductIds = useMemo(
-    () => Array.from(new Set(lineItems.map((li) => li.product_id).filter((id) => id > 0))),
+  // Currently-available stock for every item on this order's lines — lets
+  // the user see what's already on hand before deciding how much more to order.
+  const lineItemMaterialIds = useMemo(
+    () => Array.from(new Set(lineItems.map((li) => li.material_id).filter((id): id is number => !!id))),
     [lineItems],
   );
-  const { data: availableStockByProduct } = useQuery({
-    queryKey: ["po-available-stock", formData.branch_code, lineItemProductIds],
-    queryFn: () => purchaseOrdersApi.getAvailableStock(lineItemProductIds, formData.branch_code),
-    enabled: !!formData.branch_code && lineItemProductIds.length > 0,
+  const { data: availableStockByItem } = useQuery({
+    queryKey: ["po-available-stock", formData.branch_code, lineItemMaterialIds],
+    queryFn: () => purchaseOrdersApi.getAvailableStock(lineItemMaterialIds, formData.branch_code),
+    enabled: !!formData.branch_code && lineItemMaterialIds.length > 0,
   });
   const getAvailableQty = useCallback(
-    (productId: number) => availableStockByProduct?.[productId] ?? 0,
-    [availableStockByProduct],
+    (materialId: number) => availableStockByItem?.[materialId] ?? 0,
+    [availableStockByItem],
   );
 
-  // Only suppliers that carry every product on the order are offered (the
-  // supplier-product mappings are the source of truth). An empty cart, or
-  // mappings still loading, leaves the full list.
-  const lineProductIds = useMemo(
-    () => Array.from(new Set(lineItems.map((i) => i.product_id).filter((id): id is number => !!id))),
-    [lineItems],
-  );
-  const lineProductSupplierQueries = useQueries({
-    queries: lineProductIds.map((productId) => ({
-      queryKey: ["product-suppliers-compare", productId],
-      queryFn: () => productsApi.getSuppliers(productId),
+  // Only suppliers linked to every item on the order are offered (the item's
+  // supplier links are the source of truth). An empty cart, or links still
+  // loading, leaves the full list.
+  const lineItemSupplierQueries = useQueries({
+    queries: lineItemMaterialIds.map((materialId) => ({
+      queryKey: ["material-suppliers", materialId],
+      queryFn: () => materialsApi.getSuppliers(materialId),
     })),
   });
-  const mappingsReady = lineProductSupplierQueries.every((q) => q.data !== undefined);
+  const linksReady = lineItemSupplierQueries.every((q) => q.data !== undefined);
   const allowedSupplierIds = useMemo(() => {
-    if (lineProductIds.length === 0 || !mappingsReady) return null;
-    const sets = lineProductSupplierQueries.map(
-      (q) => new Set((q.data as SupplierProduct[]).filter((sp) => sp.active !== false).map((sp) => sp.supplier_id)),
+    if (lineItemMaterialIds.length === 0 || !linksReady) return null;
+    const sets = lineItemSupplierQueries.map(
+      (q) => new Set((q.data as unknown as SupplierProduct[]).filter((sp) => sp.active !== false).map((sp) => sp.supplier_id)),
     );
     return sets.reduce((acc, cur) => new Set([...acc].filter((id) => cur.has(id))));
-  }, [lineProductIds, mappingsReady, lineProductSupplierQueries]);
-  // Suppliers flagged as preferred for any product on the order (listed first, tagged).
+  }, [lineItemMaterialIds, linksReady, lineItemSupplierQueries]);
+  // Suppliers flagged as preferred for any item on the order (listed first, tagged).
   const preferredSupplierIds = useMemo(() => {
     const ids = new Set<number>();
-    lineProductSupplierQueries.forEach((q) =>
-      ((q.data as SupplierProduct[] | undefined) ?? []).forEach((sp) => {
+    lineItemSupplierQueries.forEach((q) =>
+      ((q.data as unknown as SupplierProduct[] | undefined) ?? []).forEach((sp) => {
         if (sp.is_preferred && sp.active !== false) ids.add(sp.supplier_id);
       }),
     );
     return ids;
-  }, [lineProductSupplierQueries]);
+  }, [lineItemSupplierQueries]);
   const supplierOptions = useMemo(
     () =>
       (suppliers || [])
@@ -544,14 +558,15 @@ export default function PurchaseOrdersPage() {
     [suppliers, allowedSupplierIds, formData.first_suppliers_id, preferredSupplierIds],
   );
 
-  // The reverse lookup: every supplier who can supply the product currently
-  // open in the "Compare Suppliers" dialog, with their cost/lead time/MOQ —
-  // reuses the same reciprocal endpoint that backs the Products page.
-  const { data: compareSuppliers, isLoading: compareSuppliersLoading } = useQuery({
-    queryKey: ["product-suppliers-compare", compareSuppliersFor?.productId],
-    queryFn: () => productsApi.getSuppliers(compareSuppliersFor!.productId),
+  // The reverse lookup: every supplier linked to the item currently open in
+  // the "Compare Suppliers" dialog, with their cost/MOQ — the same links the
+  // Item Catalog's Suppliers tab shows.
+  const { data: compareSuppliersRaw, isLoading: compareSuppliersLoading } = useQuery({
+    queryKey: ["material-suppliers", compareSuppliersFor?.materialId],
+    queryFn: () => materialsApi.getSuppliers(compareSuppliersFor!.materialId),
     enabled: !!compareSuppliersFor,
   });
+  const compareSuppliers = compareSuppliersRaw as unknown as SupplierProduct[] | undefined;
 
   const handleQuickFillSupplierPrice = useCallback((supplier: SupplierProduct) => {
     if (!compareSuppliersFor) return;
@@ -672,11 +687,6 @@ export default function PurchaseOrdersPage() {
   const handleNewOrder = useCallback(async () => {
     startNewOrderInternal();
   }, [startNewOrderInternal]);
-
-  const getProductName = (productId: number) => {
-    const product = products?.find((p: any) => p.id === productId);
-    return product ? product.name : `Product #${productId}`;
-  };
 
   const filteredOrders: PurchasingOrder[] = useMemo(() => orders ?? [], [orders]);
 
@@ -822,7 +832,8 @@ export default function PurchaseOrdersPage() {
   );
 
   // Line items before tax, the tax on them, and the total (what the supplier is owed).
-  // Tax rule matches the server: the product's tax %, none for a supplier on an untaxed tax area.
+  // Tax rule matches the server: the item's tax %, none for a supplier on an untaxed tax area.
+  // Item tax rates come from the item master (old product lines: no tax preview).
   const subtotalAmount = useMemo(
     () => lineItems.reduce((sum, item) => sum + item.quantity * item.unit_price, 0),
     [lineItems],
@@ -831,10 +842,10 @@ export default function PurchaseOrdersPage() {
     const supplier = (suppliers as Supplier[] | undefined)?.find((s) => s.id === formData.first_suppliers_id);
     if (supplier?.tax_area && UNTAXED_SUPPLIER_AREAS.includes(supplier.tax_area)) return 0;
     return lineItems.reduce((sum, item) => {
-      const rate = Number((products.find((p: any) => p.id === item.product_id) as any)?.tax_rate ?? 0);
+      const rate = Number((item.material_id ? itemTaxRates.get(item.material_id) : 0) ?? 0);
       return sum + Math.round(item.quantity * item.unit_price * rate) / 100;
     }, 0);
-  }, [lineItems, suppliers, products, formData.first_suppliers_id]);
+  }, [lineItems, suppliers, itemTaxRates, formData.first_suppliers_id]);
   const totalAmount = subtotalAmount + taxAmount;
 
   // Check credit limit when supplier, payment method, or total amount changes
@@ -930,7 +941,7 @@ export default function PurchaseOrdersPage() {
   const handleAddLineItem = () => {
     const newItem: OrderLineItem = {
       _id: `new-${Date.now()}`,
-      product_id: 0,
+      material_id: 0,
       quantity: 1,
       unit_price: 0,
       warrenty_month: "0",
@@ -961,15 +972,17 @@ export default function PurchaseOrdersPage() {
   const handleSave = useCallback(async () => {
     // Prevent double-submit during async credit-check / confirm-dialog window
     if (saveBusyRef.current || isPreSaveChecking || createMutation.isPending || updateMutation.isPending) return;
-    // Every line needs a product, a whole quantity of at least 1 and a price above 0.
+    // Every line needs an item, a whole quantity of at least 1 and a price above 0.
     const badLine = lineItems.find(
-      (i) => !i.product_id || !Number.isInteger(Number(i.quantity)) || Number(i.quantity) < 1 || !(Number(i.unit_price) > 0),
+      (i) => !i.material_id || !Number.isInteger(Number(i.quantity)) || Number(i.quantity) < 1 || !(Number(i.unit_price) > 0),
     );
     if (lineItems.length === 0 || badLine) {
       showErrorToast(
         lineItems.length === 0
-          ? "Add at least one product to the order."
-          : "Each line needs a product, a quantity of at least 1 and a unit price above 0.",
+          ? "Add at least one item to the order."
+          : badLine && !badLine.material_id && badLine.product_id
+            ? `"${badLine.product_name || `Product #${badLine.product_id}`}" is an old product line: pick its Item Catalog item before saving.`
+            : "Each line needs an item, a quantity of at least 1 and a unit price above 0.",
       );
       return;
     }
@@ -980,7 +993,7 @@ export default function PurchaseOrdersPage() {
     try {
     const dataToSave: PurchasingOrderCreate = {
       ...formData,
-      items: lineItems.map(({ _id, ...item }) => item),
+      items: lineItems.map(lineToPayload),
     };
 
     // Warn (but allow) when a line is below the supplier's MOQ.
@@ -988,7 +1001,7 @@ export default function PurchaseOrdersPage() {
       const shortfalls = await findMoqShortfalls(
         formData.first_suppliers_id,
         lineItems,
-        (id) => queryClient.fetchQuery({ queryKey: ["supplier-products", id], queryFn: () => suppliersApi.getProducts(id) }),
+        (id) => queryClient.fetchQuery({ queryKey: ["supplier-items", id], queryFn: () => supplierItemsApi.list(id) }),
       );
       if (shortfalls.length > 0) {
         const supplierName = suppliers?.find((s) => s.id === formData.first_suppliers_id)?.company_name || "Unknown";
@@ -1060,15 +1073,7 @@ export default function PurchaseOrdersPage() {
         credit_date: formData.credit_date,
         first_suppliers_id: formData.first_suppliers_id,
         second_suppliers_id: formData.second_suppliers_id,
-        items: lineItems.map((item) => ({
-          product_id: item.product_id,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          warrenty_month: item.warrenty_month,
-          remark: item.remark,
-          // keep the quotation link, or the line would lose its reservation trail
-          quote_item_id: item.quote_item_id ?? null,
-        })),
+        items: lineItems.map(lineToPayload),
       };
 
       // A rejected order that is edited goes back to approval as a normal pending order
@@ -1187,10 +1192,10 @@ export default function PurchaseOrdersPage() {
     effectivePONumber &&
     formData.branch_code;
 
-  // Select Products step validation: at least one line item with a product and quantity chosen
+  // Items step validation: at least one line, each with an item and a quantity
   const isProductsStepValid =
     lineItems.length > 0 &&
-    lineItems.every((item) => item.product_id > 0 && !lineAmountError(Number(item.quantity), true));
+    lineItems.every((item) => !!item.material_id && !lineAmountError(Number(item.quantity), true));
 
   // Full form validation (both steps)
   const isFormValid =
@@ -1528,7 +1533,7 @@ export default function PurchaseOrdersPage() {
                   <Autocomplete
                     size="small"
                     options={supplierOptions}
-                    noOptionsText="No supplier carries all the products on this order"
+                    noOptionsText="No supplier is linked to all the items on this order"
                     getOptionLabel={(option: Supplier) => {
                       const name = option.company_name;
                       return option.active ? name : `${name} (Inactive)`;
@@ -1551,22 +1556,22 @@ export default function PurchaseOrdersPage() {
                       handleBlur("first_suppliers_id");
 
                       // Re-price every cart line for the newly chosen supplier from
-                      // that supplier's own listed cost. The product's own cost price
-                      // is never used on a purchase order.
+                      // that supplier's own cost on its item price list. The item's
+                      // own cost price is never used on a purchase order.
                       if (newValue && lineItems.length > 0) {
-                        const supplierProducts = await queryClient.fetchQuery({
-                          queryKey: ["supplier-products", newValue.id],
-                          queryFn: () => suppliersApi.getProducts(newValue.id),
+                        const supplierItems = await queryClient.fetchQuery({
+                          queryKey: ["supplier-items", newValue.id],
+                          queryFn: () => supplierItemsApi.list(newValue.id),
                         });
-                        const costByProduct = new Map(
-                          supplierProducts.map((sp) => [sp.product_id, Number(sp.cost_price)]),
+                        const costByItem = new Map(
+                          supplierItems.map((si) => [si.material_id, Number(si.cost_price)]),
                         );
                         setLineItems((prev) =>
                           prev.map((item) => {
-                            if (!item.product_id) return item;
+                            if (!item.material_id) return item;
                             return {
                               ...item,
-                              unit_price: costByProduct.get(item.product_id) ?? 0,
+                              unit_price: costByItem.get(item.material_id) ?? 0,
                             };
                           }),
                         );
@@ -1618,7 +1623,7 @@ export default function PurchaseOrdersPage() {
 
                 {(isCreating || isEditing) &&
                   formData.first_suppliers_id > 0 &&
-                  lineItems.some((item) => item.product_id) && (
+                  lineItems.some((item) => item.material_id) && (
                     <FormSection title="Price Comparison" columns={1}>
                       <Paper
                         variant="outlined"
@@ -1632,7 +1637,7 @@ export default function PurchaseOrdersPage() {
                         <Table size="small">
                           <TableHead>
                             <TableRow sx={modernTableStyles.headerRow}>
-                              <TableCell>Product</TableCell>
+                              <TableCell>Item</TableCell>
                               <TableCell align="right">
                                 {(suppliers?.find(
                                   (s: Supplier) => s.id === formData.first_suppliers_id,
@@ -1642,15 +1647,12 @@ export default function PurchaseOrdersPage() {
                           </TableHead>
                           <TableBody>
                             {lineItems
-                              .filter((item) => item.product_id)
+                              .filter((item) => item.material_id)
                               .map((item) => {
-                                const product = products.find(
-                                  (p: any) => p.id === item.product_id,
-                                );
-                                const mapping = supplierProductMap.get(item.product_id);
+                                const mapping = supplierItemMap.get(item.material_id as number);
                                 return (
                                   <TableRow key={item._id}>
-                                    <TableCell>{product?.name || "-"}</TableCell>
+                                    <TableCell>{lineItemLabel(item)}</TableCell>
                                     <TableCell align="right">
                                       {mapping ? (
                                         fmtLKR(mapping.cost_price)
@@ -1866,7 +1868,8 @@ export default function PurchaseOrdersPage() {
                     <Table size="small">
                       <TableHead>
                         <TableRow sx={modernTableStyles.headerRow}>
-                          <TableCell sx={{ minWidth: 200 }}>Product</TableCell>
+                          <TableCell sx={{ width: 110 }}>Item Code</TableCell>
+                          <TableCell sx={{ minWidth: 200 }}>Item</TableCell>
                           <TableCell sx={{ width: 80 }}>UOM</TableCell>
                           <TableCell align="right" sx={{ width: 110 }}>Available Qty</TableCell>
                           <TableCell align="right" sx={{ width: 100 }}>Quantity</TableCell>
@@ -1883,7 +1886,7 @@ export default function PurchaseOrdersPage() {
                       <TableBody>
                         {lineItems.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={isEditing || isCreating ? 8 : 7} sx={modernTableStyles.emptyCell}>
+                            <TableCell colSpan={isEditing || isCreating ? 9 : 8} sx={modernTableStyles.emptyCell}>
                               No items added yet
                             </TableCell>
                           </TableRow>
@@ -1897,69 +1900,107 @@ export default function PurchaseOrdersPage() {
                               }}
                             >
                               <TableCell>
+                                <Typography variant="body2" color="text.secondary">
+                                  {lineItemCode(item) || "-"}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
                                 {isEditing || isCreating ? (
                                   <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
                                     <Box sx={{ display: "flex", gap: 1 }}>
-                                      <Autocomplete
+                                      <Autocomplete<SupplierItem>
                                         size="small"
-                                        options={productOptions}
-                                        getOptionLabel={(option: any) =>
-                                          option.name
-                                            ? `${option.item_code ? `${option.item_code} - ` : ""}${option.name}`
-                                            : ""
+                                        options={itemOptions}
+                                        getOptionLabel={(option) =>
+                                          `${option.material_item_code ? `${option.material_item_code} - ` : ""}${option.material_name || `Item #${option.material_id}`}`
                                         }
-                                        renderOption={(props, option: any) => {
-                                          const mapping = supplierProductMap.get(option.id);
-                                          return (
-                                            <li {...props} key={option.id}>
-                                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
+                                        isOptionEqualToValue={(o, v) => o.material_id === v.material_id}
+                                        renderOption={(props, option) => (
+                                          <li {...props} key={option.id}>
+                                            <Box sx={{ display: "flex", flexDirection: "column", width: "100%" }}>
+                                              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                                                 <Typography variant="body2" sx={{ flex: 1 }}>
-                                                  {option.item_code ? `${option.item_code} - ` : ""}{option.name}
+                                                  {option.material_item_code ? `${option.material_item_code} - ` : ""}
+                                                  {option.material_name}
                                                 </Typography>
-                                                {mapping && (
-                                                  <Tooltip title={`This supplier's cost: ${currencySymbol} ${mapping.cost_price}${mapping.is_preferred ? " (preferred)" : ""}`}>
-                                                    <CheckIcon fontSize="small" color={mapping.is_preferred ? "primary" : "success"} />
+                                                {option.is_preferred && (
+                                                  <Tooltip title="Preferred supplier for this item">
+                                                    <StarIcon fontSize="small" color="primary" />
                                                   </Tooltip>
                                                 )}
+                                                <Typography variant="caption" color="text.secondary">
+                                                  {currencySymbol} {fmtLKR(Number(option.cost_price))}
+                                                </Typography>
                                               </Box>
-                                            </li>
-                                          );
-                                        }}
+                                              <Typography variant="caption" color="text.secondary">
+                                                UOM: {option.unit_of_measure || "-"}
+                                                {option.supplier_sku ? ` · SKU: ${option.supplier_sku}` : ""}
+                                                {` · MOQ: ${option.minimum_order_qty ?? "-"}`}
+                                              </Typography>
+                                            </Box>
+                                          </li>
+                                        )}
                                         value={
-                                          products?.find(
-                                            (p: any) => p.id === item.product_id,
-                                          ) || null
+                                          item.material_id
+                                            ? supplierItemMap.get(item.material_id) ??
+                                              ({
+                                                id: -item.material_id,
+                                                supplier_id: formData.first_suppliers_id,
+                                                material_id: item.material_id,
+                                                material_item_code: item.material_item_code,
+                                                material_name: item.material_name,
+                                                unit_of_measure: item.unit_of_measure,
+                                                cost_price: 0,
+                                                is_preferred: false,
+                                                active: false,
+                                                created_at: "",
+                                                updated_at: "",
+                                              } as SupplierItem)
+                                            : null
                                         }
-                                        onChange={(_, newValue: any) => {
-                                          const supplierMapping = newValue ? supplierProductMap.get(newValue.id) : undefined;
-
+                                        onChange={(_, newValue) => {
                                           const updatedItems = lineItems.map(
                                             (lineItem) =>
                                               lineItem._id === item._id
                                                 ? {
                                                     ...lineItem,
-                                                    product_id: newValue?.id || 0,
-                                                    unit_price: Number(supplierMapping?.cost_price ?? 0),
+                                                    material_id: newValue?.material_id || 0,
+                                                    material_item_code: newValue?.material_item_code,
+                                                    material_name: newValue?.material_name,
+                                                    unit_of_measure: newValue?.unit_of_measure,
+                                                    // The supplier's cost is the PO price source.
+                                                    unit_price: Number(newValue?.cost_price ?? 0),
                                                   }
                                                 : lineItem,
                                           );
                                           setLineItems(updatedItems);
                                         }}
+                                        noOptionsText={
+                                          formData.first_suppliers_id
+                                            ? "This supplier has no items yet. Add them on the supplier's Items tab or the Item Catalog Suppliers tab."
+                                            : "Select a supplier first"
+                                        }
                                         renderInput={(params) => (
                                           <TextField
                                             {...params}
-                                            placeholder="Select Product"
+                                            placeholder={formData.first_suppliers_id ? "Select Item" : "Select a supplier first"}
                                             size="small"
+                                            error={!item.material_id && !!item.product_id}
+                                            helperText={
+                                              !item.material_id && item.product_id
+                                                ? `Old line: ${item.product_name || `Product #${item.product_id}`}. Pick its item.`
+                                                : undefined
+                                            }
                                           />
                                         )}
                                         sx={{ minWidth: 180, flexGrow: 1 }}
                                       />
-                                      {item.product_id ? (
+                                      {item.material_id ? (
                                         <Tooltip title="Compare Suppliers">
                                           <IconButton
                                             size="small"
                                             color="primary"
-                                            onClick={() => setCompareSuppliersFor({ itemId: item._id, productId: item.product_id })}
+                                            onClick={() => setCompareSuppliersFor({ itemId: item._id, materialId: item.material_id as number })}
                                           >
                                             <CompareArrowsIcon />
                                           </IconButton>
@@ -1968,19 +2009,19 @@ export default function PurchaseOrdersPage() {
                                     </Box>
                                   </Box>
                                 ) : (
-                                  <EntityLink entity="product" id={item.product_id}>
-                                    {getProductName(item.product_id)}
-                                  </EntityLink>
+                                  <LineItemLink line={item} label={lineItemName(item)} />
                                 )}
                               </TableCell>
                               <TableCell>
                                 <Typography variant="body2" color="text.secondary">
-                                  {(products?.find((p: any) => p.id === item.product_id) as any)?.unit_of_measure || "-"}
+                                  {item.unit_of_measure ||
+                                    (item.material_id ? supplierItemMap.get(item.material_id)?.unit_of_measure : null) ||
+                                    lineItemUom(item)}
                                 </Typography>
                               </TableCell>
                               <TableCell align="right">
                                 <Typography variant="body2" color="text.secondary">
-                                  {item.product_id ? getAvailableQty(item.product_id) : "-"}
+                                  {item.material_id ? getAvailableQty(item.material_id) : "-"}
                                 </Typography>
                               </TableCell>
                               <TableCell align="right">
@@ -2382,8 +2423,13 @@ export default function PurchaseOrdersPage() {
             </Box>
           ) : !compareSuppliers || compareSuppliers.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              No suppliers are mapped to this product yet. Add one from the supplier's own
-              Products section.
+              No suppliers are linked to this item yet. Add one on the{" "}
+              {compareSuppliersFor ? (
+                <RouterLink to={itemCatalogUrl(compareSuppliersFor.materialId)}>Item Catalog Suppliers tab</RouterLink>
+              ) : (
+                "Item Catalog Suppliers tab"
+              )}{" "}
+              or the supplier's Items tab.
             </Typography>
           ) : (
             <Table size="small">

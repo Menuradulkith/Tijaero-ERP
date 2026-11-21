@@ -36,7 +36,7 @@ def test_text_that_merely_spells_a_nul_escape_is_accepted(superclient):
 def test_customer_partial_update_cannot_copy_the_other_number(superclient):
     body = {
         "customer_type": "business", "company_name": f"QA Co {_u()}", "customer_name": f"QA Co {_u()}",
-        "mobile_contact_number": "+94771234567",
+        "mobile_contact_number": "+94771234567", "customer_category": "customer", "tax_area": "domestic_standard", "accounting_group": "local_trade", "vat_registration_number": "VAT-QA-1",
     }
     created = superclient.post(f"{API}/customers/", json=body)
     assert created.status_code == 201, created.text

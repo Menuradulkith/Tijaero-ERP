@@ -56,6 +56,21 @@ class _Out(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# Central stock phase 4: manufacturing plans, makes and consumes Item Catalog items.
+PRODUCT_ID_REFUSED = "Manufacturing uses Item Catalog items: send material_id"
+
+
+class _ItemIn(BaseModel):
+    """An input that names an item (``material_id``); a ``product_id`` is refused (422)."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_product_id(cls, data):
+        if isinstance(data, dict) and data.get("product_id") is not None:
+            raise ValueError(PRODUCT_ID_REFUSED)
+        return data
+
+
 # ═══════════════════════════ work centers ═══════════════════════════
 class WorkCenterIn(BaseModel):
     code: ReqStr(30)
@@ -111,9 +126,9 @@ class WorkCenterOut(_Out):
 
 
 # ═══════════════════════════ BOMs ═══════════════════════════
-class BOMItemIn(BaseModel):
+class BOMItemIn(_ItemIn):
     sequence: int = Field(10, ge=0, le=100000)
-    product_id: Id
+    material_id: Id  # the component item
     quantity: Decimal = Field(..., gt=0, le=Decimal("1000000"), decimal_places=4)
     scrap_pct: Decimal = Field(Decimal("0"), ge=0, lt=100, decimal_places=2)
     issue_method: IssueMethod = "manual"
@@ -131,14 +146,14 @@ class BOMOperationIn(BaseModel):
     outside_unit_cost: Money = Decimal("0")
 
 
-class BOMByProductIn(BaseModel):
-    product_id: Id
+class BOMByProductIn(_ItemIn):
+    material_id: Id  # the by-product item
     # Per output_quantity of the BOM, like the components
     quantity: Decimal = Field(..., gt=0, le=Decimal("1000000"), decimal_places=4)
 
 
-class BOMIn(BaseModel):
-    product_id: Id
+class BOMIn(_ItemIn):
+    material_id: Id  # the finished item the BOM makes
     version: ReqStr(20) = "1"
     output_quantity: Decimal = Field(Decimal("1"), gt=0, le=Decimal("1000000"), decimal_places=4)
     description: OptStr(2000) = None
@@ -162,7 +177,10 @@ class BOMUpdate(BaseModel):
 class BOMItemOut(_Out):
     id: int
     sequence: int
-    product_id: int
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    product_id: Optional[int] = None  # rows made before items only
     product_name: Optional[str] = None
     product_code: Optional[str] = None
     unit_of_measure: Optional[str] = None
@@ -194,7 +212,10 @@ class BOMOperationOut(_Out):
 
 class BOMByProductOut(_Out):
     id: int
-    product_id: int
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    product_id: Optional[int] = None  # rows made before items only
     product_name: Optional[str] = None
     product_code: Optional[str] = None
     unit_of_measure: Optional[str] = None
@@ -206,7 +227,11 @@ class BOMByProductOut(_Out):
 class BOMOut(_Out):
     id: int
     bom_no: str
-    product_id: int
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    # The old row's product, else the finished item's only linked product
+    product_id: Optional[int] = None
     product_name: Optional[str] = None
     product_code: Optional[str] = None
     unit_of_measure: Optional[str] = None
@@ -239,9 +264,9 @@ class BOMCopyIn(BaseModel):
 
 
 # ═══════════════════════════ production orders ═══════════════════════════
-class ProductionOrderIn(BaseModel):
-    product_id: Id
-    bom_id: OptId = None  # the product's default active BOM when omitted
+class ProductionOrderIn(_ItemIn):
+    material_id: Id  # the item to make
+    bom_id: OptId = None  # the item's default active BOM when omitted
     branch_code: ReqStr(200)
     location_id: OptId = None
     planned_quantity: Qty
@@ -276,7 +301,10 @@ class ProductionOrderUpdate(BaseModel):
 class OrderMaterialOut(_Out):
     id: int
     sequence: int
-    product_id: int
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    product_id: Optional[int] = None  # rows made before items only
     product_name: Optional[str] = None
     product_code: Optional[str] = None
     unit_of_measure: Optional[str] = None
@@ -316,7 +344,10 @@ class OrderOperationOut(_Out):
 
 class OrderByProductOut(_Out):
     id: int
-    product_id: int
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    product_id: Optional[int] = None  # rows made before items only
     product_name: Optional[str] = None
     product_code: Optional[str] = None
     unit_of_measure: Optional[str] = None
@@ -329,7 +360,11 @@ class OrderByProductOut(_Out):
 class ProductionOrderOut(_Out):
     id: int
     order_no: str
-    product_id: int
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    # The old row's product, else the finished item's only linked product
+    product_id: Optional[int] = None
     product_name: Optional[str] = None
     product_code: Optional[str] = None
     unit_of_measure: Optional[str] = None
@@ -498,8 +533,12 @@ class TimeLogIn(BaseModel):
 class MaterialTransactionOut(_Out):
     id: int
     order_id: int
-    material_id: int
-    product_id: int
+    material_id: int  # the order's material line (not an item)
+    item_material_id: Optional[int] = None  # the component item
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
+    product_id: Optional[int] = None  # rows made before items only
     product_name: Optional[str] = None
     product_code: Optional[str] = None
     transaction_type: str
@@ -591,7 +630,10 @@ class OrderActivityOut(BaseModel):
 
 
 class TraceLot(BaseModel):
-    product_id: int
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    product_id: Optional[int] = None
     product_name: Optional[str] = None
     product_code: Optional[str] = None
     batch_no: Optional[str] = None
@@ -603,6 +645,9 @@ class TraceOrder(BaseModel):
     order_id: int
     order_no: str
     branch_code: str
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
     product_name: Optional[str] = None
     status: str
     finished_batches: List[TraceLot]
@@ -624,6 +669,10 @@ class JobCardOut(BaseModel):
     order_status: str
     priority: str
     branch_code: str
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
     product_name: Optional[str] = None
     product_code: Optional[str] = None
     planned_quantity: int
@@ -655,8 +704,13 @@ class MrpDemandSource(BaseModel):
 
 
 class MrpLineOut(BaseModel):
-    product_id: int
-    branch_code: str  # requirements are netted per branch
+    material_id: int  # requirements are netted per item and branch
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    branch_code: str
+    # The item's only linked product (None for raw items / several products);
+    # product_name / product_code repeat the item's name and code for older screens
+    product_id: Optional[int] = None
     product_name: str
     product_code: str
     unit_of_measure: Optional[str] = None
@@ -688,8 +742,20 @@ class MrpLineOut(BaseModel):
     demand_sources: List[MrpDemandSource] = []
 
 
-class MrpPurchaseLineIn(BaseModel):
-    product_id: Id
+class _MrpLineIn(BaseModel):
+    """A firmed MRP line names the item (``material_id``); a row without an item may still
+    send ``product_id``, which is converted to the product's item."""
+    material_id: OptId = None
+    product_id: OptId = None
+
+    @model_validator(mode="after")
+    def _part(self):
+        if not self.material_id and not self.product_id:
+            raise ValueError("Send material_id (the item)")
+        return self
+
+
+class MrpPurchaseLineIn(_MrpLineIn):
     quantity: Qty
     supplier_id: Id
     unit_price: Optional[Decimal] = Field(None, gt=0, le=Decimal("999999999999"), decimal_places=2)
@@ -701,8 +767,7 @@ class MrpPurchaseIn(BaseModel):
     lines: List[MrpPurchaseLineIn] = Field(..., min_length=1, max_length=200)
 
 
-class MrpProduceLineIn(BaseModel):
-    product_id: Id
+class MrpProduceLineIn(_MrpLineIn):
     quantity: Qty
     bom_id: OptId = None
     planned_start_date: date
@@ -721,7 +786,7 @@ class MrpProduceIn(BaseModel):
 
 
 class MrpFirmResult(BaseModel):
-    documents: List[dict]  # [{id, number, supplier / product, lines}]
+    documents: List[dict]  # [{id, number, supplier_id / material_id, lines / quantity}]
 
 
 class FromQuoteIn(BaseModel):
@@ -747,9 +812,12 @@ class QuoteDemandOut(BaseModel):
     quote_status: str
     customer_name: Optional[str] = None
     branch_code: str
-    product_id: int
+    product_id: int  # the quoted product
     product_name: Optional[str] = None
     product_code: Optional[str] = None
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
     unit_of_measure: Optional[str] = None
     quantity: int
     ordered_quantity: int  # already on purchase orders / sales orders (converted)
@@ -761,8 +829,8 @@ class QuoteDemandOut(BaseModel):
     has_bom: bool = False
 
 
-class ReorderRuleIn(BaseModel):
-    product_id: Id
+class ReorderRuleIn(_ItemIn):
+    material_id: Id
     branch_code: ReqStr(200)
     min_quantity: int = Field(..., ge=0, le=10_000_000)
     max_quantity: Optional[int] = Field(None, ge=0, le=10_000_000)
@@ -787,7 +855,10 @@ class ReorderRuleUpdate(BaseModel):
 
 class ReorderRuleOut(BaseModel):
     id: int
-    product_id: int
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    product_id: Optional[int] = None  # the old row's product, else the item's only linked product
     product_name: Optional[str] = None
     product_code: Optional[str] = None
     unit_of_measure: Optional[str] = None

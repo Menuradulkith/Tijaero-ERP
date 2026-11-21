@@ -12,15 +12,26 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from sqlalchemy import func
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.modules.inventory.models import SalesStock
+from app.modules.inventory.ledger import mark_split
+from app.modules.materials.models import Material
 from app.core import timezone as tz
 
-# First-expiry-first-out; lots without an expiry (and serial units) follow in
-# receipt order. Identical to the previous `ORDER BY id` for serial stock.
-FEFO_ORDER = (SalesStock.expiry_date.asc().nulls_last(), SalesStock.id.asc())
+# Picking order by the item's Stock Issuing Method (central stock phase 5):
+# FEFO items take the earliest expiry first (lots without an expiry follow);
+# FIFO items take the oldest receipt first. Stock without an item keeps FEFO.
+_ISSUES_FEFO = func.coalesce(
+    select(Material.stock_issuing_method).where(Material.id == SalesStock.material_id)
+    .correlate(SalesStock).scalar_subquery(), "fefo") == "fefo"
+FEFO_ORDER = (
+    case((_ISSUES_FEFO, SalesStock.expiry_date)).asc().nulls_last(),
+    SalesStock.added_date.asc(),
+    SalesStock.id.asc(),
+)
+ISSUE_ORDER = FEFO_ORDER
 
 
 def split_lot(db: Session, row: SalesStock, qty: int) -> SalesStock:
@@ -57,7 +68,11 @@ def split_lot(db: Session, row: SalesStock, qty: int) -> SalesStock:
         is_active=row.is_active,
         reserved_for_quote_item_id=row.reserved_for_quote_item_id,
         added_date=row.added_date or tz.now(),
+        material_id=row.material_id,
+        unit_cost=row.unit_cost,
     )
+    # Stock ledger: the split itself is not a movement (see inventory/ledger.py)
+    mark_split(row, part, qty)
     db.add(part)
     db.flush()
     return part

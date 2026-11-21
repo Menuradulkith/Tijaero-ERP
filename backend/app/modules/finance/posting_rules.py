@@ -71,6 +71,8 @@ _TYPES: List[PostingType] = [
     PostingType("GOODS_IN_TRANSIT", "Goods in transit", "Inventory", "1220", (_A,), "Stock moving between branches (clears when the receiving branch books it)."),
     PostingType("INVENTORY_WRITE_OFF", "Stock write-offs", "Inventory", "5186", (_X,), "Stock marked damaged or otherwise lost."),
     PostingType("COMPANY_ASSETS", "Stock used as company assets", "Inventory", "1310", (_A,), "Stock taken out of sale for the company's own use."),
+    PostingType("STOCK_COUNT_LOSS", "Stock count losses", "Inventory", "5186", (_X,), "Stock missing at a stock count (written off)."),
+    PostingType("STOCK_COUNT_GAIN", "Stock count gains", "Inventory", "5186", (_X, _R), "Stock found at a stock count (reduces stock write-offs unless mapped to an income account)."),
     # Payables
     PostingType("AP_TRADE", "Supplier payables", "Payables", "2010", (_L,), "What the business owes suppliers."),
     PostingType("SUPPLIER_ADVANCES", "Supplier advances", "Payables", "2020", (_A,), "Money paid to suppliers before the goods arrive."),

@@ -73,7 +73,9 @@ class ItemTransferNoteItems(Base, AuditMixin):
     id = Column(Integer, primary_key=True, index=True)
     remark = Column(String(200))
     created_date = Column(TIMESTAMP, nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    # NULL for item-only stock; material_id is the Item Catalog item moved.
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     barcode = Column(Text)
     # Batch/none-tracked lines carry a quantity instead of a barcode; approval
     # allocates them to (and splits off) a concrete sales_stock row.
@@ -87,6 +89,7 @@ class ItemTransferNoteItems(Base, AuditMixin):
 
     # Relationships
     product = relationship("Product", back_populates="item_transfer_note_items")
+    material = relationship("Material")
     item_transfer_note = relationship("ItemTransferNote", back_populates="items")
 
 
@@ -95,11 +98,13 @@ class ItemTransferNoteItemProduct(Base, AuditMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     created_date = Column(TIMESTAMP, nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     itemtransfernote_id = Column(Integer, ForeignKey("item_transfer_note.id"))
 
     # Relationships
     product = relationship("Product", back_populates="item_transfer_note_item_products")
+    material = relationship("Material")
     item_transfer_note = relationship(
         "ItemTransferNote", back_populates="item_products"
     )

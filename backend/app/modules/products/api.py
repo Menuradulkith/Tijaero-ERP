@@ -155,10 +155,36 @@ def list_product_suppliers(
     # also open to the PO / GRN users who pick a supplier per product (cost + lead time only)
     current_user: User = Depends(require_any_permission(Permissions.PRODUCT_VIEW, *SUPPLIER_LOOKUP_PERMISSIONS)),
 ):
-    """Read-only reciprocal view of the approved-vendor mapping — which
-    suppliers can supply this product, and at what cost/lead time."""
+    """Read-only view of which suppliers can supply this product, and at what cost.
+    Purchasing buys Item Catalog items, so for a product linked to an item this is the
+    item's supplier price list (material_suppliers), shown in the product-supplier shape."""
     from app.modules.purchasing.service import SupplierProductService
+    from app.modules.products.models import Product
 
+    product = db.get(Product, product_id)
+    if product is not None and product.material_id:
+        from app.modules.materials.models import MaterialSupplier
+        from app.modules.purchasing.models import Supplier
+
+        rows = (
+            db.query(MaterialSupplier, Supplier.company_name)
+            .join(Supplier, Supplier.id == MaterialSupplier.supplier_id)
+            .filter(MaterialSupplier.material_id == product.material_id)
+            .order_by(MaterialSupplier.is_preferred.desc(), MaterialSupplier.cost_price)
+            .all()
+        )
+        return [
+            {
+                "id": link.id, "supplier_id": link.supplier_id, "product_id": product.id,
+                "supplier_sku": link.supplier_sku, "cost_price": link.cost_price,
+                "minimum_order_qty": link.minimum_order_qty, "is_preferred": link.is_preferred,
+                "active": link.active, "created_at": link.created_at, "updated_at": link.updated_at,
+                "created_by": link.created_by, "updated_by": link.updated_by,
+                "product_name": product.name, "product_item_code": product.item_code,
+                "supplier_company_name": company,
+            }
+            for link, company in rows
+        ]
     return SupplierProductService(db).list_by_product(product_id)
 
 
@@ -457,3 +483,75 @@ import csv
 import io
 
 from fastapi.responses import StreamingResponse
+
+
+# ---- Product types / HS codes: lists users pick from (and add to) on the product form ----
+def _create_lookup(db: Session, model, values: dict, key: str, label: str, user_id: int):
+    """Insert a lookup row; the same value (case/space-insensitive) is a 409 — the DB index backs it."""
+    from fastapi import HTTPException
+    from sqlalchemy import func
+    from sqlalchemy.exc import IntegrityError
+    from app.core import timezone as tz
+    from app.modules.products import models
+
+    value = values[key]
+    if db.query(model.id).filter(func.lower(func.btrim(getattr(model, key))) == value.strip().lower()).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"{label} '{value}' already exists.")
+    now = tz.now()
+    row = model(**values, active=True, created_at=now, updated_at=now, created_by=user_id, updated_by=user_id)
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"{label} '{value}' already exists.")
+    db.refresh(row)
+    return row
+
+
+@router.get("/product-types/", response_model=List[schemas.ProductTypeOut], summary="List Product Types")
+def list_product_types(
+    active_only: bool = Query(True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
+):
+    from app.modules.products.models import ProductType
+    q = db.query(ProductType)
+    if active_only:
+        q = q.filter(ProductType.active.is_(True))
+    return q.order_by(ProductType.name).limit(5000).all()
+
+
+@router.post("/product-types/", response_model=schemas.ProductTypeOut, status_code=status.HTTP_201_CREATED,
+             summary="Create Product Type")
+def create_product_type(
+    payload: schemas.ProductTypeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_permission(Permissions.PRODUCT_CREATE, Permissions.PRODUCT_UPDATE)),
+):
+    from app.modules.products.models import ProductType
+    return _create_lookup(db, ProductType, payload.model_dump(), "name", "Product type", current_user.id)
+
+
+@router.get("/hs-codes/", response_model=List[schemas.HsCodeOut], summary="List HS Codes")
+def list_hs_codes(
+    active_only: bool = Query(True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(*Permissions.PRODUCT_VIEW)),
+):
+    from app.modules.products.models import HsCode
+    q = db.query(HsCode)
+    if active_only:
+        q = q.filter(HsCode.active.is_(True))
+    return q.order_by(HsCode.code).limit(5000).all()
+
+
+@router.post("/hs-codes/", response_model=schemas.HsCodeOut, status_code=status.HTTP_201_CREATED,
+             summary="Create HS Code")
+def create_hs_code(
+    payload: schemas.HsCodeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_permission(Permissions.PRODUCT_CREATE, Permissions.PRODUCT_UPDATE)),
+):
+    from app.modules.products.models import HsCode
+    return _create_lookup(db, HsCode, payload.model_dump(), "code", "HS code", current_user.id)

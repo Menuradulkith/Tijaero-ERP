@@ -61,7 +61,7 @@ export const workCentersApi = {
 };
 
 export const bomsApi = {
-  getAll: async (params?: { q?: string; status?: string; product_id?: number }): Promise<BOM[]> =>
+  getAll: async (params?: { q?: string; status?: string; product_id?: number; material_id?: number }): Promise<BOM[]> =>
     (await apiClient.get(`${BASE}/boms`, { params })).data,
   getById: async (id: number): Promise<BOM> => (await apiClient.get(`${BASE}/boms/${id}`)).data,
   create: async (data: BOMInput): Promise<BOM> => (await apiClient.post(`${BASE}/boms`, data)).data,
@@ -85,6 +85,7 @@ export const productionOrdersApi = {
     status?: string[];
     branch_code?: string;
     product_id?: number;
+    material_id?: number;
     late_only?: boolean;
     page?: number;
     size?: number;

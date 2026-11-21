@@ -25,6 +25,7 @@ import ReclassifyDialog from "@/modules/inventory/components/ReclassifyDialog";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { goodReceivedNotesApi } from "@/modules/purchasing/api";
 import type { LandedCostCreate } from "@/modules/purchasing/types";
+import { lineItemLabel } from "@/modules/purchasing/utils/itemDisplay";
 import CancelIcon from "@mui/icons-material/Cancel";
 
 const CHARGE_TYPES = [
@@ -164,7 +165,7 @@ export default function LandedCostPanel({ grnId, grnStatus }: Props) {
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Product</TableCell>
+              <TableCell>Item</TableCell>
               <TableCell align="right">Qty</TableCell>
               <TableCell align="right">{`Unit price (${currencySymbol})`}</TableCell>
               <TableCell align="right">{`Landed / unit (${currencySymbol})`}</TableCell>
@@ -174,7 +175,7 @@ export default function LandedCostPanel({ grnId, grnStatus }: Props) {
           <TableBody>
             {lines.map((l) => (
               <TableRow key={l.purchasing_order_items_id}>
-                <TableCell>{l.product_name}</TableCell>
+                <TableCell>{lineItemLabel(l)}</TableCell>
                 <TableCell align="right">{l.quantity}</TableCell>
                 <TableCell align="right">{fmtLKR(Number(l.unit_price))}</TableCell>
                 <TableCell align="right">{fmtLKR(Number(l.landed_per_unit))}</TableCell>

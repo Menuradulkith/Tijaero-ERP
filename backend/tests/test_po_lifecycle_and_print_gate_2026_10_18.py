@@ -15,6 +15,7 @@ from app.common.document_guard import ensure_printable_status, is_printable_stat
 from app.common.enums import PurchaseOrderStatus
 from app.common.audit import AuditLog
 from app.modules.purchasing import schemas, service
+from tests.conftest import item_id_for
 
 
 def _po(branch_code, supplier_id, product_id, qty=2):
@@ -23,7 +24,7 @@ def _po(branch_code, supplier_id, product_id, qty=2):
         purchasing_order_date=date.today(), good_received_note_date=date.today(),
         first_suppliers_id=supplier_id,
         items=[schemas.PurchasingOrderItemCreate(
-            product_id=product_id, quantity=qty, unit_price=Decimal("150.00"), warrenty_month="12")],
+            material_id=item_id_for(product_id, supplier_id, 150), quantity=qty, unit_price=Decimal("150.00"), warrenty_month="12")],
     )
 
 

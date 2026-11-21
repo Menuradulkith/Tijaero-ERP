@@ -10,6 +10,10 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
+from app.modules.purchasing.models import Supplier
+
+from tests.conftest import product_master_ids
+
 from app.modules.inventory.models import SalesStock
 from app.modules.purchasing.models import GoodReceivedNote, PurchasingOrder
 from tests.integration.test_workflows.test_grn_receive_cancel import P, _body, _uid, world  # noqa: F401
@@ -291,10 +295,12 @@ class TestPurchaseOrders:
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "approved"
 
-    def test_edit_with_an_inactive_product_is_refused(self, superclient, world, make_product):  # noqa: F811
-        p = make_product(active=False)
+    def test_edit_with_an_inactive_item_is_refused(self, db, superclient, world, make_purchasable_item):  # noqa: F811
+        item = make_purchasable_item(db.get(Supplier, world["po"].first_suppliers_id), 10)
+        item.active = False
+        db.flush()
         r = superclient.patch(f"{P}/orders/{world['po'].id}", json={"items": [
-            {"product_id": p.id, "quantity": 1, "unit_price": 10, "warrenty_month": "0"}]})
+            {"material_id": item.id, "quantity": 1, "unit_price": 10, "warrenty_month": "0"}]})
         assert r.status_code == 400 and "inactive" in r.text, r.text
 
     def test_cancelled_po_does_not_count_against_the_daily_limit(self, db, world):  # noqa: F811
@@ -357,16 +363,16 @@ class TestBranchScopedReads:
 
 # ── INV-01 / 02 / 04 / 05: catalog ───────────────────────────────────────────────────────────
 class TestCatalog:
-    def _product_body(self, make_product, **over):
+    def _product_body(self, make_product, client, **over):
         ref = make_product()
         body = {"name": _uid("Prod"), "item_type": "inventory", "tracking_type": "none", "cost_price": 100,
                 "selling_price": 150, "minimum_selling_price": 120, "category_id": ref.category_id,
-                "items_brand_id": ref.items_brand_id}
+                "items_brand_id": ref.items_brand_id, **product_master_ids(client)}
         body.update(over)
         return body
 
     def test_default_tier_uses_the_minimum_and_follows_edits(self, superclient, make_product):
-        prod = superclient.post(f"{I}/products/", json=self._product_body(make_product))
+        prod = superclient.post(f"{I}/products/", json=self._product_body(make_product, superclient))
         assert prod.status_code == 201, prod.text
         pid = prod.json()["id"]
         tier = superclient.get(f"{I}/products/{pid}/price-tiers").json()[0]
@@ -378,7 +384,7 @@ class TestCatalog:
         assert float(tier["minimum_selling_price"]) == 120.0
 
     def test_last_active_tier_cannot_be_deleted(self, superclient, make_product):
-        pid = superclient.post(f"{I}/products/", json=self._product_body(make_product)).json()["id"]
+        pid = superclient.post(f"{I}/products/", json=self._product_body(make_product, superclient)).json()["id"]
         default = superclient.get(f"{I}/products/{pid}/price-tiers").json()[0]
         t2 = superclient.post(f"{I}/products/{pid}/price-tiers", json={
             "cost_price": 100, "minimum_selling_price": 120, "selling_price": 150, "is_active": False}).json()

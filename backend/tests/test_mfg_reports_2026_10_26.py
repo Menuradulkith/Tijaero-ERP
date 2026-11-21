@@ -19,10 +19,10 @@ def run(db, plant, make_user):  # noqa: F811
     with a superuser report context."""
     svc, uid = ProductionOrderService(db), plant["user"].id
     o = svc.release(_order(db, plant, qty=5)["id"], uid)
-    mats = {m["product_id"]: m for m in o["materials"]}
+    mats = {m["material_id"]: m for m in o["materials"]}
     svc.issue_materials(o["id"], s.MaterialMoveIn(lines=[
-        s.MaterialLineIn(material_id=mats[plant["top"].id]["id"], quantity=5),
-        s.MaterialLineIn(material_id=mats[plant["leg"].id]["id"], quantity=20)]), uid)
+        s.MaterialLineIn(material_id=mats[plant["top"].material_id]["id"], quantity=5),
+        s.MaterialLineIn(material_id=mats[plant["leg"].material_id]["id"], quantity=20)]), uid)
     svc.log_time(o["id"], s.TimeLogIn(operation_id=o["operations"][0]["id"], minutes=D(60), completed_quantity=4), uid)
     o = svc.record_output(o["id"], s.OutputIn(quantity=4, scrap_quantity=1, scrap_reason="burnt", batch_no="TBL-7"), uid)
     admin, _ = make_user(is_superuser=True)
@@ -92,7 +92,7 @@ class TestReports:
     def test_production_summary(self, run, plant):  # noqa: F811
         r = _report(run["ctx"], "manufacturing.production_summary", date_from="2000-01-01",
                     branch_code=plant["branch"].branch_code)
-        product = next(x for x in _table(r, "products").rows if x["item_code"] == plant["fg"].item_code)
+        product = next(x for x in _table(r, "products").rows if x["item_code"] == plant["fg"].material.item_code)  # reports show the item
         assert (product["good_qty"], product["scrap_qty"], product["scrap_pct"]) == (4, 1, D("20.00"))
         center = next(x for x in _table(r, "work_centers").rows if x["code"] == plant["wc"]["code"])
         assert center["hours"] == D("1.00")
@@ -107,7 +107,7 @@ class TestReports:
         no = run["order"]["order_no"]
         r = _report(run["ctx"], "manufacturing.traceability", order_no=no)
         comps = _table(r, "components").rows
-        assert {c["item_code"] for c in comps} == {plant["top"].item_code, plant["leg"].item_code, plant["screw"].item_code}
+        assert {c["item_code"] for c in comps} == {plant[k].material.item_code for k in ("top", "leg", "screw")}
         assert all(c["grn_no"] for c in comps)  # purchased lots trace back to their GRN
         outs = _table(r, "outputs").rows
         assert [(x["batch_no"], x["qty"]) for x in outs] == [("TBL-7", 4)]

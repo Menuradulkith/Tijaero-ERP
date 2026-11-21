@@ -79,6 +79,8 @@ import {
 import { useReferenceData } from "@/hooks";
 import { usePermission } from "@/auth/permissions";
 import { goodReceivedItemsApi, goodReceivedNotesApi, purchaseOrdersApi, purchaseReturnsApi, suppliersApi } from "@/modules/purchasing/api";
+import LineItemLink from "@/modules/purchasing/components/LineItemLink";
+import { lineItemCode, lineItemLabel, lineItemName, lineItemUom } from "@/modules/purchasing/utils/itemDisplay";
 import { EntityPeekButton } from "@/components/tijaero/peek";
 // OPTIMIZED: Removed branchApi import - using aggregated endpoint
 import {
@@ -127,7 +129,11 @@ interface ReturnLineItem extends PurchasingReturnItemCreate {
   lot_label?: string;  // display only: "Batch B1" for batch/none lot lines
   branch_code?: string;
   added_date?: string;
+  // Display only: the item returned (old returns: the product).
   product_name?: string;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
   warranty_month?: string;
 }
 
@@ -138,7 +144,8 @@ const resetFormFromReturn = (ret: PurchasingReturn | PurchasingReturnWithItems):
   reason: ret.reason || "",
   goodreceivednote_id: ret.goodreceivednote_id,
   items: "items" in ret && ret.items ? ret.items.map(item => ({
-    product_id: item.product_id,
+    product_id: item.product_id ?? undefined,
+    material_id: item.material_id ?? undefined,
     purchasing_price: item.purchasing_price,
     return_price: item.return_price,
     barcode: item.barcode ?? undefined,
@@ -288,6 +295,11 @@ export default function PurchaseReturnsPage() {
       setLineItems(selectedReturn.items.map((item: any, idx: number) => ({
         _id: `existing-${idx}`,
         product_id: item.product_id,
+        material_id: item.material_id ?? undefined,
+        material_item_code: item.material_item_code,
+        material_name: item.material_name,
+        unit_of_measure: item.unit_of_measure,
+        product_name: item.product_name,
         purchasing_price: item.purchasing_price,
         return_price: item.return_price,
         barcode: item.barcode,
@@ -351,6 +363,10 @@ export default function PurchaseReturnsPage() {
         setLineItems(detailedReturn.items.map((item: any, idx: number) => ({
           _id: `existing-${idx}`,
           product_id: item.product_id,
+          material_id: item.material_id ?? undefined,
+          material_item_code: item.material_item_code,
+          material_name: item.material_name,
+          unit_of_measure: item.unit_of_measure,
           purchasing_price: item.purchasing_price,
           return_price: item.return_price,
           barcode: item.barcode ?? undefined,
@@ -570,6 +586,11 @@ export default function PurchaseReturnsPage() {
           {
             _id: `lot-${lotStockId}-${Date.now()}`,
             product_id: response.product_id || 0,
+            // The return allocates by the line's item.
+            material_id: response.material_id ?? undefined,
+            material_item_code: response.material_item_code,
+            material_name: response.material_name,
+            unit_of_measure: response.unit_of_measure,
             product_name: response.product_name,
             purchasing_price: unitPrice,
             return_price: unitPrice, // per unit; defaults to the purchase price
@@ -580,7 +601,7 @@ export default function PurchaseReturnsPage() {
         ];
       });
       setLotQuantity("");
-      showSuccessToast(`Added ${quantity} × ${response.product_name || "item"}`);
+      showSuccessToast(`Added ${quantity} × ${response.material_name || response.product_name || "item"}`);
     } catch (error) {
       setLotError(handleApiError(error, "Could not validate quantity"));
     } finally {
@@ -628,7 +649,7 @@ export default function PurchaseReturnsPage() {
           const proceed = await confirmDialog.confirm({
             title: "⚠️ Warranty expired",
             message:
-              `Product: ${response.product_name || barcode}\n` +
+              `Item: ${response.material_name || response.product_name || barcode}\n` +
               `Warranty: ${warrantyMonths} months (expired on ${expiryDate})\n\n` +
               `The warranty period for this item has passed. ` +
               `The supplier may reject this return.\n\n` +
@@ -652,7 +673,7 @@ export default function PurchaseReturnsPage() {
           barcode: barcode.trim(),
           sales_stock_id: response.sales_stock_id,
           product_id: response.product_id || 0,
-          product_name: response.product_name || "Unknown Product",
+          product_name: response.material_name || response.product_name || "Unknown Item",
           purchasing_price: response.purchasing_price || 0,
           grn_id: formData.goodreceivednote_id,
           grn_no: getGRNNumberById(formData.goodreceivednote_id),
@@ -666,6 +687,11 @@ export default function PurchaseReturnsPage() {
         const newLineItem: ReturnLineItem = {
           _id: `validated-${Date.now()}`,
           product_id: response.product_id || 0,
+          // The return allocates by the line's item.
+          material_id: response.material_id ?? undefined,
+          material_item_code: response.material_item_code,
+          material_name: response.material_name,
+          unit_of_measure: response.unit_of_measure,
           purchasing_price: response.purchasing_price || 0,
           return_price: response.purchasing_price || 0, // Default to purchase price
           barcode: barcode.trim(),
@@ -676,7 +702,7 @@ export default function PurchaseReturnsPage() {
 
         // Clear input and focus for next scan
         setBarcodeInput("");
-        showSuccessToast(`Added: ${response.product_name || barcode}`);
+        showSuccessToast(`Added: ${response.material_name || response.product_name || barcode}`);
         barcodeInputRef.current?.focus();
       } else {
         setValidationError(response.message || "Barcode validation failed");
@@ -735,7 +761,16 @@ export default function PurchaseReturnsPage() {
     if (savingRef.current) return;
     const dataToSave: PurchasingReturnCreate = {
       ...formData,
-      items: lineItems.map(({ _id, branch_code, added_date, product_name, lot_label, ...item }) => ({ ...item, barcode: item.barcode || undefined })),
+      // Only the API fields: the line's product (old stock) and item, prices, and the unit / lot.
+      items: lineItems.map((item) => ({
+        product_id: item.product_id || undefined,
+        material_id: item.material_id || undefined,
+        purchasing_price: item.purchasing_price,
+        return_price: item.return_price,
+        barcode: item.barcode || undefined,
+        quantity: item.quantity,
+        sales_stock_id: item.sales_stock_id,
+      })),
       require_approval: true, // Approval is always required for purchase returns
     };
 
@@ -779,6 +814,11 @@ export default function PurchaseReturnsPage() {
         setLineItems(selectedReturn.items.map((item: any, idx: number) => ({
           _id: `copy-${idx}`,
           product_id: item.product_id,
+          material_id: item.material_id ?? undefined,
+          material_item_code: item.material_item_code,
+          material_name: item.material_name,
+          unit_of_measure: item.unit_of_measure,
+          product_name: item.product_name,
           purchasing_price: item.purchasing_price,
           return_price: item.return_price,
           barcode: item.barcode,
@@ -1292,7 +1332,7 @@ export default function PurchaseReturnsPage() {
                             sx={{ minWidth: 280, flex: 1 }}
                             options={grnLots}
                             getOptionLabel={(l) =>
-                              `${l.product_name || `Product ${l.product_id}`}${l.batch_no ? ` - Batch ${l.batch_no}` : ""} (${l.quantity} available)`
+                              `${lineItemLabel(l)}${l.batch_no ? ` - Batch ${l.batch_no}` : ""} (${l.quantity} available)`
                             }
                             value={grnLots.find((l) => l.id === lotStockId) || null}
                             onChange={(_, l) => {
@@ -1386,7 +1426,9 @@ export default function PurchaseReturnsPage() {
                       <TableHead>
                         <TableRow sx={modernTableStyles.headerRow}>
                           <TableCell>Barcode</TableCell>
-                          <TableCell>Product</TableCell>
+                          <TableCell>Item Code</TableCell>
+                          <TableCell>Item</TableCell>
+                          <TableCell>UOM</TableCell>
                           <TableCell>Warranty</TableCell>
                           <TableCell>Added Date</TableCell>
                           <TableCell align="right" sx={{ width: 120 }}>{`Purchase Price (${currencySymbol})`}</TableCell>
@@ -1397,7 +1439,7 @@ export default function PurchaseReturnsPage() {
                       <TableBody>
                         {lineItems.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={isEditing || isCreating ? 7 : 6} sx={modernTableStyles.emptyCell}>
+                            <TableCell colSpan={isEditing || isCreating ? 9 : 8} sx={modernTableStyles.emptyCell}>
                               {(isEditing || isCreating)
                                 ? "Scan barcodes above to add items"
                                 : "No items added yet"}
@@ -1431,24 +1473,24 @@ export default function PurchaseReturnsPage() {
                                     )}
                                   </Box>
                                 </TableCell>
+                                <TableCell>{lineItemCode(item) || "-"}</TableCell>
                                 <TableCell>
-                                  {validatedItem ? (
-                                    <Typography variant="body2">{validatedItem.product_name}</Typography>
-                                  ) : item.product_name ? (
-                                    <Typography variant="body2">{item.product_name}</Typography>
+                                  {item.material_id || item.material_name || item.product_name || validatedItem ? (
+                                    <Typography variant="body2">
+                                      <LineItemLink
+                                        line={item}
+                                        label={item.material_name || validatedItem?.product_name || item.product_name || lineItemName(item)}
+                                      />
+                                    </Typography>
                                   ) : (isEditing || isCreating) ? (
-                                    <TextField
-                                      size="small"
-                                      type="number"
-                                      value={item.product_id}
-                                      onChange={(e) => handleUpdateLineItem(item._id, "product_id", parseInt(e.target.value) || 0)}
-                                      sx={{ width: 100 }}
-                                      placeholder="Product ID"
-                                    />
+                                    <Typography variant="body2" color="text.secondary">
+                                      Scan a barcode or pick a lot
+                                    </Typography>
                                   ) : (
-                                    `#${item.product_id}`
+                                    lineItemName(item)
                                   )}
                                 </TableCell>
+                                <TableCell>{lineItemUom(item)}</TableCell>
                                 <TableCell>
                                   {validatedItem?.warranty_month || item.warranty_month || "-"}
                                 </TableCell>
@@ -1484,7 +1526,7 @@ export default function PurchaseReturnsPage() {
                           })
                         )}
                         <TableRow sx={{ bgcolor: "action.hover" }}>
-                          <TableCell colSpan={isEditing || isCreating ? 5 : 5} align="right">
+                          <TableCell colSpan={7} align="right">
                             <Typography fontWeight="bold">{`Total Return (${currencySymbol}):`}</Typography>
                           </TableCell>
                           <TableCell align="right">

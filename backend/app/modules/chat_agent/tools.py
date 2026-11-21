@@ -196,10 +196,12 @@ def _t_get_purchase_order(db: Session, user: User, args: Dict) -> Any:
     for it in order.items:
         line = Decimal(str(it.unit_price)) * it.quantity
         total += line
-        pname = db.query(Product.name).filter(Product.id == it.product_id).scalar()
+        pname = it.material_name or it.product_name
         items.append(
             {
                 "product_id": it.product_id,
+                "material_id": it.material_id,
+                "item_code": it.material_item_code,
                 "product": pname,
                 "quantity": it.quantity,
                 "unit_price": float(it.unit_price),
@@ -410,14 +412,21 @@ def _t_list_supplier_payments(db: Session, user: User, args: Dict) -> Any:
 
 
 def _t_stock_summary(db: Session, user: User, args: Dict) -> Any:
+    """Stock levels per Item Catalog item and branch (central stock: stock is keyed by item,
+    so the stock of every product selling an item, and item-only stock, count together;
+    a row without an item is listed under its product)."""
+    from sqlalchemy import case, or_
     from app.modules.inventory.models import SalesStock
+    from app.modules.materials.models import Material
     from app.modules.products.models import Product
     from app.common.enums import StockStatus
 
     branch, allowed = _resolve_branch_filter(user, args.get("branch_code"))
+    unlinked_pid = case((SalesStock.material_id.is_(None), SalesStock.product_id), else_=None)
     q = (
         db.query(
-            SalesStock.product_id,
+            SalesStock.material_id,
+            unlinked_pid,
             SalesStock.branch_code,
             SalesStock.status,
             func.coalesce(func.sum(SalesStock.quantity), 0),
@@ -428,40 +437,52 @@ def _t_stock_summary(db: Session, user: User, args: Dict) -> Any:
         q = q.filter(SalesStock.branch_code == branch)
     elif allowed is not None:
         q = q.filter(SalesStock.branch_code.in_(allowed))
-    if args.get("product_id"):
-        q = q.filter(SalesStock.product_id == int(args["product_id"]))
+    if args.get("material_id"):
+        q = q.filter(SalesStock.material_id == int(args["material_id"]))
+    elif args.get("product_id"):
+        pid = int(args["product_id"])
+        mid = db.query(Product.material_id).filter(Product.id == pid).scalar()
+        q = q.filter(SalesStock.material_id == mid if mid else SalesStock.product_id == pid)
     elif args.get("product_search"):
-        pids = [
-            r[0]
-            for r in db.query(Product.id)
-            .filter(Product.name.ilike(f"%{args['product_search']}%"))
-            .limit(20)
-            .all()
-        ]
-        if not pids:
-            return {"message": f"No products match '{args['product_search']}'."}
-        q = q.filter(SalesStock.product_id.in_(pids))
+        like = f"%{args['product_search']}%"
+        pids = [r[0] for r in db.query(Product.id).filter(Product.name.ilike(like)).limit(20).all()]
+        mids = {r[0] for r in db.query(Material.id).filter(Material.name.ilike(like)).limit(20).all()}
+        mids |= {r[0] for r in db.query(Product.material_id).filter(Product.id.in_(pids or [0]),
+                                                                    Product.material_id.isnot(None)).all()}
+        if not pids and not mids:
+            return {"message": f"No products or items match '{args['product_search']}'."}
+        q = q.filter(or_(SalesStock.material_id.in_(mids or [0]), SalesStock.product_id.in_(pids or [0])))
 
-    rows = q.group_by(SalesStock.product_id, SalesStock.branch_code, SalesStock.status).all()
+    rows = q.group_by(SalesStock.material_id, unlinked_pid, SalesStock.branch_code, SalesStock.status).all()
     if not rows:
         return {"message": "No stock rows found for the given filters."}
 
-    agg: Dict[Tuple[int, str], Dict[str, Any]] = {}
-    for product_id, branch_code, status_val, cnt in rows:
-        key = (product_id, branch_code)
-        entry = agg.setdefault(key, {"product_id": product_id, "branch_code": branch_code, "by_status": {}, "total": 0})
+    agg: Dict[Tuple, Dict[str, Any]] = {}
+    for material_id, product_id, branch_code, status_val, cnt in rows:
+        key = (material_id, product_id, branch_code)
+        entry = agg.setdefault(key, {"by_status": {}, "total": 0})
         sval = status_val.value if hasattr(status_val, "value") else str(status_val)
         entry["by_status"][sval] = entry["by_status"].get(sval, 0) + cnt
         entry["total"] += cnt
 
-    pids = {k[0] for k in agg}
-    pmap = dict(db.query(Product.id, Product.name).filter(Product.id.in_(pids)).all())
+    mids = {k[0] for k in agg if k[0]}
+    pids = {k[1] for k in agg if k[1]}
+    items = {m.id: m for m in db.query(Material).filter(Material.id.in_(mids)).all()} if mids else {}
+    pmap = dict(db.query(Product.id, Product.name).filter(Product.id.in_(pids)).all()) if pids else {}
+    sellers: Dict[int, list] = {}
+    for pid, mid in (db.query(Product.id, Product.material_id).filter(Product.material_id.in_(mids)).all() if mids else []):
+        sellers.setdefault(mid, []).append(pid)
     result = []
-    for (pid, bc), entry in sorted(agg.items(), key=lambda kv: -kv[1]["by_status"].get("available", 0)):
+    for (mid, pid, bc), entry in sorted(agg.items(), key=lambda kv: -kv[1]["by_status"].get("available", 0)):
+        item = items.get(mid) if mid else None
+        linked = sellers.get(mid) or []
         result.append(
             {
-                "product_id": pid,
-                "product": pmap.get(pid, f"Product {pid}"),
+                "material_id": mid,
+                "item_code": item.item_code if item else None,
+                # the item's only linked product (the row's product for stock without an item)
+                "product_id": (linked[0] if len(linked) == 1 else None) if mid else pid,
+                "product": item.name if item else pmap.get(pid, f"Product {pid}"),
                 "branch_code": bc,
                 "available": entry["by_status"].get("available", 0),
                 "sold": entry["by_status"].get("sold", 0),
@@ -551,6 +572,28 @@ def _x_create_supplier(db: Session, user: User, args: Dict) -> Dict:
     }
 
 
+def _po_item_material(db: Session, it: Dict):
+    """The Item Catalog item a PO line buys: material_id, or the item of product_id."""
+    from app.modules.materials.models import Material
+    from app.modules.products.models import Product
+    from app.modules.purchasing.items import ensure_product_item
+
+    if it.get("material_id"):
+        material = db.query(Material).filter(Material.id == int(it["material_id"])).first()
+        if not material:
+            raise ToolError(f"Item {it['material_id']} not found.")
+        return material
+    if not it.get("product_id"):
+        raise ToolError("Each purchase order line needs material_id (the item to buy).")
+    product = db.query(Product).filter(Product.id == int(it["product_id"])).first()
+    if not product:
+        raise ToolError(f"Product {it['product_id']} not found.")
+    mid = ensure_product_item(db, product)
+    if not mid:
+        raise ToolError(f"Product '{product.name}' has no Item Catalog item, so it cannot be bought.")
+    return db.get(Material, mid)
+
+
 def _v_create_purchase_order(db: Session, user: User, args: Dict) -> Dict:
     from app.modules.purchasing.models import Supplier
     from app.modules.products.models import Product
@@ -574,9 +617,7 @@ def _v_create_purchase_order(db: Session, user: User, args: Dict) -> Dict:
 
     preview_items, total = [], Decimal("0")
     for it in items:
-        product = db.query(Product).filter(Product.id == int(it["product_id"])).first()
-        if not product:
-            raise ToolError(f"Product {it['product_id']} not found.")
+        product = _po_item_material(db, it)
         qty = int(it["quantity"])
         price = Decimal(str(it["unit_price"]))
         if qty <= 0 or price < 0:
@@ -620,7 +661,7 @@ def _x_create_purchase_order(db: Session, user: User, args: Dict) -> Dict:
         first_suppliers_id=int(args["supplier_id"]),
         items=[
             pschemas.PurchasingOrderItemCreate(
-                product_id=int(it["product_id"]),
+                material_id=_po_item_material(db, it).id,
                 quantity=int(it["quantity"]),
                 unit_price=Decimal(str(it["unit_price"])),
                 warrenty_month=str(it.get("warranty_months") or "0"),
@@ -1277,9 +1318,14 @@ def _t_get_quotation(db: Session, user: User, args: Dict) -> Any:
 
 # ─── sales: write (validate + execute) ──────────────────────────────────────
 
+_CUSTOMER_REQUIRED = ("customer_name", "mobile_contact_number", "customer_category", "tax_area",
+                      "accounting_group", "vat_registration_number")
+
+
 def _v_create_customer(db: Session, user: User, args: Dict) -> Dict:
-    if not args.get("customer_name") or not args.get("mobile_contact_number"):
-        raise ToolError("customer_name and mobile_contact_number are required.")
+    missing = [k for k in _CUSTOMER_REQUIRED if not args.get(k)]
+    if missing:
+        raise ToolError(f"Required to create a customer: {', '.join(missing)}.")
     return {
         "action": "Create customer",
         "customer_name": args["customer_name"],
@@ -1289,6 +1335,10 @@ def _v_create_customer(db: Session, user: User, args: Dict) -> Dict:
         "credit_days": int(args.get("credit_days") or 0),
         "max_credit_limit": _fmt_money(args.get("max_credit_limit") or 0),
         "is_customer_agent": bool(args.get("is_customer_agent") or False),
+        "category": args["customer_category"],
+        "tax_area": args["tax_area"],
+        "accounting_group": args["accounting_group"],
+        "vat_registration_number": args["vat_registration_number"],
     }
 
 
@@ -1313,6 +1363,11 @@ def _x_create_customer(db: Session, user: User, args: Dict) -> Dict:
         active=True,
         is_customer_agent=bool(args.get("is_customer_agent") or False),
         commission_rate=args.get("commission_rate"),
+        customer_category=args["customer_category"],
+        tax_area=args["tax_area"],
+        accounting_group=args["accounting_group"],
+        vat_registration_number=args["vat_registration_number"],
+        tax_registration_number=args.get("tax_registration_number"),
     )
     customer = csvc.customer_service.create_customer(db, payload, user.id)
     return {
@@ -2763,11 +2818,12 @@ TOOLS: List[ToolSpec] = [
     # ── sales stock: read ──
     ToolSpec(
         name="get_stock_summary",
-        description="Stock LEVELS per product per branch (units counted by status: available/sold/reserved/damaged). Inventory is unit-serialized — 'stock level' means count of available units. Use product_search to find by name.",
+        description="Stock LEVELS per Item Catalog item per branch (units counted by status: available/sold/reserved/damaged). Stock is kept per item: every product selling the item shares its stock. Use product_search to find by product or item name.",
         parameters=_params(
             {
-                "product_id": {"type": "integer"},
-                "product_search": {"type": "string", "description": "Product name substring"},
+                "material_id": {"type": "integer", "description": "Item Catalog item id"},
+                "product_id": {"type": "integer", "description": "A product: its item's stock is shown"},
+                "product_search": {"type": "string", "description": "Product or item name substring"},
                 "branch_code": _BRANCH_PROP,
             }
         ),
@@ -2833,12 +2889,13 @@ TOOLS: List[ToolSpec] = [
                     "items": {
                         "type": "object",
                         "properties": {
-                            "product_id": {"type": "integer"},
+                            "material_id": {"type": "integer", "description": "Item Catalog item to buy"},
+                            "product_id": {"type": "integer", "description": "Alternative: the product whose item to buy"},
                             "quantity": {"type": "integer"},
                             "unit_price": {"type": "number"},
                             "warranty_months": {"type": "integer"},
                         },
-                        "required": ["product_id", "quantity", "unit_price"],
+                        "required": ["quantity", "unit_price"],
                     },
                 },
             },
@@ -3078,7 +3135,7 @@ TOOLS: List[ToolSpec] = [
     # ── sales: write (two-phase confirm) ──
     ToolSpec(
         name="create_customer",
-        description="Create a new customer. WRITE ACTION — queues a confirmation the user must approve in the UI. Gather customer_name and mobile_contact_number at minimum.",
+        description="Create a new customer. WRITE ACTION — queues a confirmation the user must approve in the UI. Gather customer_name, mobile_contact_number, customer_category, tax_area, accounting_group and vat_registration_number at minimum (ask the user; never guess).",
         parameters=_params(
             {
                 "customer_name": {"type": "string"},
@@ -3093,8 +3150,13 @@ TOOLS: List[ToolSpec] = [
                 "max_credit_limit": {"type": "number"},
                 "is_customer_agent": {"type": "boolean"},
                 "commission_rate": {"type": "number", "description": "Default commission % if the customer is an agent"},
+                "customer_category": {"type": "string", "enum": ["customer", "prospect", "end_customer"]},
+                "tax_area": {"type": "string", "enum": ["domestic_standard", "domestic_zero_rated", "domestic_exempt", "export", "import"]},
+                "accounting_group": {"type": "string", "enum": ["local_trade", "foreign_trade", "related_party", "government", "other"]},
+                "vat_registration_number": {"type": "string"},
+                "tax_registration_number": {"type": "string"},
             },
-            ["customer_name", "mobile_contact_number"],
+            ["customer_name", "mobile_contact_number", "customer_category", "tax_area", "accounting_group", "vat_registration_number"],
         ),
         permission=Permissions.CUSTOMER_CREATE,
         handler=_v_create_customer,

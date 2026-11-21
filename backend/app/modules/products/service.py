@@ -111,8 +111,23 @@ def _sync_default_tier(db: Session, product_id: int, cost, selling, website, min
     tier.updated_by = user_id
 
 
-def _require_active_refs(db: Session, category_id: Optional[int], brand_id: Optional[int]) -> None:
-    """A new product (or a changed category/brand) must point at an active category and brand."""
+def _require_active_refs(db: Session, category_id: Optional[int], brand_id: Optional[int],
+                         product_type_id: Optional[int] = None, hs_code_id: Optional[int] = None) -> None:
+    """A new product (or a changed category/brand/type/HS code) must point at active ones."""
+    for model, ref_id, label, display in (
+        (models.ProductType, product_type_id, "Product type", lambda r: r.name),
+        (models.HsCode, hs_code_id, "HS code", lambda r: r.code),
+    ):
+        if ref_id is None:
+            continue
+        row = db.query(model).filter(model.id == ref_id).first()
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{label} with id {ref_id} not found.")
+        if not row.active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{label} '{display(row)}' is inactive and cannot be assigned to a product.",
+            )
     if category_id is not None:
         category = db.query(models.Category).filter(models.Category.id == category_id).first()
         if category is not None and not category.active:
@@ -127,6 +142,23 @@ def _require_active_refs(db: Session, category_id: Optional[int], brand_id: Opti
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Brand '{brand.brand_name.strip()}' is inactive and cannot be assigned to a product.",
             )
+
+STOCKED_ITEM_TYPE = "inventory"
+
+
+def _require_active_material(db: Session, material_id: int) -> None:
+    """A product may only be linked to an existing, active Item Catalog item."""
+    from app.modules.materials.models import Material
+
+    material = db.query(Material).filter(Material.id == material_id).first()
+    if material is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Item with id {material_id} not found.")
+    if not material.active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Item '{material.name.strip()}' is inactive and cannot be linked to a product.",
+        )
+
 
 def _attach_user_names(db: Session, records: List) -> None:
     """Resolve created_by/updated_by ids to display names, in one batched
@@ -233,13 +265,20 @@ class ProductService:
                 detail="Website price cannot be less than cost price."
             )
         _validate_minimum_price(product.minimum_selling_price, product.cost_price, product.selling_price)
-        _require_active_refs(db, product.category_id, product.items_brand_id)
+        _require_active_refs(db, product.category_id, product.items_brand_id, product.product_type_id, product.hs_code_id)
+        if product.material_id is not None:
+            _require_active_material(db, product.material_id)
 
         # Product, default price tier, initial minimum price and audit row all
         # commit together. The pre-checks above only give friendly messages;
         # the unique indexes (s66) catch concurrent duplicates.
         try:
             created = repository.product_repository.create(db, product, user_id)
+            if created.material_id is None and created.item_type == STOCKED_ITEM_TYPE:
+                # A stocked product sells an item: create it from the product's data.
+                from app.modules.materials.from_product import item_for_product
+                created.material_id = item_for_product(db, created, user_id).id
+                db.flush()
             if product.minimum_selling_price is not None:
                 repository.minimum_price_repository.create(
                     db, created.id, product.minimum_selling_price, commit=False
@@ -293,6 +332,19 @@ class ProductService:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Tracking type cannot be changed because this product already has stock records.",
+                )
+
+        # The item link decides whose stock the product sells: it can't move while
+        # the product's own stock rows are still live.
+        if "material_id" in product.model_fields_set and product.material_id != curr_product.material_id:
+            from app.modules.inventory.models import SalesStock
+            if product.material_id is not None:
+                _require_active_material(db, product.material_id)
+            if db.query(SalesStock.id).filter(SalesStock.product_id == product_id, SalesStock.is_active.is_(True)).first():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This product has stock, so its Item Catalog item cannot be changed. "
+                           "Sell, return or adjust the stock first.",
                 )
 
         # A product with stock on hand stays active: deactivating it would strand that stock.
@@ -359,6 +411,8 @@ class ProductService:
             db,
             product.category_id if product.category_id not in (None, curr_product.category_id) else None,
             product.items_brand_id if product.items_brand_id not in (None, curr_product.items_brand_id) else None,
+            product.product_type_id if product.product_type_id not in (None, curr_product.product_type_id) else None,
+            product.hs_code_id if product.hs_code_id not in (None, curr_product.hs_code_id) else None,
         )
 
         submitted_fields = product.model_dump(exclude_unset=True, exclude=schemas.NON_COLUMN_UPDATE_FIELDS)

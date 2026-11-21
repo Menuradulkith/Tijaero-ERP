@@ -1,7 +1,7 @@
 /**
  * MaterialRequirementsPage - demand-driven MRP.
  *
- * Per product and branch (an order can only draw stock of its own branch):
+ * Per Item Catalog item and branch (an order can only draw stock of its own branch):
  *   demand  = open quotation lines + components of open production orders
  *             + components of planned production (BOM explosion)
  *   supply  = free stock + open purchase orders + open production orders
@@ -51,13 +51,15 @@ import { usePermission } from "@/auth/permissions";
 import { useReferenceData } from "@/hooks";
 import { planningApi, errorAlreadyToasted } from "@/modules/manufacturing/api";
 import { ProduceFirmDialog, PurchaseFirmDialog } from "@/modules/manufacturing/components/MrpFirmDialogs";
+import { ItemLink } from "@/modules/manufacturing/components/ItemFields";
+import { mfgItemCode, mfgItemName, mrpLineKey, mrpLineRef } from "@/modules/manufacturing/itemDisplay";
 import type { MrpDemandSource, MrpLine } from "@/modules/manufacturing/types";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { formatDate } from "@/utils/formatters";
 
-type MrpRow = MrpLine & { id: string };
+type MrpRow = MrpLine & { id: string; item_display: string };
 
-const lineKey = (line: MrpLine) => `${line.product_id}:${line.branch_code}`;
+const lineKey = mrpLineKey;
 const todayIso = () => formatDate(new Date());
 const isLateOrder = (line: MrpLine) =>
   line.suggested_quantity > 0 && !!line.order_by_date && line.order_by_date < todayIso();
@@ -111,11 +113,11 @@ export default function MaterialRequirementsPage() {
   const rows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return lines.filter(
-      (l) => !q || l.product_name.toLowerCase().includes(q) || l.product_code.toLowerCase().includes(q)
+      (l) => !q || mfgItemName(l).toLowerCase().includes(q) || mfgItemCode(l).toLowerCase().includes(q)
     );
   }, [lines, searchQuery]);
 
-  const gridRows: MrpRow[] = useMemo(() => rows.map((r) => ({ ...r, id: lineKey(r) })), [rows]);
+  const gridRows: MrpRow[] = useMemo(() => rows.map((r) => ({ ...r, id: lineKey(r), item_display: mfgItemName(r) })), [rows]);
 
   // Selection only ever holds rows that still have a suggestion
   useEffect(() => {
@@ -195,7 +197,7 @@ export default function MaterialRequirementsPage() {
           branch_code: branch,
           expected_date: data.expected_date,
           lines: rowsOfBranch.map((r) => ({
-            product_id: r.line.product_id,
+            ...mrpLineRef(r.line),
             quantity: r.quantity,
             supplier_id: r.supplier_id,
             unit_price: r.unit_price,
@@ -225,7 +227,7 @@ export default function MaterialRequirementsPage() {
           branch_code: branch,
           priority: data.priority,
           lines: rowsOfBranch.map((r) => ({
-            product_id: r.line.product_id,
+            ...mrpLineRef(r.line),
             quantity: r.quantity,
             bom_id: r.line.bom_id,
             planned_start_date: r.planned_start_date,
@@ -276,21 +278,21 @@ export default function MaterialRequirementsPage() {
                 checked={selected.has(params.row.id)}
                 onClick={(e) => e.stopPropagation()}
                 onChange={() => toggle(selected, setSelected, params.row.id)}
-                inputProps={{ "aria-label": `Select ${params.row.product_name}` }}
+                inputProps={{ "aria-label": `Select ${mfgItemName(params.row)}` }}
               />
             ) : null,
         } as TDataGridColumn<MrpRow>]
       : []),
     {
-      field: "product_name",
+      field: "item_display",
       header: "Item",
       flex: 1,
       minWidth: 200,
       renderCell: (params: GridRenderCellParams<MrpRow>) => (
         <Box sx={{ lineHeight: 1.2, py: 0.5, minWidth: 0 }}>
-          <Typography variant="body2" fontWeight={600} noWrap>{params.row.product_name}</Typography>
+          <Typography variant="body2" fontWeight={600} noWrap><ItemLink row={params.row} /></Typography>
           <Typography variant="caption" color="text.secondary" noWrap component="div">
-            {params.row.product_code}{params.row.unit_of_measure ? ` · ${params.row.unit_of_measure}` : ""}
+            {mfgItemCode(params.row)}{params.row.unit_of_measure ? ` · ${params.row.unit_of_measure}` : ""}
             {params.row.low_level_code > 0 ? ` · level ${params.row.low_level_code}` : ""}
           </Typography>
         </Box>
@@ -517,9 +519,9 @@ export default function MaterialRequirementsPage() {
         {sourcesFor && (
           <>
             <Box>
-              <Typography variant="subtitle2" fontWeight={600}>{sourcesFor.product_name}</Typography>
+              <Typography variant="subtitle2" fontWeight={600}><ItemLink row={sourcesFor} /></Typography>
               <Typography variant="caption" color="text.secondary">
-                {sourcesFor.product_code} · {sourcesFor.branch_code}
+                {mfgItemCode(sourcesFor)}{sourcesFor.unit_of_measure ? ` · ${sourcesFor.unit_of_measure}` : ""} · {sourcesFor.branch_code}
               </Typography>
             </Box>
             <FormSection title="Demand" columns={1} isLast>

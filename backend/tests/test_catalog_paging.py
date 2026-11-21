@@ -3,6 +3,8 @@ import uuid
 
 import pytest
 
+from tests.conftest import product_master_ids
+
 B = "/api/v1/inventory"
 
 
@@ -16,11 +18,12 @@ def seeded(superclient):
     cat = superclient.post(f"{B}/categories/", json={"name": f"PG Cat {tag}"}).json()
     cat2 = superclient.post(f"{B}/categories/", json={"name": f"PG Cat2 {tag}"}).json()
     brand = superclient.post(f"{B}/brands/", json={"brand_name": f"PG Brand {tag}"}).json()
+    pm = product_master_ids(superclient)
     for i in range(7):
         r = superclient.post(f"{B}/products/", json={
             "name": f"PG Prod {tag} {i}", "item_type": "inventory", "tracking_type": "serial", "unit_of_measure": "pcs",
             "cost_price": 10 + i, "selling_price": 20 + i,
-            "category_id": (cat if i < 5 else cat2)["id"], "items_brand_id": brand["id"],
+            "category_id": (cat if i < 5 else cat2)["id"], "items_brand_id": brand["id"], **pm,
         })
         assert r.status_code == 201, r.text
     return {"tag": tag, "cat": cat, "cat2": cat2, "brand": brand}

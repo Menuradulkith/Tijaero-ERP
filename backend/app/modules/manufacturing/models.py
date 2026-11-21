@@ -8,6 +8,9 @@ Stock integration: components are consumed from ``sales_stock`` rows of the orde
 branch (status -> consumed, ``consumed_by_production_order_id`` set) and output is
 received as new ``sales_stock`` rows (``production_order_id`` set, no GRN).
 
+Central stock phase 4: BOMs, orders, components, by-products and reorder rules work on
+Item Catalog items (``material_id``); ``product_id`` stays only on rows made before.
+
 Costing is standard costing, matching how sales relieves inventory at
 ``Product.cost_price``: components leave inventory and output enters it at that cost,
 labour and overhead are absorbed at the work-center rates, and closing an order posts
@@ -60,7 +63,10 @@ class MfgBOM(Base, AuditMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     bom_no = Column(String(30), nullable=False, unique=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    # Old BOMs keep the product they were made for; new ones carry the item only (central stock phase 4)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    # The Item Catalog item the BOM makes
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     version = Column(String(20), nullable=False, default="1")
     # The component quantities produce this many units of the product
     output_quantity = Column(Numeric(14, 4), nullable=False, default=1)
@@ -73,6 +79,7 @@ class MfgBOM(Base, AuditMixin):
     overproduction_pct = Column(Numeric(5, 2), nullable=False, default=0)
 
     product = relationship("Product", lazy="joined")
+    item = relationship("Material", lazy="joined")
     by_products = relationship("MfgBOMByProduct", back_populates="bom", cascade="all, delete-orphan",
                                order_by="MfgBOMByProduct.id")
     items = relationship("MfgBOMItem", back_populates="bom", cascade="all, delete-orphan",
@@ -87,7 +94,9 @@ class MfgBOMItem(Base, AuditMixin):
     id = Column(Integer, primary_key=True, index=True)
     bom_id = Column(Integer, ForeignKey("mfg_boms.id", ondelete="CASCADE"), nullable=False, index=True)
     sequence = Column(Integer, nullable=False, default=10)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    # The component item
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     quantity = Column(Numeric(14, 4), nullable=False)
     scrap_pct = Column(Numeric(5, 2), nullable=False, default=0)
     # manual | backflush (MaterialIssueMethod)
@@ -96,6 +105,7 @@ class MfgBOMItem(Base, AuditMixin):
 
     bom = relationship("MfgBOM", back_populates="items")
     product = relationship("Product", lazy="joined")
+    item = relationship("Material", lazy="joined")
 
 
 class MfgBOMOperation(Base, AuditMixin):
@@ -124,12 +134,15 @@ class MfgBOMByProduct(Base, AuditMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     bom_id = Column(Integer, ForeignKey("mfg_boms.id", ondelete="CASCADE"), nullable=False, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    # The by-product item
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     # Per output_quantity of the BOM, like the components
     quantity = Column(Numeric(14, 4), nullable=False)
 
     bom = relationship("MfgBOM", back_populates="by_products")
     product = relationship("Product", lazy="joined")
+    item = relationship("Material", lazy="joined")
 
 
 class MfgReorderRule(Base, AuditMixin):
@@ -140,7 +153,9 @@ class MfgReorderRule(Base, AuditMixin):
     __table_args__ = (UniqueConstraint("product_id", "branch_code", name="uq_mfg_reorder_rules_product_branch"),)
 
     id = Column(Integer, primary_key=True, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    # Rules plan per item and branch (unique index uq_mfg_reorder_rules_material_branch)
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     branch_code = Column(String(200), nullable=False, index=True)
     min_quantity = Column(Integer, nullable=False)
     max_quantity = Column(Integer, nullable=True)
@@ -149,6 +164,7 @@ class MfgReorderRule(Base, AuditMixin):
     active = Column(Boolean, nullable=False, default=True)
 
     product = relationship("Product", lazy="joined")
+    item = relationship("Material", lazy="joined")
 
 
 # ─────────────────────────────── execution ───────────────────────────────
@@ -157,7 +173,9 @@ class MfgProductionOrder(Base, AuditMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     order_no = Column(String(40), nullable=False, unique=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    # The item the order makes
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     bom_id = Column(Integer, ForeignKey("mfg_boms.id"), nullable=False, index=True)
     branch_code = Column(String(200), nullable=False, index=True)
     # Where output is received (defaults to the branch's location)
@@ -205,6 +223,7 @@ class MfgProductionOrder(Base, AuditMixin):
     closed_at = Column(TIMESTAMP, nullable=True)
 
     product = relationship("Product", lazy="joined")
+    item = relationship("Material", lazy="joined")
     bom = relationship("MfgBOM", lazy="select")
     quote_item = relationship("SalesQuoteItem", lazy="select")
     materials = relationship("MfgProductionOrderMaterial", back_populates="order",
@@ -221,7 +240,9 @@ class MfgProductionOrderMaterial(Base, AuditMixin):
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("mfg_production_orders.id", ondelete="CASCADE"), nullable=False, index=True)
     sequence = Column(Integer, nullable=False, default=10)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    # The component item
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     quantity_per_unit = Column(Numeric(14, 6), nullable=False)
     scrap_pct = Column(Numeric(5, 2), nullable=False, default=0)
     required_quantity = Column(Integer, nullable=False)
@@ -232,6 +253,7 @@ class MfgProductionOrderMaterial(Base, AuditMixin):
 
     order = relationship("MfgProductionOrder", back_populates="materials")
     product = relationship("Product", lazy="joined")
+    item = relationship("Material", lazy="joined")
 
 
 class MfgProductionOrderOperation(Base, AuditMixin):
@@ -266,7 +288,9 @@ class MfgProductionOrderByProduct(Base, AuditMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("mfg_production_orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    # The by-product item
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     quantity_per_unit = Column(Numeric(14, 6), nullable=False)
     received_quantity = Column(Integer, nullable=False, default=0)
     # Standard cost fixed at release
@@ -274,6 +298,7 @@ class MfgProductionOrderByProduct(Base, AuditMixin):
 
     order = relationship("MfgProductionOrder", back_populates="by_products")
     product = relationship("Product", lazy="joined")
+    item = relationship("Material", lazy="joined")
 
 
 class MfgMaterialTransaction(Base, AuditMixin):
@@ -283,8 +308,11 @@ class MfgMaterialTransaction(Base, AuditMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("mfg_production_orders.id"), nullable=False, index=True)
+    # The order's material line (not an item)
     material_id = Column(Integer, ForeignKey("mfg_production_order_materials.id"), nullable=False, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    # The component item moved
+    item_material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
     # issue | return | backflush
     transaction_type = Column(String(20), nullable=False)
     quantity = Column(Integer, nullable=False)
@@ -297,6 +325,7 @@ class MfgMaterialTransaction(Base, AuditMixin):
     lots = Column(JSON, nullable=True)
 
     product = relationship("Product", lazy="joined")
+    item = relationship("Material", lazy="joined")
     order = relationship("MfgProductionOrder", lazy="select")
 
 
@@ -322,7 +351,8 @@ class MfgProductionOutput(Base, AuditMixin):
     qc_status = Column(String(20), nullable=False, default="none")
     qc_passed_quantity = Column(Integer, nullable=False, default=0)
     qc_failed_quantity = Column(Integer, nullable=False, default=0)
-    # By-products received with this output: [{"product_id", "quantity", "unit_cost", "value"}]
+    # By-products received with this output: [{"byproduct_id", "material_id", "material_name", "product_id",
+    # "quantity", "unit_cost", "value"}] (rows before central stock phase 4 have no material keys)
     by_products = Column(JSON, nullable=True)
     byproduct_value = Column(Numeric(16, 2), nullable=False, default=0)
 

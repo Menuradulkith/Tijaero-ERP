@@ -223,17 +223,20 @@ def mfg(db, make_branch, make_location, make_product, make_sales_stock, make_use
     fg.tracking_type = "batch"
     part = make_product(cost_price=10, name="Part")
     part.tracking_type = "none"
+    from tests.conftest import mfg_item
+    mfg_item(db, fg)  # manufacturing works on the products' items (central stock phase 4)
+    mfg_item(db, part)
     row = make_sales_stock(product=part, branch=branch, location=loc)
     row.barcode, row.quantity = None, 100
     db.flush()
     wc = WorkCenterService(db).create(ms.WorkCenterIn(code=f"WC{uuid.uuid4().hex[:6]}", name="Line",
                                                       branch_code=branch.branch_code), user.id)
     bom = BOMService(db).create(ms.BOMIn(
-        product_id=fg.id, items=[ms.BOMItemIn(product_id=part.id, quantity=D(2))],
+        material_id=fg.material_id, items=[ms.BOMItemIn(material_id=part.material_id, quantity=D(2))],
         operations=[ms.BOMOperationIn(name="Make", work_center_id=wc["id"], run_minutes=D(5))]), user.id)
     BOMService(db).activate(bom["id"], user.id)
     order = ProductionOrderService(db).create(ms.ProductionOrderIn(
-        product_id=fg.id, branch_code=branch.branch_code, planned_quantity=4,
+        material_id=fg.material_id, branch_code=branch.branch_code, planned_quantity=4,
         planned_start_date=date.today(), planned_end_date=date.today() + timedelta(days=2)), user.id)
     order = ProductionOrderService(db).release(order["id"], user.id)
     return dict(branch=branch, other=other, user=user, fg=fg, part=part, wc=wc, order=order)
@@ -273,9 +276,11 @@ class TestProductionBounds:
 
     def test_scrap_is_bounded_by_the_planned_quantity(self, db, mfg):
         with pytest.raises(HTTPException) as exc:
-            ProductionOrderService(db).record_output(mfg["order"]["id"], ms.OutputIn(scrap_quantity=5), mfg["user"].id)
+            ProductionOrderService(db).record_output(mfg["order"]["id"], ms.OutputIn(scrap_quantity=5, scrap_reason="burnt"),
+                                                     mfg["user"].id)
         assert "scrap" in exc.value.detail
-        ProductionOrderService(db).record_output(mfg["order"]["id"], ms.OutputIn(scrap_quantity=4), mfg["user"].id)
+        ProductionOrderService(db).record_output(mfg["order"]["id"], ms.OutputIn(scrap_quantity=4, scrap_reason="burnt"),
+                                                 mfg["user"].id)
 
     def test_serial_numbers_on_a_batch_product_are_refused(self, db, mfg):
         with pytest.raises(HTTPException) as exc:

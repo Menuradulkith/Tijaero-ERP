@@ -16,6 +16,7 @@ import pytest
 from app.modules.purchasing import schemas as po_schemas
 from app.modules.purchasing import service as po_service
 from app.modules.reporting.models import DocumentTemplate
+from tests.conftest import item_id_for
 
 BASE = "/api/v1/reporting/print-templates"
 PO_FIELDS = "{{ po.purchasing_order_no }} {{ po.purchasing_order_date }} {{ subtotal }}"
@@ -38,7 +39,7 @@ def approved_po(db, make_branch, make_supplier, make_product):
             purchasing_order_date=date.today(), good_received_note_date=date.today(),
             first_suppliers_id=supplier.id,
             items=[po_schemas.PurchasingOrderItemCreate(
-                product_id=product.id, quantity=2, unit_price=Decimal("150.00"), warrenty_month="12")],
+                material_id=item_id_for(product, supplier, 150), quantity=2, unit_price=Decimal("150.00"), warrenty_month="12")],
         ),
         created_by=1,
     )
@@ -245,7 +246,7 @@ class TestAccess:
                 purchasing_order_date=date.today(), good_received_note_date=date.today(),
                 first_suppliers_id=supplier.id,
                 items=[po_schemas.PurchasingOrderItemCreate(
-                    product_id=product.id, quantity=1, unit_price=Decimal("10.00"), warrenty_month="12")],
+                    material_id=item_id_for(product, supplier, 10), quantity=1, unit_price=Decimal("10.00"), warrenty_month="12")],
             ),
             created_by=1,
         )

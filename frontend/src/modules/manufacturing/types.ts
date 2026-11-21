@@ -80,14 +80,27 @@ export interface WorkCenterInput {
   supplier_id?: number | null;
 }
 
-// ─────────────────────────── BOMs ───────────────────────────
-export interface BOMItem {
-  id: number;
-  sequence: number;
-  product_id: number;
+/**
+ * Manufacturing works on Item Catalog items (materials). Rows saved before that
+ * only carry a product, so the item fields may be missing and the product fields
+ * are the fallback (see itemDisplay.ts).
+ */
+export interface MfgItemRef {
+  /** Item Catalog item (materials.id) */
+  material_id?: number | null;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
+  /** Old rows / the finished item's linked product (when there is exactly one) */
+  product_id?: number | null;
   product_name?: string | null;
   product_code?: string | null;
-  unit_of_measure?: string | null;
+}
+
+// ─────────────────────────── BOMs ───────────────────────────
+export interface BOMItem extends MfgItemRef {
+  id: number;
+  sequence: number;
   quantity: Dec;
   scrap_pct: Dec;
   issue_method: IssueMethod;
@@ -114,24 +127,17 @@ export interface BOMOperation {
   outside_cost: Dec;
 }
 
-export interface BOMByProduct {
+export interface BOMByProduct extends MfgItemRef {
   id: number;
-  product_id: number;
-  product_name?: string | null;
-  product_code?: string | null;
-  unit_of_measure?: string | null;
   quantity: Dec;
   unit_cost: Dec;
   line_value: Dec;
 }
 
-export interface BOM {
+/** material_id = the finished item this BOM makes. */
+export interface BOM extends MfgItemRef {
   id: number;
   bom_no: string;
-  product_id: number;
-  product_name?: string | null;
-  product_code?: string | null;
-  unit_of_measure?: string | null;
   product_cost_price: Dec;
   version: string;
   output_quantity: Dec;
@@ -159,7 +165,8 @@ export interface BOM {
 
 export interface BOMItemInput {
   sequence: number;
-  product_id: number;
+  /** Component item */
+  material_id: number;
   quantity: number;
   scrap_pct: number;
   issue_method: IssueMethod;
@@ -178,12 +185,14 @@ export interface BOMOperationInput {
 }
 
 export interface BOMByProductInput {
-  product_id: number;
+  /** By-product item */
+  material_id: number;
   quantity: number;
 }
 
 export interface BOMInput {
-  product_id: number;
+  /** The finished item this BOM makes */
+  material_id: number;
   version: string;
   output_quantity: number;
   description?: string | null;
@@ -193,16 +202,13 @@ export interface BOMInput {
   by_products: BOMByProductInput[];
 }
 
-export type BOMUpdateInput = Partial<Omit<BOMInput, "product_id">>;
+export type BOMUpdateInput = Partial<Omit<BOMInput, "material_id">>;
 
 // ─────────────────────────── production orders ───────────────────────────
-export interface OrderMaterial {
+/** id = the order's material line (issue / return send it as lines[].material_id); material_id = the item. */
+export interface OrderMaterial extends MfgItemRef {
   id: number;
   sequence: number;
-  product_id: number;
-  product_name?: string | null;
-  product_code?: string | null;
-  unit_of_measure?: string | null;
   tracking_type?: string | null;
   quantity_per_unit: Dec;
   scrap_pct: Dec;
@@ -237,12 +243,8 @@ export interface OrderOperation {
   outside_quantity: number;
 }
 
-export interface OrderByProduct {
+export interface OrderByProduct extends MfgItemRef {
   id: number;
-  product_id: number;
-  product_name?: string | null;
-  product_code?: string | null;
-  unit_of_measure?: string | null;
   quantity_per_unit: Dec;
   /** At the good units recorded so far */
   expected_quantity: number;
@@ -250,13 +252,10 @@ export interface OrderByProduct {
   unit_cost: Dec;
 }
 
-export interface ProductionOrder {
+/** material_id = the item this order makes. */
+export interface ProductionOrder extends MfgItemRef {
   id: number;
   order_no: string;
-  product_id: number;
-  product_name?: string | null;
-  product_code?: string | null;
-  unit_of_measure?: string | null;
   tracking_type?: string | null;
   bom_id: number;
   bom_no?: string | null;
@@ -324,7 +323,8 @@ export interface ProductionOrderPage {
 }
 
 export interface ProductionOrderInput {
-  product_id: number;
+  /** The item to make */
+  material_id: number;
   bom_id?: number | null;
   branch_code: string;
   location_id?: number | null;
@@ -336,7 +336,7 @@ export interface ProductionOrderInput {
   remark?: string | null;
 }
 
-export type ProductionOrderUpdateInput = Partial<Omit<ProductionOrderInput, "product_id" | "branch_code">>;
+export type ProductionOrderUpdateInput = Partial<Omit<ProductionOrderInput, "material_id" | "branch_code">>;
 
 export interface MaterialMoveInput {
   lines: { material_id: number; quantity: number }[];
@@ -386,11 +386,18 @@ export interface TimeLogInput {
   remark?: string | null;
 }
 
+/**
+ * material_id here has always been the order's material line; the item is shown
+ * from material_item_code / material_name (falling back to the product).
+ */
 export interface MaterialTransaction {
   id: number;
   order_id: number;
   material_id: number;
-  product_id: number;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
+  product_id?: number | null;
   product_name?: string | null;
   product_code?: string | null;
   transaction_type: "issue" | "return" | "backflush";
@@ -421,7 +428,7 @@ export interface ProductionOutput {
   qc_status: QcStatus;
   qc_passed_quantity: number;
   qc_failed_quantity: number;
-  by_products?: { byproduct_id: number; product_id: number; product_name?: string | null; quantity: number; unit_cost: string; value: string }[] | null;
+  by_products?: (MfgItemRef & { byproduct_id: number; quantity: number; unit_cost: string; value: string })[] | null;
   byproduct_value: Dec;
 }
 
@@ -482,10 +489,7 @@ export interface OrderActivity {
 }
 
 // ─────────────────────────── batch traceability ───────────────────────────
-export interface TraceLot {
-  product_id: number;
-  product_name?: string | null;
-  product_code?: string | null;
+export interface TraceLot extends MfgItemRef {
   batch_no?: string | null;
   expiry_date?: string | null;
   quantity: number;
@@ -495,6 +499,9 @@ export interface TraceOrder {
   order_id: number;
   order_no: string;
   branch_code: string;
+  material_id?: number | null;
+  material_item_code?: string | null;
+  material_name?: string | null;
   product_name?: string | null;
   status: ProductionOrderStatus;
   finished_batches: TraceLot[];
@@ -516,6 +523,10 @@ export interface JobCard {
   order_status: ProductionOrderStatus;
   priority: Priority;
   branch_code: string;
+  material_id?: number | null;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
   product_name?: string | null;
   product_code?: string | null;
   planned_quantity: number;
@@ -551,12 +562,9 @@ export interface MrpDemandSource {
   need_date?: string | null;
 }
 
-export interface MrpLine {
-  product_id: number;
+/** MRP plans per item and branch. */
+export interface MrpLine extends MfgItemRef {
   branch_code: string;
-  product_name: string;
-  product_code: string;
-  unit_of_measure?: string | null;
   is_manufactured: boolean;
   bom_id?: number | null;
   low_level_code: number;
@@ -585,25 +593,23 @@ export interface MrpLine {
 export interface MrpPurchaseInput {
   branch_code: string;
   expected_date?: string | null;
-  lines: { product_id: number; quantity: number; supplier_id: number; unit_price?: number | null }[];
+  /** material_id = the item to buy; product_id only for an old product-only row */
+  lines: { material_id?: number; product_id?: number; quantity: number; supplier_id: number; unit_price?: number | null }[];
 }
 
 export interface MrpProduceInput {
   branch_code: string;
   priority: Priority;
-  lines: { product_id: number; quantity: number; bom_id?: number | null; planned_start_date: string; planned_end_date: string }[];
+  /** material_id = the item to make; product_id only for an old product-only row */
+  lines: { material_id?: number; product_id?: number; quantity: number; bom_id?: number | null; planned_start_date: string; planned_end_date: string }[];
 }
 
 export interface MrpFirmResult {
   documents: { id: number; number: string; [key: string]: unknown }[];
 }
 
-export interface ReorderRule {
+export interface ReorderRule extends MfgItemRef {
   id: number;
-  product_id: number;
-  product_name?: string | null;
-  product_code?: string | null;
-  unit_of_measure?: string | null;
   is_manufactured: boolean;
   branch_code: string;
   min_quantity: number;
@@ -619,7 +625,7 @@ export interface ReorderRule {
 }
 
 export interface ReorderRuleInput {
-  product_id: number;
+  material_id: number;
   branch_code: string;
   min_quantity: number;
   max_quantity?: number | null;
@@ -638,6 +644,10 @@ export interface QuoteDemandLine {
   product_id: number;
   product_name?: string | null;
   product_code?: string | null;
+  /** The item the quoted product is made as (when linked) */
+  material_id?: number | null;
+  material_item_code?: string | null;
+  material_name?: string | null;
   unit_of_measure?: string | null;
   quantity: number;
   ordered_quantity: number;

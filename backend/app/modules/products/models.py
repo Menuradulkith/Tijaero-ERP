@@ -28,6 +28,25 @@ class ItemsBrand(Base, AuditMixin):
     
     products = relationship("Product", back_populates="brand")
 
+class ProductType(Base, AuditMixin):
+    """User-maintained list of product types (e.g. Laptop, Accessory) shown on the product form."""
+    __tablename__ = "product_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(120), nullable=False)
+    active = Column(Boolean, nullable=False, default=True, server_default="true")
+
+
+class HsCode(Base, AuditMixin):
+    """Customs Harmonized System codes users pick (or add) on the product form."""
+    __tablename__ = "hs_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(20), nullable=False)
+    description = Column(String(255))
+    active = Column(Boolean, nullable=False, default=True, server_default="true")
+
+
 class Product(Base, AuditMixin):
     __tablename__ = "products"
     
@@ -61,6 +80,40 @@ class Product(Base, AuditMixin):
     items_brand_id = Column(Integer, ForeignKey("items_brand.id"), nullable=False, index=True)
     added_date = Column(TIMESTAMP, nullable=False)
     image_url = Column(Text, nullable=True)
+    # General section (product master). Required on create by the API; nullable for older rows.
+    product_type_id = Column(Integer, ForeignKey("product_types.id"), nullable=True, index=True)
+    hs_code_id = Column(Integer, ForeignKey("hs_codes.id"), nullable=True, index=True)
+    product_family = Column(String(120))
+    target_market = Column(String(120))
+    required_certificate = Column(String(255))
+    # Item Catalog item this product sells (central stock): stock is kept per item,
+    # so selling the product takes its item's stock. NULL for service / non-stock
+    # products. Several products may share one item.
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=True, index=True)
+
+    product_type = relationship("ProductType")
+    hs_code_ref = relationship("HsCode")
+    material = relationship("Material")
+
+    @property
+    def material_item_code(self):
+        return self.material.item_code if self.material else None
+
+    @property
+    def material_name(self):
+        return self.material.name if self.material else None
+
+    @property
+    def product_type_name(self):
+        return self.product_type.name if self.product_type else None
+
+    @property
+    def hs_code(self):
+        return self.hs_code_ref.code if self.hs_code_ref else None
+
+    @property
+    def hs_code_description(self):
+        return self.hs_code_ref.description if self.hs_code_ref else None
 
     category = relationship("Category", back_populates="products")
     brand = relationship("ItemsBrand", back_populates="products")

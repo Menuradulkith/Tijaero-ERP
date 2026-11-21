@@ -57,7 +57,10 @@ class ItemTransferNote(ItemTransferNoteBase, TijaeroBaseSchema):
 
 # Item Transfer Note Items Schemas
 class ItemTransferNoteItemBase(BaseModel):
-    product_id: int
+    # A line moves stock of an Item Catalog item (material_id) or, for stock filed
+    # under a product, of that product's item. Item-only stock has no product.
+    product_id: Optional[int] = None
+    material_id: Optional[int] = None
     barcode: Optional[str] = None
     quantity: int = Field(default=1, ge=1)  # units (lots); 1 for barcode items
     branch_code: str
@@ -65,6 +68,8 @@ class ItemTransferNoteItemBase(BaseModel):
 
 class ItemTransferNoteLineIn(ItemTransferNoteItemBase):
     # Input only: whether a line is received is set by receive-items, never by the client.
+    product_id: Optional[int] = Field(default=None, ge=1, le=2_147_483_647)
+    material_id: Optional[int] = Field(default=None, ge=1, le=2_147_483_647)
     barcode: Optional[str] = Field(default=None, max_length=255)
     quantity: int = Field(default=1, ge=1, le=1_000_000)
     remark: Optional[str] = Field(default=None, max_length=200)
@@ -78,6 +83,9 @@ class ItemTransferNoteItem(ItemTransferNoteItemBase, TijaeroBaseSchema):
     item_recieved: bool = False
     created_date: datetime
     product_name: Optional[str] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
+    unit_of_measure: Optional[str] = None
     sales_stock_id: Optional[int] = None  # set once a lot line is allocated at approval
     batch_no: Optional[str] = None  # of the allocated lot (batch-tracked products)
     expiry_date: Optional[date] = None
@@ -147,6 +155,9 @@ class BarcodeValidationResponse(BaseModel):
     sales_stock_id: Optional[int] = None
     product_id: Optional[int] = None
     product_name: Optional[str] = None
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
     current_location_id: Optional[int] = None
     current_location_name: Optional[str] = None
     current_status: Optional[str] = None
@@ -154,7 +165,9 @@ class BarcodeValidationResponse(BaseModel):
 
 
 class LotValidationRequest(BaseModel):
-    product_id: int = Field(..., ge=1, le=2_147_483_647)
+    # The item (material_id) to move, or a product (its item's stock is checked)
+    product_id: Optional[int] = Field(None, ge=1, le=2_147_483_647)
+    material_id: Optional[int] = Field(None, ge=1, le=2_147_483_647)
     quantity: int = Field(..., ge=1, le=1_000_000)
     from_location_id: int = Field(..., ge=1, le=2_147_483_647)
 
@@ -162,8 +175,11 @@ class LotValidationRequest(BaseModel):
 class LotValidationResponse(BaseModel):
     valid: bool
     message: str
-    product_id: int
+    product_id: Optional[int] = None
     product_name: Optional[str] = None
+    material_id: Optional[int] = None
+    material_item_code: Optional[str] = None
+    material_name: Optional[str] = None
     available_quantity: int = 0
 
 

@@ -1,6 +1,8 @@
 /**
  * ProductionOrdersPage - manufacturing (work) orders.
  *
+ * An order makes an Item Catalog item from an active BOM of that item; its
+ * components and by-products are items too (old orders fall back to product names).
  * Browse table of every order; the detail view shows the order header, its
  * components (with branch availability), routing operations, planned vs actual
  * cost and the shop-floor transactions. Lifecycle actions follow the backend:
@@ -36,7 +38,6 @@ import SearchIcon from "@mui/icons-material/Search";
 import TimerIcon from "@mui/icons-material/Timer";
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
   IconButton,
@@ -92,6 +93,8 @@ import { useReferenceData } from "@/hooks";
 import { usePermission } from "@/auth/permissions";
 import { bomsApi, productionOrdersApi } from "@/modules/manufacturing/api";
 import FromQuotationDialog from "@/modules/manufacturing/components/FromQuotationDialog";
+import { ItemAutocomplete, ItemLink } from "@/modules/manufacturing/components/ItemFields";
+import { mfgItemCode, mfgItemLabel, mfgItemName, useMfgItems } from "@/modules/manufacturing/itemDisplay";
 import {
   CancelOrderPanel,
   CompleteOrderPanel,
@@ -128,7 +131,7 @@ const QC_CHIP: Record<QcStatus, { label: string; color: "default" | "warning" | 
 };
 
 const INITIAL_FORM_DATA: ProductionOrderInput = {
-  product_id: 0,
+  material_id: 0,
   bom_id: null,
   branch_code: "",
   location_id: null,
@@ -141,7 +144,7 @@ const INITIAL_FORM_DATA: ProductionOrderInput = {
 };
 
 const resetFormFromOrder = (o: ProductionOrder): ProductionOrderInput => ({
-  product_id: o.product_id,
+  material_id: o.material_id || 0,
   bom_id: o.bom_id,
   branch_code: o.branch_code,
   location_id: o.location_id ?? null,
@@ -169,7 +172,7 @@ const MUTATION_KEYS = (id?: number) => [
 
 const num = (v: unknown) => Number(v ?? 0);
 
-type OrderRow = ProductionOrder & { product_display: string; branch_display: string };
+type OrderRow = ProductionOrder & { item_code_display: string; item_display: string; branch_display: string };
 
 type DialogKind = "issue" | "return" | "output" | "time" | "outside" | "quality" | "complete" | "cancel" | null;
 
@@ -234,12 +237,9 @@ export default function ProductionOrdersPage() {
       }),
   });
 
-  const { filteredBranches, filteredLocations, defaultBranchCode, data: refData } = useReferenceData(
-    ["branches", "locations", "products"],
-    { productsLimit: 2000 }
-  );
+  const { filteredBranches, filteredLocations, defaultBranchCode } = useReferenceData(["branches", "locations"]);
   const branches = useMemo(() => filteredBranches || [], [filteredBranches]);
-  const products = useMemo(() => (refData?.products || []).filter((p) => p.active !== false), [refData]);
+  const { items: catalogItems, itemById, isLoading: itemsLoading } = useMfgItems();
 
   useEffect(() => {
     if (defaultBranchCode && filterBranch === null) setFilterBranch(defaultBranchCode);
@@ -315,13 +315,14 @@ export default function ProductionOrdersPage() {
         (o) =>
           !q ||
           o.order_no.toLowerCase().includes(q) ||
-          (o.product_name || "").toLowerCase().includes(q) ||
-          (o.product_code || "").toLowerCase().includes(q) ||
+          mfgItemName(o).toLowerCase().includes(q) ||
+          mfgItemCode(o).toLowerCase().includes(q) ||
           (o.source_reference || "").toLowerCase().includes(q)
       )
       .map((o) => ({
         ...o,
-        product_display: `${o.product_name || ""} ${o.product_code ? `(${o.product_code})` : ""}`.trim(),
+        item_code_display: mfgItemCode(o),
+        item_display: mfgItemName(o),
         branch_display: getBranchDisplay(o.branch_code),
       }));
   }, [orders, searchQuery, getBranchDisplay]);
@@ -374,14 +375,20 @@ export default function ProductionOrdersPage() {
   );
 
   // ── form ──
-  const { data: productBoms = [] } = useQuery({
-    queryKey: ["boms", "active-for-product", formData.product_id],
-    queryFn: () => bomsApi.getAll({ product_id: formData.product_id, status: "active" }),
-    enabled: (isCreating || isEditing) && formData.product_id > 0,
+  // Active BOMs of the item to make (also filtered here, so a server that ignores
+  // the material_id filter can never offer another item's BOM).
+  const { data: itemBomsRaw } = useQuery({
+    queryKey: ["boms", "active-for-item", formData.material_id],
+    queryFn: () => bomsApi.getAll({ material_id: formData.material_id, status: "active" }),
+    enabled: (isCreating || isEditing) && formData.material_id > 0,
   });
+  const productBoms = useMemo(
+    () => (itemBomsRaw || []).filter((b) => b.material_id === formData.material_id && b.status === "active"),
+    [itemBomsRaw, formData.material_id]
+  );
 
   useEffect(() => {
-    if (!(isCreating || isEditing) || !formData.product_id) return;
+    if (!(isCreating || isEditing) || !formData.material_id) return;
     if (formData.bom_id && productBoms.some((b) => b.id === formData.bom_id)) return;
     const def = productBoms.find((b) => b.is_default) || productBoms[0];
     if (def && def.id !== formData.bom_id) setFormData((p) => ({ ...p, bom_id: def.id }));
@@ -393,10 +400,10 @@ export default function ProductionOrdersPage() {
   const fieldError = (f: string): string | undefined => {
     if (!touched[f]) return undefined;
     switch (f) {
-      case "product_id":
-        return formData.product_id ? undefined : "Product is required";
+      case "material_id":
+        return formData.material_id ? undefined : "Item is required";
       case "bom_id":
-        return formData.bom_id ? undefined : "This product has no active BOM";
+        return formData.bom_id ? undefined : "This item has no active BOM";
       case "branch_code":
         return formData.branch_code ? undefined : "Branch is required";
       case "planned_quantity":
@@ -406,8 +413,9 @@ export default function ProductionOrdersPage() {
     }
     return undefined;
   };
+  // The item is fixed once the order exists (old orders may only have a product).
   const isFormValid =
-    formData.product_id > 0 &&
+    (!isCreating || formData.material_id > 0) &&
     !!formData.bom_id &&
     !!formData.branch_code &&
     formData.planned_quantity >= 1 &&
@@ -478,7 +486,7 @@ export default function ProductionOrdersPage() {
       createMutation.mutate(payload, settled);
     } else if (order) {
       saveRef.current = true;
-      const { product_id: _p, branch_code: _b, ...data } = payload; // eslint-disable-line @typescript-eslint/no-unused-vars
+      const { material_id: _m, branch_code: _b, ...data } = payload; // eslint-disable-line @typescript-eslint/no-unused-vars
       updateMutation.mutate({ id: order.id, data }, settled);
     }
   }, [formData, isCreating, order, createMutation, updateMutation]);
@@ -514,13 +522,13 @@ export default function ProductionOrdersPage() {
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const busy = actionMutation.isPending;
-  // Output of a requires_qc product is held for a quality check (flag from the product master;
+  // Output of a requires_qc item is held for a quality check (flag from the Item Catalog;
   // an earlier held output of this order says the same)
   const requiresQc = useMemo(() => {
     if (!order) return false;
-    const p = (refData?.products || []).find((x) => x.id === order.product_id) as { requires_qc?: boolean } | undefined;
-    return !!p?.requires_qc || (activity?.outputs || []).some((o) => o.qc_status && o.qc_status !== "none") || order.qc_on_hold_quantity > 0;
-  }, [order, refData, activity]);
+    const item = order.material_id ? itemById.get(order.material_id) : undefined;
+    return !!item?.requires_qc || (activity?.outputs || []).some((o) => o.qc_status && o.qc_status !== "none") || order.qc_on_hold_quantity > 0;
+  }, [order, itemById, activity]);
   const heldOutputs = (activity?.outputs || []).filter((o) => o.qc_status === "on_hold" || o.qc_status === "partly_passed").length;
   const isDetailMode = !!selectedOrder || isCreating;
 
@@ -535,7 +543,15 @@ export default function ProductionOrdersPage() {
           <Typography variant="body2" fontWeight={600}>{p.row.order_no}</Typography>
         ),
       },
-      { field: "product_display", header: "Product", flex: 1, minWidth: 200 },
+      { field: "item_code_display", header: "Item Code", width: 130 },
+      {
+        field: "item_display",
+        header: "Item",
+        flex: 1,
+        minWidth: 180,
+        renderCell: (params: GridRenderCellParams<OrderRow>) => <ItemLink row={params.row} label={params.row.item_display} />,
+      },
+      { field: "unit_of_measure", header: "UOM", width: 80 },
       { field: "branch_display", header: "Branch", width: 160 },
       { field: "planned_quantity", header: "Planned", width: 90, type: "number" },
       {
@@ -707,21 +723,31 @@ export default function ProductionOrdersPage() {
   const headerForm = (
     <FormSection title="Order Information" columns={3}>
       <TextField label="Order Number" size="small" value={isCreating ? "Generated on save" : order?.order_no || ""} disabled />
-      <Autocomplete
-        size="small"
-        options={products}
-        getOptionLabel={(p) => `${p.name} (${p.item_code})`}
-        value={products.find((p) => p.id === formData.product_id) || null}
-        onChange={(_, p) => {
-          setFormData((prev) => ({ ...prev, product_id: p ? p.id : 0, bom_id: null }));
-          blur("product_id");
-        }}
-        isOptionEqualToValue={(a, b) => a.id === b.id}
-        disabled={!isCreating}
-        renderInput={(params) => (
-          <TextField {...params} label="Product" required error={!!fieldError("product_id")} helperText={fieldError("product_id")} />
-        )}
-      />
+      {isCreating ? (
+        <ItemAutocomplete
+          items={catalogItems}
+          loading={itemsLoading}
+          value={formData.material_id}
+          onChange={(m) => {
+            setFormData((prev) => ({ ...prev, material_id: m ? m.id : 0, bom_id: null }));
+            blur("material_id");
+          }}
+          label="Item to make"
+          required
+          error={!!fieldError("material_id")}
+          helperText={fieldError("material_id")}
+        />
+      ) : (
+        <TextField
+          label="Item to make"
+          size="small"
+          disabled
+          value={order ? mfgItemLabel(order) : ""}
+          helperText={
+            order?.material_id ? <ItemLink row={order} label="Open in Item Catalog" /> : order ? "Saved before items: shows the product" : undefined
+          }
+        />
+      )}
       <TextField
         select
         label="Bill of Materials"
@@ -730,14 +756,14 @@ export default function ProductionOrdersPage() {
         value={formData.bom_id ?? ""}
         onChange={(e) => setFormData((p) => ({ ...p, bom_id: Number(e.target.value) }))}
         onBlur={() => blur("bom_id")}
-        disabled={!editable || !formData.product_id}
-        error={!!fieldError("bom_id") || (editable && !!formData.product_id && productBoms.length === 0)}
+        disabled={!editable || !formData.material_id}
+        error={!!fieldError("bom_id") || (editable && !!formData.material_id && productBoms.length === 0)}
         helperText={
           fieldError("bom_id") ||
-          (editable && formData.product_id && productBoms.length === 0 ? "This product has no active BOM" : undefined)
+          (editable && formData.material_id && productBoms.length === 0 ? "This item has no active BOM" : undefined)
         }
       >
-        {!editable && order && (
+        {order && (!editable || !productBoms.some((b) => b.id === order.bom_id)) && (
           <MenuItem value={order.bom_id}>{order.bom_no} (v{order.bom_version})</MenuItem>
         )}
         {editable &&
@@ -794,7 +820,12 @@ export default function ProductionOrdersPage() {
         disabled={!editable}
         inputProps={{ min: 1, step: 1 }}
         error={!!fieldError("planned_quantity")}
-        helperText={fieldError("planned_quantity") || (order?.unit_of_measure ? `Unit: ${order.unit_of_measure}` : undefined)}
+        helperText={
+          fieldError("planned_quantity") ||
+          ((isCreating ? itemById.get(formData.material_id)?.unit_of_measure : order?.unit_of_measure)
+            ? `Unit: ${isCreating ? itemById.get(formData.material_id)?.unit_of_measure : order?.unit_of_measure}`
+            : undefined)
+        }
       />
       <TextField
         label="Planned Start"
@@ -920,7 +951,8 @@ export default function ProductionOrdersPage() {
         <Table size="small">
           <TableHead>
             <TableRow sx={modernTableStyles.headerRow}>
-              <TableCell>Component</TableCell>
+              <TableCell>Component Item</TableCell>
+              <TableCell>UOM</TableCell>
               <TableCell>Method</TableCell>
               <TableCell align="right">Per Unit</TableCell>
               <TableCell align="right">Scrap %</TableCell>
@@ -935,20 +967,21 @@ export default function ProductionOrdersPage() {
           <TableBody>
             {(order.materials || []).length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} sx={modernTableStyles.emptyCell}>Loading...</TableCell>
+                <TableCell colSpan={11} sx={modernTableStyles.emptyCell}>Loading...</TableCell>
               </TableRow>
             ) : (
               order.materials.map((m) => (
                 <TableRow key={m.id} sx={modernTableStyles.bodyRow}>
                   <TableCell>
-                    <Typography variant="body2" fontWeight={600}>{m.product_name}</Typography>
-                    <Typography variant="caption" color="text.secondary">{m.product_code}</Typography>
+                    <Typography variant="body2" fontWeight={600}><ItemLink row={m} /></Typography>
+                    <Typography variant="caption" color="text.secondary">{mfgItemCode(m)}</Typography>
                   </TableCell>
+                  <TableCell>{m.unit_of_measure || "-"}</TableCell>
                   <TableCell>
                     <TChip size="small" variant="outlined" label={m.issue_method === "backflush" ? "Backflush" : "Manual"}
                       color={m.issue_method === "backflush" ? "info" : "default"} />
                   </TableCell>
-                  <TableCell align="right">{num(m.quantity_per_unit)} {m.unit_of_measure || ""}</TableCell>
+                  <TableCell align="right">{num(m.quantity_per_unit)}</TableCell>
                   <TableCell align="right">{num(m.scrap_pct)}</TableCell>
                   <TableCell align="right">{m.required_quantity}</TableCell>
                   <TableCell align="right">{m.issued_quantity}</TableCell>
@@ -1057,7 +1090,8 @@ export default function ProductionOrdersPage() {
         <Table size="small">
           <TableHead>
             <TableRow sx={modernTableStyles.headerRow}>
-              <TableCell>By-product</TableCell>
+              <TableCell>By-product Item</TableCell>
+              <TableCell>UOM</TableCell>
               <TableCell align="right">Per Unit</TableCell>
               <TableCell align="right">Expected</TableCell>
               <TableCell align="right">Received</TableCell>
@@ -1068,10 +1102,11 @@ export default function ProductionOrdersPage() {
             {order.by_products.map((b) => (
               <TableRow key={b.id} sx={modernTableStyles.bodyRow}>
                 <TableCell>
-                  <Typography variant="body2" fontWeight={600}>{b.product_name}</Typography>
-                  <Typography variant="caption" color="text.secondary">{b.product_code}</Typography>
+                  <Typography variant="body2" fontWeight={600}><ItemLink row={b} /></Typography>
+                  <Typography variant="caption" color="text.secondary">{mfgItemCode(b)}</Typography>
                 </TableCell>
-                <TableCell align="right">{num(b.quantity_per_unit)} {b.unit_of_measure || ""}</TableCell>
+                <TableCell>{b.unit_of_measure || "-"}</TableCell>
+                <TableCell align="right">{num(b.quantity_per_unit)}</TableCell>
                 <TableCell align="right">
                   <Tooltip title="At the good units recorded so far"><span>{b.expected_quantity}</span></Tooltip>
                 </TableCell>
@@ -1164,7 +1199,7 @@ export default function ProductionOrdersPage() {
                 <TableRow sx={modernTableStyles.headerRow}>
                   <TableCell>Date</TableCell>
                   <TableCell>Type</TableCell>
-                  <TableCell>Component</TableCell>
+                  <TableCell>Component Item</TableCell>
                   <TableCell align="right">Qty</TableCell>
                   <TableCell align="right">{`Value (${currencySymbol})`}</TableCell>
                   <TableCell>By</TableCell>
@@ -1182,8 +1217,14 @@ export default function ProductionOrdersPage() {
                         <TChip size="small" variant="outlined" color={typeColor(t.transaction_type)}
                           label={t.transaction_type.charAt(0).toUpperCase() + t.transaction_type.slice(1)} />
                       </TableCell>
-                      <TableCell>{t.product_name} <Typography component="span" variant="caption" color="text.secondary">{t.product_code}</Typography></TableCell>
-                      <TableCell align="right">{t.transaction_type === "return" ? -t.quantity : t.quantity}</TableCell>
+                      <TableCell>
+                        {t.material_name || t.product_name || "-"}{" "}
+                        <Typography component="span" variant="caption" color="text.secondary">{t.material_item_code || t.product_code}</Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        {t.transaction_type === "return" ? -t.quantity : t.quantity}
+                        {t.unit_of_measure ? ` ${t.unit_of_measure}` : ""}
+                      </TableCell>
                       <TableCell align="right">{fmtLKR(num(t.total_cost))}</TableCell>
                       <TableCell>{t.created_by_name || "-"}</TableCell>
                       <TableCell>{t.remark || "-"}</TableCell>
@@ -1244,7 +1285,7 @@ export default function ProductionOrdersPage() {
                       <TableCell>{o.location_name || "-"}</TableCell>
                       <TableCell>
                         {(o.by_products || []).length > 0
-                          ? (o.by_products || []).map((b) => `${b.quantity} ${b.product_name || ""}`.trim()).join(", ")
+                          ? (o.by_products || []).map((b) => `${b.quantity} ${b.material_name || b.product_name || ""}`.trim()).join(", ")
                           : "-"}
                       </TableCell>
                       <TableCell align="right">{fmtLKR(num(o.total_value))}</TableCell>
@@ -1376,7 +1417,7 @@ export default function ProductionOrdersPage() {
           { label: "Production Orders", href: "/manufacturing/orders" },
           ...(order || isCreating ? [{ label: isCreating ? "New Order" : order?.order_no || "" }] : []),
         ]}
-        title={order ? `${order.order_no} — ${order.product_name || ""}` : ""}
+        title={order ? `${order.order_no} — ${mfgItemName(order)}` : ""}
         titleIcon={<AssignmentIcon color="primary" />}
         isCreating={isCreating}
         createTitle="New Production Order"

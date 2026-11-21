@@ -78,6 +78,7 @@ class StockStatus(str, Enum):
     FROZEN = "frozen"  # quality/admin hold — on hand but blocked from sale
     CANCELLED = "cancelled"  # received on a GRN that was later cancelled
     CONSUMED = "consumed"  # issued to a production order as a component
+    ADJUSTED_OUT = "adjusted_out"  # written off by a posted stock count (not found)
 
 
 class AssetStatus(str, Enum):

@@ -7,6 +7,7 @@ from decimal import Decimal as D
 
 import pytest
 from fastapi import HTTPException
+from tests.conftest import mfg_item
 
 from app.common.enums import StockStatus
 from app.modules.finance.accounting_models import ChartOfAccounts, GeneralLedger
@@ -49,6 +50,8 @@ def bakery(db, make_branch, make_location, make_product, make_sales_stock, make_
     butter.tracking_type = "none"
     crumbs = make_product(cost_price=5, name="Bread crumbs")
     crumbs.tracking_type = "batch"
+    for prod in (bun, flour, butter, crumbs):  # manufacturing works on the products' items
+        mfg_item(db, prod)
     _lot(make_sales_stock, flour, branch, loc, 500, batch="FL-OLD", expiry=TODAY - timedelta(days=1))
     _lot(make_sales_stock, flour, branch, loc, 2000, batch="FL-NEW", expiry=TODAY + timedelta(days=60))
     _lot(make_sales_stock, butter, branch, loc, 1000, batch=None)
@@ -56,12 +59,12 @@ def bakery(db, make_branch, make_location, make_product, make_sales_stock, make_
     wc = WorkCenterService(db).create(s.WorkCenterIn(code=f"OV{_uid()}", name="Oven", labor_rate_per_hour=D(60),
                                                      overhead_rate_per_hour=D(30)), user.id)
     bom = BOMService(db).create(s.BOMIn(
-        product_id=bun.id, overproduction_pct=D(10), items=[
-            s.BOMItemIn(product_id=flour.id, quantity=D(50)),
-            s.BOMItemIn(product_id=butter.id, quantity=D(5), issue_method="backflush"),
+        material_id=bun.material_id, overproduction_pct=D(10), items=[
+            s.BOMItemIn(material_id=flour.material_id, quantity=D(50)),
+            s.BOMItemIn(material_id=butter.material_id, quantity=D(5), issue_method="backflush"),
         ],
         operations=[s.BOMOperationIn(name="Bake", work_center_id=wc["id"], run_minutes=D(1))],
-        by_products=[s.BOMByProductIn(product_id=crumbs.id, quantity=D(2))],
+        by_products=[s.BOMByProductIn(material_id=crumbs.material_id, quantity=D(2))],
     ), user.id)
     BOMService(db).activate(bom["id"], user.id)
     return dict(branch=branch, loc=loc, user=user, bun=bun, flour=flour, butter=butter, crumbs=crumbs, wc=wc, bom=bom)
@@ -69,7 +72,7 @@ def bakery(db, make_branch, make_location, make_product, make_sales_stock, make_
 
 def _order(db, p, qty=10, product=None):
     return ProductionOrderService(db).create(s.ProductionOrderIn(
-        product_id=(product or p["bun"]).id, branch_code=p["branch"].branch_code, planned_quantity=qty,
+        material_id=(product or p["bun"]).material_id, branch_code=p["branch"].branch_code, planned_quantity=qty,
         planned_start_date=TODAY, planned_end_date=TODAY + timedelta(days=1)), p["user"].id)
 
 
@@ -90,9 +93,9 @@ def _net(db, ref_type, ref_id):
 class TestFixes:
     def test_expired_lots_are_neither_free_nor_issued(self, db, bakery):
         p = bakery
-        assert free_stock(db, [p["flour"].id], [p["branch"].branch_code])[p["flour"].id] == 2000
+        assert free_stock(db, [p["flour"].material_id], [p["branch"].branch_code])[p["flour"].material_id] == 2000
         o = _released(db, p)
-        flour = next(x for x in o["materials"] if x["product_id"] == p["flour"].id)
+        flour = next(x for x in o["materials"] if x["material_id"] == p["flour"].material_id)
         svc = ProductionOrderService(db)
         svc.issue_materials(o["id"], s.MaterialMoveIn(lines=[s.MaterialLineIn(material_id=flour["id"], quantity=500)]), p["user"].id)
         txn = db.query(m.MfgMaterialTransaction).filter(m.MfgMaterialTransaction.order_id == o["id"]).one()
@@ -118,12 +121,13 @@ class TestFixes:
         p = bakery
         cake = make_product(cost_price=100, name="Cake")
         assert cake.tracking_type == "serial"
-        bom = BOMService(db).create(s.BOMIn(product_id=cake.id, items=[s.BOMItemIn(product_id=p["flour"].id, quantity=D(5))]),
+        mfg_item(db, cake)
+        bom = BOMService(db).create(s.BOMIn(material_id=cake.material_id, items=[s.BOMItemIn(material_id=p["flour"].material_id, quantity=D(5))]),
                                     p["user"].id)
         BOMService(db).activate(bom["id"], p["user"].id)
-        assert cake.tracking_type == "batch"
-        # a product that already has stock keeps its tracking (it is locked)
-        assert p["flour"].tracking_type == "batch"
+        assert cake.material.tracking_type == "batch" and cake.tracking_type == "batch"
+        # an item that already has stock keeps its tracking (it is locked)
+        assert p["flour"].material.tracking_type == "batch"
 
     def test_complete_without_booking_planned_time(self, db, bakery):
         p, svc = bakery, ProductionOrderService(db)
@@ -144,7 +148,7 @@ class TestFixes:
 class TestShelfLifeAndTrace:
     def test_batch_expiry_comes_from_shelf_life(self, db, bakery):
         p, svc = bakery, ProductionOrderService(db)
-        p["bun"].shelf_life_days = 3
+        p["bun"].material.shelf_life_days = 3  # shelf life comes from the item
         o = _released(db, p, qty=4)
         svc.record_output(o["id"], s.OutputIn(quantity=4, batch_no="BUN-1"), p["user"].id)
         row = db.query(SalesStock).filter(SalesStock.production_order_id == o["id"], SalesStock.product_id == p["bun"].id).one()
@@ -154,7 +158,7 @@ class TestShelfLifeAndTrace:
     def test_trace_both_ways(self, db, bakery):
         p, svc = bakery, ProductionOrderService(db)
         o = _released(db, p, qty=4)
-        flour = next(x for x in o["materials"] if x["product_id"] == p["flour"].id)
+        flour = next(x for x in o["materials"] if x["material_id"] == p["flour"].material_id)
         svc.issue_materials(o["id"], s.MaterialMoveIn(lines=[s.MaterialLineIn(material_id=flour["id"], quantity=200)]), p["user"].id)
         svc.record_output(o["id"], s.OutputIn(quantity=4, batch_no="BUN-T"), p["user"].id)
         fwd = svc.trace("bun-t")
@@ -169,18 +173,18 @@ class TestShelfLifeAndTrace:
 class TestQualityHold:
     def test_held_output_is_frozen_until_passed_and_failed_units_are_written_off(self, db, bakery):
         p, svc = bakery, ProductionOrderService(db)
-        p["bun"].requires_qc = True
+        p["bun"].material.requires_qc = True  # the QC flag comes from the item
         o = _released(db, p, qty=4)
         o = svc.record_output(o["id"], s.OutputIn(quantity=4, batch_no="QC-1"), p["user"].id)
         assert o["qc_on_hold_quantity"] == 4
-        assert free_stock(db, [p["bun"].id], [p["branch"].branch_code]).get(p["bun"].id, 0) == 0
+        assert free_stock(db, [p["bun"].material_id], [p["branch"].branch_code]).get(p["bun"].material_id, 0) == 0
         out = db.query(m.MfgProductionOutput).filter(m.MfgProductionOutput.order_id == o["id"]).one()
         with pytest.raises(HTTPException):
             svc.qc_decision(o["id"], s.QcDecisionIn(output_id=out.id, passed_quantity=5), p["user"].id)
         o = svc.qc_decision(o["id"], s.QcDecisionIn(output_id=out.id, passed_quantity=3, failed_quantity=1,
                                                     remark="Underbaked"), p["user"].id)
         assert o["qc_on_hold_quantity"] == 0 and out.qc_status == "partly_passed"
-        assert free_stock(db, [p["bun"].id], [p["branch"].branch_code])[p["bun"].id] == 3
+        assert free_stock(db, [p["bun"].material_id], [p["branch"].branch_code])[p["bun"].material_id] == 3
         res = db.query(m.MfgQcResult).filter(m.MfgQcResult.output_id == out.id).one()
         assert res.failed_value == D(str(out.unit_cost))
         assert _net(db, "MfgQcResult", res.id) == {"5030": res.failed_value, "1210": -res.failed_value}
@@ -265,8 +269,8 @@ class TestByProducts:
     def test_by_product_cannot_be_a_component(self, db, bakery):
         p = bakery
         with pytest.raises(HTTPException) as exc:
-            BOMService(db).create(s.BOMIn(product_id=p["bun"].id, version="X", items=[s.BOMItemIn(product_id=p["flour"].id, quantity=D(1))],
-                                          by_products=[s.BOMByProductIn(product_id=p["flour"].id, quantity=D(1))]), p["user"].id)
+            BOMService(db).create(s.BOMIn(material_id=p["bun"].material_id, version="X", items=[s.BOMItemIn(material_id=p["flour"].material_id, quantity=D(1))],
+                                          by_products=[s.BOMByProductIn(material_id=p["flour"].material_id, quantity=D(1))]), p["user"].id)
         assert "cannot also be a by-product" in exc.value.detail
 
 

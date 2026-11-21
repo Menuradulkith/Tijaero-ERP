@@ -15,6 +15,8 @@ export interface PurchaseInvoiceItem {
   grn_id: number;
   purchasing_order_id?: number;
   product_id?: number;
+  /** The Item Catalog item invoiced (old invoices: product only). */
+  material_id?: number | null;
   quantity: number;
   unit_price: number;
   line_total: number;
@@ -25,12 +27,16 @@ export interface PurchaseInvoiceItem {
   grn_no?: string;
   po_no?: string;
   product_name?: string;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
 }
 
 export interface PurchaseInvoiceItemCreate {
   grn_id: number;
   purchasing_order_id?: number;
   product_id?: number;
+  material_id?: number;
   quantity: number;
   unit_price: number;
   line_total: number;
@@ -122,8 +128,13 @@ export interface PurchaseInvoiceUpdate {
 }
 
 export interface GRNInvoiceableProductDetail {
-  product_id: number;
-  product_name: string;
+  /** Old GRN lines only; item lines carry material_id. */
+  product_id?: number | null;
+  product_name?: string | null;
+  material_id?: number | null;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
   po_item_id: number;
   unit_price: number;
   quantity: number;

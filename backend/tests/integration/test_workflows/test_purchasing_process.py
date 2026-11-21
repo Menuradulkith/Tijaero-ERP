@@ -27,6 +27,7 @@ API / RBAC:
 * creating a PO for a branch the user cannot access -> 403
 """
 
+from tests.conftest import item_id_for
 from datetime import date
 
 import pytest
@@ -52,7 +53,7 @@ def _po_create(branch_code, first_supplier_id, product_id, *, second_supplier_id
         second_suppliers_id=second_supplier_id,
         items=[
             schemas.PurchasingOrderItemCreate(
-                product_id=product_id,
+                material_id=item_id_for(product_id, first_supplier_id, Decimal(unit_price)),
                 quantity=qty,
                 unit_price=Decimal(unit_price),
                 warrenty_month="12",
@@ -319,7 +320,7 @@ class TestPurchasingRBAC:
             "first_suppliers_id": supplier.id,
             "items": [
                 {
-                    "product_id": product.id,
+                    "material_id": item_id_for(product, supplier),
                     "quantity": 1,
                     "unit_price": "100.00",
                     "warrenty_month": "12",
@@ -352,8 +353,8 @@ class TestPurchasingRBAC:
             "good_received_note_date": date.today().isoformat(),
             "first_suppliers_id": supplier.id,
             "items": [
-                {"product_id": product.id, "quantity": 3, "unit_price": "150.00", "warrenty_month": "12"},
-                {"product_id": product.id, "quantity": 2, "unit_price": "25.50", "warrenty_month": "12"},
+                {"material_id": item_id_for(product, supplier), "quantity": 3, "unit_price": "150.00", "warrenty_month": "12"},
+                {"material_id": item_id_for(product, supplier), "quantity": 2, "unit_price": "25.50", "warrenty_month": "12"},
             ],
         }
         expected_total = 3 * 150.00 + 2 * 25.50
@@ -399,9 +400,9 @@ class TestPurchasingRBAC:
             "required_date": needed_by.isoformat(),
             "first_suppliers_id": supplier.id,
             "items": [
-                {"product_id": product.id, "quantity": 3, "unit_price": "100.00", "warrenty_month": "0"},
-                {"product_id": product.id, "quantity": 5, "unit_price": "100.00", "warrenty_month": "0"},
-                {"product_id": product.id, "quantity": 2, "unit_price": "100.00", "warrenty_month": "0"},
+                {"material_id": item_id_for(product, supplier), "quantity": 3, "unit_price": "100.00", "warrenty_month": "0"},
+                {"material_id": item_id_for(product, supplier), "quantity": 5, "unit_price": "100.00", "warrenty_month": "0"},
+                {"material_id": item_id_for(product, supplier), "quantity": 2, "unit_price": "100.00", "warrenty_month": "0"},
             ],
         }
 
@@ -534,7 +535,7 @@ class TestPurchaseOrderBatchCreate:
                     "first_suppliers_id": supplier_a.id,
                     "items": [
                         {
-                            "product_id": rice.id,
+                            "material_id": item_id_for(rice, supplier_a),
                             "quantity": 50,
                             "unit_price": "220.00",
                             "warrenty_month": "0",
@@ -549,7 +550,7 @@ class TestPurchaseOrderBatchCreate:
                     "first_suppliers_id": supplier_b.id,
                     "items": [
                         {
-                            "product_id": oil.id,
+                            "material_id": item_id_for(oil, supplier_b),
                             "quantity": 10,
                             "unit_price": "900.00",
                             "warrenty_month": "0",
@@ -585,7 +586,7 @@ class TestPurchaseOrderBatchCreate:
                     "first_suppliers_id": supplier.id,
                     "items": [
                         {
-                            "product_id": product.id,
+                            "material_id": item_id_for(product, supplier),
                             "quantity": 1,
                             "unit_price": "100.00",
                             "warrenty_month": "0",
