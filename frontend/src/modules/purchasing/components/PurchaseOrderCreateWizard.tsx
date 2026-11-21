@@ -1,8 +1,9 @@
 /**
- * PurchaseOrderCreateWizard - product-first, multi-supplier PO creation.
+ * PurchaseOrderCreateWizard - item-first, multi-supplier PO creation.
  *
- * Flow: add products, each with a supplier picked inline from that
- * product's own row (no supplier required for the whole PO up front) ->
+ * Purchasing buys Item Catalog items only. Flow: add items, each with a
+ * supplier picked inline from that item's own supplier links (Item Catalog >
+ * Suppliers tab; that supplier's cost is the unit price) ->
  * review the lines grouped by supplier -> confirm creates one Purchase
  * Order per supplier group in a single batch, all tagged with a shared
  * purchase_batch_id so the user can see they came from one purchase.
@@ -49,11 +50,12 @@ import {
 } from "@/components/tijaero";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { useReferenceData } from "@/hooks";
-import { productsApi } from "@/modules/inventory/api";
-import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
-import { EntityLink, EntityPeekButton } from "@/components/tijaero/peek";
+import { materialsApi, type Material } from "@/modules/materials/api";
+import { purchaseOrdersApi, suppliersApi, supplierItemsApi } from "@/modules/purchasing/api";
+import { EntityPeekButton } from "@/components/tijaero/peek";
 import LineAmountField, { lineAmountError } from "@/modules/purchasing/components/LineAmountField";
 import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
+import { itemCatalogUrl } from "@/modules/purchasing/utils/itemDisplay";
 import { addWorkingDays } from "@/modules/purchasing/utils/workingDays";
 import { UNTAXED_SUPPLIER_AREAS } from "@/modules/purchasing/types";
 import type {
@@ -64,19 +66,21 @@ import type {
   SupplierProduct,
 } from "@/modules/purchasing/types";
 import { todayISO } from "@/utils/formatters";
+import { Link as RouterLink } from "react-router-dom";
 
 const WIZARD_STEPS: TStepConfig[] = [
-  { id: "products", label: "Add Products & Suppliers", description: "Pick what to buy and from whom" },
+  { id: "products", label: "Add Items & Suppliers", description: "Pick what to buy and from whom" },
   { id: "review", label: "Review & Confirm", description: "Grouped by supplier" },
 ];
 
-// A line's GRN Date can't be in the past — it's when the product is
+// A line's GRN Date can't be in the past — it's when the item is
 // needed by, so today is the earliest sensible value.
 const TODAY_STR = todayISO();
 
 interface DraftLine {
   _id: string;
-  product_id: number;
+  /** Item Catalog item (materials) bought on this line. */
+  material_id: number;
   quantity: number;
   supplier_id: number;
   unit_price: number;
@@ -85,7 +89,7 @@ interface DraftLine {
 
 const newLine = (): DraftLine => ({
   _id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-  product_id: 0,
+  material_id: 0,
   quantity: 1,
   supplier_id: 0,
   unit_price: 0,
@@ -141,9 +145,19 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
   const orderDate = TODAY_STR;
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { data: refData, filteredBranches, defaultBranchCode } = useReferenceData(["products", "branches"]);
-  const products = refData?.products || [];
+  const { filteredBranches, defaultBranchCode } = useReferenceData(["branches"]);
   const branches = filteredBranches || [];
+
+  // Purchasing buys Item Catalog items only (active ones are offered).
+  const { data: items = [] } = useQuery({
+    queryKey: ["materials", "active-all"],
+    queryFn: () => materialsApi.getAll(0, 100000, true),
+    staleTime: 60_000,
+  });
+  const getItem = useCallback(
+    (materialId: number): Material | undefined => items.find((m) => m.id === materialId),
+    [items],
+  );
 
   // Default the branch to the user's own branch once reference data
   // resolves, without clobbering a choice the user already made.
@@ -156,66 +170,69 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     combine: (results) => ({ data: results[0].data as Supplier[] | undefined }),
   });
 
-  const productIdsNeedingSuppliers = useMemo(
-    () => Array.from(new Set(lines.map((l) => l.product_id).filter((id) => id > 0))),
+  const itemIdsNeedingSuppliers = useMemo(
+    () => Array.from(new Set(lines.map((l) => l.material_id).filter((id) => id > 0))),
     [lines],
   );
 
-  // One query per distinct product on the cart, fetching the reciprocal
-  // "which suppliers carry this product" list.
+  // One query per distinct item on the cart: the item's supplier links
+  // (Item Catalog > Suppliers tab) with each supplier's cost, SKU and MOQ.
   const supplierOptionQueries = useQueries({
-    queries: productIdsNeedingSuppliers.map((productId) => ({
-      queryKey: ["product-suppliers-compare", productId],
-      queryFn: () => productsApi.getSuppliers(productId),
+    queries: itemIdsNeedingSuppliers.map((materialId) => ({
+      queryKey: ["material-suppliers", materialId],
+      queryFn: () => materialsApi.getSuppliers(materialId),
       staleTime: 60_000,
     })),
   });
 
-  const supplierOptionsByProduct = useMemo(() => {
+  const supplierOptionsByItem = useMemo(() => {
+    // The links come back with material_id; SupplierProduct is the shared link shape.
     const map = new Map<number, SupplierProduct[]>();
-    // Inactive suppliers (and inactive mappings) are not offered for a new order.
+    // Inactive suppliers (and inactive links) are not offered for a new order.
     const inactiveSupplierIds = new Set((suppliers || []).filter((s) => !s.active).map((s) => s.id));
-    productIdsNeedingSuppliers.forEach((productId, idx) => {
+    itemIdsNeedingSuppliers.forEach((materialId, idx) => {
       map.set(
-        productId,
-        (supplierOptionQueries[idx]?.data || []).filter(
+        materialId,
+        ((supplierOptionQueries[idx]?.data || []) as unknown as SupplierProduct[]).filter(
           (sp) => sp.active !== false && !inactiveSupplierIds.has(sp.supplier_id),
         ),
       );
     });
     return map;
-  }, [productIdsNeedingSuppliers, supplierOptionQueries, suppliers]);
+  }, [itemIdsNeedingSuppliers, supplierOptionQueries, suppliers]);
 
-  // Currently-available stock for every product on the cart, at the
-  // wizard's single branch — lets the user see what's already on hand
-  // before deciding how much to order.
-  const { data: availableStockByProduct } = useQuery({
-    queryKey: ["po-wizard-available-stock", branchCode, productIdsNeedingSuppliers],
-    queryFn: () => purchaseOrdersApi.getAvailableStock(productIdsNeedingSuppliers, branchCode),
-    enabled: !!branchCode && productIdsNeedingSuppliers.length > 0,
+  // Currently-available stock for every item on the cart — lets the user
+  // see what's already on hand before deciding how much to order.
+  const { data: availableStockByItem } = useQuery({
+    queryKey: ["po-wizard-available-stock", branchCode, itemIdsNeedingSuppliers],
+    queryFn: () => purchaseOrdersApi.getAvailableStock(itemIdsNeedingSuppliers, branchCode),
+    enabled: !!branchCode && itemIdsNeedingSuppliers.length > 0,
   });
 
-  // Units already ordered on approved POs for these products and not yet
+  // Units already ordered on approved POs for these items and not yet
   // received — so the user doesn't re-order what is already on its way.
-  const { data: inTransitByProduct } = useQuery({
-    queryKey: ["po-wizard-in-transit", branchCode, productIdsNeedingSuppliers],
-    queryFn: () => purchaseOrdersApi.getInTransit(productIdsNeedingSuppliers, branchCode),
-    enabled: !!branchCode && productIdsNeedingSuppliers.length > 0,
+  const { data: inTransitByItem } = useQuery({
+    queryKey: ["po-wizard-in-transit", branchCode, itemIdsNeedingSuppliers],
+    queryFn: () => purchaseOrdersApi.getInTransit(itemIdsNeedingSuppliers, branchCode),
+    enabled: !!branchCode && itemIdsNeedingSuppliers.length > 0,
   });
 
   const getInTransitQty = useCallback(
-    (productId: number) => inTransitByProduct?.[productId] ?? 0,
-    [inTransitByProduct],
+    (materialId: number) => inTransitByItem?.[materialId] ?? 0,
+    [inTransitByItem],
   );
 
   const getAvailableQty = useCallback(
-    (productId: number) => availableStockByProduct?.[productId] ?? 0,
-    [availableStockByProduct],
+    (materialId: number) => availableStockByItem?.[materialId] ?? 0,
+    [availableStockByItem],
   );
 
-  const getProductName = useCallback(
-    (productId: number) => products.find((p: any) => p.id === productId)?.name || `Product #${productId}`,
-    [products],
+  const getItemLabel = useCallback(
+    (materialId: number) => {
+      const item = getItem(materialId);
+      return item ? `${item.item_code ? `${item.item_code} - ` : ""}${item.name}` : `Item #${materialId}`;
+    },
+    [getItem],
   );
 
   const getSupplierLeadTimeLabel = useCallback(
@@ -231,7 +248,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     [suppliers],
   );
 
-  // ── Step 1: Add Products & Suppliers ──────────────────────────────────
+  // ── Step 1: Add Items & Suppliers ─────────────────────────────────────
   const handleAddLine = () => setLines((prev) => [...prev, newLine()]);
   const handleRemoveLine = (id: string) => setLines((prev) => prev.filter((l) => l._id !== id));
   const handleUpdateLine = (id: string, patch: Partial<DraftLine>) =>
@@ -256,12 +273,12 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     );
   }, []);
 
-  // Changing the product clears any supplier already chosen for that row
-  // (the old supplier's mapping doesn't apply to the new product).
-  const handleSelectProduct = useCallback((lineId: string, productId: number) => {
+  // Changing the item clears any supplier already chosen for that row
+  // (the old supplier's link doesn't apply to the new item).
+  const handleSelectItem = useCallback((lineId: string, materialId: number) => {
     setLines((prev) =>
       prev.map((l) =>
-        l._id === lineId ? { ...l, product_id: productId, supplier_id: 0, unit_price: 0 } : l,
+        l._id === lineId ? { ...l, material_id: materialId, supplier_id: 0, unit_price: 0 } : l,
       ),
     );
   }, []);
@@ -270,7 +287,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     !!branchCode &&
     lines.length > 0 &&
     lines.every(
-      (l) => l.product_id > 0 && !lineAmountError(l.quantity, true) && l.supplier_id > 0 && !lineAmountError(l.unit_price),
+      (l) => l.material_id > 0 && !lineAmountError(l.quantity, true) && l.supplier_id > 0 && !lineAmountError(l.unit_price),
     );
 
   // ── Step 2: Review & Confirm — group by supplier ──────────────────────
@@ -285,17 +302,17 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
     return Array.from(groups.entries()).map(([supplierId, groupLines]) => {
       const supplier = suppliers?.find((s) => s.id === supplierId);
       const subtotal = groupLines.reduce((sum, l) => sum + l.quantity * l.unit_price, 0);
-      // Same rule as the server: the product's tax %, none for a supplier on an untaxed tax area.
+      // Same rule as the server: the item's tax %, none for a supplier on an untaxed tax area.
       const untaxed = !!supplier?.tax_area && UNTAXED_SUPPLIER_AREAS.includes(supplier.tax_area);
       const tax = untaxed
         ? 0
         : groupLines.reduce((sum, l) => {
-            const rate = Number((products.find((p: any) => p.id === l.product_id) as any)?.tax_rate ?? 0);
+            const rate = Number(getItem(l.material_id)?.tax_rate ?? 0);
             return sum + Math.round(l.quantity * l.unit_price * rate) / 100;
           }, 0);
       return { supplier, supplierId, lines: groupLines, subtotal, tax, total: subtotal + tax };
     });
-  }, [lines, suppliers, products]);
+  }, [lines, suppliers, getItem]);
 
   // Each PO's expected delivery date is not entered here: it is estimated as the order date + the
   // supplier's lead time in working days (re-based on the approval date when the PO is approved).
@@ -317,7 +334,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
         const shortfalls = await findMoqShortfalls(
           group.supplierId,
           group.lines,
-          (id) => queryClient.fetchQuery({ queryKey: ["supplier-products", id], queryFn: () => suppliersApi.getProducts(id) }),
+          (id) => queryClient.fetchQuery({ queryKey: ["supplier-items", id], queryFn: () => supplierItemsApi.list(id) }),
         );
         if (shortfalls.length > 0) {
           messages.push(formatMoqMessage(group.supplier?.company_name || "Unknown", shortfalls));
@@ -393,7 +410,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
           second_suppliers_id: 0,
           items: group.lines.map(
             (l): PurchasingOrderItemCreate => ({
-              product_id: l.product_id,
+              material_id: l.material_id,
               quantity: l.quantity,
               unit_price: l.unit_price,
               warrenty_month: "0",
@@ -487,12 +504,12 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
             />
           </TFormSection>
 
-          <TFormSection title="Products & Suppliers" columns={1}>
+          <TFormSection title="Items & Suppliers" columns={1}>
             <Paper variant="outlined" sx={{ overflowX: "auto", borderRadius: 3 }}>
               <Table size="small">
                 <TableHead>
                   <TableRow sx={modernTableStyles.headerRow}>
-                    <TableCell sx={{ minWidth: 180 }}>Product</TableCell>
+                    <TableCell sx={{ minWidth: 180 }}>Item</TableCell>
                     <TableCell sx={{ width: 90 }}>UOM</TableCell>
                     <TableCell align="right" sx={{ width: 110 }}>
                       Available Qty
@@ -513,38 +530,30 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                 </TableHead>
                 <TableBody>
                   {lines.map((line) => {
-                    const supplierOptions = supplierOptionsByProduct.get(line.product_id) || [];
+                    const supplierOptions = supplierOptionsByItem.get(line.material_id) || [];
                     const selectedSupplier =
                       supplierOptions.find((o) => o.supplier_id === line.supplier_id) || null;
-                    const selectedProduct = products.find((p: any) => p.id === line.product_id) as any;
+                    const selectedItem = getItem(line.material_id) || null;
                     return (
                       <TableRow key={line._id} sx={modernTableStyles.bodyRow}>
                         <TableCell>
                           <Autocomplete
                             size="small"
-                            options={products}
-                            getOptionLabel={(option: any) =>
+                            options={items}
+                            getOptionLabel={(option: Material) =>
                               option.name ? `${option.item_code ? `${option.item_code} - ` : ""}${option.name}` : ""
                             }
-                            value={selectedProduct || null}
-                            onChange={(_, newValue: any) =>
-                              handleSelectProduct(line._id, newValue?.id || 0)
+                            isOptionEqualToValue={(o, v) => o.id === v.id}
+                            value={selectedItem}
+                            onChange={(_, newValue) =>
+                              handleSelectItem(line._id, newValue?.id || 0)
                             }
                             renderInput={(params) => (
                               <TextField
                                 {...params}
-                                placeholder="Select Product"
+                                placeholder="Select Item"
                                 size="small"
                                 required
-                                InputProps={{
-                                  ...params.InputProps,
-                                  endAdornment: (
-                                    <>
-                                      <EntityPeekButton entity="product" id={line.product_id} />
-                                      {params.InputProps.endAdornment}
-                                    </>
-                                  ),
-                                }}
                               />
                             )}
                             sx={{ minWidth: 170 }}
@@ -552,17 +561,17 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                         </TableCell>
                         <TableCell>
                           <Typography variant="body2" color="text.secondary">
-                            {selectedProduct?.unit_of_measure || "-"}
+                            {selectedItem?.unit_of_measure || "-"}
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" color="text.secondary">
-                            {line.product_id ? getAvailableQty(line.product_id) : "-"}
+                            {line.material_id ? getAvailableQty(line.material_id) : "-"}
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" color="text.secondary">
-                            {line.product_id ? getInTransitQty(line.product_id) : "-"}
+                            {line.material_id ? getInTransitQty(line.material_id) : "-"}
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
@@ -576,7 +585,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                           <Autocomplete
                             size="small"
                             options={supplierOptions}
-                            disabled={!line.product_id}
+                            disabled={!line.material_id}
                             getOptionLabel={(option) =>
                               option.supplier_company_name || `#${option.supplier_id}`
                             }
@@ -597,6 +606,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                                     </Typography>
                                   </Box>
                                   <Typography variant="caption" color="text.secondary">
+                                    {option.supplier_sku ? `SKU: ${option.supplier_sku} · ` : ""}
                                     MOQ: {option.minimum_order_qty ?? "-"} · Lead time:{" "}
                                     {getSupplierLeadTimeLabel(option.supplier_id)}
                                   </Typography>
@@ -607,7 +617,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                               <TextField
                                 {...params}
                                 placeholder={
-                                  !line.product_id ? "Select a product first" : "Select supplier"
+                                  !line.material_id ? "Select an item first" : "Select supplier"
                                 }
                                 size="small"
                                 required
@@ -623,9 +633,17 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                               />
                             )}
                             noOptionsText={
-                              line.product_id
-                                ? "No suppliers mapped to this product yet"
-                                : "Select a product first"
+                              line.material_id ? (
+                                <span>
+                                  No suppliers on this item yet. Add one on the{" "}
+                                  <RouterLink to={itemCatalogUrl(line.material_id)}>
+                                    Item Catalog Suppliers tab
+                                  </RouterLink>
+                                  {" "}or the supplier's Items tab.
+                                </span>
+                              ) : (
+                                "Select an item first"
+                              )
                             }
                             sx={{ minWidth: 200 }}
                           />
@@ -649,7 +667,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                         <TableCell>
                           <TextField
                             size="small"
-                            placeholder="Note for this product"
+                            placeholder="Note for this item"
                             value={line.remark}
                             onChange={(e) => handleUpdateLine(line._id, { remark: e.target.value })}
                             inputProps={{ maxLength: 200 }}
@@ -674,7 +692,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
             </Paper>
             <Box sx={{ mt: 1 }}>
               <TButton variant="text" startIcon={<AddIcon />} size="small" onClick={handleAddLine}>
-                Add Product
+                Add Item
               </TButton>
             </Box>
           </TFormSection>
@@ -693,7 +711,7 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
-                      <TableCell>Product</TableCell>
+                      <TableCell>Item</TableCell>
                       <TableCell>UOM</TableCell>
                       <TableCell align="right">Available Qty</TableCell>
                       <TableCell align="right">In-Transit Qty</TableCell>
@@ -706,12 +724,10 @@ const PurchaseOrderCreateWizard = forwardRef<PurchaseOrderWizardHandle, Purchase
                   <TableBody>
                     {group.lines.map((l) => (
                       <TableRow key={l._id}>
-                        <TableCell>{getProductName(l.product_id)}</TableCell>
-                        <TableCell>
-                          {(products.find((p: any) => p.id === l.product_id) as any)?.unit_of_measure || "-"}
-                        </TableCell>
-                        <TableCell align="right">{getAvailableQty(l.product_id)}</TableCell>
-                        <TableCell align="right">{getInTransitQty(l.product_id)}</TableCell>
+                        <TableCell>{getItemLabel(l.material_id)}</TableCell>
+                        <TableCell>{getItem(l.material_id)?.unit_of_measure || "-"}</TableCell>
+                        <TableCell align="right">{getAvailableQty(l.material_id)}</TableCell>
+                        <TableCell align="right">{getInTransitQty(l.material_id)}</TableCell>
                         <TableCell align="right">{l.quantity}</TableCell>
                         <TableCell sx={{ maxWidth: 240, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                           {l.remark.trim() || "-"}

@@ -62,6 +62,8 @@ import {
 
 import { purchaseReturnsApi, goodReceivedNotesApi } from "@/modules/purchasing/api";
 import { useReferenceData, ProductRef } from "@/hooks";
+import LineItemLink from "@/modules/purchasing/components/LineItemLink";
+import { lineItemCode, lineItemName, lineItemUom } from "@/modules/purchasing/utils/itemDisplay";
 import ApproverAuthDialog from "../../purchasing/components/ApproverAuthDialog";
 // OPTIMIZED: Removed productsApi, branchApi imports - using aggregated endpoint
 import { PurchasingReturn, PurchasingReturnWithItems, GoodReceivedNote } from "@/modules/purchasing/types";
@@ -489,28 +491,35 @@ export default function PurchaseReturnApprovalsPage() {
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
                       <TableCell>Barcode</TableCell>
-                      <TableCell>Product</TableCell>
+                      <TableCell>Item Code</TableCell>
+                      <TableCell>Item</TableCell>
+                      <TableCell>UOM</TableCell>
                       <TableCell align="right">{`Purchase Price (${currencySymbol})`}</TableCell>
                       <TableCell align="right">{`Return Price (${currencySymbol})`}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {selectedReturn.items?.map((item, index) => {
-                      const product = productMap.get(item.product_id);
+                      // Old returns only have a product: fall back to its name.
+                      const product = item.product_id ? productMap.get(item.product_id) : undefined;
                       return (
                         <TableRow key={index} sx={{ 
                           ...modernTableStyles.bodyRow,
                           ...(index % 2 === 1 && { bgcolor: "grey.25" }),
                         }}>
                           <TableCell>{item.barcode}</TableCell>
-                          <TableCell>{product?.name || `Product #${item.product_id}`}</TableCell>
+                          <TableCell>{lineItemCode(item) || "-"}</TableCell>
+                          <TableCell>
+                            <LineItemLink line={item} label={item.material_name || item.product_name || product?.name || lineItemName(item)} />
+                          </TableCell>
+                          <TableCell>{lineItemUom(item)}</TableCell>
                           <TableCell align="right">{fmtLKR(Number(item.purchasing_price))}</TableCell>
                           <TableCell align="right">{fmtLKR(Number(item.return_price))}</TableCell>
                         </TableRow>
                       );
                     })}
                     <TableRow sx={modernTableStyles.footerRow}>
-                      <TableCell colSpan={3} align="right">
+                      <TableCell colSpan={5} align="right">
                         <strong>{`Total Return Amount (${currencySymbol}):`}</strong>
                       </TableCell>
                       <TableCell align="right">

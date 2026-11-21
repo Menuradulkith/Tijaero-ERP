@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.common.audit import log_audit
 from app.core import timezone as tz
 from app.modules.finance.gl_posting_service import record_gl_commit_failure
+from app.modules.inventory.costing import apply_landed_cost
 from app.modules.products.models import Product
 from . import models, schemas
 
@@ -124,6 +125,8 @@ class LandedCostService:
                 voucher_id=voucher.id, purchasing_order_items_id=po_item_id, quantity=int(qty),
                 amount=share, created_by=user_id,
             ))
+            # The line's units still in stock now cost their share more (and WAC items re-average)
+            apply_landed_cost(self.db, grn.id, po_item_id, share, qty)
         self.db.flush()
         log_audit(self.db, user_id=user_id, action="create", entity_type="landed_cost_voucher", entity_id=voucher.id,
                   changes={"voucher_no": voucher.voucher_no, "grn_no": grn.good_received_no,
@@ -154,6 +157,11 @@ class LandedCostService:
         if voucher.status == "cancelled":
             raise _bad("This landed cost voucher is already cancelled.")
         voucher.status = "cancelled"
+        # Take the share back off the GRN lines' units still in stock
+        for alloc in self.db.query(models.LandedCostAllocation).filter(
+                models.LandedCostAllocation.voucher_id == voucher.id):
+            apply_landed_cost(self.db, voucher.good_received_note_id, alloc.purchasing_order_items_id,
+                              alloc.amount, alloc.quantity, sign=-1)
         voucher.cancelled_at = tz.now()
         voucher.cancelled_by = user_id
         voucher.cancel_reason = reason
@@ -226,16 +234,20 @@ class LandedCostService:
         lines: List[dict] = []
         total = Decimal("0")
         if received:
-            items = self.db.query(models.PurchasingOrderItems, Product.name).join(
-                Product, Product.id == models.PurchasingOrderItems.product_id
-            ).filter(models.PurchasingOrderItems.id.in_(received.keys())).order_by(models.PurchasingOrderItems.id).all()
-            for pi, name in items:
+            # Item lines (no product) and old product lines alike
+            items = self.db.query(models.PurchasingOrderItems).filter(
+                models.PurchasingOrderItems.id.in_(received.keys())
+            ).order_by(models.PurchasingOrderItems.id).all()
+            for pi in items:
+                name = pi.product_name or pi.material_name
                 qty = int(received[pi.id])
                 landed_total = Decimal(str(landed.get(pi.id, 0)))
                 per_unit = (landed_total / qty).quantize(CENT, rounding=ROUND_HALF_UP) if qty else Decimal("0")
                 total += landed_total
                 lines.append({
                     "purchasing_order_items_id": pi.id, "product_name": name, "quantity": qty,
+                    "material_id": pi.material_id, "material_item_code": pi.material_item_code,
+                    "material_name": pi.material_name, "unit_of_measure": pi.unit_of_measure,
                     "unit_price": pi.unit_price, "landed_total": landed_total, "landed_per_unit": per_unit,
                     "landed_unit_cost": Decimal(str(pi.unit_price)) + per_unit,
                 })

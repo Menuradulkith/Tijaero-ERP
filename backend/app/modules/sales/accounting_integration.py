@@ -150,7 +150,33 @@ class SalesAccountingIntegration:
         return self._gl._generate_je_number(prefix)
 
     def _unit_cost_for_invoice_item(self, item) -> Optional[Decimal]:
-        """Cost basis the sale's COGS used for one invoice line. PUR-18: the sold stock unit's real cost (its PO line
+        """Cost of one unit sold on an invoice line (central stock phase 5): the cost
+        captured when its COGS posted, else the issue cost of the stock row the line
+        sold (inventory/costing.py: the item's average cost for weighted-average items,
+        the row's own lot cost for FIFO items), else the price tier / product cost."""
+        if getattr(item, "unit_cost", None) is not None:
+            return Decimal(str(item.unit_cost))
+        stock = (
+            self.db.query(SalesStock).filter(SalesStock.id == item.sales_stock_id).first()
+            if getattr(item, "sales_stock_id", None) else None
+        )
+        if stock is not None:
+            from app.modules.inventory.costing import issue_unit_cost
+
+            cost = issue_unit_cost(self.db, stock)
+            if cost:
+                return cost.quantize(Decimal("0.01"))
+        return self._legacy_unit_cost_for_invoice_item(item)
+
+    def _return_unit_cost_for_invoice_item(self, item) -> Optional[Decimal]:
+        """Cost to reverse COGS at for a returned line: the cost its COGS posted at when
+        captured, else the rule COGS used before costing was captured."""
+        if getattr(item, "unit_cost", None) is not None:
+            return Decimal(str(item.unit_cost))
+        return self._legacy_unit_cost_for_invoice_item(item)
+
+    def _legacy_unit_cost_for_invoice_item(self, item) -> Optional[Decimal]:
+        """Cost basis the sale's COGS used for one invoice line before phase 5. PUR-18: the sold stock unit's real cost (its PO line
         price plus that line's landed-cost share, the value Inventory was debited with) first; then the selected
         price tier's cost, then the product's legacy cost_price."""
         stock = (
@@ -479,8 +505,12 @@ class SalesAccountingIntegration:
 
         total_cost = Decimal("0")
         for item in items:
-            # Price-tier cost first, then the legacy product cost_price.
+            # Issue cost of the stock row sold (captured on the line for returns), else the
+            # price-tier cost, then the product cost_price.
             cost_to_use = self._unit_cost_for_invoice_item(item)
+            if cost_to_use is not None and item.unit_cost is None:
+                item.unit_cost = Decimal(str(cost_to_use)).quantize(Decimal("0.01"))
+                cost_to_use = item.unit_cost
 
             if cost_to_use is not None:
                 item_cost = Decimal(str(cost_to_use)) * Decimal(str(item.quantity))
@@ -719,7 +749,7 @@ class SalesAccountingIntegration:
                     ).order_by(InvoiceItems.id).all()
                 inv_item = next((it for it in invoice_items if it.product_id == ri.product_id), None)
             if inv_item is not None:
-                unit_cost = self._unit_cost_for_invoice_item(inv_item)
+                unit_cost = self._return_unit_cost_for_invoice_item(inv_item)
             else:
                 product = (
                     self.db.query(Product).filter(Product.id == ri.product_id).first()

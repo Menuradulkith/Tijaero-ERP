@@ -9,9 +9,13 @@ A = "/api/v1/common/approvals"
 
 
 @pytest.fixture
-def world(make_branch, make_customer, make_product, make_supplier):
-    return {"branch": make_branch(), "other": make_branch(), "customer": make_customer(), "product": make_product(),
-            "sup": make_supplier(), "sup2": make_supplier()}
+def world(make_branch, make_customer, make_product, make_supplier, make_purchasable_item):
+    w = {"branch": make_branch(), "other": make_branch(), "customer": make_customer(), "product": make_product(),
+         "sup": make_supplier(), "sup2": make_supplier()}
+    # purchasing buys the product's Item Catalog item, from suppliers on its Suppliers tab
+    make_purchasable_item(w["sup"], 100, product=w["product"])
+    make_purchasable_item(w["sup2"], 100, product=w["product"])
+    return w
 
 
 def _quote(c, world, branch=None, qty=5, approve=True, price=300):
@@ -37,7 +41,7 @@ def _group(world, quote, qty=2, price=100, branch=None, sup=None):
         "branch_code": (branch or world["branch"]).branch_code, "payment_method": "cash",
         "purchasing_order_date": date.today().isoformat(), "good_received_note_date": (date.today() + timedelta(days=5)).isoformat(),
         "first_suppliers_id": (sup or world["sup"]).id, "sales_quote_id": quote["id"],
-        "items": [{"product_id": world["product"].id, "quantity": qty, "unit_price": price, "warrenty_month": "12", "quote_item_id": quote["items"][0]["id"]}],
+        "items": [{"material_id": world["product"].material_id, "quantity": qty, "unit_price": price, "warrenty_month": "12", "quote_item_id": quote["items"][0]["id"]}],
     }
 
 

@@ -25,6 +25,7 @@ import { FormSection, modernTableStyles, TSidePanel } from "@/components/tijaero
 import { suppliersApi } from "@/modules/purchasing/api";
 import type { MrpLine, Priority } from "@/modules/manufacturing/types";
 import { PRIORITY_OPTIONS } from "@/modules/manufacturing/types";
+import { mfgItemCode, mfgItemName, mrpLineKey } from "@/modules/manufacturing/itemDisplay";
 import { formatDate } from "@/utils/formatters";
 
 // Local calendar dates (toISOString would shift them to UTC)
@@ -68,7 +69,7 @@ export function PurchaseFirmDialog({ open, lines, saving, onClose, onSubmit }: P
     if (!open) return;
     setRows(
       lines.map((l) => ({
-        key: `${l.product_id}:${l.branch_code}`,
+        key: mrpLineKey(l),
         line: l,
         quantity: String(l.suggested_quantity),
         supplier_id: l.preferred_supplier_id ?? null,
@@ -125,7 +126,7 @@ export function PurchaseFirmDialog({ open, lines, saving, onClose, onSubmit }: P
         <Table size="small">
           <TableHead>
             <TableRow sx={modernTableStyles.headerRow}>
-              <TableCell>Component</TableCell>
+              <TableCell>Item</TableCell>
               <TableCell>Branch</TableCell>
               <TableCell sx={{ width: 110 }}>Quantity</TableCell>
               <TableCell sx={{ width: 240 }}>Supplier</TableCell>
@@ -136,8 +137,8 @@ export function PurchaseFirmDialog({ open, lines, saving, onClose, onSubmit }: P
             {rows.map((r) => (
               <TableRow key={r.key} sx={modernTableStyles.bodyRow}>
                 <TableCell>
-                  <Typography variant="body2" fontWeight={600}>{r.line.product_name}</Typography>
-                  <Typography variant="caption" color="text.secondary">{r.line.product_code}</Typography>
+                  <Typography variant="body2" fontWeight={600}>{mfgItemName(r.line)}</Typography>
+                  <Typography variant="caption" color="text.secondary">{mfgItemCode(r.line)}{r.line.unit_of_measure ? ` · ${r.line.unit_of_measure}` : ""}</Typography>
                 </TableCell>
                 <TableCell>{r.line.branch_code}</TableCell>
                 <TableCell>
@@ -198,7 +199,7 @@ export function ProduceFirmDialog({ open, lines, saving, onClose, onSubmit }: Pr
       lines.map((l) => {
         const start = l.order_by_date && l.order_by_date > today() ? l.order_by_date : today();
         const end = l.need_by_date && l.need_by_date > start ? l.need_by_date : addDays(start, Math.max(l.lead_time_days, 1));
-        return { key: `${l.product_id}:${l.branch_code}`, line: l, quantity: String(l.suggested_quantity), start, end };
+        return { key: mrpLineKey(l), line: l, quantity: String(l.suggested_quantity), start, end };
       })
     );
   }, [open, lines]);
@@ -249,7 +250,7 @@ export function ProduceFirmDialog({ open, lines, saving, onClose, onSubmit }: Pr
         <Table size="small">
           <TableHead>
             <TableRow sx={modernTableStyles.headerRow}>
-              <TableCell>Product</TableCell>
+              <TableCell>Item to make</TableCell>
               <TableCell>Branch</TableCell>
               <TableCell sx={{ width: 110 }}>Quantity</TableCell>
               <TableCell sx={{ width: 170 }}>Planned Start</TableCell>
@@ -260,8 +261,8 @@ export function ProduceFirmDialog({ open, lines, saving, onClose, onSubmit }: Pr
             {rows.map((r) => (
               <TableRow key={r.key} sx={modernTableStyles.bodyRow}>
                 <TableCell>
-                  <Typography variant="body2" fontWeight={600}>{r.line.product_name}</Typography>
-                  <Typography variant="caption" color="text.secondary">{r.line.product_code}</Typography>
+                  <Typography variant="body2" fontWeight={600}>{mfgItemName(r.line)}</Typography>
+                  <Typography variant="caption" color="text.secondary">{mfgItemCode(r.line)}{r.line.unit_of_measure ? ` · ${r.line.unit_of_measure}` : ""}</Typography>
                 </TableCell>
                 <TableCell>{r.line.branch_code}</TableCell>
                 <TableCell>

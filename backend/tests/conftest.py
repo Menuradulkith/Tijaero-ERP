@@ -563,3 +563,109 @@ def _no_independent_sessions(request, monkeypatch):
     db = request.getfixturevalue("db")
     monkeypatch.setattr("app.db.session.SessionLocal", lambda: _SharedTestSession(db))
     yield
+
+
+def product_master_ids(client) -> dict:
+    """Product type + HS code + family a product create needs since the 2026-11-20 product master fields."""
+    import random
+    import uuid as _uuid
+    pt = client.post("/api/v1/inventory/product-types/", json={"name": f"QA Type {_uuid.uuid4().hex[:8]}"})
+    assert pt.status_code == 201, pt.text
+    code = f"{random.randint(1000, 9999)}.{random.randint(10, 99)}.{random.randint(10, 99)}"
+    hs = client.post("/api/v1/inventory/hs-codes/", json={"code": code, "description": "QA"})
+    assert hs.status_code == 201, hs.text
+    return {"product_type_id": pt.json()["id"], "hs_code_id": hs.json()["id"], "product_family": "QA Family"}
+
+
+def purchasable_item(db, supplier, cost=100, *, product=None, tracking_type=None, moq=None, tax_rate=None,
+                     preferred=False, name=None):
+    """An Item Catalog item that ``supplier`` sells at ``cost`` (central stock phase 3: POs buy items).
+
+    With ``product`` the product's item is used (created from the product when it has none, as
+    for a stocked product) and the product is linked to it; otherwise a new raw item no product
+    sells. ``tracking_type`` / ``tax_rate`` override the item's. Returns the Material."""
+    from datetime import date as _date
+    from datetime import datetime
+
+    from app.modules.materials.from_product import item_for_product
+    from app.modules.materials.models import Material, MaterialCategory, MaterialSupplier
+
+    if product is not None:
+        material = db.get(Material, product.material_id) if product.material_id else item_for_product(db, product)
+        product.material_id = material.id
+    else:
+        category = MaterialCategory(name=_unique("MatCat"), category_code=_unique("MC"), active=True,
+                                    created_date=datetime.utcnow())
+        db.add(category)
+        db.flush()
+        material = Material(
+            name=name or _unique("Item"), item_code=_unique("MAT"), item_type="stock_item", unit_of_measure="pcs",
+            tracking_type=tracking_type or "serial", website_active=False, active=True, cost_price=cost,
+            tax_rate=tax_rate or 0, created_date=_date.today(), category_id=category.id,
+            added_date=datetime.utcnow(), product_family="QA",
+        )
+        db.add(material)
+    if tracking_type:
+        material.tracking_type = tracking_type
+    if tax_rate is not None:
+        material.tax_rate = tax_rate
+    db.flush()
+    link = db.query(MaterialSupplier).filter(MaterialSupplier.material_id == material.id,
+                                             MaterialSupplier.supplier_id == supplier.id).first()
+    if link is None:
+        db.add(MaterialSupplier(material_id=material.id, supplier_id=supplier.id, cost_price=cost,
+                                minimum_order_qty=moq, is_preferred=preferred, active=True))
+    else:
+        link.cost_price, link.minimum_order_qty, link.active = cost, moq, True
+    db.flush()
+    return material
+
+
+@pytest.fixture
+def make_purchasable_item(db):
+    """Factory: ``make_purchasable_item(supplier, cost=100, product=None, ...)`` -> Material (see purchasable_item)."""
+    def _make(supplier, cost=100, **kw):
+        return purchasable_item(db, supplier, cost, **kw)
+    return _make
+
+
+def item_id_for(product, supplier, cost=100, **kw) -> int:
+    """material_id a PO line uses to buy ``product`` from ``supplier`` (objects or ids): the product's
+    item with an active price from that supplier (see purchasable_item). Works inside any test that
+    has the ``db`` fixture (directly or via client / superclient), through the shared test session."""
+    import app.db.session as _session
+    from app.modules.products.models import Product
+    from app.modules.purchasing.models import Supplier
+
+    db = _session.SessionLocal()
+    db = getattr(db, "_real", db)
+    if isinstance(product, int):
+        product = db.get(Product, product)
+    if isinstance(supplier, int):
+        supplier = db.get(Supplier, supplier)
+    if supplier is None:  # unknown supplier (tests of that error): the product's item, no link
+        from app.modules.materials.from_product import item_for_product
+        if not product.material_id:
+            product.material_id = item_for_product(db, product).id
+            db.flush()
+        return product.material_id
+    return purchasable_item(db, supplier, cost, product=product, **kw).id
+
+
+def mfg_item(db, product) -> int:
+    """material_id manufacturing uses for ``product`` (central stock phase 4: BOMs, orders and
+    reorder rules take Item Catalog items): the product's item, created from the product when
+    it has none (its tracking, shelf life, QC flag and cost are copied at that moment), with
+    the product's existing stock rows and ledger lines pointed at it. Returns the item id."""
+    from app.modules.inventory.ledger import StockTransaction
+    from app.modules.inventory.models import SalesStock
+    from app.modules.materials.from_product import item_for_product
+
+    if not product.material_id:
+        product.material_id = item_for_product(db, product).id
+        db.flush()
+    for model in (SalesStock, StockTransaction):
+        (db.query(model).filter(model.product_id == product.id, model.material_id.is_(None))
+         .update({model.material_id: product.material_id}, synchronize_session="fetch"))
+    db.flush()
+    return product.material_id

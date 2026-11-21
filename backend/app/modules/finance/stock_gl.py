@@ -1,8 +1,9 @@
 """
 GL postings for stock movements that used to post nothing (finance blueprint phase D).
 
-Stock is valued the way the GRN put it into the books: the PO line's unit
-price, falling back to the product's cost price.
+Stock is valued at its issue cost (inventory/costing.py): the row's captured
+cost (PO price + landed cost share, or production cost), or the item's average
+cost for weighted-average items.
 
     branch transfer received      at the source branch:       Dr 1220 Goods in Transit / Cr 1210 Inventory
                                   at the destination branch:  Dr 1210 Inventory        / Cr 1220 Goods in Transit
@@ -34,17 +35,12 @@ CENT = Decimal("0.01")
 
 
 def unit_cost(db: Session, stock) -> Decimal:
-    """Cost of one unit of a stock row (PO price, else product cost price, else 0)."""
-    from app.modules.products.models import Product
-    from app.modules.purchasing.models import PurchasingOrderItems
+    """Cost of one unit of a stock row as it leaves (or moves within) stock: the issue
+    cost from app.modules.inventory.costing (weighted-average items at the item's
+    average cost, FIFO items at the row's own cost). Kept so existing imports work."""
+    from app.modules.inventory.costing import issue_unit_cost
 
-    if getattr(stock, "purchasing_order_items_id", None):
-        price = db.query(PurchasingOrderItems.unit_price).filter(
-            PurchasingOrderItems.id == stock.purchasing_order_items_id).scalar()
-        if price:
-            return Decimal(str(price))
-    price = db.query(Product.cost_price).filter(Product.id == stock.product_id).scalar()
-    return Decimal(str(price or 0))
+    return issue_unit_cost(db, stock)
 
 
 def _qty(stock) -> Decimal:

@@ -1,46 +1,37 @@
 /**
- * Supplier > PO History tab: every purchase order raised against this supplier,
- * newest first, with a status filter. Paged on the server
- * (GET /purchasing/orders/paged?supplier_id=...). Clicking a row opens the PO.
+ * Supplier > PO History tab: this supplier's completed purchase orders, newest
+ * first. Paged on the server (GET /purchasing/orders/paged?supplier_id=...&status=completed).
+ * Clicking a row opens the PO.
  */
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
-import { Box, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import { Box, Typography } from "@mui/material";
 import { TDataGrid, TDataGridColumn, TStatusChip, fmtLKR } from "@/components/tijaero";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { purchaseOrdersApi } from "@/modules/purchasing/api";
 import type { PurchasingOrder } from "@/modules/purchasing/types";
 
-const STATUS_OPTIONS = [
-  { value: "", label: "All statuses" },
-  { value: "pending_approval", label: "Pending Approval" },
-  { value: "approved", label: "Approved" },
-  { value: "partially_completed", label: "Partially Received" },
-  { value: "completed", label: "Completed" },
-  { value: "short_closed", label: "Short Closed" },
-  { value: "rejected", label: "Rejected" },
-  { value: "cancelled", label: "Cancelled" },
-];
+// PO history lists completed orders only.
+const HISTORY_STATUS = "completed";
 
 const fmtDate = (d?: string | null) => (d ? new Date(d).toLocaleDateString() : "-");
 
 export default function SupplierPoHistory({ supplierId }: { supplierId: number }) {
   const navigate = useNavigate();
   const currencySymbol = useCurrencyStore((s) => s.symbol);
-  const [status, setStatus] = useState("");
   const [page, setPage] = useState(0);
   const [size, setSize] = useState(20);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["supplier-po-history", supplierId, status, page, size],
+    queryKey: ["supplier-po-history", supplierId, page, size],
     queryFn: () =>
       purchaseOrdersApi.getPage({
         page,
         size,
         supplier_id: supplierId,
-        status: status || undefined,
+        status: HISTORY_STATUS,
         sort_by: "purchasing_order_date",
         order: "desc",
       }),
@@ -108,36 +99,17 @@ export default function SupplierPoHistory({ supplierId }: { supplierId: number }
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-      <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
-        <TextField
-          select
-          size="small"
-          label="Status"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
-            setPage(0);
-          }}
-          sx={{ minWidth: 200 }}
-        >
-          {STATUS_OPTIONS.map((o) => (
-            <MenuItem key={o.value} value={o.value}>
-              {o.label}
-            </MenuItem>
-          ))}
-        </TextField>
-        <Typography variant="body2" color="text.secondary">
-          {data?.total ?? 0} purchase order{data?.total === 1 ? "" : "s"}
-          {rows.length > 0 && ` · this page: ${currencySymbol} ${fmtLKR(pageTotal)}`}
-        </Typography>
-      </Stack>
+      <Typography variant="body2" color="text.secondary">
+        {data?.total ?? 0} completed purchase order{data?.total === 1 ? "" : "s"}
+        {rows.length > 0 && ` · this page: ${currencySymbol} ${fmtLKR(pageTotal)}`}
+      </Typography>
       <TDataGrid<PurchasingOrder>
         rows={rows}
         columns={columns}
         loading={isLoading}
         getRowId={(row) => row.id}
         onRowClick={(row) => navigate(`/purchasing/orders?focus=${row.id}`)}
-        emptyMessage={status ? "No purchase orders with this status" : "No purchase orders for this supplier yet"}
+        emptyMessage="No completed purchase orders for this supplier yet"
         height={480}
         autoHeight={false}
         exportFileName={`supplier_${supplierId}_po_history`}

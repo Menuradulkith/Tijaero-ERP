@@ -45,6 +45,9 @@ import {
   SupplierProduct,
   SupplierProductCreate,
   SupplierProductUpdate,
+  SupplierItem,
+  SupplierItemCreate,
+  SupplierItemUpdate,
 } from "./types";
 
 // Helper to clean empty strings to null/undefined for optional fields.
@@ -274,6 +277,25 @@ export const suppliersApi = {
 
 };
 
+// Supplier's item price list (Item Catalog items this supplier sells, with the
+// supplier's cost, SKU and MOQ). Purchase orders buy these items only.
+export const supplierItemsApi = {
+  list: async (supplierId: number) => {
+    const response = await apiClient.get<SupplierItem[]>(`/purchasing/suppliers/${supplierId}/items`);
+    return response.data;
+  },
+
+  create: async (supplierId: number, data: SupplierItemCreate) => {
+    const response = await apiClient.post<SupplierItem>(`/purchasing/suppliers/${supplierId}/items`, data);
+    return response.data;
+  },
+
+  update: async (supplierId: number, linkId: number, data: SupplierItemUpdate) => {
+    const response = await apiClient.put<SupplierItem>(`/purchasing/suppliers/${supplierId}/items/${linkId}`, data);
+    return response.data;
+  },
+};
+
 // Purchase Orders API
 export interface PagedPurchaseOrders {
   items: PurchasingOrder[];
@@ -397,27 +419,27 @@ export const purchaseOrdersApi = {
     return response.data;
   },
 
-  /** Currently-available stock count per product at a branch, keyed by
-   * product id (products with none are simply absent). Lets the PO creation
-   * wizard show what's already in stock before the user orders more. */
-  getAvailableStock: async (productIds: number[], branchCode: string): Promise<Record<number, number>> => {
-    if (productIds.length === 0) return {};
+  /** Currently-available stock per Item Catalog item, keyed by material id
+   * (items with none are simply absent). Lets the PO creation wizard show
+   * what's already in stock before the user orders more. */
+  getAvailableStock: async (materialIds: number[], branchCode: string): Promise<Record<number, number>> => {
+    if (materialIds.length === 0) return {};
     const response = await apiClient.get<Record<string, number>>(
       "/purchasing/orders/available-stock",
-      { params: { product_ids: productIds.join(","), branch_code: branchCode } }
+      { params: { material_ids: materialIds.join(","), branch_code: branchCode } }
     );
     return Object.fromEntries(
       Object.entries(response.data).map(([id, qty]) => [Number(id), qty])
     );
   },
 
-  /** Units per product still on their way at a branch (ordered on approved
-   * POs, not yet received), keyed by product id. */
-  getInTransit: async (productIds: number[], branchCode: string): Promise<Record<number, number>> => {
-    if (productIds.length === 0) return {};
+  /** Units per item still on their way (ordered on approved POs, not yet
+   * received), keyed by material id. */
+  getInTransit: async (materialIds: number[], branchCode: string): Promise<Record<number, number>> => {
+    if (materialIds.length === 0) return {};
     const response = await apiClient.get<Record<string, number>>(
       "/purchasing/orders/in-transit",
-      { params: { product_ids: productIds.join(","), branch_code: branchCode } }
+      { params: { material_ids: materialIds.join(","), branch_code: branchCode } }
     );
     return Object.fromEntries(
       Object.entries(response.data).map(([id, qty]) => [Number(id), qty])

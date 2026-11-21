@@ -152,6 +152,9 @@ class InvoiceItems(Base, AuditMixin):
     
     # Line total
     line_total = Column(Numeric(60, 2), nullable=False, default=0)  # quantity * price - discount + tax
+    # Cost of one unit, captured when the sale's COGS posts (central stock phase 5) so a
+    # return reverses COGS at the same cost. NULL for lines posted before that.
+    unit_cost = Column(Numeric(18, 2), nullable=True)
 
 
     invoice = relationship("Invoice", back_populates="items")

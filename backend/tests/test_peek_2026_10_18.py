@@ -1,6 +1,7 @@
 """Peek: read-only related-record popups for users who cannot open the full page."""
 
 import pytest
+from tests.conftest import item_id_for
 
 PEEK = "/api/v1/peek"
 
@@ -229,9 +230,9 @@ class TestPurchaseOrderPeek:
             schemas.PurchasingOrderCreate(
                 branch_code=branch.branch_code, payment_method="non_credit",
                 purchasing_order_date=date.today(), good_received_note_date=date.today(),
-                first_suppliers_id=make_supplier().id,
+                first_suppliers_id=(sup := make_supplier()).id,
                 items=[schemas.PurchasingOrderItemCreate(
-                    product_id=make_product().id, quantity=4, unit_price=Decimal("75.00"), warrenty_month="12")],
+                    material_id=item_id_for(make_product(), sup, 75), quantity=4, unit_price=Decimal("75.00"), warrenty_month="12")],
             ),
             created_by=1,
         )

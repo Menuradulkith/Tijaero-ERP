@@ -32,6 +32,7 @@ import LocationOnOutlinedIcon from "@mui/icons-material/LocationOnOutlined";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import LocalAtmIcon from "@mui/icons-material/LocalAtm";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
@@ -106,6 +107,7 @@ import {
 } from "@/modules/purchasing/types";
 import SupplierLogoUploader from "@/modules/purchasing/components/SupplierLogoUploader";
 import SupplierPoHistory from "@/modules/purchasing/components/SupplierPoHistory";
+import SupplierItemsList from "@/modules/purchasing/components/SupplierItemsList";
 
 // A supplier row as shown in the browse table, with the country name looked
 // up and attached directly so the table's own column-header sort orders by
@@ -254,6 +256,7 @@ const SUPPLIER_DETAIL_TABS: TTabConfig[] = [
   { id: "address", label: "Address", icon: <LocationOnOutlinedIcon fontSize="small" /> },
   { id: "contactPerson", label: "Contact Person", icon: <PersonOutlineIcon fontSize="small" /> },
   { id: "payment", label: "Payment", icon: <AccountBalanceWalletOutlinedIcon fontSize="small" /> },
+  { id: "items", label: "Items", icon: <Inventory2OutlinedIcon fontSize="small" /> },
   { id: "poHistory", label: "PO History", icon: <ReceiptLongOutlinedIcon fontSize="small" /> },
 ];
 // Tabs stepped through by Next/Previous after creating a supplier (PO History is view-only).
@@ -394,7 +397,7 @@ export default function SuppliersPage() {
 
   // Which of the Address / Contact Person / Payment tabs is active, shown
   // below the always-visible Company/Contact Information section.
-  const [activeSection, setActiveSection] = useState<"general" | "address" | "contactPerson" | "payment" | "poHistory">("general");
+  const [activeSection, setActiveSection] = useState<"general" | "address" | "contactPerson" | "payment" | "items" | "poHistory">("general");
 
   // "Same as billing" toggle for shipping address — checked whenever the
   // shipping fields are currently empty or already mirror billing, so it
@@ -821,7 +824,9 @@ export default function SuppliersPage() {
   // Contact Person rows are added/edited through their own side-panel
   // dialog (its own Save button) — the main toolbar's Save/Cancel is
   // redundant there regardless of whether the list is still empty.
-  const hideToolbarSaveForSection = activeSection === "contactPerson" || activeSection === "poHistory";
+  // Items (the supplier's price list) also saves through its own side panel.
+  const hideToolbarSaveForSection =
+    activeSection === "contactPerson" || activeSection === "items" || activeSection === "poHistory";
 
   // The main toolbar's Save/Cancel only cover fields that live directly on
   // formData — General always (once in Edit mode); Address only while it's
@@ -1564,7 +1569,8 @@ export default function SuppliersPage() {
             : undefined
         }
         onCancel={handleCancelSupplier}
-        onEdit={canUpdateSupplier ? handleStartEdit : undefined}
+        // PO History is view-only and Items edits through its own panel, so neither has an Edit button.
+        onEdit={canUpdateSupplier && activeSection !== "poHistory" && activeSection !== "items" ? handleStartEdit : undefined}
       />
 
       <Box sx={{ flex: 1, overflow: "auto", p: 1.5 }}>
@@ -2129,6 +2135,13 @@ export default function SuppliersPage() {
                 </FormSection>
               </TTabPanel>
 
+              {selectedSupplier && !isCreating && (
+                <TTabPanel value={activeSection} index="items" padding={0} sx={{ pt: 2 }}>
+                  {activeSection === "items" && (
+                    <SupplierItemsList supplierId={selectedSupplier.id} canEdit={canUpdateSupplier} />
+                  )}
+                </TTabPanel>
+              )}
               {selectedSupplier && !isCreating && canViewPurchaseOrders && (
                 <TTabPanel value={activeSection} index="poHistory" padding={0} sx={{ pt: 2 }}>
                   {activeSection === "poHistory" && <SupplierPoHistory supplierId={selectedSupplier.id} />}

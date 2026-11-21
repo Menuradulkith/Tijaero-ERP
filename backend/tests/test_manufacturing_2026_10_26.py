@@ -6,6 +6,7 @@ from decimal import Decimal as D
 
 import pytest
 from fastapi import HTTPException
+from tests.conftest import mfg_item
 
 from app.common.enums import StockStatus
 from app.modules.finance.accounting_models import ChartOfAccounts, GeneralLedger
@@ -30,6 +31,8 @@ def _wc(db, user, code=None, labor=60, overhead=30, eff=100):
 def _lot(make_sales_stock, product, branch, location, qty, batch="L1", expiry=None):
     row = make_sales_stock(product=product, branch=branch, location=location)
     row.barcode, row.quantity, row.batch_no, row.expiry_date = None, qty, batch, expiry
+    # bought at the product's cost (central stock phase 5 issues each lot at its own cost)
+    row.unit_cost = product.cost_price
     return row
 
 
@@ -46,17 +49,19 @@ def plant(db, make_branch, make_location, make_product, make_sales_stock, make_u
     leg.tracking_type = "none"
     screw = make_product(cost_price=1, name="Screw")
     screw.tracking_type = "none"
+    for p in (fg, top, leg, screw):  # manufacturing works on the products' items
+        mfg_item(db, p)
     _lot(make_sales_stock, top, branch, loc, 10)
     _lot(make_sales_stock, leg, branch, loc, 40)
     _lot(make_sales_stock, screw, branch, loc, 200)
     db.flush()
     wc = _wc(db, user)
     bom = BOMService(db).create(s.BOMIn(
-        product_id=fg.id, items=[
-            s.BOMItemIn(product_id=top.id, quantity=D(1)),
-            s.BOMItemIn(product_id=leg.id, quantity=D(4)),
+        material_id=fg.material_id, items=[
+            s.BOMItemIn(material_id=top.material_id, quantity=D(1)),
+            s.BOMItemIn(material_id=leg.material_id, quantity=D(4)),
             # 8 screws + 10% scrap, consumed automatically on output
-            s.BOMItemIn(product_id=screw.id, quantity=D(8), scrap_pct=D(10), issue_method="backflush"),
+            s.BOMItemIn(material_id=screw.material_id, quantity=D(8), scrap_pct=D(10), issue_method="backflush"),
         ],
         operations=[s.BOMOperationIn(name="Assemble", work_center_id=wc["id"], setup_minutes=D(30), run_minutes=D(15))],
     ), user.id)
@@ -66,7 +71,7 @@ def plant(db, make_branch, make_location, make_product, make_sales_stock, make_u
 
 def _order(db, p, qty=5):
     return ProductionOrderService(db).create(s.ProductionOrderIn(
-        product_id=p["fg"].id, branch_code=p["branch"].branch_code, planned_quantity=qty,
+        material_id=p["fg"].material_id, branch_code=p["branch"].branch_code, planned_quantity=qty,
         planned_start_date=date.today(), planned_end_date=date.today() + timedelta(days=3)), p["user"].id)
 
 
@@ -97,14 +102,14 @@ class TestWorkCentersAndBoms:
 
     def test_bom_cannot_use_its_own_product(self, db, plant):
         with pytest.raises(HTTPException) as exc:
-            BOMService(db).create(s.BOMIn(product_id=plant["fg"].id, version="2",
-                                          items=[s.BOMItemIn(product_id=plant["fg"].id, quantity=D(1))]), plant["user"].id)
-        assert "cannot use the product it makes" in exc.value.detail
+            BOMService(db).create(s.BOMIn(material_id=plant["fg"].material_id, version="2",
+                                          items=[s.BOMItemIn(material_id=plant["fg"].material_id, quantity=D(1))]), plant["user"].id)
+        assert "cannot use the item it makes" in exc.value.detail
 
     def test_bom_loop_is_refused_on_activation(self, db, plant):
         # Table top made from Table -> Table -> Table top -> Table
-        bom = BOMService(db).create(s.BOMIn(product_id=plant["top"].id,
-                                            items=[s.BOMItemIn(product_id=plant["fg"].id, quantity=D(1))]), plant["user"].id)
+        bom = BOMService(db).create(s.BOMIn(material_id=plant["top"].material_id,
+                                            items=[s.BOMItemIn(material_id=plant["fg"].material_id, quantity=D(1))]), plant["user"].id)
         with pytest.raises(HTTPException) as exc:
             BOMService(db).activate(bom["id"], plant["user"].id)
         assert "loop" in exc.value.detail
@@ -135,9 +140,9 @@ class TestWorkCentersAndBoms:
 class TestProductionOrderLifecycle:
     def test_lines_are_built_from_the_bom_with_scrap_rounded_up(self, db, plant):
         o = _order(db, plant, qty=5)
-        req = {m["product_id"]: m["required_quantity"] for m in o["materials"]}
-        assert req[plant["top"].id] == 5 and req[plant["leg"].id] == 20
-        assert req[plant["screw"].id] == 44  # 8 x 1.1 x 5
+        req = {m["material_id"]: m["required_quantity"] for m in o["materials"]}
+        assert req[plant["top"].material_id] == 5 and req[plant["leg"].material_id] == 20
+        assert req[plant["screw"].material_id] == 44  # 8 x 1.1 x 5
         assert o["operations"][0]["planned_minutes"] == D("105.00")  # 30 + 15 x 5
         assert o["order_no"].startswith(f"MO-{plant['branch'].branch_code}-")
         assert o["status"] == "draft" and o["material_status"] == "ready"
@@ -153,11 +158,11 @@ class TestProductionOrderLifecycle:
         svc, uid = ProductionOrderService(db), plant["user"].id
         o = svc.release(_order(db, plant, qty=5)["id"], uid)
         assert o["standard_unit_cost"] == D("500.00")  # the product's cost price
-        mats = {m["product_id"]: m for m in o["materials"]}
+        mats = {m["material_id"]: m for m in o["materials"]}
 
         o = svc.issue_materials(o["id"], s.MaterialMoveIn(lines=[
-            s.MaterialLineIn(material_id=mats[plant["top"].id]["id"], quantity=5),
-            s.MaterialLineIn(material_id=mats[plant["leg"].id]["id"], quantity=20),
+            s.MaterialLineIn(material_id=mats[plant["top"].material_id]["id"], quantity=5),
+            s.MaterialLineIn(material_id=mats[plant["leg"].material_id]["id"], quantity=20),
         ]), uid)
         assert o["status"] == "in_progress"
         assert _free(db, plant["top"], plant["branch"]) == 5 and _free(db, plant["leg"], plant["branch"]) == 20
@@ -165,7 +170,7 @@ class TestProductionOrderLifecycle:
         assert sum(r.quantity for r in consumed) == 25 and all(r.status == "consumed" for r in consumed)
 
         # no more than the order can use (4 legs x 5, no over-production tolerance)
-        leg_line = [s.MaterialLineIn(material_id=mats[plant["leg"].id]["id"], quantity=2)]
+        leg_line = [s.MaterialLineIn(material_id=mats[plant["leg"].material_id]["id"], quantity=2)]
         with pytest.raises(HTTPException) as exc:
             svc.issue_materials(o["id"], s.MaterialMoveIn(lines=leg_line), uid)
         assert "up to 20 unit(s)" in exc.value.detail
@@ -210,14 +215,14 @@ class TestProductionOrderLifecycle:
         svc, uid = ProductionOrderService(db), plant["user"].id
         o = svc.release(_order(db, plant, qty=12)["id"], uid)
         assert o["material_status"] in ("partial", "shortage")
-        top = next(m for m in o["materials"] if m["product_id"] == plant["top"].id)
+        top = next(m for m in o["materials"] if m["material_id"] == plant["top"].material_id)
         assert top["shortage_quantity"] == 2
         with pytest.raises(HTTPException) as exc:
             svc.issue_materials(o["id"], s.MaterialMoveIn(lines=[s.MaterialLineIn(material_id=top["id"], quantity=12)]), uid)
         assert "12 needed, 10 available" in exc.value.detail
 
     def test_serial_output_gets_generated_serials(self, db, plant):
-        plant["fg"].tracking_type = "serial"
+        plant["fg"].material.tracking_type = "serial"  # tracking comes from the item
         svc, uid = ProductionOrderService(db), plant["user"].id
         o = svc.release(_order(db, plant, qty=2)["id"], uid)
         svc.record_output(o["id"], s.OutputIn(quantity=2), uid)
@@ -229,7 +234,7 @@ class TestProductionOrderLifecycle:
     def test_cancel_needs_issued_materials_returned(self, db, plant):
         svc, uid = ProductionOrderService(db), plant["user"].id
         o = svc.release(_order(db, plant)["id"], uid)
-        top = next(m for m in o["materials"] if m["product_id"] == plant["top"].id)
+        top = next(m for m in o["materials"] if m["material_id"] == plant["top"].material_id)
         svc.issue_materials(o["id"], s.MaterialMoveIn(lines=[s.MaterialLineIn(material_id=top["id"], quantity=1)]), uid)
         with pytest.raises(HTTPException):
             svc.cancel(o["id"], s.CancelIn(reason="no longer needed"), uid)
@@ -239,7 +244,7 @@ class TestProductionOrderLifecycle:
     def test_draft_edit_rebuilds_lines(self, db, plant):
         svc = ProductionOrderService(db)
         o = svc.update(_order(db, plant, qty=5)["id"], s.ProductionOrderUpdate(planned_quantity=10), plant["user"].id)
-        assert next(m for m in o["materials"] if m["product_id"] == plant["leg"].id)["required_quantity"] == 40
+        assert next(m for m in o["materials"] if m["material_id"] == plant["leg"].material_id)["required_quantity"] == 40
 
 
 class TestPlanning:
@@ -249,19 +254,19 @@ class TestPlanning:
         _lot(make_sales_stock, plant["top"], other, make_location(branch=other), 50)
         db.flush()
         _order(db, plant, qty=12)
-        lines = [l for l in MrpService(db).run() if l["product_id"] == plant["top"].id]
+        lines = [l for l in MrpService(db).run() if l["material_id"] == plant["top"].material_id]
         assert [(l["branch_code"], l["on_hand_quantity"]) for l in lines] == [(plant["branch"].branch_code, 10)]
         assert lines[0]["suggested_quantity"] == 12 - 10 - lines[0]["on_order_quantity"]
 
     def test_mrp_nets_free_stock(self, db, plant):
         _order(db, plant, qty=12)
-        lines = {l["product_id"]: l for l in MrpService(db).run(branch_codes=[plant["branch"].branch_code])}
-        top = lines[plant["top"].id]
+        lines = {l["material_id"]: l for l in MrpService(db).run(branch_codes=[plant["branch"].branch_code])}
+        top = lines[plant["top"].material_id]
         assert top["production_demand"] == 12 and top["on_hand_quantity"] == 10
         # the stock fixture's PO line (1 unit, no GRN item) is still open on order
         assert top["on_order_quantity"] == 1 and top["suggested_quantity"] == 1
         assert top["suggested_action"] == "purchase"
-        leg = lines[plant["leg"].id]
+        leg = lines[plant["leg"].material_id]
         assert leg["suggested_quantity"] == 48 - 40 - leg["on_order_quantity"]
 
     def test_job_cards_list_open_operations_of_released_orders(self, db, plant):
@@ -293,7 +298,7 @@ class TestApi:
     def test_create_via_api(self, db, api, plant, make_user):
         _u, token = make_user(permissions=[("production_orders", "create")], branches=[plant["branch"]])
         r = api(token).post("/api/v1/manufacturing/orders", json={
-            "product_id": plant["fg"].id, "branch_code": plant["branch"].branch_code, "planned_quantity": 3,
+            "material_id": plant["fg"].material_id, "branch_code": plant["branch"].branch_code, "planned_quantity": 3,
             "planned_start_date": str(date.today()), "planned_end_date": str(date.today())})
         assert r.status_code == 201, r.text
         assert r.json()["bom_id"] == plant["bom"]["id"]

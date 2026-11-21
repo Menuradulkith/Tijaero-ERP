@@ -33,6 +33,8 @@ import { useNavigate } from "react-router-dom";
 import { EmptyState, FormSection, MasterDetailLayout, modernTableStyles, TChip, TStatusChip } from "@/components/tijaero";
 import { productionOrdersApi } from "@/modules/manufacturing/api";
 import type { TraceLot, TraceOrder } from "@/modules/manufacturing/types";
+import { ItemLink } from "@/modules/manufacturing/components/ItemFields";
+import { mfgItemCode } from "@/modules/manufacturing/itemDisplay";
 import { formatDate } from "@/utils/formatters";
 
 function LotTable({ lots, empty, highlight }: { lots: TraceLot[]; empty: string; highlight: string }) {
@@ -42,7 +44,7 @@ function LotTable({ lots, empty, highlight }: { lots: TraceLot[]; empty: string;
       <Table size="small">
         <TableHead>
           <TableRow sx={modernTableStyles.headerRow}>
-            <TableCell>Product</TableCell>
+            <TableCell>Item</TableCell>
             <TableCell>Batch</TableCell>
             <TableCell>Expiry</TableCell>
             <TableCell align="right">Qty</TableCell>
@@ -57,10 +59,10 @@ function LotTable({ lots, empty, highlight }: { lots: TraceLot[]; empty: string;
             lots.map((l, i) => {
               const match = !!hl && (l.batch_no || "").toLowerCase() === hl;
               return (
-                <TableRow key={`${l.product_id}-${l.batch_no || ""}-${i}`} sx={{ ...modernTableStyles.bodyRow, ...(match ? { bgcolor: "action.selected" } : {}) }}>
+                <TableRow key={`${l.material_id ?? `p${l.product_id}`}-${l.batch_no || ""}-${i}`} sx={{ ...modernTableStyles.bodyRow, ...(match ? { bgcolor: "action.selected" } : {}) }}>
                   <TableCell>
-                    <Typography variant="body2" fontWeight={600}>{l.product_name || "-"}</Typography>
-                    <Typography variant="caption" color="text.secondary">{l.product_code}</Typography>
+                    <Typography variant="body2" fontWeight={600}><ItemLink row={l} /></Typography>
+                    <Typography variant="caption" color="text.secondary">{mfgItemCode(l)}{l.unit_of_measure ? ` · ${l.unit_of_measure}` : ""}</Typography>
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight={match ? 700 : undefined}>{l.batch_no || "-"}</Typography>
@@ -168,7 +170,7 @@ export default function BatchTracePage() {
               data.orders.map((o, idx) => (
                 <FormSection
                   key={o.order_id}
-                  title={`${o.order_no} — ${o.product_name || ""}`}
+                  title={`${o.order_no} — ${o.material_name || o.product_name || ""}`}
                   columns={2}
                   isLast={idx === data.orders.length - 1}
                   titleAction={

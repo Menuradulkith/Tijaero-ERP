@@ -19,6 +19,7 @@ from app.common.audit import log_audit
 from app.common.enums import AssetStatus, StockStatus
 from app.core import timezone as tz
 from app.modules.inventory.models import CompanyAssets, SalesStock
+from app.modules.inventory.ledger import set_stock_reference
 
 
 def _bad(detail: str) -> HTTPException:
@@ -55,7 +56,9 @@ class ReclassificationService:
             asset = CompanyAssets(
                 product_id=stock.product_id,
                 inventory_no=f"INV-{grn_no}-{stock.barcode}" if grn_no else f"INV-{stock.barcode}",
-                item=product.name if product else f"Product {stock.product_id}",
+                # item-only stock (no product) is named after its Item Catalog item
+                item=product.name if product else (
+                    stock.material.name if stock.material else f"Product {stock.product_id}"),
                 description=f"Moved from sales stock: {reason}",
                 branch_code=stock.branch_code,
                 barcode=stock.barcode,
@@ -67,6 +70,8 @@ class ReclassificationService:
                 added_date=tz.now(),
             )
             self.db.add(asset)
+            self.db.flush()
+        set_stock_reference(self.db, "reclassification", asset.id, asset.inventory_no)
         stock.status = StockStatus.TRANSFERRED
         stock.is_active = False
         self.db.flush()
@@ -94,6 +99,7 @@ class ReclassificationService:
         if asset.asigned_to:
             raise _bad("This asset is assigned to an employee; unassign it first.")
 
+        set_stock_reference(self.db, "reclassification", asset.id, asset.inventory_no)
         stock = self.db.query(SalesStock).filter(SalesStock.barcode == asset.barcode).with_for_update().first()
         if stock is not None:
             if stock.status != StockStatus.TRANSFERRED:
@@ -106,8 +112,12 @@ class ReclassificationService:
         else:
             if not (asset.good_received_note_id and asset.purchasing_order_items_id):
                 raise _bad("This asset has no GRN reference, so it cannot be returned to sales stock.")
+            from app.modules.purchasing.models import PurchasingOrderItems
+            line_item = self.db.query(PurchasingOrderItems.material_id).filter(
+                PurchasingOrderItems.id == asset.purchasing_order_items_id).scalar()
             stock = SalesStock(
                 product_id=asset.product_id,
+                material_id=line_item,  # the PO line's item (item-only stock has no product)
                 barcode=asset.barcode,
                 branch_code=asset.branch_code,
                 location_id=location_id,

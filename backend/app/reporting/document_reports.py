@@ -237,8 +237,9 @@ class DocumentReportService:
             items.append(
                 {
                     "product_id": item.product_id,
+                    "material_id": item.material_id,
                     "product_name": (
-                        product.name if product else f"Product #{item.product_id}"
+                        item.material_name or (product.name if product else f"Product #{item.product_id}")
                     ),
                     "description": getattr(item, "description", "") or "",
                     "remark": item.remark or "",
@@ -334,7 +335,8 @@ class DocumentReportService:
                 else 0
             )
             product_name = (
-                stock.product.name if stock.product else f"Product #{stock.product_id}"
+                stock.product.name if stock.product else (
+                    stock.material.name if stock.material else f"Product #{stock.product_id}")
             )
             items.append(
                 {
@@ -446,7 +448,8 @@ class DocumentReportService:
             unit_price = item.purchasing_price or 0
             qty = item.quantity or 1
             product_name = (
-                item.product.name if item.product else f"Product #{item.product_id}"
+                item.product.name if item.product else (
+                    item.material.name if item.material else f"Product #{item.product_id}")
             )
             # Batch/none lots have no barcode: show the batch and quantity instead.
             batch_no = item.sales_stock.batch_no if item.sales_stock else None
@@ -1297,7 +1300,7 @@ class DocumentReportService:
         return dict(
             order={
                 "id": order.id, "order_no": order.order_no, "status": order.status,
-                "product_name": order.product.name if order.product else "",
+                "product_name": (order.item.name if order.item else order.product.name if order.product else ""),
                 "planned_quantity": order.planned_quantity, "produced_quantity": order.produced_quantity,
                 "planned_start_date": str(order.planned_start_date), "planned_end_date": str(order.planned_end_date),
                 "branch_code": order.branch_code,

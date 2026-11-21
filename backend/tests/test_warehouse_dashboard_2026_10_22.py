@@ -182,6 +182,7 @@ class TestStockValuation:
         b = make_sales_stock(product=product, branch=branch)
         db.get(PurchasingOrderItems, a.purchasing_order_items_id).unit_price = 80
         db.get(PurchasingOrderItems, b.purchasing_order_items_id).unit_price = 100
+        a.unit_cost, b.unit_cost = 80, 100  # phase 5: the cost captured on the row at receipt is the valuation
         product.cost_price = 150  # a later cost change must not revalue the stock on the shelf
         db.flush()
 

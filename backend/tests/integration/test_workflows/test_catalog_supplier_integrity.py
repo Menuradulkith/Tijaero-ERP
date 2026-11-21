@@ -17,6 +17,9 @@ from decimal import Decimal
 
 import pytest
 
+from tests.conftest import product_master_ids
+from tests.conftest import item_id_for
+
 INV = "/api/v1/inventory"
 PUR = "/api/v1/purchasing"
 
@@ -56,6 +59,7 @@ def _product(c, **extra):
         "selling_price": 200,
         "category_id": cat["id"],
         "items_brand_id": brand["id"],
+        **product_master_ids(c),
         **extra,
     }
     r = c.post(f"{INV}/products/", json=payload)
@@ -208,6 +212,7 @@ class TestMinimumPrice:
         r = superclient.post(f"{INV}/products/", json={
             "name": _uid("P "), "item_type": "general", "tracking_type": "serial", "cost_price": 100,
             "category_id": cat["id"], "items_brand_id": brand["id"], "minimum_selling_price": 50,
+            **product_master_ids(superclient),
         })
         assert r.status_code == 400
         # nothing half-created
@@ -239,7 +244,7 @@ class TestCatalogDuplicates:
         cat, brand = _category(superclient), _brand(superclient)
         r = superclient.post(f"{INV}/products/", json={
             "name": p["name"].upper(), "item_type": "general", "tracking_type": "serial", "cost_price": 1,
-            "category_id": cat["id"], "items_brand_id": brand["id"],
+            "category_id": cat["id"], "items_brand_id": brand["id"], **product_master_ids(superclient),
         })
         assert r.status_code in (400, 409)
 
@@ -397,7 +402,7 @@ class TestSupplierCreditAndStatus:
             "good_received_note_date": str(date.today()),
             "first_suppliers_id": s["id"],
             "second_suppliers_id": None,
-            "items": [{"product_id": product.id, "quantity": 1, "unit_price": "10.00", "warrenty_month": "0"}],
+            "items": [{"material_id": item_id_for(product, s["id"], 10), "quantity": 1, "unit_price": "10.00", "warrenty_month": "0"}],
         })
         assert r.status_code == 400
         assert "inactive" in r.json()["detail"]

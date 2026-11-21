@@ -118,6 +118,10 @@ export const PERMISSIONS = {
   // ═══════════════════════════════════════════════════════════════════
   // INVENTORY / PRODUCT CATALOGS — per sub-page permissions
   // ═══════════════════════════════════════════════════════════════════
+  // Materials (material master / item catalog)
+  MATERIALS_VIEW: { resource: "materials", action: "view" },
+  MATERIALS_CREATE: { resource: "materials", action: "create" },
+  MATERIALS_UPDATE: { resource: "materials", action: "update" },
   // Products
   PRODUCTS_VIEW: { resource: "products", action: "view" },
   PRODUCTS_CREATE: { resource: "products", action: "create" },
@@ -334,6 +338,10 @@ export const PERMISSIONS = {
   // ITN Approvals
   ITN_APPROVALS_VIEW: { resource: "itn_approvals", action: "view" },
   ITN_APPROVALS_APPROVE: { resource: "itn_approvals", action: "approve" },
+  // Stock Counts (warehouse.stock_count.*)
+  STOCK_COUNT_VIEW: { resource: "stock_count", action: "view" },
+  STOCK_COUNT_CREATE: { resource: "stock_count", action: "create" },
+  STOCK_COUNT_POST: { resource: "stock_count", action: "post" },
   // Receive Notes
   RECEIVE_NOTES_VIEW: { resource: "receive_notes", action: "view" },
   RECEIVE_NOTES_CREATE: { resource: "receive_notes", action: "create" },
@@ -537,6 +545,7 @@ export const MODULE_PERMISSIONS: Record<
 > = {
   "/dashboard": PERMISSIONS.DASHBOARD_VIEW,
   "/sales": PERMISSIONS.SALES_DASHBOARD_VIEW,
+  "/materials": PERMISSIONS.MATERIALS_VIEW,
   "/purchasing": PERMISSIONS.PURCHASING_DASHBOARD_VIEW,
   "/manufacturing": PERMISSIONS.MANUFACTURING_DASHBOARD_VIEW,
   "/product-catalogs": PERMISSIONS.PRODUCTS_VIEW,

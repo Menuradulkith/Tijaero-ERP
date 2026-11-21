@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 from app.core import timezone as tz
 from app.common.audit import log_audit, diff_changes, diff_line_items
 from app.common.enums import PurchaseOrderStatus, DocumentStatus, StockStatus
+from app.modules.inventory.ledger import set_stock_reference
 from app.modules.common.approval_service import approval_service, ApprovalType, ApprovalStatus
 from app.modules.finance.gl_posting_service import record_gl_commit_failure
 
@@ -583,6 +584,75 @@ class SupplierProductService:
         self.repo.delete(mapping_id)
 
 
+class SupplierItemService:
+    """A supplier's price list on Item Catalog items (material_suppliers), seen from
+    the supplier side. Writes go through the materials service so the item rules
+    (one link per supplier, one preferred supplier per item, cost > 0) are shared."""
+
+    def __init__(self, db: Session):
+        self.db = db
+        self.supplier_repo = repository.SupplierRepository(db)
+
+    def _ensure_supplier(self, supplier_id: int) -> models.Supplier:
+        supplier = self.supplier_repo.get_by_id(supplier_id)
+        if not supplier:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Supplier with id {supplier_id} not found")
+        return supplier
+
+    def _stamp(self, links):
+        from app.modules.materials import repository as material_repo
+        from app.modules.materials.models import Material
+
+        material_repo.stamp_link_display_fields(self.db, links)
+        mids = {l.material_id for l in links}
+        uoms = dict(self.db.query(Material.id, Material.unit_of_measure).filter(Material.id.in_(mids)).all()) if mids else {}
+        for l in links:
+            l.unit_of_measure = uoms.get(l.material_id)
+        return links
+
+    def list_items(self, supplier_id: int, active_only: bool = False):
+        from app.modules.materials.models import Material, MaterialSupplier
+
+        self._ensure_supplier(supplier_id)
+        q = (
+            self.db.query(MaterialSupplier)
+            .join(Material, Material.id == MaterialSupplier.material_id)
+            .filter(MaterialSupplier.supplier_id == supplier_id)
+        )
+        if active_only:
+            q = q.filter(MaterialSupplier.active.is_(True), Material.active.is_(True))
+        return self._stamp(q.order_by(Material.name, MaterialSupplier.id).all())
+
+    def create_item(self, supplier_id: int, data: schemas.SupplierItemCreate):
+        from app.modules.materials import schemas as material_schemas
+        from app.modules.materials import service as material_service
+
+        self._ensure_supplier(supplier_id)
+        link = material_service.add_supplier(
+            self.db, data.material_id,
+            material_schemas.MaterialSupplierCreate(supplier_id=supplier_id, **data.model_dump(exclude={"material_id"})),
+        )
+        return self._stamp([link])[0]
+
+    def update_item(self, supplier_id: int, link_id: int, data: schemas.SupplierItemUpdate):
+        from app.modules.materials import schemas as material_schemas
+        from app.modules.materials import service as material_service
+        from app.modules.materials.models import MaterialSupplier
+
+        self._ensure_supplier(supplier_id)
+        link = self.db.query(MaterialSupplier).filter(MaterialSupplier.id == link_id).first()
+        if not link or link.supplier_id != supplier_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Supplier item with id {link_id} not found for this supplier",
+            )
+        updated = material_service.update_supplier(
+            self.db, link.material_id, link_id,
+            material_schemas.MaterialSupplierUpdate(**data.model_dump(exclude_unset=True)),
+        )
+        return self._stamp([updated])[0]
+
+
 RECEIVABLE_PO_STATUSES = ("approved", "partially_completed")
 
 
@@ -687,17 +757,9 @@ class PurchasingOrderService:
                     detail=f"Supplier '{second_supplier.company_name}' is inactive. Please reactivate the supplier before creating a purchase order."
                 )
 
-        # ── Validate all products in order items are active ──
+        # ── Lines buy active Item Catalog items the supplier sells (price / MOQ from the link) ──
         if order.items:
-            from app.modules.products.models import Product
-            for po_item in order.items:
-                if hasattr(po_item, 'product_id') and po_item.product_id:
-                    product = self.db.query(Product).filter(Product.id == po_item.product_id).first()
-                    if product and not product.active:
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Product '{product.name}' (ID: {product.id}) is inactive. Please reactivate the product before adding it to a purchase order."
-                        )
+            self._resolve_item_lines(order.items, first_supplier)
 
         # ── Validate quote-sourced items aren't already fulfilled, and that
         # the requested quantity doesn't exceed what's left to procure. This
@@ -737,6 +799,59 @@ class PurchasingOrderService:
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Unit price {po_item.unit_price} for quotation item {quote_item.id} is higher than its selling price {quote_item.selling_price}; a purchase above the selling price would sell at a loss."
                     )
+
+    def _resolve_item_lines(self, items, supplier: models.Supplier) -> None:
+        """Validate PO lines against the Item Catalog: the item exists and is active, the
+        supplier has an active price for it on the item's Suppliers tab (unit_price defaults
+        to that price), the item's total quantity meets the supplier's minimum order
+        quantity, and a quotation-sourced line buys the item of the quoted product."""
+        from app.modules.materials.models import Material
+        from app.modules.purchasing.items import NO_SUPPLIER_LINK, ensure_product_item, supplier_link
+        from app.modules.sales.quotation_models import SalesQuoteItem
+
+        totals: Dict[int, int] = {}
+        for line in items:
+            totals[line.material_id] = totals.get(line.material_id, 0) + line.quantity
+        materials = {
+            m.id: m for m in self.db.query(Material).filter(Material.id.in_(list(totals))).all()
+        }
+        links = {}
+        for material_id, qty in totals.items():
+            material = materials.get(material_id)
+            if material is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                    detail=f"Item with id {material_id} not found in the Item Catalog")
+            if not material.active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Item '{material.name}' ({material.item_code}) is inactive. Reactivate it before adding it to a purchase order.",
+                )
+            link = supplier_link(self.db, supplier.id, material_id)
+            if link is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Supplier '{supplier.company_name}' has no active price for item '{material.name}' ({material.item_code}). {NO_SUPPLIER_LINK}.",
+                )
+            if link.minimum_order_qty and qty < link.minimum_order_qty:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Supplier '{supplier.company_name}' sells item '{material.name}' in a minimum order quantity of {link.minimum_order_qty}; this order has {qty}.",
+                )
+            links[material_id] = link
+        for line in items:
+            if line.unit_price is None:
+                line.unit_price = Decimal(str(links[line.material_id].cost_price)).quantize(Decimal("0.01"))
+            if line.quote_item_id:
+                qi = self.db.query(SalesQuoteItem).filter(SalesQuoteItem.id == line.quote_item_id).first()
+                if qi is not None and qi.product is not None:
+                    quoted_item = ensure_product_item(self.db, qi.product)
+                    if quoted_item != line.material_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Quotation item {qi.id} is for product '{qi.product.name}', which "
+                                   + (f"sells a different item (id {quoted_item})." if quoted_item
+                                      else "has no Item Catalog item and cannot be bought."),
+                        )
 
     def _fulfill_quote_items(self, order: schemas.PurchasingOrderCreate) -> None:
         """Mark this order's quote-sourced items (those carrying a
@@ -988,73 +1103,91 @@ class PurchasingOrderService:
         return self.repo.get_page(filters, page, size, sort_by, order)
 
     def get_available_stock_by_product(self, product_ids: List[int], branch_code: str) -> Dict[int, int]:
-        """Currently-available stock count per product at a branch — same
+        """Currently-available stock quantity per product at a branch — same
         "available" definition (status + is_active) as the procurement
-        queue's available_quantity. Used by the PO creation wizard so the
-        user can see what's already in stock before ordering more."""
+        queue's available_quantity. Counted through each product's item (central stock)."""
+        from app.modules.inventory.item_stock import available_qty_by_product
+
+        if not product_ids:
+            return {}
+        return available_qty_by_product(self.db, product_ids, branch_codes=[branch_code])
+
+    def get_available_stock_by_material(self, material_ids: List[int], branch_code: str) -> Dict[int, int]:
+        """Available stock quantity per Item Catalog item at a branch (sums lot quantities)."""
         from app.modules.inventory.models import SalesStock
 
-        if not product_ids:
+        if not material_ids:
             return {}
-        stock_rows = (
-            self.db.query(SalesStock.product_id, func.count(SalesStock.id))
+        rows = (
+            self.db.query(SalesStock.material_id, func.coalesce(func.sum(SalesStock.quantity), 0))
             .filter(
-                SalesStock.product_id.in_(product_ids),
+                SalesStock.material_id.in_(material_ids),
                 SalesStock.branch_code == branch_code,
                 SalesStock.status == StockStatus.AVAILABLE,
-                SalesStock.is_active == True,
+                SalesStock.is_active.is_(True),
             )
-            .group_by(SalesStock.product_id)
+            .group_by(SalesStock.material_id)
             .all()
         )
-        return {product_id: int(count) for product_id, count in stock_rows}
+        return {mid: int(qty) for mid, qty in rows}
 
-    def get_in_transit_by_product(self, product_ids: List[int], branch_code: str) -> Dict[int, int]:
-        """Units still on their way per product at a branch: ordered on
-        approved / partially received purchase orders, minus what the GRNs
-        have already received. Pending-approval, rejected, cancelled,
-        completed and short-closed orders never count."""
-        if not product_ids:
-            return {}
+    def _in_transit(self, key_col, keys, branch_code: str) -> Dict[int, int]:
+        """Ordered on approved / partially received POs minus received, grouped by a PO-line column."""
         open_statuses = (PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.PARTIALLY_COMPLETED)
+        base = (
+            models.PurchasingOrder.branch_code == branch_code,
+            models.PurchasingOrder.status.in_(open_statuses),
+            key_col.in_(list(keys)),
+        )
         ordered = dict(
-            self.db.query(
-                models.PurchasingOrderItems.product_id,
-                func.coalesce(func.sum(models.PurchasingOrderItems.quantity), 0),
-            )
+            self.db.query(key_col, func.coalesce(func.sum(models.PurchasingOrderItems.quantity), 0))
             .join(models.PurchasingOrder, models.PurchasingOrder.id == models.PurchasingOrderItems.purchasingorders_id)
-            .filter(
-                models.PurchasingOrderItems.product_id.in_(product_ids),
-                models.PurchasingOrder.branch_code == branch_code,
-                models.PurchasingOrder.status.in_(open_statuses),
-            )
-            .group_by(models.PurchasingOrderItems.product_id)
+            .filter(*base)
+            .group_by(key_col)
             .all()
         )
         received = dict(
-            self.db.query(
-                models.PurchasingOrderItems.product_id,
-                func.coalesce(func.sum(models.GoodReceivedItems.quantity), 0),
-            )
-            .join(
-                models.GoodReceivedItems,
-                models.GoodReceivedItems.purchasing_order_items_id == models.PurchasingOrderItems.id,
-            )
+            self.db.query(key_col, func.coalesce(func.sum(models.GoodReceivedItems.quantity), 0))
+            .join(models.GoodReceivedItems,
+                  models.GoodReceivedItems.purchasing_order_items_id == models.PurchasingOrderItems.id)
             .join(models.PurchasingOrder, models.PurchasingOrder.id == models.PurchasingOrderItems.purchasingorders_id)
-            .filter(
-                models.PurchasingOrderItems.product_id.in_(product_ids),
-                models.PurchasingOrder.branch_code == branch_code,
-                models.PurchasingOrder.status.in_(open_statuses),
-                models.GoodReceivedItems.active == True,
-            )
-            .group_by(models.PurchasingOrderItems.product_id)
+            .filter(*base, models.GoodReceivedItems.active == True)
+            .group_by(key_col)
             .all()
         )
         result = {}
-        for product_id, qty in ordered.items():
-            remaining = int(qty) - int(received.get(product_id, 0))
+        for key, qty in ordered.items():
+            remaining = int(qty) - int(received.get(key, 0))
             if remaining > 0:
-                result[product_id] = remaining
+                result[key] = remaining
+        return result
+
+    def get_in_transit_by_material(self, material_ids: List[int], branch_code: str) -> Dict[int, int]:
+        """Units per item still on their way at a branch: ordered on approved / partially
+        received purchase orders, minus what the GRNs have already received."""
+        if not material_ids:
+            return {}
+        return self._in_transit(models.PurchasingOrderItems.material_id, material_ids, branch_code)
+
+    def get_in_transit_by_product(self, product_ids: List[int], branch_code: str) -> Dict[int, int]:
+        """Units per product still on their way at a branch, counted through each
+        product's item (PO lines buy items); unlinked products by their own old lines.
+        Pending-approval, rejected, cancelled, completed and short-closed orders never count."""
+        from app.modules.inventory.item_stock import material_ids_for_products
+
+        if not product_ids:
+            return {}
+        links = material_ids_for_products(self.db, product_ids)
+        by_material = self.get_in_transit_by_material([m for m in links.values() if m], branch_code)
+        unlinked = [p for p, m in links.items() if not m]
+        by_product = (
+            self._in_transit(models.PurchasingOrderItems.product_id, unlinked, branch_code) if unlinked else {}
+        )
+        result = {}
+        for pid, mid in links.items():
+            qty = by_material.get(mid, 0) if mid else by_product.get(pid, 0)
+            if qty > 0:
+                result[pid] = qty
         return result
 
     def update_order(self, order_id: int, order_update: schemas.PurchasingOrderUpdate, updated_by: Optional[int] = None) -> models.PurchasingOrder:
@@ -1092,19 +1225,15 @@ class PurchasingOrderService:
         if new_required and new_required < new_order_date:
             raise HTTPException(status_code=422, detail="Required date cannot be before the order date")
         if order_update.items is not None:
-            # Same line rules as a new PO: products must exist and be active; quotation-sourced
+            # Same line rules as a new PO: active items the (new) supplier sells; quotation-sourced
             # lines cannot be bought above the quotation selling price.
-            from app.modules.products.models import Product
             from app.modules.sales.quotation_models import SalesQuoteItem as _QuoteItem
+            line_supplier = self.supplier_repo.get_by_id(order_update.first_suppliers_id or existing_po.first_suppliers_id)
+            if line_supplier is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                    detail=f"First supplier with id {order_update.first_suppliers_id} not found")
+            self._resolve_item_lines(order_update.items, line_supplier)
             for line in order_update.items:
-                product = self.db.query(Product).filter(Product.id == line.product_id).first()
-                if not product:
-                    raise HTTPException(status_code=404, detail=f"Product with id {line.product_id} not found")
-                if not product.active:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Product '{product.name}' (ID: {product.id}) is inactive. Please reactivate the product before adding it to a purchase order.",
-                    )
                 if line.quote_item_id:
                     qi = self.db.query(_QuoteItem).filter(_QuoteItem.id == line.quote_item_id).first()
                     if not qi:
@@ -1167,14 +1296,15 @@ class PurchasingOrderService:
         item_changes = []
         if order_update.items is not None:
             before_items = [
-                {"product_id": i.product_id, "quantity": i.quantity, "unit_price": float(i.unit_price)}
+                {"part": f"m{i.material_id}" if i.material_id else f"p{i.product_id}",
+                 "quantity": i.quantity, "unit_price": float(i.unit_price)}
                 for i in existing_po.items
             ]
             after_items = [
-                {"product_id": i.product_id, "quantity": i.quantity, "unit_price": float(i.unit_price)}
+                {"part": f"m{i.material_id}", "quantity": i.quantity, "unit_price": float(i.unit_price)}
                 for i in order_update.items
             ]
-            item_changes = diff_line_items(before_items, after_items, key_field="product_id")
+            item_changes = diff_line_items(before_items, after_items, key_field="part")
 
         order = self.repo.update(order_id, order_update)
         if not order:
@@ -1190,15 +1320,18 @@ class PurchasingOrderService:
         if changed_fields:
             changes = diff_changes(before_values, submitted_fields)
             if item_changes:
+                from app.modules.materials.models import Material
                 from app.modules.products.models import Product
 
-                product_ids = {entry["key"] for entry in item_changes}
-                product_names = {
-                    p.id: p.name
-                    for p in self.db.query(Product).filter(Product.id.in_(product_ids)).all()
-                }
+                keys = [str(entry["key"]) for entry in item_changes]
+                mids = {int(k[1:]) for k in keys if k.startswith("m")}
+                pids = {int(k[1:]) for k in keys if k.startswith("p")}
+                names = {f"m{m.id}": m.name for m in self.db.query(Material).filter(Material.id.in_(mids)).all()} if mids else {}
+                names.update({f"p{p.id}": p.name for p in self.db.query(Product).filter(Product.id.in_(pids)).all()} if pids else {})
                 for entry in item_changes:
-                    entry["product_name"] = product_names.get(entry["key"], f"Product #{entry['key']}")
+                    k = str(entry["key"])
+                    entry["product_name"] = names.get(k, f"Item #{k[1:]}")
+                    entry["material_id" if k.startswith("m") else "product_id"] = int(k[1:])
                 changes["item_changes"] = item_changes
                 changes.setdefault("fields", [])
                 changes["fields"] = sorted(set(changes["fields"]) | {"items"})
@@ -1573,6 +1706,9 @@ class ProcurementQueueService:
                     detail="The quotation is not approved or is closed; its items cannot be queued for procurement.",
                 )
             _check_quote_item_open(quote_item, item.quantity)
+            # Purchasing buys items: a stocked product without one gets it now (phase 2 rule).
+            from app.modules.purchasing.items import ensure_product_item
+            ensure_product_item(self.db, quote_item.product, added_by or None)
             if item.unit_price > quote_item.selling_price:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1651,18 +1787,10 @@ class ProcurementQueueService:
         branch_codes_in_rows = {b for _, b in product_branch_pairs}
         available_map: Dict[tuple, int] = {}
         if product_ids:
-            stock_rows = (
-                self.db.query(SalesStock.product_id, SalesStock.branch_code, func.count(SalesStock.id))
-                .filter(
-                    SalesStock.product_id.in_(product_ids),
-                    SalesStock.branch_code.in_(branch_codes_in_rows),
-                    SalesStock.status == StockStatus.AVAILABLE,
-                    SalesStock.is_active == True,
-                )
-                .group_by(SalesStock.product_id, SalesStock.branch_code)
-                .all()
-            )
-            available_map = {(p, b): c for p, b, c in stock_rows}
+            # Through each product's item (central stock).
+            from app.modules.inventory.item_stock import available_qty_by_product
+            available_map = available_qty_by_product(self.db, product_ids, branch_codes=branch_codes_in_rows,
+                                                     by_branch=True)
 
         quote_item_ids = {quote_item.id for _, quote_item, _, _, _ in rows}
         ordered_map: Dict[int, int] = {}
@@ -1675,8 +1803,13 @@ class ProcurementQueueService:
             )
             ordered_map = {qid: int(qty) for qid, qty in ordered_rows}
 
+        from app.modules.materials.models import Material
+        mids = {product.material_id for _, _, _, product, _ in rows if product.material_id}
+        materials = {m.id: m for m in self.db.query(Material).filter(Material.id.in_(mids)).all()} if mids else {}
+
         result = []
         for queue_item, quote_item, quote, product, supplier in rows:
+            material = materials.get(product.material_id) if product.material_id else None
             required_qty = max(quote_item.quantity - (quote_item.converted_qty or 0), 0)
             available_qty = available_map.get((quote_item.product_id, quote.branch_code), 0)
             ordered_qty = ordered_map.get(quote_item.id, 0)
@@ -1692,6 +1825,14 @@ class ProcurementQueueService:
                     supplier_name=supplier.company_name,
                     product_id=product.id,
                     product_name=product.name,
+                    material_id=material.id if material else None,
+                    material_item_code=material.item_code if material else None,
+                    material_name=material.name if material else None,
+                    unit_of_measure=material.unit_of_measure if material else None,
+                    item_missing_reason=None if material else (
+                        f"Product '{product.name}' has no Item Catalog item (it is not a stocked product), "
+                        "so it cannot be bought on a purchase order."
+                    ),
                     quantity=queue_item.quantity,
                     unit_price=queue_item.unit_price,
                     added_date=queue_item.added_date,
@@ -1856,8 +1997,9 @@ class PurchasingReturnService:
                 status=stock_item.status
             )
 
-        product = self.db.query(Product).filter(Product.id == stock_item.product_id).first()
-        product_name = product.name if product else "Unknown"
+        product = self.db.query(Product).filter(Product.id == stock_item.product_id).first() if stock_item.product_id else None
+        material = stock_item.material
+        product_name = product.name if product else (material.name if material else "Unknown")
 
         po_item = self.db.query(models.PurchasingOrderItems).filter(
             models.PurchasingOrderItems.id == stock_item.purchasing_order_items_id
@@ -1888,6 +2030,9 @@ class PurchasingReturnService:
             sales_stock_id=stock_item.id,
             product_id=stock_item.product_id,
             product_name=product_name,
+            material_id=stock_item.material_id,
+            material_item_code=material.item_code if material else None,
+            material_name=material.name if material else None,
             purchasing_price=purchasing_price,
             status=stock_item.status,
             warranty_month=warranty_month,
@@ -1924,7 +2069,8 @@ class PurchasingReturnService:
         if quantity < 1 or quantity > row.quantity:
             return bad(f"Only {row.quantity} unit(s) of this lot are available to return.", row.quantity)
 
-        product = self.db.query(Product).filter(Product.id == row.product_id).first()
+        product = self.db.query(Product).filter(Product.id == row.product_id).first() if row.product_id else None
+        material = row.material
         po_item = self.db.query(models.PurchasingOrderItems).filter(
             models.PurchasingOrderItems.id == row.purchasing_order_items_id
         ).first()
@@ -1933,7 +2079,10 @@ class PurchasingReturnService:
             message="Valid - lot can be returned",
             sales_stock_id=row.id,
             product_id=row.product_id,
-            product_name=product.name if product else None,
+            product_name=product.name if product else (material.name if material else None),
+            material_id=row.material_id,
+            material_item_code=material.item_code if material else None,
+            material_name=material.name if material else None,
             batch_no=row.batch_no,
             available_quantity=row.quantity,
             purchasing_price=po_item.unit_price if po_item else None,
@@ -2002,6 +2151,16 @@ class PurchasingReturnService:
                 detail=f"Return price {item.return_price} for {label} is higher than its purchase price {reference}.",
             )
 
+    @staticmethod
+    def _check_return_part(item, material_id, product_id, label: str) -> None:
+        """The line's item (or, on an old client, product) must be the stock's."""
+        if item.material_id and item.material_id != material_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail=f"Item {item.material_id} does not match {label}.")
+        if not item.material_id and item.product_id and product_id is not None and item.product_id != product_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail=f"Product {item.product_id} does not match {label}.")
+
     def create_return(
         self,
         return_data: schemas.PurchasingReturnCreate,
@@ -2057,11 +2216,7 @@ class PurchasingReturnService:
                         grn, po_item_id, item.quantity, lot_qty_in_request.get(po_item_id, 0)
                     )
                     lot_qty_in_request[po_item_id] = lot_qty_in_request.get(po_item_id, 0) + item.quantity
-                if lot_row.product_id != item.product_id:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Product {item.product_id} does not match stock lot {item.sales_stock_id}.",
-                    )
+                self._check_return_part(item, lot_row.material_id, lot_row.product_id, f"stock lot {item.sales_stock_id}")
                 self._check_return_price(item, lot_validation, f"lot {item.sales_stock_id}")
                 piece = split_lot(self.db, lot_row, item.quantity)
                 lot_validation.sales_stock_id = piece.id
@@ -2095,11 +2250,7 @@ class PurchasingReturnService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Barcode {item.barcode} is already on purchase return #{open_returns[0]}.",
                 )
-            if validation.product_id is not None and validation.product_id != item.product_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Product {item.product_id} does not match barcode {item.barcode}.",
-                )
+            self._check_return_part(item, validation.material_id, validation.product_id, f"barcode {item.barcode}")
             self._check_return_price(item, validation, f"barcode {item.barcode}")
             seen_stock_ids.add(validation.sales_stock_id)
             validated_items.append((item, validation))
@@ -2124,6 +2275,7 @@ class PurchasingReturnService:
         )
         self.db.add(db_return)
         self.db.flush() 
+        set_stock_reference(self.db, "purchase_return", db_return.id, return_no)
         
         for item, validation in validated_items:
             db_item = models.PurchasingReturnItems(
@@ -2134,7 +2286,9 @@ class PurchasingReturnService:
                 quantity=item.quantity,
                 branch_code=return_data.branch_code,
                 added_date=now,
-                product_id=item.product_id,
+                # the stock row decides what goes back (item-only stock has no product)
+                product_id=validation.product_id,
+                material_id=validation.material_id,
                 purchasingreturn_id=db_return.id,
                 sales_stock_id=validation.sales_stock_id
             )
@@ -2209,6 +2363,7 @@ class PurchasingReturnService:
                 detail=f"Purchase return with id {return_id} not found"
             )
         
+        set_stock_reference(self.db, "purchase_return", return_record.id, return_record.purchasing_return_no)
         if return_record.status != DocumentStatus.PENDING:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -2614,15 +2769,18 @@ class GoodReceivedNoteService:
                 from app.modules.sales.quotation_models import SalesQuote, SalesQuoteItem, QuoteStatus
                 linked_quote = self.db.query(SalesQuote).filter(SalesQuote.id == po.sales_quote_id).first()
                 if linked_quote:
-                    # Get PO item product_ids
+                    # Quote items this PO bought: by quote_item_id, else (old lines) by product
                     from app.modules.purchasing.models import PurchasingOrderItems
-                    po_product_ids = {pi.product_id for pi in self.db.query(PurchasingOrderItems).filter(
+                    po_lines = self.db.query(PurchasingOrderItems).filter(
                         PurchasingOrderItems.purchasingorders_id == po.id
-                    ).all()}
+                    ).all()
+                    po_product_ids = {pi.product_id for pi in po_lines if pi.product_id}
+                    po_quote_item_ids = {pi.quote_item_id for pi in po_lines if pi.quote_item_id}
+                    from sqlalchemy import or_ as _or
                     # Update matching quote items that are in 'procurement' state
                     for qi in self.db.query(SalesQuoteItem).filter(
                         SalesQuoteItem.quote_id == linked_quote.id,
-                        SalesQuoteItem.product_id.in_(po_product_ids),
+                        _or(SalesQuoteItem.product_id.in_(po_product_ids), SalesQuoteItem.id.in_(po_quote_item_ids)),
                         SalesQuoteItem.item_status == "procurement"
                     ).all():
                         qi.item_status = "po_created"
@@ -2668,16 +2826,9 @@ class GoodReceivedNoteService:
         for pid in ids:
             if pid not in po_items or po_items[pid].purchasingorders_id != po.id:
                 raise bad(f"Purchase order line {pid} does not belong to this purchase order.")
-        tracking = dict(
-            self.db.query(Product.id, Product.tracking_type)
-            .filter(Product.id.in_({pi.product_id for pi in po_items.values()}))
-            .all()
-        )
-        names = dict(
-            self.db.query(Product.id, Product.name)
-            .filter(Product.id.in_({pi.product_id for pi in po_items.values()}))
-            .all()
-        )
+        # Tracking / tolerances come from the line's item (the product on an old product line).
+        from app.modules.purchasing.items import line_parts, stock_product_for_material
+        parts = line_parts(self.db, po_items.values())
         received_so_far = dict(
             self.db.query(
                 models.GoodReceivedItems.purchasing_order_items_id,
@@ -2693,18 +2844,13 @@ class GoodReceivedNoteService:
 
         from .receipt_rules import receipt_limits
 
-        tolerance = {
-            r.id: (r.over_receipt_tolerance_pct, r.under_receipt_tolerance_pct)
-            for r in self.db.query(
-                Product.id, Product.over_receipt_tolerance_pct, Product.under_receipt_tolerance_pct
-            ).filter(Product.id.in_({pi.product_id for pi in po_items.values()})).all()
-        }
         plan = []  # (line, po_item, tracking_type, accepted, batch_no, codes)
         all_codes: List[str] = []
         for line in payload.lines:
             pi = po_items[line.purchasing_order_items_id]
-            trk = tracking.get(pi.product_id) or "serial"
-            label = names.get(pi.product_id) or f"product {pi.product_id}"
+            part = parts[pi.id]
+            trk = part.tracking_type
+            label = part.name
             codes: List[str] = []
             batch_no = (line.batch_no or "").strip() or None
             if trk == "serial":
@@ -2735,7 +2881,7 @@ class GoodReceivedNoteService:
             if rejected > pi.quantity:
                 raise bad(f"Rejected quantity for '{label}' exceeds the ordered quantity.")
             already = int(received_so_far.get(pi.id, 0) or 0)
-            max_receivable, _ = receipt_limits(pi.quantity, tolerance.get(pi.product_id, (0, 0))[0], 0)
+            max_receivable, _ = receipt_limits(pi.quantity, part.over_pct, 0)
             if already + accepted > max_receivable:
                 allowed = (
                     f"{pi.quantity} ordered" if max_receivable == pi.quantity
@@ -2785,10 +2931,14 @@ class GoodReceivedNoteService:
         created_grn = self.repo.create(header_in)
         if created_by and not created_grn.created_by:
             created_grn.created_by = created_by
+        set_stock_reference(self.db, "grn", created_grn.id, created_grn.good_received_no)
 
         # ---- accepted lines -> good_received_items + sales_stock -----------------------------------
         now, today = tz.now(), tz.today()
         stock_svc = SalesStockService(self.db)
+        stock_product = {}  # po line id -> product the stock is filed under
+        for _line, pi, *_ in plan:
+            stock_product[pi.id] = pi.product_id or stock_product_for_material(self.db, pi.material_id)
         for line, pi, trk, accepted, batch_no, codes in plan:
             if accepted:
                 if trk == "serial":
@@ -2800,7 +2950,8 @@ class GoodReceivedNoteService:
                             purchasing_order_items_id=pi.id, added_date=now, created_by=created_by,
                         ))
                         stock_svc.create_in_txn(inv_schemas.SalesStockCreate(
-                            product_id=pi.product_id, barcode=code, branch_code=header.branch_code,
+                            product_id=stock_product[pi.id], material_id=pi.material_id,
+                            barcode=code, branch_code=header.branch_code,
                             location_id=header.good_received_locations_id,
                             good_received_note_id=created_grn.id, purchasing_order_items_id=pi.id,
                             warranty_month=unit.warranty_month or line.warranty_month or pi.warrenty_month,
@@ -2814,7 +2965,8 @@ class GoodReceivedNoteService:
                         purchasing_order_items_id=pi.id, added_date=now, created_by=created_by,
                     ))
                     stock_svc.create_in_txn(inv_schemas.SalesStockCreate(
-                        product_id=pi.product_id, barcode=None, quantity=accepted, batch_no=batch_no,
+                        product_id=stock_product[pi.id], material_id=pi.material_id,
+                        barcode=None, quantity=accepted, batch_no=batch_no,
                         expiry_date=line.expiry_date if trk == "batch" else None,
                         branch_code=header.branch_code, location_id=header.good_received_locations_id,
                         good_received_note_id=created_grn.id, purchasing_order_items_id=pi.id,
@@ -2998,6 +3150,7 @@ class GoodReceivedNoteService:
         po = self.db.query(models.PurchasingOrder).filter(models.PurchasingOrder.id == grn.purchasingorders_id).with_for_update().first()
 
         stock_rows = self._check_cancellable(grn, po)
+        set_stock_reference(self.db, "grn", grn.id, grn.good_received_no)
 
         now = tz.now()
         for row in stock_rows:
@@ -3045,20 +3198,19 @@ class GoodReceivedNoteService:
         return grn
 
     def list_rejections(self, grn_id: int) -> List[dict]:
-        from app.modules.products.models import Product
-
         rows = (
-            self.db.query(models.GoodReceivedRejection, Product.name)
+            self.db.query(models.GoodReceivedRejection, models.PurchasingOrderItems)
             .join(models.PurchasingOrderItems, models.PurchasingOrderItems.id == models.GoodReceivedRejection.purchasing_order_items_id)
-            .join(Product, Product.id == models.PurchasingOrderItems.product_id)
             .filter(models.GoodReceivedRejection.good_received_note_id == grn_id)
             .order_by(models.GoodReceivedRejection.id)
             .all()
         )
         return [
             {"id": r.id, "purchasing_order_items_id": r.purchasing_order_items_id, "quantity": r.quantity,
-             "reason": r.reason, "product_name": name}
-            for r, name in rows
+             "reason": r.reason, "product_name": line.product_name or line.material_name,
+             "material_id": line.material_id, "material_item_code": line.material_item_code,
+             "material_name": line.material_name, "unit_of_measure": line.unit_of_measure}
+            for r, line in rows
         ]
 
     def _auto_apply_advances_to_grn(self, grn_id: int, created_by: Optional[int] = None) -> Decimal:
@@ -3192,14 +3344,14 @@ class GoodReceivedNoteService:
 
         all_fully_received = True
         any_received = False
-        
+        from .items import line_parts
+        from .receipt_rules import receipt_limits
+        parts = line_parts(self.db, po_items)
+
         for po_item in po_items:
-            # A line counts as fully received once ordered - under-receipt tolerance has arrived.
-            from app.modules.products.models import Product
-            from .receipt_rules import receipt_limits
-            under_pct = self.db.query(Product.under_receipt_tolerance_pct).filter(
-                Product.id == po_item.product_id
-            ).scalar() or 0
+            # A line counts as fully received once ordered - under-receipt tolerance has arrived
+            # (the item's tolerance; the product's on an old product line).
+            under_pct = parts[po_item.id].under_pct
             _, ordered_qty = receipt_limits(po_item.quantity, 0, under_pct)
             
             received_qty = self.db.query(
@@ -3284,12 +3436,9 @@ class GoodReceivedNoteService:
             ).all()
             po_items_map = {pi.id: pi for pi in po_items}
         
-        # Batch-load all products referenced by PO items in one query
-        product_ids = [pi.product_id for pi in po_items_map.values() if pi.product_id]
-        products_map = {}
-        if product_ids:
-            products = self.db.query(Product).filter(Product.id.in_(product_ids)).all()
-            products_map = {p.id: p.name for p in products}
+        # Item (or old product) display fields per PO line
+        from .items import line_parts
+        parts = line_parts(self.db, po_items_map.values())
         
         # Batch-load barcodes that exist in sales stock for this GRN
         all_barcodes = [item.barcode for item in items if item.barcode]
@@ -3321,7 +3470,8 @@ class GoodReceivedNoteService:
         for item in items:
             po_item = po_items_map.get(item.purchasing_order_items_id)
             product_id = po_item.product_id if po_item else None
-            product_name = products_map.get(product_id) if product_id else None
+            part = parts.get(po_item.id) if po_item else None
+            product_name = part.name if part else None
             
             result.append({
                 "id": item.id,
@@ -3337,6 +3487,10 @@ class GoodReceivedNoteService:
                 "added_date": item.added_date,
                 "product_id": product_id,
                 "product_name": product_name,
+                "material_id": po_item.material_id if po_item else None,
+                "material_item_code": part.code if part and po_item.material_id else None,
+                "material_name": part.name if part and po_item.material_id else None,
+                "unit_of_measure": part.unit_of_measure if part else None,
                 "saved_to_sales_stock": (
                     item.barcode in stock_barcodes
                     if item.barcode
@@ -3448,9 +3602,9 @@ class GoodReceivedNoteService:
                 f"{po.purchasing_order_no}."
             )
 
-        tracking_type = self.db.query(Product.tracking_type).filter(
-            Product.id == po_item.product_id
-        ).scalar() or "serial"
+        from .items import line_parts
+        part = line_parts(self.db, [po_item])[po_item.id]
+        tracking_type = part.tracking_type
         item = self._normalise_item_for_tracking(item, tracking_type)
 
         if item.barcode:
@@ -3474,8 +3628,7 @@ class GoodReceivedNoteService:
             models.GoodReceivedItems.active.is_(True),
         ).scalar() or 0
         from .receipt_rules import receipt_limits
-        over_pct = self.db.query(Product.over_receipt_tolerance_pct).filter(Product.id == po_item.product_id).scalar() or 0
-        max_receivable, _ = receipt_limits(po_item.quantity, over_pct, 0)
+        max_receivable, _ = receipt_limits(po_item.quantity, part.over_pct, 0)
         if already_received + item.quantity > max_receivable:
             raise ValueError(
                 f"Cannot receive {item.quantity} more unit(s) for this line: {already_received} of "

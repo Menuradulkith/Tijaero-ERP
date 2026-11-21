@@ -63,9 +63,11 @@ import {
 } from "@/components/tijaero";
 // ConfirmDialog now uses TConfirmDialog from tijaero
 
-import { purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
-import { EntityLink, EntityPeekButton } from "@/components/tijaero/peek";
+import { purchaseOrdersApi, suppliersApi, supplierItemsApi } from "@/modules/purchasing/api";
+import { EntityPeekButton } from "@/components/tijaero/peek";
 import { findMoqShortfalls, formatMoqMessage } from "@/modules/purchasing/utils/moq";
+import LineItemLink from "@/modules/purchasing/components/LineItemLink";
+import { lineItemCode, lineItemName, lineItemUom } from "@/modules/purchasing/utils/itemDisplay";
 import { addWorkingDays, todayIso } from "@/modules/purchasing/utils/workingDays";
 import { approvalsApi } from "@/modules/common/api";
 import { usePermission } from "@/auth/permissions";
@@ -277,7 +279,7 @@ export default function POApprovalsPage() {
       const shortfalls = await findMoqShortfalls(
         selectedOrder.first_suppliers_id,
         selectedOrder.items || [],
-        (id) => queryClient.fetchQuery({ queryKey: ["supplier-products", id], queryFn: () => suppliersApi.getProducts(id) }),
+        (id) => queryClient.fetchQuery({ queryKey: ["supplier-items", id], queryFn: () => supplierItemsApi.list(id) }),
       );
       if (shortfalls.length > 0) {
         const proceed = await creditWarningDialog.confirm({
@@ -619,7 +621,9 @@ export default function POApprovalsPage() {
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={modernTableStyles.headerRow}>
-                      <TableCell>Product</TableCell>
+                      <TableCell>Item Code</TableCell>
+                      <TableCell>Item</TableCell>
+                      <TableCell>UOM</TableCell>
                       <TableCell align="right">Quantity</TableCell>
                       <TableCell align="right">{`Unit Price (${currencySymbol})`}</TableCell>
                       <TableCell align="right">{`Total (${currencySymbol})`}</TableCell>
@@ -627,17 +631,18 @@ export default function POApprovalsPage() {
                   </TableHead>
                   <TableBody>
                     {selectedOrder.items?.map((item, index) => {
-                      const product = productMap.get(item.product_id);
+                      // Old lines only have a product: fall back to its name.
+                      const product = item.product_id ? productMap.get(item.product_id) : undefined;
                       return (
                         <TableRow key={index} sx={{
                           ...modernTableStyles.bodyRow,
                           ...(index % 2 === 1 && { bgcolor: "grey.25" }),
                         }}>
+                          <TableCell>{lineItemCode(item) || "-"}</TableCell>
                           <TableCell>
-                            <EntityLink entity="product" id={item.product_id}>
-                              {product?.name || `Product #${item.product_id}`}
-                            </EntityLink>
+                            <LineItemLink line={item} label={item.material_id ? lineItemName(item) : product?.name || lineItemName(item)} />
                           </TableCell>
+                          <TableCell>{lineItemUom(item)}</TableCell>
                           <TableCell align="right">{item.quantity}</TableCell>
                           <TableCell align="right">{fmtLKR(item.unit_price)}</TableCell>
                           <TableCell align="right">{fmtLKR(item.quantity * item.unit_price)}</TableCell>
@@ -645,7 +650,7 @@ export default function POApprovalsPage() {
                       );
                     })}
                     <TableRow sx={modernTableStyles.footerRow}>
-                      <TableCell colSpan={3} align="right">
+                      <TableCell colSpan={5} align="right">
                         <strong>Total Amount:</strong>
                       </TableCell>
                       <TableCell align="right">

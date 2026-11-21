@@ -438,8 +438,6 @@ class ReportingService:
         self, request: schemas.InventoryReportRequest
     ) -> schemas.InventoryReportResponse:
         """Generate inventory report"""
-        from app.modules.products.price_tier_models import ProductPriceTier
-
         # Everything is computed in SQL: loading every active product (and its price
         # tiers) into Python made this endpoint O(catalogue) in memory and time.
         category_filter = []
@@ -454,66 +452,61 @@ class ReportingService:
             category_filter.append(Product.category_id == category_id)
         product_filter = [Product.active == True, *category_filter]
 
-        # Effective cost: latest active price tier, else the product's own cost price.
-        latest_tier = (
-            self.db.query(ProductPriceTier.product_id, ProductPriceTier.cost_price)
-            .filter(ProductPriceTier.is_active == True)
-            .distinct(ProductPriceTier.product_id)
-            .order_by(
-                ProductPriceTier.product_id,
-                ProductPriceTier.created_at.desc().nullslast(),
-                ProductPriceTier.id.desc(),
-            )
-            .subquery()
-        )
-        cost_expr = func.coalesce(latest_tier.c.cost_price, Product.cost_price, 0)
-
         total_products = (
             self.db.query(func.count(Product.id)).filter(*product_filter).scalar()
         )
 
-        # Stock value: units on hand x what each unit was bought for - the same rule as
-        # the inventory Stock Summary and the Report Center stock valuation.
+        # Stock value: units on hand x their issue cost (inventory/costing.py: the row's captured
+        # cost, or the item's average cost for weighted-average items). Stock is keyed by item,
+        # so item-only stock (raw materials, production output) counts too.
         from app.modules.inventory.service import SalesStockService
+        from app.modules.materials.models import Material
         from app.modules.purchasing.models import PurchasingOrderItems
 
-        unit_cost = func.coalesce(PurchasingOrderItems.unit_price, Product.cost_price, 0)
+        from app.modules.inventory.costing import stock_cost_expr
+
+        unit_cost = stock_cost_expr(SalesStock, Material, Product)
         value_q = (
             self.db.query(func.coalesce(func.sum(SalesStock.quantity * unit_cost), 0))
-            .join(Product, Product.id == SalesStock.product_id)
+            .outerjoin(Material, Material.id == SalesStock.material_id)
+            .outerjoin(Product, Product.id == SalesStock.product_id)
             .outerjoin(PurchasingOrderItems, PurchasingOrderItems.id == SalesStock.purchasing_order_items_id)
             .filter(SalesStock.status.in_(SalesStockService._SUMMARY_ON_HAND_STATUSES),
                     *_in(SalesStock.branch_code, self.branch_codes))
         )
-        if category_filter:  # not the active filter: an inactive product's stock still has value
+        if category_filter:  # product categories: only stock filed under a product of the category
             value_q = value_q.filter(*category_filter)
         total_stock_value = float(value_q.scalar())
         threshold = request.low_stock_threshold if request.low_stock_threshold is not None else LOW_STOCK_THRESHOLD
 
-        # Low stock items: products whose count of AVAILABLE (unsold) stock units
-        # is at or below the low-stock threshold. Driven by real SalesStock data.
+        # Low stock items: active stocked Item Catalog items whose AVAILABLE units (every stock
+        # row of the item, whichever product -- or none -- it is filed under) are at or below
+        # the threshold.
         available = (
             self.db.query(
-                SalesStock.product_id.label("product_id"),
+                SalesStock.material_id.label("material_id"),
                 func.coalesce(func.sum(SalesStock.quantity), 0).label("qty"),
             )
             .filter(
                 SalesStock.status == "available",
                 SalesStock.is_active == True,
+                SalesStock.material_id.isnot(None),
                 *_in(SalesStock.branch_code, self.branch_codes),
             )
-            .group_by(SalesStock.product_id)
+            .group_by(SalesStock.material_id)
             .subquery()
         )
         available_expr = func.coalesce(available.c.qty, 0)
-        low_rows = (
-            self.db.query(Product.name, Product.item_code, cost_expr.label("cost"), available_expr.label("qty"))
-            .outerjoin(latest_tier, latest_tier.c.product_id == Product.id)
-            .outerjoin(available, available.c.product_id == Product.id)
-            .filter(*product_filter, available_expr <= threshold)
-            .order_by(Product.id)
-            .all()
+        low_q = (
+            self.db.query(Material.name, Material.item_code, func.coalesce(Material.cost_price, 0).label("cost"),
+                          available_expr.label("qty"))
+            .outerjoin(available, available.c.material_id == Material.id)
+            .filter(Material.active.is_(True), Material.item_type == "stock_item", available_expr <= threshold)
         )
+        if category_filter:  # items sold by a product of the category
+            low_q = low_q.filter(Material.id.in_(
+                self.db.query(Product.material_id).filter(Product.material_id.isnot(None), *category_filter)))
+        low_rows = low_q.order_by(Material.id).all()
         low_stock_items = [
             {
                 "product_name": r.name,
@@ -807,29 +800,34 @@ class ReportingService:
             or 0
         )
 
-        # Low-stock products: active products whose available (unsold) unit count
-        # is at or below the threshold. Products with zero stock rows count as 0.
+        # Low-stock items: active stocked Item Catalog items whose available units (all
+        # stock of the item, item-only rows included) are at or below the threshold.
+        # Items with no stock count as 0.
         try:
+            from app.modules.materials.models import Material
+
             available_subq = (
                 self.db.query(
-                    SalesStock.product_id.label("product_id"),
+                    SalesStock.material_id.label("material_id"),
                     func.coalesce(func.sum(SalesStock.quantity), 0).label("available_qty"),
                 )
                 .filter(
                     SalesStock.status == "available",
                     SalesStock.is_active == True,
+                    SalesStock.material_id.isnot(None),
                     *_in(SalesStock.branch_code, bc),
                 )
-                .group_by(SalesStock.product_id)
+                .group_by(SalesStock.material_id)
                 .subquery()
             )
             low_stock_count = (
-                self.db.query(func.count(Product.id))
+                self.db.query(func.count(Material.id))
                 .outerjoin(
-                    available_subq, available_subq.c.product_id == Product.id
+                    available_subq, available_subq.c.material_id == Material.id
                 )
                 .filter(
-                    Product.active == True,
+                    Material.active.is_(True),
+                    Material.item_type == "stock_item",
                     func.coalesce(available_subq.c.available_qty, 0)
                     <= LOW_STOCK_THRESHOLD,
                 )

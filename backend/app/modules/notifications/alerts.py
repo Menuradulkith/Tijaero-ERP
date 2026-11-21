@@ -2,8 +2,9 @@
 
 These are the *important* notifications the business actually needs to act on:
 
-* **Low stock** -- products at or below a reorder threshold, so a branch can
-  restock before running out.
+* **Low stock** -- Item Catalog items (central stock: stock is keyed by item, item-only
+  stock included) at or below a reorder threshold per branch, so a branch can restock
+  before running out.
 * **Outstanding payments** -- unpaid customer invoices (receivables) that need
   to be collected.
 
@@ -51,17 +52,20 @@ def _format_items(items: List[Tuple[str, int]]) -> str:
 def run_low_stock_digest(
     threshold: int = DEFAULT_LOW_STOCK_THRESHOLD,
 ) -> Dict[str, int]:
-    """Notify each branch about its products at/below ``threshold`` available units.
+    """Notify each branch about its items at/below ``threshold`` available units.
 
-    One aggregated notification per branch (important, not spammy). Products with
+    Counted per Item Catalog item and branch (all stock of the item, whichever product
+    -- or none -- it is filed under; a row without an item counts under its product).
+    One aggregated notification per branch (important, not spammy). Items with
     zero available units are not re-flagged here -- they will already have been
-    flagged while running low. Returns ``{"branches": x, "products": y}``.
+    flagged while running low. Returns ``{"branches": x, "products": y}`` (y = items).
     """
-    from sqlalchemy import func
+    from sqlalchemy import case, func
 
     from app.common.enums import StockStatus
     from app.db.session import SessionLocal
     from app.modules.inventory.models import SalesStock
+    from app.modules.materials.models import Material
     from app.modules.products.models import Product
 
     from . import dispatcher as notify
@@ -70,18 +74,20 @@ def run_low_stock_digest(
     branches = 0
     products = 0
     try:
+        unlinked_pid = case((SalesStock.material_id.is_(None), SalesStock.product_id), else_=None)
         rows = (
             db.query(
                 SalesStock.branch_code,
-                Product.name,
+                func.coalesce(func.max(Material.name), func.max(Product.name)),
                 func.coalesce(func.sum(SalesStock.quantity), 0).label("qty"),
             )
-            .join(Product, Product.id == SalesStock.product_id)
+            .outerjoin(Material, Material.id == SalesStock.material_id)
+            .outerjoin(Product, Product.id == SalesStock.product_id)
             .filter(
                 SalesStock.status == StockStatus.AVAILABLE,
                 SalesStock.is_active.is_(True),
             )
-            .group_by(SalesStock.branch_code, Product.id, Product.name)
+            .group_by(SalesStock.branch_code, SalesStock.material_id, unlinked_pid)
             .having(func.coalesce(func.sum(SalesStock.quantity), 0) <= threshold)
             .all()
         )
@@ -98,7 +104,7 @@ def run_low_stock_digest(
             products += len(items)
             notify.branch(
                 branch_code,
-                title=f"Low Stock: {len(items)} product(s)",
+                title=f"Low Stock: {len(items)} item(s)",
                 message=(
                     f"{_format_items(items)} at or below {threshold} units. "
                     "Reorder soon."
@@ -123,15 +129,18 @@ def check_low_stock_after_invoice(
 ) -> None:
     """Real-time low-stock check fired right after an invoice is recorded.
 
-    Notifies the invoice's branch only for products that *crossed* the threshold
+    Notifies the invoice's branch only for items that *crossed* the threshold
     on this sale (``before > threshold >= after``), so the alert fires once per
-    crossing instead of on every subsequent sale while already low.
+    crossing instead of on every subsequent sale while already low. A sold product
+    is counted through the Item Catalog item it sells (all stock of that item).
     """
     from sqlalchemy import func
 
     from app.common.enums import StockStatus
     from app.db.session import SessionLocal
+    from app.modules.inventory.item_stock import stock_key_condition
     from app.modules.inventory.models import SalesStock
+    from app.modules.materials.models import Material
     from app.modules.products.models import Product
     from app.modules.sales.models import Invoice, InvoiceItems
 
@@ -154,14 +163,21 @@ def check_low_stock_after_invoice(
             .all()
         )
 
-        flagged: List[Tuple[str, int]] = []
+        # Sold quantity per stock key: the product's item, else the product itself
+        by_key: Dict[tuple, int] = {}
         for product_id, sold_qty in sold:
             if not product_id:
                 continue
+            material_id = db.query(Product.material_id).filter(Product.id == product_id).scalar()
+            key = (material_id, None) if material_id else (None, product_id)
+            by_key[key] = by_key.get(key, 0) + int(sold_qty or 0)
+
+        flagged: List[Tuple[str, int]] = []
+        for (material_id, product_id), sold_qty in by_key.items():
             available = (
                 db.query(func.coalesce(func.sum(SalesStock.quantity), 0))
                 .filter(
-                    SalesStock.product_id == product_id,
+                    stock_key_condition(product_id, material_id),
                     SalesStock.branch_code == branch_code,
                     SalesStock.status == StockStatus.AVAILABLE,
                     SalesStock.is_active.is_(True),
@@ -169,16 +185,14 @@ def check_low_stock_after_invoice(
                 .scalar()
                 or 0
             )
-            before = available + int(sold_qty or 0)
+            before = available + sold_qty
             # Fire only on the crossing so we don't re-notify on every later sale.
             if before > threshold >= available:
-                name = (
-                    db.query(Product.name)
-                    .filter(Product.id == product_id)
-                    .scalar()
-                    or f"Product #{product_id}"
-                )
-                flagged.append((name, available))
+                if material_id:
+                    name = db.query(Material.name).filter(Material.id == material_id).scalar()
+                else:
+                    name = db.query(Product.name).filter(Product.id == product_id).scalar()
+                flagged.append((name or f"Item #{material_id or product_id}", available))
 
         if flagged:
             flagged.sort(key=lambda it: it[1])
@@ -293,7 +307,7 @@ def run_material_shortage_digest() -> Dict[str, int]:
             branch = row.get("branch_code")
             if not branch or not row.get("suggested_quantity"):
                 continue
-            by_branch[branch].append(row.get("product_name") or "Item")
+            by_branch[branch].append(row.get("material_name") or row.get("product_name") or "Item")
 
         for branch_code, names in by_branch.items():
             branches += 1

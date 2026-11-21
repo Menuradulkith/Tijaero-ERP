@@ -6,7 +6,8 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from app.common.base_schemas import TijaeroBaseSchema, VersionedSchema
-from app.modules.customers.enums import CustomerType
+from app.modules.customers.enums import CustomerType, CustomerCategory, CustomerAccountingGroup
+from app.common.enums import SupplierTaxArea as TaxArea
 from app.core.money import MoneyIn, PositiveMoneyIn
 
 
@@ -103,6 +104,10 @@ class CustomerBase(BaseModel):
     home_contact_number: Optional[str] = Field(None, description="Home contact number")
     company_name: Optional[str] = Field(None, description="Company name; required for businesses")
     tax_registration_number: Optional[str] = Field(None, description="Tax registration number")
+    vat_registration_number: Optional[str] = Field(None, description="VAT registration number; required on create")
+    tax_area: Optional[str] = Field(None, description="Tax treatment; required on create")
+    accounting_group: Optional[str] = Field(None, description="Receivables group; required on create")
+    customer_category: Optional[str] = Field("customer", description="customer / prospect / end_customer")
     company_registration_number: Optional[str] = Field(None, description="Company registration number")
     occupation: Optional[str] = Field(None, description="Occupation")
     gender: Optional[str] = Field(None, description="Gender; required for individuals")
@@ -132,6 +137,10 @@ class CustomerBase(BaseModel):
     bank_branch: Optional[str] = Field(None)
     bank_branch_code: Optional[str] = Field(None)
     bank_swift_code: Optional[str] = Field(None)
+    correspondent_bank_name: Optional[str] = Field(None)
+    correspondent_bank_location: Optional[str] = Field(None)
+    correspondent_bank_swift_code: Optional[str] = Field(None)
+    correspondent_bank_iban: Optional[str] = Field(None)
     name_in_cheque_card: Optional[str] = Field(None, description="Name in cheque/card")
     credit_days: int = Field(default=0, description="Credit days")
 
@@ -156,6 +165,10 @@ class _CustomerInput(BaseModel):
     home_contact_number: Optional[str] = Field(None, max_length=20)
     company_name: OptStr(255) = None
     tax_registration_number: OptStr(50) = None
+    vat_registration_number: OptStr(50) = None
+    tax_area: Optional[TaxArea] = None
+    accounting_group: Optional[CustomerAccountingGroup] = None
+    customer_category: Optional[CustomerCategory] = None
     company_registration_number: OptStr(50) = None
     occupation: OptStr(255) = None
     gender: OptStr(30) = None
@@ -185,6 +198,10 @@ class _CustomerInput(BaseModel):
     bank_branch: OptStr(255) = None
     bank_branch_code: OptStr(30) = None
     bank_swift_code: OptStr(20) = None
+    correspondent_bank_name: OptStr(255) = None
+    correspondent_bank_location: OptStr(255) = None
+    correspondent_bank_swift_code: OptStr(20) = None
+    correspondent_bank_iban: OptStr(34) = None
     name_in_cheque_card: OptStr(255) = None
     country_id: Optional[int] = Field(None, ge=1, le=INT4_MAX)
     default_currency: Optional[str] = None
@@ -192,6 +209,27 @@ class _CustomerInput(BaseModel):
     is_customer_agent: Optional[bool] = None
 
     _v_cur = field_validator("default_currency", mode="before")(_currency)
+
+    @field_validator("correspondent_bank_swift_code", mode="before")
+    @classmethod
+    def _v_corr_swift(cls, v):
+        if v is None or not str(v).strip():
+            return None
+        v = str(v).strip().replace(" ", "").upper()
+        if not re.fullmatch(r"[A-Z0-9]{8}([A-Z0-9]{3})?", v):
+            raise ValueError("Correspondent SWIFT/BIC code must be 8 or 11 letters/digits")
+        return v
+
+    @field_validator("correspondent_bank_iban", mode="before")
+    @classmethod
+    def _v_corr_iban(cls, v):
+        if v is None or not str(v).strip():
+            return None
+        v = str(v).replace(" ", "").upper()
+        # ISO 13616: 2-letter country, 2 check digits, up to 30 letters/digits.
+        if not re.fullmatch(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}", v):
+            raise ValueError("Correspondent IBAN must be a 2-letter country code, 2 check digits and the account number (15-34 characters)")
+        return v
 
     @field_validator("email")
     @classmethod
@@ -225,6 +263,11 @@ class CustomerCreate(_CustomerInput):
     max_credit_limit: int = Field(default=0, ge=0, le=INT4_MAX)
     active: bool = True
     is_customer_agent: bool = False
+    # Mandatory on a new customer.
+    tax_area: TaxArea
+    accounting_group: CustomerAccountingGroup
+    vat_registration_number: ReqStr(50)
+    customer_category: CustomerCategory
 
     @model_validator(mode="after")
     def check_required_for_type(self):
@@ -250,7 +293,8 @@ class CustomerUpdate(_CustomerInput):
     # Optimistic concurrency: the `version` token from the Customer response.
     expected_version: Optional[str] = Field(None, max_length=64)
 
-    _no_nulls = _reject_null("customer_name", "customer_type", "credit_days", "max_credit_limit", "active", "is_customer_agent")
+    _no_nulls = _reject_null("customer_name", "customer_type", "credit_days", "max_credit_limit", "active", "is_customer_agent",
+                             "tax_area", "accounting_group", "vat_registration_number", "customer_category")
 
     @model_validator(mode="after")
     def check_distinct_phones(self):

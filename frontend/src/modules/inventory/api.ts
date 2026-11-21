@@ -22,6 +22,13 @@ import {
   PriceTier,
   PriceTierCreate,
   PriceTierUpdate,
+  DesignBrief,
+  DesignBriefItemOption,
+  DesignBriefSave,
+  DesignDetail,
+  DesignDetailSave,
+  BomStructure,
+  BomStructureSave,
 } from "./types";
 
 export interface Paged<T> {
@@ -214,6 +221,43 @@ export const brandsApi = {
 
 };
 
+/** Product types — a list users pick from (and add to) on the product form. */
+export interface ProductType {
+  id: number;
+  name: string;
+  active: boolean;
+}
+
+/** Customs Harmonized System codes — picked (or added) on the product form. */
+export interface HsCode {
+  id: number;
+  code: string;
+  description?: string | null;
+  active: boolean;
+}
+
+export const productTypesApi = {
+  getAll: async (activeOnly = true) => {
+    const response = await apiClient.get<ProductType[]>("/inventory/product-types/", { params: { active_only: activeOnly } });
+    return response.data;
+  },
+  create: async (data: { name: string }) => {
+    const response = await apiClient.post<ProductType>("/inventory/product-types/", data);
+    return response.data;
+  },
+};
+
+export const hsCodesApi = {
+  getAll: async (activeOnly = true) => {
+    const response = await apiClient.get<HsCode[]>("/inventory/hs-codes/", { params: { active_only: activeOnly } });
+    return response.data;
+  },
+  create: async (data: { code: string; description?: string }) => {
+    const response = await apiClient.post<HsCode>("/inventory/hs-codes/", data);
+    return response.data;
+  },
+};
+
 export const minimumPriceApi = {
   getHistory: async (productId: number) => {
     const response = await apiClient.get<MinimumPrice[]>(
@@ -270,7 +314,11 @@ export const salesStockApi = {
   getPaginated: async (params?: {
     branch_code?: string;
     product_id?: number;
+    /** Stock rows of this Item Catalog item (the stock key). */
+    material_id?: number;
     status?: string;
+    /** Only rows still in the warehouse or in transit (not sold / consumed / returned). */
+    on_hand?: boolean;
     search?: string;
     brand_id?: number;
     location_id?: number;
@@ -446,6 +494,98 @@ export const priceTiersApi = {
 
   delete: async (productId: number, tierId: number): Promise<void> => {
     await apiClient.delete(`/inventory/products/${productId}/price-tiers/${tierId}`);
+  },
+};
+
+// ── Product Design Brief API ────────────────────────────────────────────────
+export const designBriefApi = {
+  /** null until the brief is first saved. */
+  get: async (productId: number): Promise<DesignBrief | null> => {
+    const response = await apiClient.get<DesignBrief | null>(`/inventory/products/${productId}/design-brief`);
+    return response.data;
+  },
+
+  itemOptions: async (): Promise<DesignBriefItemOption[]> => {
+    const response = await apiClient.get<DesignBriefItemOption[]>("/inventory/design-brief/item-options");
+    return response.data;
+  },
+
+  save: async (productId: number, data: DesignBriefSave): Promise<DesignBrief> => {
+    const response = await apiClient.put<DesignBrief>(`/inventory/products/${productId}/design-brief`, data);
+    return response.data;
+  },
+
+  confirm: async (productId: number, expectedVersion: string | null): Promise<DesignBrief> => {
+    const response = await apiClient.post<DesignBrief>(`/inventory/products/${productId}/design-brief/confirm`, {
+      expected_version: expectedVersion,
+    });
+    return response.data;
+  },
+
+  reject: async (productId: number, expectedVersion: string | null, reason: string): Promise<DesignBrief> => {
+    const response = await apiClient.post<DesignBrief>(`/inventory/products/${productId}/design-brief/reject`, {
+      expected_version: expectedVersion,
+      reason,
+    });
+    return response.data;
+  },
+};
+
+// ── Product Design Detail API ───────────────────────────────────────────────
+export const designDetailApi = {
+  /** null until the detail is first saved. */
+  get: async (productId: number): Promise<DesignDetail | null> => {
+    const response = await apiClient.get<DesignDetail | null>(`/inventory/products/${productId}/design-detail`);
+    return response.data;
+  },
+
+  save: async (productId: number, data: DesignDetailSave): Promise<DesignDetail> => {
+    const response = await apiClient.put<DesignDetail>(`/inventory/products/${productId}/design-detail`, data);
+    return response.data;
+  },
+
+  confirm: async (productId: number, expectedVersion: string | null): Promise<DesignDetail> => {
+    const response = await apiClient.post<DesignDetail>(`/inventory/products/${productId}/design-detail/confirm`, {
+      expected_version: expectedVersion,
+    });
+    return response.data;
+  },
+
+  reject: async (productId: number, expectedVersion: string | null, reason: string): Promise<DesignDetail> => {
+    const response = await apiClient.post<DesignDetail>(`/inventory/products/${productId}/design-detail/reject`, {
+      expected_version: expectedVersion,
+      reason,
+    });
+    return response.data;
+  },
+};
+
+// ── Product BOM Structure API ───────────────────────────────────────────────
+export const bomStructureApi = {
+  /** null until the structure is first saved. */
+  get: async (productId: number): Promise<BomStructure | null> => {
+    const response = await apiClient.get<BomStructure | null>(`/inventory/products/${productId}/bom-structure`);
+    return response.data;
+  },
+
+  save: async (productId: number, data: BomStructureSave): Promise<BomStructure> => {
+    const response = await apiClient.put<BomStructure>(`/inventory/products/${productId}/bom-structure`, data);
+    return response.data;
+  },
+
+  confirm: async (productId: number, expectedVersion: string | null): Promise<BomStructure> => {
+    const response = await apiClient.post<BomStructure>(`/inventory/products/${productId}/bom-structure/confirm`, {
+      expected_version: expectedVersion,
+    });
+    return response.data;
+  },
+
+  reject: async (productId: number, expectedVersion: string | null, reason: string): Promise<BomStructure> => {
+    const response = await apiClient.post<BomStructure>(`/inventory/products/${productId}/bom-structure/reject`, {
+      expected_version: expectedVersion,
+      reason,
+    });
+    return response.data;
   },
 };
 

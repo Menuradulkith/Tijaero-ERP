@@ -114,21 +114,58 @@ class PurchaseInvoiceService:
 
         PurchaseExpensePayrollGL(self.db).post_purchase_invoice_to_gl(invoice, user_id=user_id or 0)
 
-    def _returned_qty_by_product(self, grn_id: int) -> Dict[int, Decimal]:
-        """Units of a GRN sent back to the supplier (pending or approved returns), per product."""
+    @staticmethod
+    def _sum_by_part(rows) -> Dict[tuple, Decimal]:
+        """(material_id, product_id, qty) rows -> {part_key: qty} (the item when known)."""
+        from app.modules.purchasing.items import part_key
+
+        out: Dict[tuple, Decimal] = {}
+        for mid, pid, q in rows:
+            key = part_key(mid, pid)
+            out[key] = out.get(key, Decimal("0")) + Decimal(str(q))
+        return out
+
+    def _returned_qty_by_product(self, grn_id: int) -> Dict[tuple, Decimal]:
+        """Units of a GRN sent back to the supplier (pending or approved returns), per part
+        (item, or product on old lines) - keyed by items.part_key."""
         from app.modules.purchasing.models import PurchasingReturn, PurchasingReturnItems
 
         rows = (
-            self.db.query(PurchasingReturnItems.product_id, func.coalesce(func.sum(PurchasingReturnItems.quantity), 0))
+            self.db.query(PurchasingReturnItems.material_id, PurchasingReturnItems.product_id,
+                          func.coalesce(func.sum(PurchasingReturnItems.quantity), 0))
             .join(PurchasingReturn, PurchasingReturnItems.purchasingreturn_id == PurchasingReturn.id)
             .filter(
                 PurchasingReturn.goodreceivednote_id == grn_id,
                 PurchasingReturn.status.in_(("pending", "approved")),
             )
-            .group_by(PurchasingReturnItems.product_id)
+            .group_by(PurchasingReturnItems.material_id, PurchasingReturnItems.product_id)
             .all()
         )
-        return {pid: Decimal(str(q)) for pid, q in rows}
+        return self._sum_by_part(rows)
+
+    def _fill_item_material(self, items, grns_by_id) -> None:
+        """An invoice line names the item billed; an old client sending only product_id gets
+        the item of that product's PO line on the GRN (or the product's item)."""
+        from app.modules.products.models import Product
+        from app.modules.purchasing.models import PurchasingOrderItems
+
+        for item in items:
+            if getattr(item, "material_id", None) or not item.product_id:
+                continue
+            grn = grns_by_id.get(item.grn_id)
+            mid = None
+            if grn is not None:
+                mid = (
+                    self.db.query(PurchasingOrderItems.material_id)
+                    .filter(PurchasingOrderItems.purchasingorders_id == grn.purchasingorders_id,
+                            PurchasingOrderItems.product_id == item.product_id,
+                            PurchasingOrderItems.material_id.isnot(None))
+                    .limit(1).scalar()
+                )
+            if mid is None:
+                mid = self.db.query(Product.material_id).filter(Product.id == item.product_id).scalar()
+            if mid:
+                item.material_id = mid
 
     def _validate_invoice(self, data: PurchaseInvoiceCreate, invoice_id: Optional[int] = None):
         """
@@ -214,43 +251,51 @@ class PurchaseInvoiceService:
         # ---- three-way match: what is invoiced must be what was received, at the PO price ----
         from app.modules.purchasing.models import GoodReceivedItems, PurchasingOrderItems
 
+        from app.modules.purchasing.items import part_key
+
         cent = Decimal("0.01")
+        self._fill_item_material(data.items, grns_by_id)
         requested: Dict[tuple, Decimal] = {}
         for item in data.items:
             grn = grns_by_id[item.grn_id]
             if abs(Decimal(str(item.line_total)) - Decimal(str(item.quantity)) * Decimal(str(item.unit_price))) > cent:
                 raise HTTPException(status_code=400, detail=f"Line total {item.line_total} is not quantity x unit price for GRN {grn.good_received_no}")
-            requested[(grn.id, item.product_id)] = requested.get((grn.id, item.product_id), Decimal("0")) + Decimal(str(item.quantity))
+            key = (grn.id, part_key(item.material_id, item.product_id))
+            requested[key] = requested.get(key, Decimal("0")) + Decimal(str(item.quantity))
         for (grn_id, product_id), qty in requested.items():
             grn = grns_by_id[grn_id]
             if (grn.status or "").lower() == "cancelled":
                 raise HTTPException(status_code=400, detail=f"GRN {grn.good_received_no} is cancelled and cannot be invoiced")
+            # `product_id` here is the part key (item, or product on an old line)
             received_q = self.db.query(
-                PurchasingOrderItems.product_id, func.coalesce(func.sum(GoodReceivedItems.quantity), 0)
+                PurchasingOrderItems.material_id, PurchasingOrderItems.product_id,
+                func.coalesce(func.sum(GoodReceivedItems.quantity), 0)
             ).join(
                 GoodReceivedItems, GoodReceivedItems.purchasing_order_items_id == PurchasingOrderItems.id
             ).filter(
                 GoodReceivedItems.good_received_note == grn.good_received_no,
                 GoodReceivedItems.active == True,
-            ).group_by(PurchasingOrderItems.product_id).all()
-            received = {pid: Decimal(str(q)) for pid, q in received_q}
+            ).group_by(PurchasingOrderItems.material_id, PurchasingOrderItems.product_id).all()
+            received = self._sum_by_part(received_q)
             invoiced_q = self.db.query(
-                PurchaseInvoiceItem.product_id, func.coalesce(func.sum(PurchaseInvoiceItem.quantity), 0)
+                PurchaseInvoiceItem.material_id, PurchaseInvoiceItem.product_id,
+                func.coalesce(func.sum(PurchaseInvoiceItem.quantity), 0)
             ).join(
                 PurchaseInvoice, PurchaseInvoiceItem.purchase_invoice_id == PurchaseInvoice.id
             ).filter(
                 PurchaseInvoiceItem.grn_id == grn_id,
                 PurchaseInvoice.status != "cancelled",
                 PurchaseInvoice.id != (invoice_id or 0),
-            ).group_by(PurchaseInvoiceItem.product_id).all()
-            invoiced = {pid: Decimal(str(q)) for pid, q in invoiced_q}
+            ).group_by(PurchaseInvoiceItem.material_id, PurchaseInvoiceItem.product_id).all()
+            invoiced = self._sum_by_part(invoiced_q)
             # Goods sent back to the supplier are not billable.
             returned = self._returned_qty_by_product(grn_id)
             if product_id is None:
                 open_qty = sum(received.values()) - sum(returned.values()) - sum(invoiced.values())
             else:
                 if product_id not in received:
-                    raise HTTPException(status_code=400, detail=f"Product {product_id} was not received on GRN {grn.good_received_no}")
+                    what = ("Item " if product_id[0] == "m" else "Product ") + str(product_id[1])
+                    raise HTTPException(status_code=400, detail=f"{what} was not received on GRN {grn.good_received_no}")
                 open_qty = received[product_id] - returned.get(product_id, Decimal("0")) - invoiced.get(product_id, Decimal("0"))
             if qty > open_qty:
                 raise HTTPException(
@@ -259,11 +304,12 @@ class PurchaseInvoiceService:
                 )
         po_prices: Dict[tuple, set] = {}
         for poi in self.db.query(PurchasingOrderItems).filter(PurchasingOrderItems.purchasingorders_id.in_(list(po_ids))).all():
-            po_prices.setdefault((poi.purchasingorders_id, poi.product_id), set()).add(Decimal(str(poi.unit_price)).quantize(cent))
+            po_prices.setdefault((poi.purchasingorders_id, part_key(poi.material_id, poi.product_id)), set()).add(Decimal(str(poi.unit_price)).quantize(cent))
         for item in data.items:
-            if item.product_id is None:
+            key = part_key(item.material_id, item.product_id)
+            if key is None:
                 continue
-            prices = po_prices.get((grns_by_id[item.grn_id].purchasingorders_id, item.product_id))
+            prices = po_prices.get((grns_by_id[item.grn_id].purchasingorders_id, key))
             if prices and len(prices) == 1 and Decimal(str(item.unit_price)).quantize(cent) != next(iter(prices)):
                 raise HTTPException(
                     status_code=400,
@@ -372,6 +418,7 @@ class PurchaseInvoiceService:
                 grn_id=item_data.grn_id,
                 purchasing_order_id=item_data.purchasing_order_id,
                 product_id=item_data.product_id,
+                material_id=item_data.material_id,
                 quantity=item_data.quantity,
                 unit_price=item_data.unit_price,
                 line_total=item_data.line_total,
@@ -594,7 +641,7 @@ class PurchaseInvoiceService:
             items = [
                 PurchaseInvoiceItemCreate(
                     grn_id=it.grn_id, purchasing_order_id=it.purchasing_order_id, product_id=it.product_id,
-                    quantity=it.quantity, unit_price=it.unit_price, line_total=it.line_total,
+                    material_id=it.material_id, quantity=it.quantity, unit_price=it.unit_price, line_total=it.line_total,
                     tax_amount=it.tax_amount, description=it.description,
                 )
                 for it in self.db.query(PurchaseInvoiceItem).filter(PurchaseInvoiceItem.purchase_invoice_id == invoice_id).all()
@@ -641,6 +688,7 @@ class PurchaseInvoiceService:
                     grn_id=item_data.grn_id,
                     purchasing_order_id=item_data.purchasing_order_id,
                     product_id=item_data.product_id,
+                    material_id=item_data.material_id,
                     quantity=item_data.quantity,
                     unit_price=item_data.unit_price,
                     line_total=item_data.line_total,
@@ -1106,18 +1154,20 @@ class PurchaseInvoiceService:
             remaining_qty = total_received_qty
             remaining_amount = total_received_amount
 
-            # Build per-product breakdown
-            from app.modules.products.models import Product
+            # Build per-line breakdown, keyed by part (the item; the product on old lines)
+            from app.modules.purchasing.items import part_key
             from collections import Counter
             product_counter = Counter()
+            poi_by_id = {}
             for ri in received_items:
-                poi = self.db.query(PurchasingOrderItems).filter(
+                poi = poi_by_id.get(ri.purchasing_order_items_id) or self.db.query(PurchasingOrderItems).filter(
                     PurchasingOrderItems.id == ri.purchasing_order_items_id
                 ).first()
                 if poi:
-                    product_counter[(poi.product_id, poi.id, float(poi.unit_price))] += ri.quantity
+                    poi_by_id[poi.id] = poi
+                    product_counter[(part_key(poi.material_id, poi.product_id), poi.id, float(poi.unit_price))] += ri.quantity
 
-            # Returned units are not billable: take them off the product's lines.
+            # Returned units are not billable: take them off the part's lines.
             returned = {pid: int(q) for pid, q in self._returned_qty_by_product(grn.id).items()}
             if returned:
                 for key in list(product_counter):
@@ -1130,11 +1180,16 @@ class PurchaseInvoiceService:
                 remaining_amount = sum(uprice * q for (_, _, uprice), q in product_counter.items())
 
             products = []
-            for (pid, poi_id, uprice), qty in product_counter.items():
-                pname = self.db.query(Product.name).filter(Product.id == pid).scalar() or f"Product {pid}"
+            for (_key, poi_id, uprice), qty in product_counter.items():
+                poi = poi_by_id[poi_id]
+                pname = poi.material_name or poi.product_name or f"Line {poi_id}"
                 products.append(GRNInvoiceableProductDetail(
-                    product_id=pid,
+                    product_id=poi.product_id,
                     product_name=pname,
+                    material_id=poi.material_id,
+                    material_item_code=poi.material_item_code,
+                    material_name=poi.material_name,
+                    unit_of_measure=poi.unit_of_measure,
                     po_item_id=poi_id,
                     unit_price=uprice,
                     quantity=qty,
@@ -1289,6 +1344,9 @@ class PurchaseInvoiceService:
             product_name = None
             if item.product_id:
                 product_name = self.db.query(Product.name).filter(Product.id == item.product_id).scalar()
+            material = item.material
+            if product_name is None and material is not None:
+                product_name = material.name
 
             items.append(PurchaseInvoiceItemResponse(
                 id=item.id,
@@ -1296,6 +1354,7 @@ class PurchaseInvoiceService:
                 grn_id=item.grn_id,
                 purchasing_order_id=item.purchasing_order_id,
                 product_id=item.product_id,
+                material_id=item.material_id,
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 line_total=item.line_total,
@@ -1305,6 +1364,9 @@ class PurchaseInvoiceService:
                 grn_no=grn.good_received_no if grn else None,
                 po_no=po.purchasing_order_no if po else None,
                 product_name=product_name,
+                material_item_code=material.item_code if material else None,
+                material_name=material.name if material else None,
+                unit_of_measure=material.unit_of_measure if material else None,
             ))
 
         return PurchaseInvoiceResponse(

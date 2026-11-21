@@ -1,5 +1,5 @@
 from typing import List, Optional
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import or_
 from app.core import timezone as tz
 from app.core.concurrency import next_document_number, next_plain_number
@@ -24,7 +24,8 @@ class ProductRepository:
     
     def get_all(self, db: Session, skip: int = 0, limit: int = 100, active_only: bool = True) -> List[Product]:
         # price_tiers is serialized per product: one extra query instead of one per row.
-        query = db.query(Product).options(selectinload(Product.price_tiers))
+        query = db.query(Product).options(selectinload(Product.price_tiers), joinedload(Product.product_type),
+                                          joinedload(Product.hs_code_ref), joinedload(Product.material))
         if active_only:
             query = query.filter(Product.active == True)
         return query.offset(skip).limit(limit).all()
@@ -39,7 +40,7 @@ class ProductRepository:
             Product.item_code.ilike(pattern, escape="\\"),
             Product.model.ilike(pattern, escape="\\")
         )
-        return db.query(Product).options(selectinload(Product.price_tiers)).filter(search_filter).offset(skip).limit(limit).all()
+        return db.query(Product).options(selectinload(Product.price_tiers), joinedload(Product.material)).filter(search_filter).offset(skip).limit(limit).all()
     
     def create(self, db: Session, product: ProductCreate, created_by: int) -> Product:
         item_code = next_document_number(db, Product.item_code, "ITM", width=6)
@@ -320,7 +321,8 @@ def products_page(db: Session, *, page: int, size: int, q=None, active=None, cat
         db.query(Product)
         .join(Category, Product.category_id == Category.id)
         .join(ItemsBrand, Product.items_brand_id == ItemsBrand.id)
-        .options(joinedload(Product.category), joinedload(Product.brand), selectinload(Product.price_tiers))
+        .options(joinedload(Product.category), joinedload(Product.brand), selectinload(Product.price_tiers),
+                 joinedload(Product.product_type), joinedload(Product.hs_code_ref), joinedload(Product.material))
     )
     pat = _like_pattern(q)
     if pat:

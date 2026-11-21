@@ -40,12 +40,25 @@ from app.common.enums import (
 )
 from app.core import timezone as tz
 from app.core.concurrency import next_document_number
+from app.modules.inventory.costing import rows_cost
 from app.modules.inventory.lots import FEFO_ORDER, take_units, units_in
 from app.modules.inventory.models import CompanyAssets, SalesStock
 from app.modules.manufacturing import models as m
 from app.modules.manufacturing import schemas as s
 from app.modules.manufacturing.gl import ManufacturingGL
+from app.modules.manufacturing.items import (
+    get_item,
+    header_fields,
+    item_label,
+    item_standard_cost,
+    line_fields,
+    product_standard_cost,
+    single_products,
+    tracking_of,
+)
+from app.modules.materials.models import Material
 from app.modules.products.models import Product
+from app.modules.purchasing.items import stock_product_for_material
 
 D = Decimal
 CENT = D("0.01")
@@ -84,15 +97,8 @@ def _rate_cost(minutes, rate) -> Decimal:
     return _money(D(str(minutes or 0)) / 60 * D(str(rate or 0)))
 
 
-def standard_cost(product: Optional[Product]) -> Decimal:
-    """The cost inventory moves at: the latest active price tier's cost (what a sale
-    relieves inventory at, see SalesAccountingIntegration), else Product.cost_price."""
-    if product is None:
-        return D("0")
-    tiers = [t for t in (product.price_tiers or []) if t.is_active]
-    if tiers:
-        return _money(max(tiers, key=lambda t: (t.created_at or datetime.min, t.id)).cost_price)
-    return _money(product.cost_price)
+# A product's standard cost (price tier, else cost price); items use item_standard_cost
+standard_cost = product_standard_cost
 
 
 def _user_names(db: Session, ids: Iterable[Optional[int]]) -> Dict[int, str]:
@@ -111,9 +117,11 @@ def _location_names(db: Session, ids: Iterable[Optional[int]]) -> Dict[int, str]
     return {l.id: l.name for l in db.query(Locations).filter(Locations.id.in_(ids)).all()}
 
 
-def _free_stock_filter(product_ids, branch_codes: Optional[List[str]]):
+def _free_stock_filter(material_ids, branch_codes: Optional[List[str]]):
+    """Free stock of the given items (central stock: stock is keyed by item, whichever
+    product -- or none -- it was received or made under)."""
     # Expired lots are not free stock: they are never issued, nor counted as supply
-    f = [SalesStock.product_id.in_(product_ids), SalesStock.status == StockStatus.AVAILABLE,
+    f = [SalesStock.material_id.in_(list(material_ids)), SalesStock.status == StockStatus.AVAILABLE,
          SalesStock.is_active.is_(True), SalesStock.reserved_for_quote_item_id.is_(None),
          or_(SalesStock.expiry_date.is_(None), SalesStock.expiry_date >= tz.today())]
     if branch_codes is not None:
@@ -121,15 +129,15 @@ def _free_stock_filter(product_ids, branch_codes: Optional[List[str]]):
     return f
 
 
-def free_stock(db: Session, product_ids: Iterable[int], branch_codes: Optional[List[str]]) -> Dict[int, int]:
-    """Unreserved available units per product in the given branches (None = all)."""
-    product_ids = list(set(product_ids))
-    if not product_ids:
+def free_stock(db: Session, material_ids: Iterable[int], branch_codes: Optional[List[str]]) -> Dict[int, int]:
+    """Unreserved available units per item in the given branches (None = all)."""
+    material_ids = list({i for i in material_ids if i})
+    if not material_ids:
         return {}
-    rows = (db.query(SalesStock.product_id, func.coalesce(func.sum(SalesStock.quantity), 0))
-            .filter(*_free_stock_filter(product_ids, branch_codes))
-            .group_by(SalesStock.product_id).all())
-    return {pid: int(q) for pid, q in rows}
+    rows = (db.query(SalesStock.material_id, func.coalesce(func.sum(SalesStock.quantity), 0))
+            .filter(*_free_stock_filter(material_ids, branch_codes))
+            .group_by(SalesStock.material_id).all())
+    return {mid: int(q) for mid, q in rows}
 
 
 def _max_units(order: m.MfgProductionOrder) -> int:
@@ -151,12 +159,20 @@ def _lots(rows) -> List[dict]:
             for r in rows]
 
 
-def _active_bom_products(db: Session, product_ids: Iterable[int]) -> set:
-    product_ids = list(set(product_ids))
-    if not product_ids:
+def _active_bom_items(db: Session, material_ids: Iterable[int]) -> set:
+    """The items among ``material_ids`` that have an active BOM (are made in-house)."""
+    material_ids = list({i for i in material_ids if i})
+    if not material_ids:
         return set()
-    return {pid for (pid,) in db.query(m.MfgBOM.product_id)
-            .filter(m.MfgBOM.product_id.in_(product_ids), m.MfgBOM.status == BOMStatus.ACTIVE).distinct()}
+    return {mid for (mid,) in db.query(m.MfgBOM.material_id)
+            .filter(m.MfgBOM.material_id.in_(material_ids), m.MfgBOM.status == BOMStatus.ACTIVE).distinct()}
+
+
+def _part_cost(db: Session, row) -> Decimal:
+    """Standard cost of a line's item (an old row without one: its product)."""
+    if getattr(row, "item", None) is not None:
+        return item_standard_cost(db, row.item)
+    return standard_cost(getattr(row, "product", None))
 
 
 def _planned_outside(order: m.MfgProductionOrder) -> Decimal:
@@ -279,7 +295,7 @@ class BOMService:
 
     def _query(self):
         return self.db.query(m.MfgBOM).options(
-            selectinload(m.MfgBOM.items).selectinload(m.MfgBOMItem.product).selectinload(Product.price_tiers),
+            selectinload(m.MfgBOM.items).selectinload(m.MfgBOMItem.item).selectinload(Material.supplier_links),
             selectinload(m.MfgBOM.operations), selectinload(m.MfgBOM.by_products))
 
     def get(self, bom_id: int) -> m.MfgBOM:
@@ -293,18 +309,15 @@ class BOMService:
         out_qty = D(str(bom.output_quantity or 1))
         material = D("0")
         items = []
-        manufactured = _active_bom_products(self.db, [i.product_id for i in bom.items])
+        manufactured = _active_bom_items(self.db, [i.material_id for i in bom.items])
         for i in bom.items:
-            cost = standard_cost(i.product)
+            cost = _part_cost(self.db, i)
             line = _money(D(str(i.quantity)) * (1 + D(str(i.scrap_pct or 0)) / 100) * cost)
             material += line
             items.append(dict(
-                id=i.id, sequence=i.sequence, product_id=i.product_id,
-                product_name=i.product.name if i.product else None,
-                product_code=i.product.item_code if i.product else None,
-                unit_of_measure=i.product.unit_of_measure if i.product else None,
+                id=i.id, sequence=i.sequence, **line_fields(i),
                 quantity=i.quantity, scrap_pct=i.scrap_pct, issue_method=i.issue_method, remark=i.remark,
-                unit_cost=_money(cost), line_cost=line, is_manufactured=i.product_id in manufactured,
+                unit_cost=_money(cost), line_cost=line, is_manufactured=i.material_id in manufactured,
             ))
         labor = overhead = outside = D("0")
         ops = []
@@ -331,28 +344,22 @@ class BOMService:
             ))
         byproducts, by_value = [], D("0")
         for b in bom.by_products:
-            cost = standard_cost(b.product)
+            cost = _part_cost(self.db, b)
             value = _money(D(str(b.quantity)) * cost)
             by_value += value
-            byproducts.append(dict(
-                id=b.id, product_id=b.product_id, product_name=b.product.name if b.product else None,
-                product_code=b.product.item_code if b.product else None,
-                unit_of_measure=b.product.unit_of_measure if b.product else None,
-                quantity=b.quantity, unit_cost=cost, line_value=value))
-        # By-products carry their own cost, so the main product costs that much less
+            byproducts.append(dict(id=b.id, **line_fields(b), quantity=b.quantity, unit_cost=cost, line_value=value))
+        # By-products carry their own cost, so the main item costs that much less
         total = _money(max(material + labor + overhead + outside - by_value, D("0")))
         return dict(items=items, operations=ops, by_products=byproducts, material_cost=_money(material),
                     labor_cost=_money(labor), overhead_cost=_money(overhead), outside_cost=_money(outside),
                     byproduct_value=_money(by_value), total_cost=total, unit_cost=_money(total / out_qty))
 
-    def _out(self, bom: m.MfgBOM, with_lines: bool = True) -> dict:
+    def _out(self, bom: m.MfgBOM, with_lines: bool = True, linked: Optional[dict] = None) -> dict:
         r = self.rollup(bom)
-        p = bom.product
+        linked = linked if linked is not None else single_products(self.db, [bom.material_id])
         data = dict(
-            id=bom.id, bom_no=bom.bom_no, product_id=bom.product_id,
-            product_name=p.name if p else None, product_code=p.item_code if p else None,
-            unit_of_measure=p.unit_of_measure if p else None,
-            product_cost_price=standard_cost(p),
+            id=bom.id, bom_no=bom.bom_no, **header_fields(bom, linked),
+            product_cost_price=item_standard_cost(self.db, bom.item) if bom.item else standard_cost(bom.product),
             version=bom.version, output_quantity=bom.output_quantity, status=bom.status,
             is_default=bom.is_default, description=bom.description, overproduction_pct=bom.overproduction_pct,
             item_count=len(bom.items), operation_count=len(bom.operations),
@@ -365,48 +372,51 @@ class BOMService:
             data.update(items=r["items"], operations=r["operations"], by_products=r["by_products"])
         return data
 
-    def list(self, q: Optional[str] = None, status_: Optional[str] = None, product_id: Optional[int] = None) -> List[dict]:
-        query = self._query().join(Product, Product.id == m.MfgBOM.product_id)
+    def list(self, q: Optional[str] = None, status_: Optional[str] = None, product_id: Optional[int] = None,
+             material_id: Optional[int] = None) -> List[dict]:
+        query = self._query().outerjoin(Material, Material.id == m.MfgBOM.material_id)
         if q:
             like = f"%{q.strip()}%"
-            query = query.filter(or_(m.MfgBOM.bom_no.ilike(like), Product.name.ilike(like), Product.item_code.ilike(like)))
+            query = query.filter(or_(m.MfgBOM.bom_no.ilike(like), Material.name.ilike(like), Material.item_code.ilike(like)))
         if status_:
             query = query.filter(m.MfgBOM.status == status_)
-        if product_id:
-            query = query.filter(m.MfgBOM.product_id == product_id)
-        return [self._out(b, with_lines=False) for b in query.order_by(m.MfgBOM.id.desc()).all()]
+        if material_id:
+            query = query.filter(m.MfgBOM.material_id == material_id)
+        if product_id:   # the BOMs of the item the product sells (and old BOMs of the product)
+            mid = self.db.query(Product.material_id).filter(Product.id == product_id).scalar()
+            query = query.filter(or_(m.MfgBOM.product_id == product_id, m.MfgBOM.material_id == (mid or 0)))
+        rows = query.order_by(m.MfgBOM.id.desc()).all()
+        linked = single_products(self.db, [b.material_id for b in rows])
+        return [self._out(b, with_lines=False, linked=linked) for b in rows]
 
     def get_out(self, bom_id: int) -> dict:
         return self._out(self.get(bom_id))
 
     # ---- validation ----
-    def _product(self, product_id: int, label: str = "Product") -> Product:
-        p = self.db.query(Product).filter(Product.id == product_id).first()
-        if not p:
-            raise _bad(f"{label} #{product_id} does not exist")
-        return p
+    def _item(self, material_id: int, label: str = "Item") -> Material:
+        return get_item(self.db, material_id, label)
 
-    def _validate_lines(self, product_id: int, items: List[s.BOMItemIn], operations: List[s.BOMOperationIn],
+    def _validate_lines(self, material_id: int, items: List[s.BOMItemIn], operations: List[s.BOMOperationIn],
                         by_products: Optional[List[s.BOMByProductIn]] = None):
-        by_ids = [b.product_id for b in by_products or []]
+        by_ids = [b.material_id for b in by_products or []]
         if len(set(by_ids)) != len(by_ids):
             raise _bad("Each by-product can appear only once in a BOM")
-        for pid in by_ids:
-            if pid == product_id:
-                raise _bad("The product a BOM makes cannot also be its by-product")
-            if pid in {i.product_id for i in items}:
+        for mid in by_ids:
+            if mid == material_id:
+                raise _bad("The item a BOM makes cannot also be its by-product")
+            if mid in {i.material_id for i in items}:
                 raise _bad("A component cannot also be a by-product of the same BOM")
-            bp = self._product(pid, "By-product")
+            bp = self._item(mid, "By-product item")
             if not bp.active:
                 raise _bad(f"By-product '{bp.name}' is inactive")
         seen = set()
         for i in items:
-            if i.product_id == product_id:
-                raise _bad("A BOM cannot use the product it makes as a component")
-            if i.product_id in seen:
+            if i.material_id == material_id:
+                raise _bad("A BOM cannot use the item it makes as a component")
+            if i.material_id in seen:
                 raise _bad("Each component can appear only once in a BOM; combine the quantities")
-            seen.add(i.product_id)
-            comp = self._product(i.product_id, "Component")
+            seen.add(i.material_id)
+            comp = self._item(i.material_id, "Component item")
             if not comp.active:
                 raise _bad(f"Component '{comp.name}' is inactive")
         for o in operations:
@@ -416,9 +426,9 @@ class BOMService:
             if not wc.active:
                 raise _bad(f"Work center '{wc.code}' is inactive")
 
-    def _version_taken(self, product_id: int, version: str, exclude_id: Optional[int] = None) -> bool:
+    def _version_taken(self, material_id: int, version: str, exclude_id: Optional[int] = None) -> bool:
         q = self.db.query(m.MfgBOM.id).filter(
-            m.MfgBOM.product_id == product_id, func.lower(func.btrim(m.MfgBOM.version)) == version.strip().lower())
+            m.MfgBOM.material_id == material_id, func.lower(func.btrim(m.MfgBOM.version)) == version.strip().lower())
         if exclude_id:
             q = q.filter(m.MfgBOM.id != exclude_id)
         return q.first() is not None
@@ -432,39 +442,40 @@ class BOMService:
                                for b in by_products]
 
     def _cycle_check(self, bom: m.MfgBOM):
-        """Refuse a BOM whose components (through their active BOMs) lead back to its product."""
-        target = bom.product_id
-        stack = [i.product_id for i in bom.items]
+        """Refuse a BOM whose components (through their active BOMs) lead back to its item."""
+        target = bom.material_id
+        stack = [i.material_id for i in bom.items]
         seen = set()
         while stack:
-            pid = stack.pop()
-            if pid == target:
-                raise _bad("This BOM makes a loop: one of its components is (indirectly) made from this product")
-            if pid in seen:
+            mid = stack.pop()
+            if mid == target:
+                raise _bad("This BOM makes a loop: one of its components is (indirectly) made from this item")
+            if mid in seen:
                 continue
-            seen.add(pid)
-            comps = (self.db.query(m.MfgBOMItem.product_id).join(m.MfgBOM, m.MfgBOM.id == m.MfgBOMItem.bom_id)
-                     .filter(m.MfgBOM.product_id == pid, m.MfgBOM.status == BOMStatus.ACTIVE).all())
+            seen.add(mid)
+            comps = (self.db.query(m.MfgBOMItem.material_id).join(m.MfgBOM, m.MfgBOM.id == m.MfgBOMItem.bom_id)
+                     .filter(m.MfgBOM.material_id == mid, m.MfgBOM.status == BOMStatus.ACTIVE).all())
             stack.extend(c for (c,) in comps)
 
     # ---- commands ----
     def create(self, data: s.BOMIn, user_id: int) -> dict:
-        product = self._product(data.product_id)
-        if not product.active:
-            raise _bad(f"Product '{product.name}' is inactive")
-        self._validate_lines(product.id, data.items, data.operations, data.by_products)
-        if self._version_taken(product.id, data.version):
-            raise _bad(f"'{product.name}' already has a BOM version '{data.version}'")
+        item = self._item(data.material_id)
+        if not item.active:
+            raise _bad(f"Item '{item.name}' is inactive")
+        self._validate_lines(item.id, data.items, data.operations, data.by_products)
+        if self._version_taken(item.id, data.version):
+            raise _bad(f"'{item.name}' already has a BOM version '{data.version}'")
         bom = m.MfgBOM(
             bom_no=next_document_number(self.db, m.MfgBOM.bom_no, "BOM-", 6),
-            product_id=product.id, version=data.version, output_quantity=data.output_quantity,
+            material_id=item.id, version=data.version, output_quantity=data.output_quantity,
             description=data.description, status=BOMStatus.DRAFT, is_default=False,
             overproduction_pct=data.overproduction_pct, created_by=user_id, updated_by=user_id,
         )
         self._set_lines(bom, data.items, data.operations, user_id, data.by_products)
         self.db.add(bom)
         self.db.flush()
-        log_audit(self.db, user_id, "create", "bom", bom.id, {"bom_no": bom.bom_no, "version": bom.version})
+        log_audit(self.db, user_id, "create", "bom", bom.id, {"bom_no": bom.bom_no, "version": bom.version,
+                                                             "material_id": item.id})
         self.db.commit()
         return self.get_out(bom.id)
 
@@ -474,8 +485,8 @@ class BOMService:
             raise _bad("Only a draft BOM can be changed; copy it to a new version instead")
         changes = data.model_dump(exclude_unset=True)
         if changes.get("version"):
-            if self._version_taken(bom.product_id, changes["version"], exclude_id=bom.id):
-                raise _bad(f"This product already has a BOM version '{changes['version']}'")
+            if self._version_taken(bom.material_id, changes["version"], exclude_id=bom.id):
+                raise _bad(f"This item already has a BOM version '{changes['version']}'")
             bom.version = changes["version"]
         if changes.get("output_quantity") is not None:
             bom.output_quantity = changes["output_quantity"]
@@ -489,7 +500,7 @@ class BOMService:
                 s.BOMOperationIn.model_validate(o, from_attributes=True) for o in bom.operations]
             bys = data.by_products if data.by_products is not None else [
                 s.BOMByProductIn.model_validate(b, from_attributes=True) for b in bom.by_products]
-            self._validate_lines(bom.product_id, items, ops, bys)
+            self._validate_lines(bom.material_id, items, ops, bys)
             self._set_lines(bom, items, ops, user_id, bys)
         bom.updated_by = user_id
         log_audit(self.db, user_id, "update", "bom", bom.id, {"fields": sorted(changes)})
@@ -503,10 +514,10 @@ class BOMService:
         if not bom.items:
             raise _bad("A BOM needs at least one component")
         self._cycle_check(bom)
-        self._batch_tracking_for_new_product(bom.product, user_id)
+        self._batch_tracking_for_new_item(bom.item, user_id)
         bom.status = BOMStatus.ACTIVE
         has_default = self.db.query(m.MfgBOM.id).filter(
-            m.MfgBOM.product_id == bom.product_id, m.MfgBOM.status == BOMStatus.ACTIVE,
+            m.MfgBOM.material_id == bom.material_id, m.MfgBOM.status == BOMStatus.ACTIVE,
             m.MfgBOM.is_default.is_(True), m.MfgBOM.id != bom.id).first()
         bom.is_default = not has_default
         bom.updated_by = user_id
@@ -514,23 +525,30 @@ class BOMService:
         self.db.commit()
         return self.get_out(bom.id)
 
-    def _batch_tracking_for_new_product(self, product: Product, user_id: int) -> None:
-        """Products are serial-tracked by default, which would make one stock row per bun or
-        bottle. A product that gets its first active BOM and has never had stock moves to
-        batch tracking (batch = production order, with an expiry date)."""
-        if (product.tracking_type or TrackingType.SERIAL) != TrackingType.SERIAL:
+    def _batch_tracking_for_new_item(self, item: Optional[Material], user_id: int) -> None:
+        """Items are serial-tracked by default, which would make one stock row per bun or
+        bottle. An item that gets its first active BOM and has never had stock moves to
+        batch tracking (batch = production order, with an expiry date), and so do the
+        products that sell it and have no stock of their own."""
+        if item is None or (item.tracking_type or TrackingType.SERIAL) != TrackingType.SERIAL:
             return
-        if self.db.query(SalesStock.id).filter(SalesStock.product_id == product.id).first():
-            return   # tracking is locked once a product has stock rows
-        product.tracking_type = TrackingType.BATCH
-        log_audit(self.db, user_id, "update", "products", product.id,
+        if self.db.query(SalesStock.id).filter(SalesStock.material_id == item.id).first():
+            return   # tracking is locked once an item has stock rows
+        item.tracking_type = TrackingType.BATCH
+        log_audit(self.db, user_id, "update", "materials", item.id,
                   {"tracking_type": ["serial", "batch"], "reason": "first active BOM"})
+        for product in self.db.query(Product).filter(Product.material_id == item.id).all():
+            if (product.tracking_type or TrackingType.SERIAL) == TrackingType.SERIAL and not \
+                    self.db.query(SalesStock.id).filter(SalesStock.product_id == product.id).first():
+                product.tracking_type = TrackingType.BATCH
+                log_audit(self.db, user_id, "update", "products", product.id,
+                          {"tracking_type": ["serial", "batch"], "reason": "first active BOM of its item"})
 
     def set_default(self, bom_id: int, user_id: int) -> dict:
         bom = self.get(bom_id)
         if bom.status != BOMStatus.ACTIVE:
             raise _bad("Only an active BOM can be the default")
-        (self.db.query(m.MfgBOM).filter(m.MfgBOM.product_id == bom.product_id, m.MfgBOM.id != bom.id)
+        (self.db.query(m.MfgBOM).filter(m.MfgBOM.material_id == bom.material_id, m.MfgBOM.id != bom.id)
          .update({m.MfgBOM.is_default: False}, synchronize_session="fetch"))
         self.db.flush()
         bom.is_default = True
@@ -552,11 +570,11 @@ class BOMService:
 
     def copy(self, bom_id: int, data: s.BOMCopyIn, user_id: int) -> dict:
         src = self.get(bom_id)
-        if self._version_taken(src.product_id, data.version):
-            raise _bad(f"This product already has a BOM version '{data.version}'")
+        if self._version_taken(src.material_id, data.version):
+            raise _bad(f"This item already has a BOM version '{data.version}'")
         new = m.MfgBOM(
             bom_no=next_document_number(self.db, m.MfgBOM.bom_no, "BOM-", 6),
-            product_id=src.product_id, version=data.version, output_quantity=src.output_quantity,
+            material_id=src.material_id, version=data.version, output_quantity=src.output_quantity,
             description=src.description, status=BOMStatus.DRAFT, is_default=False,
             overproduction_pct=src.overproduction_pct, created_by=user_id, updated_by=user_id,
         )
@@ -581,22 +599,31 @@ class BOMService:
         self.db.commit()
 
     def update_product_cost(self, bom_id: int, user_id: int) -> dict:
-        """Cost roll-up -> the product's standard cost: Product.cost_price and the cost of
-        its active price tiers (the cost a sale relieves inventory at)."""
+        """Cost roll-up -> the finished item's standard cost (Material.cost_price), and the
+        cost of the products that sell it: Product.cost_price and their active price tiers
+        (the cost a sale relieves inventory at)."""
         bom = self.get(bom_id)
         if bom.status != BOMStatus.ACTIVE:
-            raise _bad("Only an active BOM can set the product's cost")
+            raise _bad("Only an active BOM can set the item's cost")
         unit_cost = self.rollup(bom)["unit_cost"]
         if unit_cost <= 0:
             raise _bad("The rolled-up cost is zero; set component costs or work-center rates first")
-        product = bom.product
-        old = standard_cost(product)
-        product.cost_price = unit_cost
-        tiers = [t for t in product.price_tiers if t.is_active]
-        for t in tiers:
-            t.cost_price = unit_cost
-        log_audit(self.db, user_id, "update_cost", "products", product.id,
-                  {"cost_price": [str(old), str(unit_cost)], "bom_no": bom.bom_no, "price_tiers": [t.id for t in tiers]})
+        item = bom.item
+        if item is not None:
+            old = item_standard_cost(self.db, item)
+            item.cost_price = unit_cost
+            log_audit(self.db, user_id, "update_cost", "materials", item.id,
+                      {"cost_price": [str(old), str(unit_cost)], "bom_no": bom.bom_no})
+        products = (self.db.query(Product).filter(Product.material_id == item.id).all() if item is not None
+                    else [bom.product] if bom.product else [])
+        for product in products:
+            old = standard_cost(product)
+            product.cost_price = unit_cost
+            tiers = [t for t in product.price_tiers if t.is_active]
+            for t in tiers:
+                t.cost_price = unit_cost
+            log_audit(self.db, user_id, "update_cost", "products", product.id,
+                      {"cost_price": [str(old), str(unit_cost)], "bom_no": bom.bom_no, "price_tiers": [t.id for t in tiers]})
         self.db.commit()
         return self.get_out(bom.id)
 
@@ -621,11 +648,14 @@ class ProductionOrderService:
         order = self._query().filter(m.MfgProductionOrder.id == order_id).first()
         if not order:
             raise _not_found("Production order")
+        if lock:  # every stock-moving action locks its order first: tag the stock ledger lines
+            from app.modules.inventory.ledger import set_stock_reference
+            set_stock_reference(self.db, "production_order", order.id, order.order_no)
         return order
 
     def _out(self, o: m.MfgProductionOrder, detail: bool = False, names: Optional[dict] = None,
-             locations: Optional[dict] = None, boms: Optional[dict] = None) -> dict:
-        p = o.product
+             locations: Optional[dict] = None, boms: Optional[dict] = None, linked: Optional[dict] = None) -> dict:
+        linked = linked if linked is not None else single_products(self.db, [o.material_id])
         names = names if names is not None else _user_names(self.db, [o.created_by, o.released_by])
         locations = locations if locations is not None else _location_names(self.db, [o.location_id])
         bom = (boms or {}).get(o.bom_id) or (o.bom if detail or boms is None else None)
@@ -635,9 +665,7 @@ class ProductionOrderService:
         done = o.produced_quantity or 0
         scrap = o.scrapped_quantity or 0
         data = dict(
-            id=o.id, order_no=o.order_no, product_id=o.product_id,
-            product_name=p.name if p else None, product_code=p.item_code if p else None,
-            unit_of_measure=p.unit_of_measure if p else None, tracking_type=p.tracking_type if p else None,
+            id=o.id, order_no=o.order_no, **header_fields(o, linked), tracking_type=tracking_of(o),
             bom_id=o.bom_id, bom_no=bom.bom_no if bom else None, bom_version=bom.version if bom else None,
             branch_code=o.branch_code, location_id=o.location_id, location_name=locations.get(o.location_id),
             planned_quantity=o.planned_quantity, produced_quantity=done, scrapped_quantity=o.scrapped_quantity or 0,
@@ -666,22 +694,18 @@ class ProductionOrderService:
             created_at=o.created_at, updated_at=o.updated_at,
         )
         if detail:
-            avail = free_stock(self.db, [x.product_id for x in o.materials], [o.branch_code])
+            avail = free_stock(self.db, [x.material_id for x in o.materials], [o.branch_code])
             mats = []
             short = partial = False
             for x in o.materials:
                 remaining = max(x.required_quantity - x.issued_quantity, 0)
-                available = avail.get(x.product_id, 0)
+                available = avail.get(x.material_id, 0)
                 shortage = max(remaining - available, 0)
                 if shortage:
                     short = True
                     partial = partial or available > 0
                 mats.append(dict(
-                    id=x.id, sequence=x.sequence, product_id=x.product_id,
-                    product_name=x.product.name if x.product else None,
-                    product_code=x.product.item_code if x.product else None,
-                    unit_of_measure=x.product.unit_of_measure if x.product else None,
-                    tracking_type=x.product.tracking_type if x.product else None,
+                    id=x.id, sequence=x.sequence, **line_fields(x), tracking_type=tracking_of(x),
                     quantity_per_unit=x.quantity_per_unit, scrap_pct=x.scrap_pct,
                     required_quantity=x.required_quantity, issued_quantity=x.issued_quantity,
                     remaining_quantity=remaining, issue_method=x.issue_method, unit_cost=x.unit_cost,
@@ -705,13 +729,17 @@ class ProductionOrderService:
                 outside_unit_cost=op.outside_unit_cost or D("0"), outside_quantity=op.outside_quantity or 0,
             ) for op in o.operations]
             data["by_products"] = [dict(
-                id=b.id, product_id=b.product_id, product_name=b.product.name if b.product else None,
-                product_code=b.product.item_code if b.product else None,
-                unit_of_measure=b.product.unit_of_measure if b.product else None,
-                quantity_per_unit=b.quantity_per_unit,
+                id=b.id, **line_fields(b), quantity_per_unit=b.quantity_per_unit,
                 expected_quantity=int(D(str(b.quantity_per_unit)) * D(done)),
                 received_quantity=b.received_quantity, unit_cost=b.unit_cost) for b in o.by_products]
         return data
+
+    @staticmethod
+    def _finished_key(order: m.MfgProductionOrder):
+        """SalesStock condition for the order's finished item (an old order: its product)."""
+        if order.material_id:
+            return SalesStock.material_id == order.material_id
+        return SalesStock.product_id == order.product_id
 
     def _on_hold(self, order_id: int) -> int:
         q = (self.db.query(func.coalesce(func.sum(m.MfgProductionOutput.quantity - m.MfgProductionOutput.qc_passed_quantity
@@ -732,20 +760,24 @@ class ProductionOrderService:
 
     def list(self, *, q: Optional[str] = None, status_: Optional[List[str]] = None, branch_code: Optional[str] = None,
              branch_codes: Optional[List[str]] = None, product_id: Optional[int] = None, late_only: bool = False,
-             page: int = 1, size: int = 50) -> dict:
-        query = self.db.query(m.MfgProductionOrder).join(Product, Product.id == m.MfgProductionOrder.product_id)
+             page: int = 1, size: int = 50, material_id: Optional[int] = None) -> dict:
+        query = self.db.query(m.MfgProductionOrder).outerjoin(Material, Material.id == m.MfgProductionOrder.material_id)
         if q:
             like = f"%{q.strip()}%"
-            query = query.filter(or_(m.MfgProductionOrder.order_no.ilike(like), Product.name.ilike(like),
-                                     Product.item_code.ilike(like), m.MfgProductionOrder.source_reference.ilike(like)))
+            query = query.filter(or_(m.MfgProductionOrder.order_no.ilike(like), Material.name.ilike(like),
+                                     Material.item_code.ilike(like), m.MfgProductionOrder.source_reference.ilike(like)))
         if status_:
             query = query.filter(m.MfgProductionOrder.status.in_(status_))
         if branch_code:
             query = query.filter(m.MfgProductionOrder.branch_code == branch_code)
         if branch_codes is not None:
             query = query.filter(m.MfgProductionOrder.branch_code.in_(branch_codes))
-        if product_id:
-            query = query.filter(m.MfgProductionOrder.product_id == product_id)
+        if material_id:
+            query = query.filter(m.MfgProductionOrder.material_id == material_id)
+        if product_id:   # orders making the item the product sells (and old orders of the product)
+            mid = self.db.query(Product.material_id).filter(Product.id == product_id).scalar()
+            query = query.filter(or_(m.MfgProductionOrder.product_id == product_id,
+                                     m.MfgProductionOrder.material_id == (mid or 0)))
         if late_only:
             query = query.filter(m.MfgProductionOrder.status.in_(OPEN_STATUSES),
                                  m.MfgProductionOrder.planned_end_date < tz.today())
@@ -758,20 +790,21 @@ class ProductionOrderService:
         locations = _location_names(self.db, [r.location_id for r in rows])
         bom_ids = {r.bom_id for r in rows}
         boms = {b.id: b for b in self.db.query(m.MfgBOM).filter(m.MfgBOM.id.in_(bom_ids)).all()} if bom_ids else {}
-        return [self._out(r, names=names, locations=locations, boms=boms) for r in rows]
+        linked = single_products(self.db, [r.material_id for r in rows])
+        return [self._out(r, names=names, locations=locations, boms=boms, linked=linked) for r in rows]
 
     # ---- building ----
-    def _resolve_bom(self, product_id: int, bom_id: Optional[int]) -> m.MfgBOM:
+    def _resolve_bom(self, material_id: int, bom_id: Optional[int]) -> m.MfgBOM:
         if bom_id:
             bom = BOMService(self.db).get(bom_id)
-            if bom.product_id != product_id:
-                raise _bad("The BOM is for a different product")
+            if bom.material_id != material_id:
+                raise _bad("The BOM is for a different item")
         else:
             bom = (BOMService(self.db)._query()
-                   .filter(m.MfgBOM.product_id == product_id, m.MfgBOM.status == BOMStatus.ACTIVE)
+                   .filter(m.MfgBOM.material_id == material_id, m.MfgBOM.status == BOMStatus.ACTIVE)
                    .order_by(m.MfgBOM.is_default.desc(), m.MfgBOM.id.desc()).first())
             if not bom:
-                raise _bad("This product has no active BOM; create and activate one first")
+                raise _bad("This item has no active BOM; create and activate one first")
         if bom.status != BOMStatus.ACTIVE:
             raise _bad(f"BOM {bom.bom_no} is {bom.status}; only an active BOM can be used")
         return bom
@@ -784,10 +817,11 @@ class ProductionOrderService:
         for i in bom.items:
             per_unit = (D(str(i.quantity)) / out_qty).quantize(D("0.000001"))
             required = _units_needed(per_unit, i.scrap_pct, units)
-            cost = standard_cost(i.product)
+            cost = _part_cost(self.db, i)
             mat_cost += cost * required
             mats.append(m.MfgProductionOrderMaterial(
-                sequence=i.sequence, product_id=i.product_id, quantity_per_unit=per_unit, scrap_pct=i.scrap_pct,
+                sequence=i.sequence, material_id=i.material_id, product_id=None if i.material_id else i.product_id,
+                quantity_per_unit=per_unit, scrap_pct=i.scrap_pct,
                 required_quantity=required, issued_quantity=0, issue_method=i.issue_method, unit_cost=cost,
                 created_by=user_id, updated_by=user_id))
         ops, labor, overhead = [], D("0"), D("0")
@@ -809,8 +843,9 @@ class ProductionOrderService:
         order.materials = mats
         order.operations = ops
         order.by_products = [m.MfgProductionOrderByProduct(
-            product_id=b.product_id, quantity_per_unit=(D(str(b.quantity)) / out_qty).quantize(D("0.000001")),
-            received_quantity=0, unit_cost=standard_cost(b.product), created_by=user_id, updated_by=user_id)
+            material_id=b.material_id, product_id=None if b.material_id else b.product_id,
+            quantity_per_unit=(D(str(b.quantity)) / out_qty).quantize(D("0.000001")),
+            received_quantity=0, unit_cost=_part_cost(self.db, b), created_by=user_id, updated_by=user_id)
             for b in bom.by_products]
         order.overproduction_pct = bom.overproduction_pct or 0
         order.planned_material_cost = _money(mat_cost)
@@ -838,20 +873,18 @@ class ProductionOrderService:
 
     def _create(self, data: s.ProductionOrderIn, user_id: int, quote_item_id: Optional[int] = None) -> m.MfgProductionOrder:
         """Build and flush a draft order (the caller commits)."""
-        product = self.db.query(Product).filter(Product.id == data.product_id).first()
-        if not product:
-            raise _bad("Product does not exist")
-        if not product.active:
-            raise _bad(f"Product '{product.name}' is inactive")
+        item = get_item(self.db, data.material_id)
+        if not item.active:
+            raise _bad(f"Item '{item.name}' is inactive")
         if not self.db.query(Branch.id).filter(Branch.branch_code == data.branch_code).first():
             raise _bad(f"Branch '{data.branch_code}' does not exist")
-        bom = self._resolve_bom(product.id, data.bom_id)
+        bom = self._resolve_bom(item.id, data.bom_id)
         if data.location_id:
             self._check_location(data.location_id, data.branch_code)
         yy = str(tz.today().year)[-2:]
         order = m.MfgProductionOrder(
             order_no=next_document_number(self.db, m.MfgProductionOrder.order_no, f"MO-{data.branch_code}-{yy}", 6),
-            product_id=product.id, bom_id=bom.id, branch_code=data.branch_code,
+            material_id=item.id, bom_id=bom.id, branch_code=data.branch_code,
             location_id=data.location_id or self._default_location(data.branch_code),
             planned_quantity=data.planned_quantity, planned_start_date=data.planned_start_date,
             planned_end_date=data.planned_end_date, priority=data.priority,
@@ -890,8 +923,14 @@ class ProductionOrderService:
             raise _bad(f"Only {remaining} unit(s) of this quotation line are left to produce")
         start = data.planned_start_date or tz.today()
         end = data.planned_end_date or max(start, quote.expected_delivery_date or start)
+        # What gets made is the item the quoted product sells (created for a stocked product without one)
+        from app.modules.purchasing.items import ensure_product_item
+        material_id = ensure_product_item(self.db, qi.product, user_id)
+        if not material_id:
+            name = qi.product.name if qi.product else f"product #{qi.product_id}"
+            raise _bad(f"'{name}' has no Item Catalog item, so it cannot be produced; link it to an item first")
         order = self._create(s.ProductionOrderIn(
-            product_id=qi.product_id, bom_id=data.bom_id, branch_code=quote.branch_code, location_id=data.location_id,
+            material_id=material_id, bom_id=data.bom_id, branch_code=quote.branch_code, location_id=data.location_id,
             planned_quantity=qty, planned_start_date=start, planned_end_date=end, priority=data.priority,
             source_reference=quote.quote_no, remark=data.remark), user_id, quote_item_id=qi.id)
         qi.item_status = "mo_created"
@@ -945,7 +984,7 @@ class ProductionOrderService:
         changes = data.model_dump(exclude_unset=True)
         rebuild = False
         if changes.get("bom_id") and changes["bom_id"] != order.bom_id:
-            order.bom_id = self._resolve_bom(order.product_id, changes["bom_id"]).id
+            order.bom_id = self._resolve_bom(order.material_id, changes["bom_id"]).id
             rebuild = True
         if changes.get("planned_quantity") and changes["planned_quantity"] != order.planned_quantity:
             order.planned_quantity = changes["planned_quantity"]
@@ -962,7 +1001,7 @@ class ProductionOrderService:
         if order.planned_end_date < order.planned_start_date:
             raise _bad("Planned end date cannot be before the planned start date")
         if rebuild:
-            self._build_lines(order, self._resolve_bom(order.product_id, order.bom_id), user_id)
+            self._build_lines(order, self._resolve_bom(order.material_id, order.bom_id), user_id)
         order.updated_by = user_id
         log_audit(self.db, user_id, "update", "production_order", order.id, {"fields": sorted(changes)})
         self.db.commit()
@@ -981,7 +1020,7 @@ class ProductionOrderService:
         order = self.get(order_id, lock=True)
         if order.status != PS.DRAFT:
             raise _bad(f"Only a draft order can be released (this one is {order.status.replace('_', ' ')})")
-        bom = self._resolve_bom(order.product_id, order.bom_id)
+        bom = self._resolve_bom(order.material_id, order.bom_id)
         # Costs and rates are fixed at release
         self._build_lines(order, bom, user_id)
         self.db.flush()
@@ -989,7 +1028,7 @@ class ProductionOrderService:
                          + D(str(order.planned_overhead_cost)) + _planned_outside(order)
                          - sum((D(str(b.quantity_per_unit)) * order.planned_quantity * D(str(b.unit_cost))
                                 for b in order.by_products), D("0")))
-        std = standard_cost(order.product)
+        std = _part_cost(self.db, order)
         order.standard_unit_cost = std if std > 0 else _money(planned_total / order.planned_quantity)
         order.status = PS.RELEASED
         order.released_by = user_id
@@ -1019,27 +1058,35 @@ class ProductionOrderService:
     # ---- stock movements ----
     def _consume(self, order: m.MfgProductionOrder, mat: m.MfgProductionOrderMaterial, qty: int,
                  txn_type: str, user_id: int, remark: Optional[str] = None) -> m.MfgMaterialTransaction:
+        # Stock of the component item, whatever product (or none) it was received under
         rows = (self.db.query(SalesStock)
-                .filter(*_free_stock_filter([mat.product_id], [order.branch_code]))
+                .filter(*_free_stock_filter([mat.material_id], [order.branch_code]))
                 .order_by(*FEFO_ORDER).with_for_update().all())
         taken = take_units(self.db, rows, qty)
         got = units_in(taken)
         if got < qty:
-            name = mat.product.name if mat.product else f"product #{mat.product_id}"
+            name = item_label(mat)
             raise _bad(f"Not enough '{name}' in branch {order.branch_code}: {qty} needed, {got} available")
+        # Issue cost of the lots actually taken (inventory/costing.py), read before they leave stock
+        total = _money(rows_cost(self.db, taken))
         for row in taken:
             row.status = StockStatus.CONSUMED
             row.is_active = False
             row.consumed_by_production_order_id = order.id
         mat.issued_quantity += qty
-        return self._txn(order, mat, txn_type, qty, user_id, remark, lots=_lots(taken))
+        return self._txn(order, mat, txn_type, qty, user_id, remark, lots=_lots(taken), total=total)
 
     def _txn(self, order, mat, txn_type: str, qty: int, user_id: int, remark: Optional[str],
-             lots: Optional[List[dict]] = None) -> m.MfgMaterialTransaction:
-        total = _money(D(str(mat.unit_cost)) * qty)
+             lots: Optional[List[dict]] = None, total: Optional[D] = None) -> m.MfgMaterialTransaction:
+        """``total``: the stock cost of the units moved (issue cost of the lots taken or
+        returned); the line's standard cost when not given."""
+        if total is None:
+            total = _money(D(str(mat.unit_cost)) * qty)
+        unit_cost = _money(total / qty) if qty else mat.unit_cost
         txn = m.MfgMaterialTransaction(
-            order_id=order.id, material_id=mat.id, product_id=mat.product_id, transaction_type=txn_type,
-            quantity=qty, unit_cost=mat.unit_cost, total_cost=total, branch_code=order.branch_code,
+            order_id=order.id, material_id=mat.id, item_material_id=mat.material_id,
+            product_id=None if mat.material_id else mat.product_id, transaction_type=txn_type,
+            quantity=qty, unit_cost=unit_cost, total_cost=total, branch_code=order.branch_code,
             transaction_date=tz.now(), remark=remark, lots=lots, created_by=user_id, updated_by=user_id,
         )
         self.db.add(txn)
@@ -1068,7 +1115,7 @@ class ProductionOrderService:
             mat = self._material(order, line.material_id)
             cap = max(mat.required_quantity, _units_needed(mat.quantity_per_unit, mat.scrap_pct, _max_units(order)))
             if mat.issued_quantity + line.quantity > cap:
-                raise _bad(f"'{mat.product.name}' can be issued up to {cap} unit(s) on this order "
+                raise _bad(f"'{item_label(mat)}' can be issued up to {cap} unit(s) on this order "
                            f"({mat.issued_quantity} already issued); the BOM's over-production tolerance sets the limit")
             self._consume(order, mat, line.quantity, "issue", user_id, data.remark)
         log_audit(self.db, user_id, "issue_materials", "production_order", order.id,
@@ -1083,20 +1130,21 @@ class ProductionOrderService:
         for line in data.lines:
             mat = self._material(order, line.material_id)
             if line.quantity > mat.issued_quantity:
-                raise _bad(f"Only {mat.issued_quantity} unit(s) of '{mat.product.name}' were issued to this order")
+                raise _bad(f"Only {mat.issued_quantity} unit(s) of '{item_label(mat)}' were issued to this order")
             rows = (self.db.query(SalesStock)
                     .filter(SalesStock.consumed_by_production_order_id == order.id,
-                            SalesStock.product_id == mat.product_id, SalesStock.status == StockStatus.CONSUMED)
+                            SalesStock.material_id == mat.material_id, SalesStock.status == StockStatus.CONSUMED)
                     .order_by(SalesStock.id.desc()).with_for_update().all())
             taken = take_units(self.db, rows, line.quantity)
             if units_in(taken) < line.quantity:
-                raise _bad(f"Only {units_in(taken)} consumed unit(s) of '{mat.product.name}' can still be returned")
+                raise _bad(f"Only {units_in(taken)} consumed unit(s) of '{item_label(mat)}' can still be returned")
+            total = _money(rows_cost(self.db, taken))  # back into stock at its issue cost
             for row in taken:
                 row.status = StockStatus.AVAILABLE
                 row.is_active = True
                 row.consumed_by_production_order_id = None
             mat.issued_quantity -= line.quantity
-            self._txn(order, mat, "return", line.quantity, user_id, data.remark, lots=_lots(taken))
+            self._txn(order, mat, "return", line.quantity, user_id, data.remark, lots=_lots(taken), total=total)
         log_audit(self.db, user_id, "return_materials", "production_order", order.id,
                   {"lines": [[l.material_id, l.quantity] for l in data.lines]})
         self.db.commit()
@@ -1121,7 +1169,7 @@ class ProductionOrderService:
         else:
             start = (self.db.query(func.count(SalesStock.id))
                      .filter(SalesStock.production_order_id == order.id, SalesStock.barcode.isnot(None),
-                             SalesStock.product_id == order.product_id).scalar() or 0)
+                             SalesStock.material_id == order.material_id).scalar() or 0)
             serials = [f"{order.order_no}-{start + n:04d}" for n in range(1, qty + 1)]
         clash = (self.db.query(SalesStock.barcode).filter(SalesStock.barcode.in_(serials)).first()
                  or self.db.query(CompanyAssets.barcode).filter(CompanyAssets.barcode.in_(serials)).first())
@@ -1139,7 +1187,8 @@ class ProductionOrderService:
             raise _bad(f"Only {max(cap - recorded, 0)} more unit(s), good and scrap together, can be recorded on this "
                        f"order (planned {order.planned_quantity}{extra})")
         by_lines = self._by_product_lines(order, data.by_products)
-        tracking = order.product.tracking_type or TrackingType.SERIAL
+        item = order.item   # tracking, shelf life and QC come from the item made
+        tracking = tracking_of(order)
         if data.serial_numbers and (tracking != TrackingType.SERIAL or not data.quantity):
             # MFG-06: never drop what the user typed
             raise _bad("Serial numbers are only for good units of a serial-tracked product")
@@ -1151,9 +1200,10 @@ class ProductionOrderService:
 
         now = tz.now()
         expiry = data.expiry_date
-        if expiry is None and order.product.shelf_life_days:
-            expiry = now.date() + timedelta(days=order.product.shelf_life_days)
-        held = bool(order.product.requires_qc) and data.quantity > 0
+        src = item if item is not None else order.product
+        if expiry is None and src is not None and src.shelf_life_days:
+            expiry = now.date() + timedelta(days=src.shelf_life_days)
+        held = bool(src is not None and src.requires_qc) and data.quantity > 0
         output = m.MfgProductionOutput(
             order_id=order.id, quantity=data.quantity, scrap_quantity=data.scrap_quantity,
             scrap_reason=data.scrap_reason if data.scrap_quantity else None,
@@ -1172,7 +1222,12 @@ class ProductionOrderService:
             # Make-to-order output is reserved for the quotation line, the rest is free stock.
             # Output waiting for a quality check is frozen; it is reserved / freed when it passes.
             to_reserve = 0 if held else self._units_to_reserve(order, data.quantity)
-            base = dict(base, product_id=order.product_id)
+            # Stock of the finished item, filed under its one linked product (none: item-only stock),
+            # valued at the order's standard unit cost
+            product_id = (stock_product_for_material(self.db, order.material_id) if order.material_id
+                          else order.product_id)
+            base = dict(base, product_id=product_id, material_id=order.material_id,
+                        unit_cost=order.standard_unit_cost)
 
             def _status(reserved: bool) -> dict:
                 if held:
@@ -1192,7 +1247,8 @@ class ProductionOrderService:
                                                **base, **_status(reserved)))
                 if tracking == TrackingType.BATCH and not output.batch_no:
                     output.batch_no = batch
-        self._receive_by_products(order, output, by_lines, {k: v for k, v in base.items() if k != "product_id"})
+        self._receive_by_products(order, output, by_lines,
+                                  {k: v for k, v in base.items() if k not in ("product_id", "material_id", "unit_cost")})
         order.produced_quantity += data.quantity
         order.scrapped_quantity += data.scrap_quantity
         order.output_value = _money(D(str(order.output_value)) + D(str(output.total_value)) + D(str(output.byproduct_value)))
@@ -1228,24 +1284,33 @@ class ProductionOrderService:
         valued at their standard cost fixed at release."""
         received, value = [], D("0")
         for bp, qty in lines:
-            tracking = bp.product.tracking_type or TrackingType.SERIAL
+            src = bp.item if bp.item is not None else bp.product
+            tracking = tracking_of(bp)
             batch = order.order_no if tracking == TrackingType.BATCH else None
-            expiry = (output.receipt_date.date() + timedelta(days=bp.product.shelf_life_days)
-                      if batch and bp.product.shelf_life_days else None)
+            shelf = src.shelf_life_days if src is not None else None
+            expiry = output.receipt_date.date() + timedelta(days=shelf) if batch and shelf else None
+            # Stock of the by-product item, filed under its one linked product (none: item-only stock)
+            key = (dict(material_id=bp.material_id, product_id=stock_product_for_material(self.db, bp.material_id))
+                   if bp.material_id else dict(product_id=bp.product_id))
             if tracking == TrackingType.SERIAL:
                 start = (self.db.query(func.count(SalesStock.id))
-                         .filter(SalesStock.production_order_id == order.id, SalesStock.product_id == bp.product_id).scalar() or 0)
+                         .filter(SalesStock.production_order_id == order.id,
+                                 SalesStock.barcode.like(f"{order.order_no}-BP{bp.id}-%")).scalar() or 0)
                 for n in range(1, qty + 1):
-                    self.db.add(SalesStock(product_id=bp.product_id, barcode=f"{order.order_no}-BP{bp.id}-{start + n:04d}",
-                                           quantity=1, status=StockStatus.AVAILABLE, **base))
+                    self.db.add(SalesStock(barcode=f"{order.order_no}-BP{bp.id}-{start + n:04d}", quantity=1,
+                                           status=StockStatus.AVAILABLE, unit_cost=bp.unit_cost, **key, **base))
             else:
-                self.db.add(SalesStock(product_id=bp.product_id, barcode=None, quantity=qty, batch_no=batch,
-                                       expiry_date=expiry, status=StockStatus.AVAILABLE, **base))
+                self.db.add(SalesStock(barcode=None, quantity=qty, batch_no=batch, expiry_date=expiry,
+                                       status=StockStatus.AVAILABLE, unit_cost=bp.unit_cost, **key, **base))
             line_value = _money(D(str(bp.unit_cost)) * qty)
             value += line_value
             bp.received_quantity += qty
-            received.append(dict(byproduct_id=bp.id, product_id=bp.product_id,
-                                 product_name=bp.product.name if bp.product else None, quantity=qty,
+            received.append(dict(byproduct_id=bp.id, material_id=bp.material_id,
+                                 material_name=bp.item.name if bp.item else None,
+                                 material_item_code=bp.item.item_code if bp.item else None,
+                                 unit_of_measure=bp.item.unit_of_measure if bp.item else None,
+                                 product_id=key.get("product_id"),
+                                 product_name=item_label(bp), quantity=qty,
                                  unit_cost=str(bp.unit_cost), value=str(line_value)))
         output.by_products = received or None
         output.byproduct_value = _money(value)
@@ -1266,7 +1331,7 @@ class ProductionOrderService:
         if data.passed_quantity + data.failed_quantity > waiting:
             raise _bad(f"Only {waiting} unit(s) of this output are still on hold")
         rows = (self.db.query(SalesStock)
-                .filter(SalesStock.production_output_id == output.id, SalesStock.product_id == order.product_id,
+                .filter(SalesStock.production_output_id == output.id, self._finished_key(order),
                         SalesStock.status == StockStatus.FROZEN)
                 .order_by(SalesStock.id).with_for_update().all())
         failed_rows = take_units(self.db, rows, data.failed_quantity) if data.failed_quantity else []
@@ -1479,7 +1544,7 @@ class ProductionOrderService:
         serials = defaultdict(list)
         for barcode, out_id in (self.db.query(SalesStock.barcode, SalesStock.production_output_id)
                                 .filter(SalesStock.production_order_id == order.id, SalesStock.barcode.isnot(None),
-                                        SalesStock.product_id == order.product_id)
+                                        self._finished_key(order))
                                 .order_by(SalesStock.id)):
             serials[out_id].append(barcode)
         receipts = (self.db.query(m.MfgOutsideReceipt).filter(m.MfgOutsideReceipt.order_id == order.id)
@@ -1502,7 +1567,10 @@ class ProductionOrderService:
                 employees[e.id] = (f"{u.first_name or ''} {u.last_name or ''}".strip() if u else None) or e.employee_id
         return dict(
             materials=[dict(
-                id=t.id, order_id=t.order_id, material_id=t.material_id, product_id=t.product_id,
+                id=t.id, order_id=t.order_id, material_id=t.material_id, item_material_id=t.item_material_id,
+                material_item_code=t.item.item_code if t.item else None, material_name=t.item.name if t.item else None,
+                unit_of_measure=(t.item.unit_of_measure if t.item else None) or (t.product.unit_of_measure if t.product else None),
+                product_id=t.product_id,
                 product_name=t.product.name if t.product else None, product_code=t.product.item_code if t.product else None,
                 transaction_type=t.transaction_type, quantity=t.quantity, unit_cost=t.unit_cost,
                 total_cost=t.total_cost, transaction_date=t.transaction_date, remark=t.remark,
@@ -1564,35 +1632,48 @@ class ProductionOrderService:
         orders = q.order_by(O.id).all() if q is not None else []
         out = []
         for o in orders:
+            # Parts are keyed ("m", item id) -- or ("p", product id) for rows made before items
             comps: Dict[tuple, int] = defaultdict(int)
             for t in self.db.query(m.MfgMaterialTransaction).filter(m.MfgMaterialTransaction.order_id == o.id):
                 sign = -1 if t.transaction_type == "return" else 1
+                part = ("m", t.item_material_id) if t.item_material_id else ("p", t.product_id)
                 for l in t.lots or []:
-                    comps[(t.product_id, l.get("batch_no") or l.get("barcode"), l.get("expiry_date"))] += sign * int(l.get("quantity") or 0)
+                    comps[(part, l.get("batch_no") or l.get("barcode"), l.get("expiry_date"))] += sign * int(l.get("quantity") or 0)
             if not comps:   # older orders: what is still consumed by the order
-                for pid, b, bc, exp, qty in (self.db.query(SalesStock.product_id, SalesStock.batch_no, SalesStock.barcode,
-                                                           SalesStock.expiry_date, func.sum(SalesStock.quantity))
-                                             .filter(SalesStock.consumed_by_production_order_id == o.id)
-                                             .group_by(SalesStock.product_id, SalesStock.batch_no, SalesStock.barcode,
-                                                       SalesStock.expiry_date)):
-                    comps[(pid, b or bc, exp.isoformat() if exp else None)] += int(qty or 0)
-            products = {p.id: p for p in self.db.query(Product).filter(
-                Product.id.in_({k[0] for k in comps} | {o.product_id}))} if comps or o.product_id else {}
+                for mid, pid, b, bc, exp, qty in (
+                        self.db.query(SalesStock.material_id, SalesStock.product_id, SalesStock.batch_no,
+                                      SalesStock.barcode, SalesStock.expiry_date, func.sum(SalesStock.quantity))
+                        .filter(SalesStock.consumed_by_production_order_id == o.id)
+                        .group_by(SalesStock.material_id, SalesStock.product_id, SalesStock.batch_no,
+                                  SalesStock.barcode, SalesStock.expiry_date)):
+                    part = ("m", mid) if mid else ("p", pid)
+                    comps[(part, b or bc, exp.isoformat() if exp else None)] += int(qty or 0)
             finished: Dict[tuple, int] = defaultdict(int)
-            for pid, b, exp, qty in (self.db.query(SalesStock.product_id, SalesStock.batch_no, SalesStock.expiry_date,
-                                                   func.sum(SalesStock.quantity))
-                                     .filter(SalesStock.production_order_id == o.id)
-                                     .group_by(SalesStock.product_id, SalesStock.batch_no, SalesStock.expiry_date)):
-                finished[(pid, b, exp)] += int(qty or 0)
-            products.update({p.id: p for p in self.db.query(Product).filter(Product.id.in_({k[0] for k in finished}))})
+            for mid, pid, b, exp, qty in (self.db.query(SalesStock.material_id, SalesStock.product_id, SalesStock.batch_no,
+                                                        SalesStock.expiry_date, func.sum(SalesStock.quantity))
+                                          .filter(SalesStock.production_order_id == o.id)
+                                          .group_by(SalesStock.material_id, SalesStock.product_id, SalesStock.batch_no,
+                                                    SalesStock.expiry_date)):
+                finished[(("m", mid) if mid else ("p", pid), b, exp)] += int(qty or 0)
+            keys = [k[0] for k in comps] + [k[0] for k in finished]
+            mids = {v for t, v in keys if t == "m" and v}
+            pids = {v for t, v in keys if t == "p" and v}
+            items = {i.id: i for i in self.db.query(Material).filter(Material.id.in_(mids))} if mids else {}
+            products = {p.id: p for p in self.db.query(Product).filter(Product.id.in_(pids))} if pids else {}
 
-            def _lot(pid, b, exp, qty):
-                p = products.get(pid)
-                return dict(product_id=pid, product_name=p.name if p else None, product_code=p.item_code if p else None,
+            def _lot(part, b, exp, qty):
+                kind, key = part
+                item = items.get(key) if kind == "m" else None
+                p = products.get(key) if kind == "p" else None
+                return dict(material_id=item.id if item else None, material_item_code=item.item_code if item else None,
+                            material_name=item.name if item else None, product_id=p.id if p else None,
+                            product_name=(item or p).name if (item or p) else None,
+                            product_code=(item or p).item_code if (item or p) else None,
                             batch_no=b, expiry_date=exp, quantity=qty)
             out.append(dict(
                 order_id=o.id, order_no=o.order_no, branch_code=o.branch_code,
-                product_name=o.product.name if o.product else None, status=o.status,
+                material_id=o.material_id, material_item_code=o.item.item_code if o.item else None,
+                material_name=o.item.name if o.item else None, product_name=item_label(o), status=o.status,
                 finished_batches=[_lot(*k, v) for k, v in finished.items() if v],
                 components=[_lot(*k, v) for k, v in comps.items() if v > 0]))
         found = (["finished"] if made & {o["order_id"] for o in out} else []) + \
@@ -1619,10 +1700,10 @@ class PlanningService:
         prio = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
         rows = q.all()
         rows.sort(key=lambda r: (prio.get(r[1].priority, 2), r[1].planned_start_date, r[1].id, r[0].sequence))
+        linked = single_products(self.db, [o.material_id for _, o in rows])
         return [dict(
             operation_id=op.id, order_id=o.id, order_no=o.order_no, order_status=o.status, priority=o.priority,
-            branch_code=o.branch_code, product_name=o.product.name if o.product else None,
-            product_code=o.product.item_code if o.product else None, planned_quantity=o.planned_quantity,
+            branch_code=o.branch_code, **header_fields(o, linked), planned_quantity=o.planned_quantity,
             produced_quantity=o.produced_quantity, planned_start_date=o.planned_start_date,
             planned_end_date=o.planned_end_date, is_late=o.planned_end_date < today, sequence=op.sequence,
             name=op.name, work_center_id=op.work_center_id,

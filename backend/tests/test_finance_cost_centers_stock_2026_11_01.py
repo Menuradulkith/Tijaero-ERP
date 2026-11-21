@@ -28,6 +28,7 @@ from app.modules.finance.gl_posting_service import GLPostingService
 from app.modules.inventory.service import SalesStockService
 from app.modules.warehouse import schemas as wh
 from app.modules.warehouse.service import ItemReceiveNoteService
+from app.modules.warehouse.service import ItemTransferNoteService
 from tests.test_warehouse_itn_2026_10_22 import _approved_note_with, world  # noqa: F401
 
 A = "/api/v1/finance/accounting"
@@ -162,6 +163,7 @@ class TestStockPostings:
         w = costed
         u1, u2 = w["units"][0], w["units"][1]
         note = _approved_note_with(db, w, [u1, u2])
+        ItemTransferNoteService(db).dispatch_transfer_note(note.id)  # receiving needs a dispatched note
         ItemReceiveNoteService(db).receive_items(note.id, wh.ReceiveItemsRequest(
             received_user_id=w["user"].id, barcodes=[u1.barcode, u2.barcode],
             lines=[wh.ReceiveLine(barcode=u2.barcode, damaged_quantity=1)]))

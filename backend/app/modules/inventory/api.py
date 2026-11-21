@@ -273,6 +273,7 @@ def get_all_sales_stock(
         for it in items:
             if isinstance(it, dict):
                 it["cost_price"] = None
+                it["unit_cost"] = None
     return items
 
 
@@ -292,11 +293,14 @@ def get_paginated_sales_stock(
     date_to: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
+    on_hand: bool = False,
+    material_id: Optional[int] = Query(None, ge=1, le=2_147_483_647),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     user_branches: Optional[List[str]] = Depends(get_user_branch_filter),
 ):
-    """Server-side paginated + filtered sales stock, with branch-scoped KPI summary."""
+    """Server-side paginated + filtered sales stock, with branch-scoped KPI summary.
+    on_hand=true returns only units physically on hand or in transit."""
     if branch_code:
         if user_branches is not None and branch_code not in user_branches:
             raise HTTPException(
@@ -317,12 +321,15 @@ def get_paginated_sales_stock(
         date_to=date_to,
         skip=skip,
         limit=limit,
+        on_hand=on_hand,
+        material_id=material_id,
     )
     # Hide cost price from users without cost_price:view
     if not user_has_permission(current_user, *Permissions.COST_PRICE_VIEW):
         for it in result.get("items", []):
             if isinstance(it, dict):
                 it["cost_price"] = None
+                it["unit_cost"] = None
     return result
 
 

@@ -366,6 +366,10 @@ class TestProductPriceValidation:
                     cost_price=100,
                     category_id=product.category_id,
                     items_brand_id=product.items_brand_id,
+                    # the duplicate-name check runs before these references are looked up
+                    product_type_id=1,
+                    hs_code_id=1,
+                    product_family="QA",
                 ),
                 user_id=1,
             )

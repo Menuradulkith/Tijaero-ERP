@@ -90,6 +90,7 @@ class TestLotIdentityAndReceipt:
         note = _note(db, lots)
         first, second = _line(db, lots, note, 2), _line(db, lots, note, 3)
         ItemTransferNoteService(db).approve_transfer_note(note.id, user_id=lots["user"].id)
+        ItemTransferNoteService(db).dispatch_transfer_note(note.id)  # receiving needs a dispatched note
         svc = ItemReceiveNoteService(db)
         svc.receive_items(note.id, wh.ReceiveItemsRequest(
             item_ids=[first.id], received_user_id=lots["user"].id, received_note="first pallet",
@@ -104,6 +105,7 @@ class TestLotIdentityAndReceipt:
         note = _note(db, lots)
         item = _line(db, lots, note, 1)
         ItemTransferNoteService(db).approve_transfer_note(note.id, user_id=lots["user"].id)
+        ItemTransferNoteService(db).dispatch_transfer_note(note.id)  # receiving needs a dispatched note
         svc = ItemReceiveNoteService(db)
         svc.receive_items(note.id, wh.ReceiveItemsRequest(item_ids=[item.id], received_user_id=lots["user"].id))
         irn = svc.get_by_transfer_note(note.id)
@@ -140,6 +142,7 @@ class TestReceiveEndpoint:
         note = _note(db, lots)
         item = _line(db, lots, note, 2)
         ItemTransferNoteService(db).approve_transfer_note(note.id, user_id=lots["user"].id)
+        ItemTransferNoteService(db).dispatch_transfer_note(note.id)  # receiving needs a dispatched note
         r = superclient.post(f"/api/v1/warehouse/transfer-notes/{note.id}/receive-items",
                              json={"item_ids": [item.id], "received_user_id": 2147483000})
         assert r.status_code == 200, r.text
@@ -178,6 +181,7 @@ class TestListColumns:
         itn = next(x for x in superclient.get("/api/v1/warehouse/transfer-notes", params={"limit": 500}).json()
                    if x["id"] == note.id)
         assert itn["total_units"] == 4 and "created_by_name" in itn
+        ItemTransferNoteService(db).dispatch_transfer_note(note.id)  # receiving needs a dispatched note
 
         superclient.post(f"/api/v1/warehouse/transfer-notes/{note.id}/receive-items", json={"item_ids": [item.id]})
         irn = next(x for x in superclient.get("/api/v1/warehouse/receive-notes", params={"limit": 500}).json()

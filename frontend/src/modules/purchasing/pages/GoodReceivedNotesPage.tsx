@@ -102,8 +102,11 @@ import { locationsApi } from "@/modules/common/api";
 import { companyAssetsApi, productsApi, salesStockApi } from "@/modules/inventory/api";
 import ReclassifyDialog from "@/modules/inventory/components/ReclassifyDialog";
 import LandedCostPanel from "@/modules/purchasing/components/LandedCostPanel";
-import { EntityLink, EntityPeekButton } from "@/components/tijaero/peek";
+import { EntityPeekButton } from "@/components/tijaero/peek";
 import { Product } from "@/modules/inventory/types";
+import { materialsApi } from "@/modules/materials/api";
+import LineItemLink from "@/modules/purchasing/components/LineItemLink";
+import { lineItemName } from "@/modules/purchasing/utils/itemDisplay";
 import { goodReceivedItemsApi, goodReceivedNotesApi, purchaseOrdersApi, suppliersApi } from "@/modules/purchasing/api";
 import {
   GoodReceivedItem, GoodReceivedItemCreate, GoodReceivedNote, GRNReceiveLine,
@@ -151,8 +154,13 @@ interface GRNLineItem extends Omit<GoodReceivedItemCreate, "barcode"> {
   barcode: string; // "" for batch/none lots (no per-unit barcode)
   tracking_type: TrackingType;
   max_quantity?: number; // Remaining receivable qty for a batch/none lot
+  /** Display name: the line's item (or the product on an old PO line). */
   product_name?: string;
   product_id?: number;
+  material_id?: number;
+  material_item_code?: string | null;
+  material_name?: string | null;
+  unit_of_measure?: string | null;
   quantity?: number;
   unit_price?: number;
   po_item_id?: number;
@@ -186,6 +194,8 @@ const warrantyError = (value?: string) => {
 interface ProductGroup {
   po_item_id: number;
   product_id: number;
+  material_id?: number;
+  /** Display name: the item (or the product on an old PO line). */
   product_name: string;
   unit_price: number;
   total_quantity: number;
@@ -447,6 +457,8 @@ export default function GoodReceivedNotesPage() {
         ...item,
         _id: `existing-${item.id}`,
         barcode: item.barcode ?? "",
+        material_id: item.material_id ?? undefined,
+        product_name: item.material_name || item.product_name,
         batch_no: item.batch_no ?? undefined,
         expiry_date: item.expiry_date ?? undefined,
         tracking_type: (item.batch_no ? "batch" : item.barcode ? "serial" : "none") as TrackingType,
@@ -480,6 +492,13 @@ export default function GoodReceivedNotesPage() {
     enabled: viewPoId > 0,
     staleTime: 5 * 60 * 1000,
   });
+  // Purchasing buys Item Catalog items: new PO lines carry material_id.
+  const { data: viewMaterials = [] } = useQuery({
+    queryKey: ["grn-view-materials"],
+    queryFn: () => materialsApi.getAll(0, 100000, false),
+    enabled: viewPoId > 0,
+    staleTime: 5 * 60 * 1000,
+  });
 
   // View mode: one row per PO line received on this GRN.
   const viewLines = useMemo(() => {
@@ -501,6 +520,7 @@ export default function GoodReceivedNotesPage() {
     const rows = new Map<number, {
       key: number;
       product_id?: number;
+      material_id?: number;
       item_code: string;
       item_name: string;
       description: string;
@@ -516,21 +536,26 @@ export default function GoodReceivedNotesPage() {
     lineItems.forEach((item) => {
       const lineId = item.purchasing_order_items_id;
       const poItem = poItems.get(lineId);
-      const product = (viewProducts as Product[]).find((p) => p.id === (item.product_id ?? poItem?.product_id));
+      const materialId = item.material_id ?? poItem?.material_id ?? undefined;
+      // The item master for item lines; the product master for old product lines.
+      const product = materialId
+        ? viewMaterials.find((m) => m.id === materialId)
+        : (viewProducts as Product[]).find((p) => p.id === (item.product_id ?? poItem?.product_id));
       let row = rows.get(lineId);
       if (!row) {
         const ordered = poItem ? poItem.quantity : null;
         row = {
           key: lineId,
-          product_id: item.product_id ?? poItem?.product_id,
-          item_code: product?.item_code ?? "",
-          item_name: item.product_name || product?.name || `PO Item #${lineId}`,
+          product_id: item.product_id ?? poItem?.product_id ?? undefined,
+          material_id: materialId,
+          item_code: item.material_item_code || poItem?.material_item_code || product?.item_code || "",
+          item_name: item.material_name || poItem?.material_name || item.product_name || product?.name || `PO Item #${lineId}`,
           description: product?.description ?? "",
           unit_price: poItem?.unit_price ?? 0,
           ordered,
           toReceive: 0,
           remaining: ordered === null ? null : Math.max(ordered - (receivedByLine.get(lineId) ?? 0), 0),
-          uom: product?.unit_of_measure ?? "",
+          uom: item.unit_of_measure || poItem?.unit_of_measure || product?.unit_of_measure || "",
           expiry: [],
           refs: [],
         };
@@ -543,7 +568,7 @@ export default function GoodReceivedNotesPage() {
     });
 
     return Array.from(rows.values()).sort((a, b) => a.item_name.localeCompare(b.item_name));
-  }, [lineItems, isCreating, viewPO, viewPOReceipts, viewProducts]);
+  }, [lineItems, isCreating, viewPO, viewPOReceipts, viewProducts, viewMaterials]);
 
   // Full cost of this GRN = sum of (received qty x PO unit price)
   const viewTotalCost = useMemo(
@@ -780,7 +805,7 @@ export default function GoodReceivedNotesPage() {
     showSuccess: false,
     showError: false,
     onSuccess: async ({ grn: newGRN, grnItemCount, rejectedCount }) => {
-      const messages = [`${grnItemCount} units received into Sales Stock`];
+      const messages = [`${grnItemCount} units received into stock`];
       if (rejectedCount > 0) messages.push(`${rejectedCount} rejected`);
       showSuccessToast(`GRN created successfully! ${messages.join(", ")}`);
       setRejections({});
@@ -1025,8 +1050,12 @@ export default function GoodReceivedNotesPage() {
           // Fetch PO with items
           const poWithItems: PurchasingOrderWithItems = await purchaseOrdersApi.getById(poId);
 
-          // Fetch all products to get names
-          const allProducts = await productsApi.getAll(0, 1000, true);
+          // Item masters (new item lines) and product masters (old product lines)
+          // for names, tracking type and receipt tolerance.
+          const [allProducts, allItems] = await Promise.all([
+            productsApi.getAll(0, 1000, true),
+            materialsApi.getAll(0, 100000, false),
+          ]);
           setProducts(allProducts);
 
           // For partially completed POs, fetch already received items to exclude them
@@ -1054,7 +1083,10 @@ export default function GoodReceivedNotesPage() {
           const caps: Record<number, number> = {};
           const meta: Record<number, { ordered: number; received: number; item_code: string; description: string; uom: string }> = {};
           poWithItems.items?.forEach((poItem: PurchasingOrderItem) => {
-            const product = allProducts.find((p: Product) => p.id === poItem.product_id);
+            const product = (poItem.material_id
+              ? allItems.find((m) => m.id === poItem.material_id)
+              : allProducts.find((p: Product) => p.id === poItem.product_id)) as Product | undefined;
+            const lineName = poItem.material_name || product?.name || lineItemName(poItem);
             const receivedCount = receivedCountMap.get(poItem.id) || 0;
             const remainingQty = poItem.quantity - receivedCount;
             const overPct = Number((product as Product | undefined)?.over_receipt_tolerance_pct ?? 0);
@@ -1063,9 +1095,9 @@ export default function GoodReceivedNotesPage() {
             meta[poItem.id] = {
               ordered: poItem.quantity,
               received: receivedCount,
-              item_code: product?.item_code ?? "",
+              item_code: poItem.material_item_code || product?.item_code || "",
               description: product?.description ?? "",
-              uom: product?.unit_of_measure ?? "",
+              uom: poItem.unit_of_measure || product?.unit_of_measure || "",
             };
 
             const trackingType = ((product as Product | undefined)?.tracking_type ?? "serial") as TrackingType;
@@ -1084,8 +1116,9 @@ export default function GoodReceivedNotesPage() {
                   branch_code: selectedPO.branch_code,
                   active: true,
                   purchasing_order_items_id: poItem.id,
-                  product_id: poItem.product_id,
-                  product_name: product?.name || `Product ${poItem.product_id}`,
+                  product_id: poItem.product_id ?? undefined,
+                  material_id: poItem.material_id ?? undefined,
+                  product_name: lineName,
                   unit_price: poItem.unit_price,
                   po_item_id: poItem.id,
                   warranty_month: poItem.warrenty_month || "",
@@ -1108,8 +1141,9 @@ export default function GoodReceivedNotesPage() {
                 branch_code: selectedPO.branch_code,
                 active: true,
                 purchasing_order_items_id: poItem.id,
-                product_id: poItem.product_id,
-                product_name: product?.name || `Product ${poItem.product_id}`,
+                product_id: poItem.product_id ?? undefined,
+                material_id: poItem.material_id ?? undefined,
+                product_name: lineName,
                 unit_price: poItem.unit_price,
                 po_item_id: poItem.id,
                 warranty_month: poItem.warrenty_month || "",  // Get warranty from PO item
@@ -1165,6 +1199,7 @@ export default function GoodReceivedNotesPage() {
         groupMap.set(poItemId, {
           po_item_id: poItemId,
           product_id: productId,
+          material_id: item.material_id,
           product_name: item.product_name || product?.name || `Product ${productId}`,
           unit_price: item.unit_price || 0,
           total_quantity: lineUnits(item),
@@ -1236,7 +1271,7 @@ export default function GoodReceivedNotesPage() {
         setLineItems(items =>
           items.map(item =>
             item._id === itemId
-              ? { ...item, barcodeError: "Barcode already exists in Sales Stock" }
+              ? { ...item, barcodeError: "Barcode already exists in stock" }
               : item
           )
         );
@@ -1245,7 +1280,7 @@ export default function GoodReceivedNotesPage() {
             ...g,
             items: g.items.map(item =>
               item._id === itemId
-                ? { ...item, barcodeError: "Barcode already exists in Sales Stock" }
+                ? { ...item, barcodeError: "Barcode already exists in stock" }
                 : item
             ),
           }))
@@ -2006,7 +2041,7 @@ export default function GoodReceivedNotesPage() {
                     </Typography>
                     {grnRejections.map((r) => (
                       <Typography key={r.id} variant="body2">
-                        {r.product_name || `PO line ${r.purchasing_order_items_id}`}: {r.quantity} rejected, {r.reason}
+                        {r.material_name || r.product_name || `PO line ${r.purchasing_order_items_id}`}: {r.quantity} rejected, {r.reason}
                       </Typography>
                     ))}
                   </Paper>
@@ -2070,9 +2105,7 @@ export default function GoodReceivedNotesPage() {
                           </TableCell>
                           <TableCell>{meta?.item_code || "—"}</TableCell>
                           <TableCell>
-                            <EntityLink entity="product" id={group.product_id}>
-                              {group.product_name}
-                            </EntityLink>
+                            <LineItemLink line={{ material_id: group.material_id, product_id: group.product_id }} label={group.product_name} />
                             {meta?.description && (
                               <Typography variant="caption" color="text.secondary" display="block" noWrap sx={{ maxWidth: 240 }}>
                                 {meta.description}
@@ -2377,9 +2410,7 @@ export default function GoodReceivedNotesPage() {
                                 <TableRow key={row.key}>
                                   <TableCell>{row.item_code || "—"}</TableCell>
                                   <TableCell>
-                                    <EntityLink entity="product" id={row.product_id}>
-                                      {row.item_name}
-                                    </EntityLink>
+                                    <LineItemLink line={{ material_id: row.material_id, product_id: row.product_id }} label={row.item_name} />
                                     {row.refs.length > 0 && (
                                       <Typography variant="caption" color="text.secondary" display="block">
                                         {row.refs.slice(0, 3).join(", ")}
@@ -2422,7 +2453,7 @@ export default function GoodReceivedNotesPage() {
                         <TableHead>
                           <TableRow sx={modernTableStyles.headerRow}>
                             <TableCell>Barcode</TableCell>
-                            <TableCell>Product</TableCell>
+                            <TableCell>Item</TableCell>
                             <TableCell>Warranty</TableCell>
                             <TableCell>Saved To</TableCell>
                             <TableCell>Branch</TableCell>
@@ -2467,7 +2498,7 @@ export default function GoodReceivedNotesPage() {
                                 <TableCell>
                                   <Box sx={{ display: "flex", gap: 0.5 }}>
                                     {item.saveToSalesStock && (
-                                      <TChip size="small" label="Sales Stock" color="success" icon={<InventoryIcon />} />
+                                      <TChip size="small" label="Stock" color="success" icon={<InventoryIcon />} />
                                     )}
                                     {item.saveToCompanyAssets && (
                                       <TChip size="small" label="Company Asset" color="info" icon={<BusinessIcon />} />

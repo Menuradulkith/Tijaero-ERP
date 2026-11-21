@@ -24,6 +24,7 @@ import FactCheckIcon from "@mui/icons-material/FactCheck";
 import GroupIcon from "@mui/icons-material/Group";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import Inventory2Icon from "@mui/icons-material/Inventory2";
+import TimelineIcon from "@mui/icons-material/Timeline";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
 import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
@@ -83,6 +84,8 @@ interface SubMenuItem {
   path: string;
   permission?: { resource: string; action: string };
   subItems?: SubMenuItem[];
+  /** Shown indented under the entry above it (e.g. Categories under Item Catalog). */
+  indent?: boolean;
 }
 
 interface MenuItem {
@@ -146,6 +149,17 @@ const menuItems: MenuItem[] = [
         path: "/sales/agent-commissions",
         permission: PERMISSIONS.AGENT_COMMISSIONS_VIEW,
       },
+    ],
+  },
+  {
+    text: "Materials",
+    icon: <CategoryIcon />,
+    path: "/materials",
+    permission: PERMISSIONS.MATERIALS_VIEW,
+    subItems: [
+      { text: "Item Catalog", icon: <Inventory2Icon />, path: "/materials/item-catalog", permission: PERMISSIONS.MATERIALS_VIEW },
+      { text: "Categories", icon: <CategoryIcon />, path: "/materials/categories", permission: PERMISSIONS.MATERIALS_VIEW, indent: true },
+      { text: "Brands", icon: <SellIcon />, path: "/materials/brands", permission: PERMISSIONS.BRANDS_VIEW, indent: true },
     ],
   },
   {
@@ -236,8 +250,9 @@ const menuItems: MenuItem[] = [
         icon: <CategoryIcon />,
         path: "/product-catalogs/categories",
         permission: PERMISSIONS.CATEGORIES_VIEW,
+        indent: true,
       },
-      { text: "Brands", icon: <SellIcon />, path: "/product-catalogs/brands", permission: PERMISSIONS.BRANDS_VIEW },
+      { text: "Brands", icon: <SellIcon />, path: "/product-catalogs/brands", permission: PERMISSIONS.BRANDS_VIEW, indent: true },
     ],
   },
   {
@@ -377,8 +392,9 @@ const menuItems: MenuItem[] = [
     path: "/warehouse",
     permission: PERMISSIONS.SALES_STOCK_VIEW,
     subItems: [
-      { text: "Dashboard", icon: <SpeedIcon />, path: "/warehouse", permission: PERMISSIONS.SALES_STOCK_VIEW },
-      { text: "Stocks", icon: <Inventory2Icon />, path: "/warehouse/stocks", permission: PERMISSIONS.SALES_STOCK_VIEW },
+      { text: "Stock", icon: <Inventory2Icon />, path: "/warehouse/stock", permission: PERMISSIONS.SALES_STOCK_VIEW },
+      { text: "Stock Movements", icon: <TimelineIcon />, path: "/warehouse/movements", permission: PERMISSIONS.SALES_STOCK_VIEW },
+      { text: "Stock Counts", icon: <PlaylistAddCheckIcon />, path: "/warehouse/stock-counts", permission: PERMISSIONS.STOCK_COUNT_VIEW },
       {
         text: "Sales Track",
         icon: <ReceiptLongIcon />,
@@ -749,7 +765,7 @@ export default function Sidebar({
                                 }
                                 sx={{
                                   py: 0.5,
-                                  pl: 4,
+                                  pl: subItem.indent ? 6 : 4,
                                   "&.Mui-selected": {
                                     bgcolor: "primary.light",
                                     color: "white",

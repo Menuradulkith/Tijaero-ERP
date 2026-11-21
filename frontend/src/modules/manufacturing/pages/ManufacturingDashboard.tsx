@@ -56,6 +56,7 @@ import { fmtLKR, TPageSkeleton, TStatusChip } from "@/components/tijaero";
 import { useReferenceData, BranchRef } from "@/hooks";
 import { planningApi } from "@/modules/manufacturing/api";
 import type { ProductionOrder } from "@/modules/manufacturing/types";
+import { mfgItemName } from "@/modules/manufacturing/itemDisplay";
 import { useCurrencyStore } from "@/state/currencyStore";
 import { formatDate, formatDateTimeReadable } from "@/utils/formatters";
 
@@ -162,7 +163,7 @@ export default function ManufacturingDashboard() {
         {orders.map((o) => (
           <ListItemButton key={o.id} divider onClick={() => navigate(orderLink(o.id))} sx={{ borderRadius: 1.5, mb: 0.25 }}>
             <ListItemText
-              primary={`${o.order_no} · ${o.product_name || ""}`}
+              primary={`${o.order_no} · ${mfgItemName(o)}`}
               secondary={`${o.produced_quantity}/${o.planned_quantity} ${o.unit_of_measure || ""} · due ${
                 o.planned_end_date ? formatDate(o.planned_end_date) : "—"
               }`}

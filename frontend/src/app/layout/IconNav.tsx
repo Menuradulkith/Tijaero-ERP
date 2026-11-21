@@ -29,6 +29,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 const PAGE_PERMISSIONS: Record<string, { resource: string; action: string }> = {
   "/sales/customers": { resource: "customers", action: "view" },
   "/sales/dashboard": { resource: "sales_dashboard", action: "view" },
+  "/materials/item-catalog": { resource: "materials", action: "view" },
+  "/materials/categories": { resource: "materials", action: "view" },
+  "/materials/brands": { resource: "brands", action: "view" },
   "/sales/orders": { resource: "sales_orders", action: "view" },
   "/purchasing/suppliers": { resource: "suppliers", action: "view" },
   "/purchasing/orders": { resource: "purchase_orders", action: "view" },
@@ -48,6 +51,10 @@ const PAGE_PERMISSIONS: Record<string, { resource: string; action: string }> = {
   "/product-catalogs": { resource: "products", action: "view" },
   "/product-catalogs/categories": { resource: "categories", action: "view" },
   "/product-catalogs/brands": { resource: "brands", action: "view" },
+  "/warehouse": { resource: "sales_stock", action: "view" },
+  "/warehouse/stock": { resource: "sales_stock", action: "view" },
+  "/warehouse/movements": { resource: "sales_stock", action: "view" },
+  "/warehouse/stock-counts": { resource: "stock_count", action: "view" },
 };
 
 interface IconNavProps {
@@ -81,6 +88,12 @@ const allPages = [
     path: "/sales/orders",
     keywords: ["invoices", "transactions"],
     module: "/sales",
+  },
+  {
+    text: "Item Catalog",
+    path: "/materials/item-catalog",
+    keywords: ["materials", "material master", "items"],
+    module: "/materials",
   },
   {
     text: "Suppliers",
@@ -183,13 +196,25 @@ const allPages = [
   {
     text: "Warehouse",
     path: "/warehouse",
-    keywords: ["warehouse", "storage", "logistics", "sales stock"],
+    keywords: ["warehouse", "storage", "logistics"],
     module: "/warehouse",
   },
   {
-    text: "Stocks",
-    path: "/warehouse/stocks",
-    keywords: ["stock summary", "on hand", "stock position"],
+    text: "Stock",
+    path: "/warehouse/stock",
+    keywords: ["stocks", "stock summary", "on hand", "stock position", "lots", "serials", "inventory"],
+    module: "/warehouse",
+  },
+  {
+    text: "Stock Movements",
+    path: "/warehouse/movements",
+    keywords: ["stock ledger", "stock card", "movement history", "stock transactions"],
+    module: "/warehouse",
+  },
+  {
+    text: "Stock Counts",
+    path: "/warehouse/stock-counts",
+    keywords: ["stock count", "stocktake", "stock take", "physical count", "cycle count", "count adjustment"],
     module: "/warehouse",
   },
   {

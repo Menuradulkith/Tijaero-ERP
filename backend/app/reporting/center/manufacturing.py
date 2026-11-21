@@ -37,6 +37,34 @@ def _m():
     return m, Product
 
 
+def _item_and_product(query, O):
+    """Join the item an order makes (central stock phase 4) and the product of an older order."""
+    from app.modules.materials.models import Material
+    from app.modules.products.models import Product
+
+    return (query.outerjoin(Material, Material.id == O.material_id)
+            .outerjoin(Product, Product.id == O.product_id))
+
+
+def _part_filter(ctx, query, O, product_id):
+    """Orders of the product parameter: those making the item it sells, and its older orders."""
+    if not product_id:
+        return query
+    from sqlalchemy import or_
+    from app.modules.products.models import Product
+
+    mid = ctx.db.query(Product.material_id).filter(Product.id == product_id).scalar()
+    return query.filter(or_(O.product_id == product_id, O.material_id == (mid or 0)))
+
+
+def _label(item, prod) -> tuple:
+    """(code, name, unit) of an order's item, else its product."""
+    src = item if item is not None else prod
+    if src is None:
+        return "", "", ""
+    return src.item_code or "", src.name or "", getattr(src, "unit_of_measure", "") or ""
+
+
 def _scope(query, column, branch_code, branch_codes):
     if branch_code:
         return query.filter(column == branch_code)
@@ -75,15 +103,15 @@ def _wip(ctx: RunContext, p: dict) -> ReportResult:
     m, Product = _m()
     O = m.MfgProductionOrder
     branch_code, branch_codes = ctx.branch_scope(p["branch_code"])
-    q = ctx.db.query(O, Product).join(Product, Product.id == O.product_id).filter(O.status.in_(WIP_STATUSES))
+    q = ctx.db.query(O).filter(O.status.in_(WIP_STATUSES))
     q = _scope(q, O.branch_code, branch_code, branch_codes)
-    if p["product_id"]:
-        q = q.filter(O.product_id == p["product_id"])
+    q = _part_filter(ctx, q, O, p["product_id"])
     rows = []
-    for o, prod in q.order_by(O.planned_end_date, O.order_no).all():
+    for o in q.order_by(O.planned_end_date, O.order_no).all():
         output = D(str(o.output_value))
+        code, name, _unit = _label(o.item, o.product)
         rows.append({
-            "order_no": o.order_no, "branch_code": o.branch_code, "item_code": prod.item_code, "product": prod.name,
+            "order_no": o.order_no, "branch_code": o.branch_code, "item_code": code, "product": name,
             "status": STATUS_LABELS.get(o.status, o.status), "planned_end": o.planned_end_date,
             "planned_qty": o.planned_quantity, "produced_qty": o.produced_quantity,
             "material": D(str(o.actual_material_cost)), "labour": D(str(o.actual_labor_cost)),
@@ -138,13 +166,13 @@ def _variance(ctx: RunContext, p: dict) -> ReportResult:
     m, Product = _m()
     O = m.MfgProductionOrder
     branch_code, branch_codes = ctx.branch_scope(p["branch_code"])
-    q = (ctx.db.query(O, Product).join(Product, Product.id == O.product_id)
+    q = (ctx.db.query(O)
          .filter(O.status == "closed", O.closed_at >= _day_start(p["date_from"]), O.closed_at <= _day_end(p["date_to"])))
     q = _scope(q, O.branch_code, branch_code, branch_codes)
-    if p["product_id"]:
-        q = q.filter(O.product_id == p["product_id"])
+    q = _part_filter(ctx, q, O, p["product_id"])
     rows, by_product = [], defaultdict(lambda: defaultdict(lambda: ZERO))
-    for o, prod in q.order_by(O.closed_at, O.order_no).all():
+    for o in q.order_by(O.closed_at, O.order_no).all():
+        code, name, _unit = _label(o.item, o.product)
         planned_qty = o.planned_quantity or 1
         # Planned cost of what was actually made (good + scrap), so a short order is compared fairly
         done = o.produced_quantity + o.scrapped_quantity
@@ -153,7 +181,7 @@ def _variance(ctx: RunContext, p: dict) -> ReportResult:
         variance = D(str(o.variance_amount or 0))
         rows.append({
             "order_no": o.order_no, "closed": o.closed_at.date() if o.closed_at else None, "branch_code": o.branch_code,
-            "item_code": prod.item_code, "product": prod.name, "produced_qty": o.produced_quantity,
+            "item_code": code, "product": name, "produced_qty": o.produced_quantity,
             "scrap_qty": o.scrapped_quantity, "standard_unit_cost": D(str(o.standard_unit_cost)),
             "planned_cost": planned_for_output, "material": D(str(o.actual_material_cost)),
             "labour": D(str(o.actual_labor_cost)), "overhead": D(str(o.actual_overhead_cost)),
@@ -161,7 +189,7 @@ def _variance(ctx: RunContext, p: dict) -> ReportResult:
             "output_value": D(str(o.output_value)), "variance": variance,
             "variance_pct": _pct(variance, D(str(o.output_value))),
         })
-        g = by_product[(prod.item_code, prod.name)]
+        g = by_product[(code, name)]
         g["orders"] += 1
         g["produced_qty"] += o.produced_quantity
         g["scrap_qty"] += o.scrapped_quantity
@@ -219,15 +247,19 @@ def _production_summary(ctx: RunContext, p: dict) -> ReportResult:
     branch_code, branch_codes = ctx.branch_scope(p["branch_code"])
     start, end = _day_start(p["date_from"]), _day_end(p["date_to"])
 
-    q = (ctx.db.query(Product.item_code, Product.name, Product.unit_of_measure, func.count(func.distinct(O.id)),
-                      func.sum(Out.quantity), func.sum(Out.scrap_quantity), func.sum(Out.total_value))
-         .join(O, O.id == Out.order_id).join(Product, Product.id == O.product_id)
-         .filter(Out.receipt_date >= start, Out.receipt_date <= end))
+    from app.modules.materials.models import Material
+
+    code_col = func.coalesce(Material.item_code, Product.item_code)
+    name_col = func.coalesce(Material.name, Product.name)
+    uom_col = func.coalesce(Material.unit_of_measure, Product.unit_of_measure)
+    q = _item_and_product(
+        ctx.db.query(code_col, name_col, uom_col, func.count(func.distinct(O.id)),
+                     func.sum(Out.quantity), func.sum(Out.scrap_quantity), func.sum(Out.total_value))
+        .select_from(Out).join(O, O.id == Out.order_id), O).filter(Out.receipt_date >= start, Out.receipt_date <= end)
     q = _scope(q, O.branch_code, branch_code, branch_codes)
-    if p["product_id"]:
-        q = q.filter(O.product_id == p["product_id"])
+    q = _part_filter(ctx, q, O, p["product_id"])
     products = []
-    for code, name, uom, orders, good, scrap, value in q.group_by(Product.item_code, Product.name, Product.unit_of_measure).all():
+    for code, name, uom, orders, good, scrap, value in q.group_by(code_col, name_col, uom_col).all():
         good, scrap = int(good or 0), int(scrap or 0)
         products.append({"item_code": code, "product": name, "unit": uom, "orders": int(orders), "good_qty": good,
                          "scrap_qty": scrap, "scrap_pct": _pct(D(scrap), D(good + scrap)), "output_value": D(str(value or 0))})
@@ -236,8 +268,7 @@ def _production_summary(ctx: RunContext, p: dict) -> ReportResult:
     daily_q = (ctx.db.query(func.date(Out.receipt_date), func.sum(Out.quantity), func.sum(Out.scrap_quantity), func.sum(Out.total_value))
                .join(O, O.id == Out.order_id).filter(Out.receipt_date >= start, Out.receipt_date <= end))
     daily_q = _scope(daily_q, O.branch_code, branch_code, branch_codes)
-    if p["product_id"]:
-        daily_q = daily_q.filter(O.product_id == p["product_id"])
+    daily_q = _part_filter(ctx, daily_q, O, p["product_id"])
     daily = [{"date": d, "good_qty": int(g or 0), "scrap_qty": int(s or 0), "output_value": D(str(v or 0))}
              for d, g, s, v in daily_q.group_by(func.date(Out.receipt_date)).order_by(func.date(Out.receipt_date)).all()]
 
@@ -246,16 +277,14 @@ def _production_summary(ctx: RunContext, p: dict) -> ReportResult:
           .join(OP, OP.id == T.operation_id).join(WC, WC.id == OP.work_center_id).join(O, O.id == T.order_id)
           .filter(T.created_at >= start, T.created_at <= end))
     tq = _scope(tq, O.branch_code, branch_code, branch_codes)
-    if p["product_id"]:
-        tq = tq.filter(O.product_id == p["product_id"])
+    tq = _part_filter(ctx, tq, O, p["product_id"])
     centers = [{"code": c, "work_center": n, "entries": int(k), "hours": (D(str(mi or 0)) / 60).quantize(D("0.01")),
                 "labour": D(str(lab or 0)), "overhead": D(str(ovh or 0)), "qty_done": int(qd or 0)}
                for c, n, k, mi, lab, ovh, qd in tq.group_by(WC.code, WC.name).order_by(WC.code).all()]
 
     status_q = ctx.db.query(O.status, func.count(O.id)).filter(O.created_at >= start, O.created_at <= end)
     status_q = _scope(status_q, O.branch_code, branch_code, branch_codes)
-    if p["product_id"]:
-        status_q = status_q.filter(O.product_id == p["product_id"])
+    status_q = _part_filter(ctx, status_q, O, p["product_id"])
     created = dict(status_q.group_by(O.status).all())
 
     good = sum(r["good_qty"] for r in products)
@@ -301,20 +330,22 @@ register(ReportDef(
 def _bom_cost(ctx: RunContext, p: dict) -> ReportResult:
     from app.modules.manufacturing.service import BOMService
 
+    from app.modules.materials.models import Material
+
     m, Product = _m()
     B = m.MfgBOM
-    q = BOMService(ctx.db)._query().join(Product, Product.id == B.product_id)
+    q = _item_and_product(BOMService(ctx.db)._query(), B)
     if p["status"] != "all":
         q = q.filter(B.status == p["status"])
-    if p["product_id"]:
-        q = q.filter(B.product_id == p["product_id"])
+    q = _part_filter(ctx, q, B, p["product_id"])
     svc = BOMService(ctx.db)
     boms, lines = [], []
-    for b in q.order_by(Product.name, B.version).all():
+    for b in q.order_by(func.coalesce(Material.name, Product.name), B.version).all():
         r = svc.rollup(b)
         std = svc._out(b, with_lines=False)["product_cost_price"]
+        code, name, _unit = _label(b.item, b.product)
         boms.append({
-            "bom_no": b.bom_no, "item_code": b.product.item_code if b.product else "", "product": b.product.name if b.product else "",
+            "bom_no": b.bom_no, "item_code": code, "product": name,
             "version": b.version, "status": b.status.capitalize(), "default": b.is_default,
             "output_qty": D(str(b.output_quantity)), "material": r["material_cost"], "labour": r["labor_cost"],
             "overhead": r["overhead_cost"], "total": r["total_cost"], "unit_cost": r["unit_cost"],
@@ -322,7 +353,9 @@ def _bom_cost(ctx: RunContext, p: dict) -> ReportResult:
         })
         if p["show_lines"]:
             for it in r["items"]:
-                lines.append({"bom_no": b.bom_no, "kind": "Component", "code": it["product_code"], "name": it["product_name"],
+                lines.append({"bom_no": b.bom_no, "kind": "Component",
+                              "code": it.get("material_item_code") or it.get("product_code"),
+                              "name": it.get("material_name") or it.get("product_name"),
                               "quantity": D(str(it["quantity"])), "scrap_pct": D(str(it["scrap_pct"])),
                               "unit_cost": it["unit_cost"], "cost": it["line_cost"]})
             for op in r["operations"]:
@@ -345,9 +378,9 @@ def _bom_cost(ctx: RunContext, p: dict) -> ReportResult:
     return ReportResult(
         metrics=[metric("BOMs", len(boms), "int"), metric("Active BOMs off standard", len(off), "int")],
         tables=tables,
-        notes=["Costs use today's component standard costs (latest active price tier, else the product cost price) and "
+        notes=["Costs use today's component item standard costs (the item cost price, else its preferred supplier cost) and "
                "work-center rates, for the BOM's output quantity. Setup time is spread over that quantity.",
-               "Difference = rolled-up unit cost - the product's current standard cost; use Update Product Cost on the BOM to align them."],
+               "Difference = rolled-up unit cost - the item's current standard cost; use Update Product Cost on the BOM to align them."],
     )
 
 
@@ -403,16 +436,25 @@ def _traceability(ctx: RunContext, p: dict) -> ReportResult:
         return {"grn_no": grn.good_received_no if grn else None, "po_no": po.purchasing_order_no if po else None,
                 "supplier": sup.company_name if sup else None, "made_by_order": made}
 
+    from app.modules.materials.models import Material
+
+    def _stock_parts(cond):
+        """Stock rows with their item (and product, for rows without an item)."""
+        return (ctx.db.query(SalesStock, Material, Product)
+                .outerjoin(Material, Material.id == SalesStock.material_id)
+                .outerjoin(Product, Product.id == SalesStock.product_id)
+                .filter(cond).order_by(SalesStock.id).all())
+
     components = []
-    for row, prod in (ctx.db.query(SalesStock, Product).join(Product, Product.id == SalesStock.product_id)
-                      .filter(SalesStock.consumed_by_production_order_id.in_(ids)).order_by(SalesStock.id).all()):
-        components.append({"order_no": order_no_of[row.consumed_by_production_order_id], "item_code": prod.item_code,
-                           "component": prod.name, "qty": row.quantity, "serial": row.barcode, "batch_no": row.batch_no,
+    for row, item, prod in _stock_parts(SalesStock.consumed_by_production_order_id.in_(ids)):
+        code, name, _unit = _label(item, prod)
+        components.append({"order_no": order_no_of[row.consumed_by_production_order_id], "item_code": code,
+                           "component": name, "qty": row.quantity, "serial": row.barcode, "batch_no": row.batch_no,
                            "expiry": row.expiry_date, **_source(row)})
 
     outputs = []
-    for row, prod in (ctx.db.query(SalesStock, Product).join(Product, Product.id == SalesStock.product_id)
-                      .filter(SalesStock.production_order_id.in_(ids)).order_by(SalesStock.id).all()):
+    for row, item, prod in _stock_parts(SalesStock.production_order_id.in_(ids)):
+        code, name, _unit = _label(item, prod)
         if lot and row.barcode != lot and row.batch_no != lot and (row.barcode or "").lower() != lot.lower() \
                 and (row.batch_no or "").lower() != lot.lower():
             continue
@@ -422,7 +464,7 @@ def _traceability(ctx: RunContext, p: dict) -> ReportResult:
                # Only real sales: a unit on a cancelled invoice was never sold.
                .filter(InvoiceItems.sales_stock_id == row.id, *counted_invoice_filters())
                .order_by(Invoice.created_date.desc(), Invoice.id.desc()).first())
-        outputs.append({"order_no": order_no_of[row.production_order_id], "item_code": prod.item_code, "product": prod.name,
+        outputs.append({"order_no": order_no_of[row.production_order_id], "item_code": code, "product": name,
                         "qty": row.quantity, "serial": row.barcode, "batch_no": row.batch_no, "branch_code": row.branch_code,
                         "status": (row.status or "").replace("_", " ").capitalize(), "received": row.added_date,
                         "invoice_no": inv[0] if inv else None, "sold_on": inv[1] if inv else None,
@@ -430,7 +472,7 @@ def _traceability(ctx: RunContext, p: dict) -> ReportResult:
 
     T = m.MfgMaterialTransaction
     moves = [{"order_no": order_no_of[t.order_id], "date": t.transaction_date, "type": t.transaction_type.capitalize(),
-              "item_code": t.product.item_code if t.product else "", "component": t.product.name if t.product else "",
+              "item_code": _label(t.item, t.product)[0], "component": _label(t.item, t.product)[1],
               "qty": t.quantity, "value": D(str(t.total_cost))}
              for t in ctx.db.query(T).filter(T.order_id.in_(ids)).order_by(T.transaction_date, T.id).all()]
     return ReportResult(
@@ -439,7 +481,7 @@ def _traceability(ctx: RunContext, p: dict) -> ReportResult:
                  metric("Sold units", sum(r["qty"] for r in outputs if r["invoice_no"]), "int")],
         tables=[
             table("orders", "Production orders", [{
-                "order_no": o.order_no, "branch_code": o.branch_code, "product": o.product.name if o.product else "",
+                "order_no": o.order_no, "branch_code": o.branch_code, "product": _label(o.item, o.product)[1],
                 "status": STATUS_LABELS.get(o.status, o.status), "planned_qty": o.planned_quantity,
                 "produced_qty": o.produced_quantity, "scrap_qty": o.scrapped_quantity,
                 "started": o.actual_start_at, "finished": o.actual_end_at} for o in orders], [

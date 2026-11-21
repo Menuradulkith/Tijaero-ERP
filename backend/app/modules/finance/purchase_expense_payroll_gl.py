@@ -1442,10 +1442,21 @@ class PurchaseExpensePayrollGL:
         if self._check_already_posted(purchase_return.id, marker):
             return None
 
-        # Calculate total return amount from items
+        # Calculate total return amount from items. The supplier side is the return price;
+        # inventory is relieved at the returned units' stock cost (inventory/costing.py issue
+        # cost) — any difference (e.g. capitalised landed cost the supplier does not refund)
+        # goes to stock write-offs.
+        from app.modules.inventory.costing import issue_unit_cost
+        from app.modules.inventory.models import SalesStock
+
         total_return = Decimal("0")
+        stock_cost = Decimal("0")
         for item in (purchase_return.items or []):
-            total_return += Decimal(str(item.return_price or item.purchasing_price or 0)) * (item.quantity or 1)
+            qty = item.quantity or 1
+            amount = Decimal(str(item.return_price or item.purchasing_price or 0)) * qty
+            total_return += amount
+            stock = self.db.get(SalesStock, item.sales_stock_id) if getattr(item, "sales_stock_id", None) else None
+            stock_cost += (issue_unit_cost(self.db, stock) * qty).quantize(Decimal("0.01")) if stock is not None else amount
 
         if total_return <= 0:
             return None
@@ -1475,10 +1486,19 @@ class PurchaseExpensePayrollGL:
             {
                 "account_code": ACCT_FINISHED_GOODS,
                 "debit": Decimal("0"),
-                "credit": total_return,
+                "credit": stock_cost,
                 "description": f"Inventory returned to supplier - {return_no}",
             },
         ]
+        cost_difference = stock_cost - total_return
+        if cost_difference:
+            lines.append({
+                "account_code": posting_ref("INVENTORY_WRITE_OFF"),
+                "debit": max(cost_difference, Decimal("0")),
+                "credit": max(-cost_difference, Decimal("0")),
+                "description": f"Stock cost vs return price - {return_no}",
+            })
+        lines = [l for l in lines if l["debit"] or l["credit"]]
 
         description = (
             f"Auto GL - Purchase Return | Return: {return_no} | "

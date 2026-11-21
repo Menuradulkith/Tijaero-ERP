@@ -54,12 +54,17 @@ class TestInventorySummary:
         valuation = _run(superclient, "inventory.valuation", {}).json()
         assert _metric(summary, "Stock value") == _metric(valuation, "Stock value")
 
-    def test_threshold_changes_the_low_stock_list(self, superclient, make_product):
-        make_product()  # at least one active product with 0 units available
+    def test_threshold_changes_the_low_stock_list(self, db, superclient, make_product):
+        from app.modules.materials.models import Material
+        from tests.conftest import mfg_item
+
+        mfg_item(db, make_product())  # at least one active stocked item with 0 units available
         none = _run(superclient, "inventory.summary", {"low_stock_threshold": 0}).json()
         many = _run(superclient, "inventory.summary", {"low_stock_threshold": 100000}).json()
         assert _metric(many, "Low-stock items") >= _metric(none, "Low-stock items")
-        assert _metric(many, "Low-stock items") == _metric(many, "Products")  # every product has <= 100000 units
+        # low stock is per Item Catalog item (central stock): every active stocked item has <= 100000 units
+        items = db.query(Material).filter(Material.active.is_(True), Material.item_type == "stock_item").count()
+        assert _metric(many, "Low-stock items") == items
         for row in none["tables"][0]["rows"]:
             assert row["available_quantity"] == 0
 

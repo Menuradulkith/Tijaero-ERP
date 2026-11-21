@@ -239,6 +239,15 @@ def _product_label(product, fallback_id) -> tuple[str, str, str]:
     return product.item_code or "", product.name, getattr(product, "unit_of_measure", "") or ""
 
 
+def _part_label(line) -> tuple[str, str, str]:
+    """(item code, description, unit) for a purchasing / transfer line: its Item Catalog
+    item when it has one (central stock), else its product."""
+    material = getattr(line, "material", None)
+    if material is not None:
+        return material.item_code or "", material.name, material.unit_of_measure or ""
+    return _product_label(getattr(line, "product", None), line.product_id)
+
+
 def _doc(**kw) -> dict:
     base = {
         "title": "", "number": "", "status": None, "meta": [], "parties": [], "columns": [], "lines": [],
@@ -518,8 +527,8 @@ def build_credit_note(db: Session, sale_return, customer, company: dict) -> dict
 def build_purchase_order(db: Session, po, supplier, branch: dict, company: dict) -> dict:
     rows, total = [], ZERO
     for i, it in enumerate(po.items, start=1):
-        code, desc, unit = _product_label(getattr(it, "product", None), it.product_id)
-        if not code:
+        code, desc, unit = _part_label(it)
+        if not code and not getattr(it, "material_id", None):
             from app.modules.products.models import Product
 
             code, desc, unit = _product_label(db.query(Product).filter(Product.id == it.product_id).first(), it.product_id)
@@ -569,7 +578,7 @@ def build_grn(db: Session, grn, po, supplier, branch: dict, company: dict) -> di
     products = {p.id: p for p in db.query(Product).filter(Product.id.in_({poi.product_id for _gi, poi in received} or {0})).all()}
     grouped: "OrderedDict[tuple, dict]" = OrderedDict()
     for gi, poi in received:
-        code, desc, unit = _product_label(products.get(poi.product_id), poi.product_id)
+        code, desc, unit = _part_label(poi) if poi.material_id else _product_label(products.get(poi.product_id), poi.product_id)
         key = (poi.id, gi.batch_no, gi.expiry_date)
         row = grouped.setdefault(key, {"code": code, "description": desc, "unit": unit, "qty": 0, "serials": [],
                                        "batch": gi.batch_no, "expiry": gi.expiry_date, "ordered": poi.quantity,
@@ -598,7 +607,7 @@ def build_grn(db: Session, grn, po, supplier, branch: dict, company: dict) -> di
         sections.append({"title": "Rejected at receipt (not stocked)", "columns": [
             {"key": "description", "label": "Item", "type": "text"}, {"key": "qty", "label": "Qty", "type": "qty", "align": "right"},
             {"key": "reason", "label": "Reason", "type": "text"}],
-            "rows": [{"description": _product_label(rej_products.get(poi.product_id), poi.product_id)[1], "qty": r.quantity, "reason": r.reason}
+            "rows": [{"description": (_part_label(poi) if poi.material_id else _product_label(rej_products.get(poi.product_id), poi.product_id))[1], "qty": r.quantity, "reason": r.reason}
                      for r, poi in rejected]})
     return _doc(
         key="grn", title="GOODS RECEIVED NOTE", number=grn.good_received_no, currency=company["currency_code"],
@@ -632,7 +641,7 @@ def build_grn(db: Session, grn, po, supplier, branch: dict, company: dict) -> di
 def build_purchase_return(db: Session, pr, grn, po, supplier, branch: dict, company: dict) -> dict:
     rows, total = [], ZERO
     for i, it in enumerate(pr.items, start=1):
-        code, desc, unit = _product_label(getattr(it, "product", None), it.product_id)
+        code, desc, unit = _part_label(it)
         qty = it.quantity or 1
         price = money(it.return_price if it.return_price is not None else it.purchasing_price)
         amount = money(price * qty)
@@ -698,7 +707,7 @@ def build_expense(db: Session, expense, branch: dict, company: dict) -> dict:
 def build_item_transfer_note(db: Session, itn, from_branch: dict, to_branch: dict, from_loc, to_loc, company: dict) -> dict:
     rows = []
     for i, it in enumerate(itn.items, start=1):
-        code, desc, unit = _product_label(it.product, it.product_id)
+        code, desc, unit = _part_label(it)
         rows.append({"no": i, "code": code, "description": desc, "unit": unit, "qty": it.quantity or 1,
                      "details": lines(f"S/N: {it.barcode}" if it.barcode else None, it.remark),
                      "received": "Yes" if it.item_recieved else "No"})
@@ -899,13 +908,23 @@ def _minutes(value: Any) -> str:
     return f"{hours} h {rest:02d} min" if hours else f"{rest} min"
 
 
+def _mfg_label(row) -> tuple[str, str, str]:
+    """(item code, description, unit) of a manufacturing row: its Item Catalog item
+    (central stock phase 4), else the product on a row made before."""
+    item = getattr(row, "item", None)
+    if item is not None:
+        return item.item_code or "", item.name, item.unit_of_measure or ""
+    return _product_label(getattr(row, "product", None), getattr(row, "product_id", None))
+
+
 def _order_meta(db: Session, order, bom) -> list:
     quote = order.quote_item.quote if getattr(order, "quote_item", None) else None
+    code, name, unit = _mfg_label(order)
     return [
         ("Order no.", order.order_no),
-        ("Product", f"{order.product.item_code} - {order.product.name}" if order.product else None),
+        ("Item", f"{code} - {name}" if code else name),
         ("BOM", f"{bom.bom_no} (v{bom.version})" if bom else None),
-        ("Quantity", f"{order.planned_quantity} {order.product.unit_of_measure if order.product else ''}".strip()),
+        ("Quantity", f"{order.planned_quantity} {unit}".strip()),
         ("Planned start", _date(order.planned_start_date)),
         ("Planned end", _date(order.planned_end_date)),
         ("Priority", label(order.priority)),
@@ -922,7 +941,7 @@ def build_production_order(db: Session, order, bom, branch: dict, location_name:
     """Production (work) order: what to make, the components to pick and the routing."""
     rows = []
     for i, m in enumerate(order.materials, start=1):
-        code, desc, unit = _product_label(m.product, m.product_id)
+        code, desc, unit = _mfg_label(m)
         rows.append({"no": i, "code": code, "description": desc, "unit": unit,
                      "details": lines("Backflushed on output" if m.issue_method == "backflush" else None,
                                       f"Scrap allowance {Decimal(str(m.scrap_pct)).normalize()}%" if m.scrap_pct else None),
@@ -1002,7 +1021,7 @@ def build_job_card(db: Session, order, bom, branch: dict, company: dict) -> dict
                      "start": "__:__", "finish": "__:__", "good": "_____", "scrap": "_____", "sign": "__________"})
     components = []
     for m in order.materials:
-        code, desc, unit = _product_label(m.product, m.product_id)
+        code, desc, unit = _mfg_label(m)
         components.append({"code": code, "component": desc, "qty": m.required_quantity, "unit": unit,
                            "method": "Backflush" if m.issue_method == "backflush" else "Issue",
                            "issued": m.issued_quantity})

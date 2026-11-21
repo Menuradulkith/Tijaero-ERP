@@ -124,6 +124,23 @@ export const SUPPLIER_ACCOUNTING_GROUP = [
   { value: 'other', label: 'Other' },
 ] as const;
 
+// Customer category. Values must match backend app.modules.customers.enums.CustomerCategory.
+export const CUSTOMER_CATEGORY = [
+  { value: 'customer', label: 'Customer' },
+  { value: 'prospect', label: 'Prospect Customer' },
+  { value: 'end_customer', label: 'End Customer' },
+] as const;
+
+// A customer's receivables group. Values must match backend
+// app.modules.customers.enums.CustomerAccountingGroup.
+export const CUSTOMER_ACCOUNTING_GROUP = [
+  { value: 'local_trade', label: 'Local Trade Customers' },
+  { value: 'foreign_trade', label: 'Foreign Trade Customers' },
+  { value: 'related_party', label: 'Related Party' },
+  { value: 'government', label: 'Government' },
+  { value: 'other', label: 'Other' },
+] as const;
+
 // Incoterms 2020 (ICC). Values must match backend app.common.enums.Incoterm.
 export const INCOTERMS = [
   { value: 'EXW', label: 'EXW — Ex Works' },

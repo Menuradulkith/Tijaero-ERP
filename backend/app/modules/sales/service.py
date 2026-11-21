@@ -12,6 +12,8 @@ from app.modules.common.approval_service import approval_service, ApprovalType, 
 from app.core.concurrency import next_document_number
 from app.core import timezone as tz
 from app.modules.inventory.lots import FEFO_ORDER, find_grn_item, split_lot, take_units, units_in
+from app.modules.inventory.ledger import set_stock_reference
+from app.modules.inventory.item_stock import stock_key_filter
 from app.common.audit import log_audit, diff_changes
 from app.common.enums import DocumentStatus, PaymentStatus, StockStatus
 from decimal import Decimal, ROUND_HALF_UP
@@ -478,31 +480,41 @@ class SalesService:
     
     def get_available_products_from_stock(self, db: Session, branch_codes: Optional[List[str]] = None):
         """Products that have available items in sales stock, with the available quantity.
-        Limited to the caller's branches when ``branch_codes`` is given."""
+        Limited to the caller's branches when ``branch_codes`` is given. Stock is
+        counted through the product's item: every product linked to an item shows
+        that item's available quantity (unlinked products count their own rows)."""
+        from sqlalchemy import case
         from app.modules.products.models import Product
 
-        query = db.query(
-            Product.id,
-            Product.item_code,
-            Product.name,
-            Product.description,
-            Product.category_id,
-            Product.items_brand_id,
-            Product.unit_of_measure,
-            Product.selling_price,
-            Product.active,
-            func.coalesce(func.sum(SalesStock.quantity), 0).label("available_quantity"),
-        ).join(SalesStock, SalesStock.product_id == Product.id).filter(
-            SalesStock.status == StockStatus.AVAILABLE,
-            SalesStock.is_active == True,  # noqa: E712
-            Product.active == True,  # noqa: E712
-        )
+        base = [SalesStock.status == StockStatus.AVAILABLE, SalesStock.is_active == True]  # noqa: E712
         if branch_codes:
-            query = query.filter(SalesStock.branch_code.in_(branch_codes))
-        rows = query.group_by(
-            Product.id, Product.item_code, Product.name, Product.description, Product.category_id,
-            Product.items_brand_id, Product.unit_of_measure, Product.selling_price, Product.active,
-        ).order_by(Product.name).all()
+            base.append(SalesStock.branch_code.in_(branch_codes))
+        qty = func.coalesce(func.sum(SalesStock.quantity), 0)
+        by_item = (
+            db.query(SalesStock.material_id.label("key"), qty.label("qty"))
+            .filter(SalesStock.material_id.isnot(None), *base)
+            .group_by(SalesStock.material_id)
+            .subquery()
+        )
+        by_product = (
+            db.query(SalesStock.product_id.label("key"), qty.label("qty"))
+            .filter(*base)
+            .group_by(SalesStock.product_id)
+            .subquery()
+        )
+        available = case((Product.material_id.isnot(None), by_item.c.qty), else_=by_product.c.qty)
+        rows = (
+            db.query(
+                Product.id, Product.item_code, Product.name, Product.description, Product.category_id,
+                Product.items_brand_id, Product.unit_of_measure, Product.selling_price, Product.active,
+                available.label("available_quantity"),
+            )
+            .outerjoin(by_item, by_item.c.key == Product.material_id)
+            .outerjoin(by_product, by_product.c.key == Product.id)
+            .filter(Product.active == True, available > 0)  # noqa: E712
+            .order_by(Product.name)
+            .all()
+        )
         return [
             {
                 "id": r.id,
@@ -531,9 +543,10 @@ class SalesService:
         Raises:
             HTTPException: If product is not available or insufficient quantity
         """
-        # Count available stock items for this product
+        # Count available stock of this product's item (or of the product when it has none)
+        stock_key = stock_key_filter(db, product_id)
         available_count = db.query(func.coalesce(func.sum(SalesStock.quantity), 0)).filter(
-            SalesStock.product_id == product_id,
+            stock_key,
             SalesStock.status == StockStatus.AVAILABLE,
             SalesStock.is_active == True,
             *([SalesStock.branch_code == branch_code] if branch_code else []),
@@ -545,7 +558,7 @@ class SalesService:
                 SalesQuoteItem, SalesStock.reserved_for_quote_item_id == SalesQuoteItem.id
             ).filter(
                 SalesQuoteItem.quote_id == source_quote_id,
-                SalesStock.product_id == product_id,
+                stock_key,
                 SalesStock.status == StockStatus.RESERVED,
                 SalesStock.is_active == True,
             ).scalar() or 0
@@ -1362,6 +1375,7 @@ class SalesService:
         invoice = Invoice(**invoice_dict)
         db.add(invoice)
         db.flush()
+        set_stock_reference(db, "sales_order", invoice.id, invoice.invoice_no)
         
         # Create invoice items and handle sales stock
         for item_data in invoice_data.items:
@@ -1375,12 +1389,16 @@ class SalesService:
             
             # Resolve the physical stock units this line consumes.
             allocated_units: list = []
+            # Stock of the product's item (any product linked to it), else the product's own.
+            stock_key = stock_key_filter(db, item_dict['product_id'])
             if barcode:
-                # Lock the stock row to prevent two invoices reserving the same item
+                # Lock the stock row to prevent two invoices reserving the same item.
+                # A scanned unit fits the line when it is stock of the line product's item.
                 stock_item = db.query(SalesStock).filter(
                     SalesStock.barcode == barcode,
                     SalesStock.status == StockStatus.AVAILABLE,
                     SalesStock.branch_code == invoice_dict['branch_code'],
+                    stock_key,
                 ).with_for_update().first()
                 if stock_item:
                     allocated_units = [stock_item]
@@ -1425,7 +1443,7 @@ class SalesService:
                     extra_rows = (
                         db.query(SalesStock)
                         .filter(
-                            SalesStock.product_id == item_dict['product_id'],
+                            stock_key,
                             SalesStock.status == StockStatus.AVAILABLE,
                             SalesStock.is_active == True,
                             SalesStock.branch_code == invoice_dict['branch_code'],
@@ -1967,9 +1985,10 @@ class SalesService:
             barcode = row_base.get("barcode")
             qty = int(row_base["quantity"])
 
+            stock_key = stock_key_filter(db, row_base["product_id"])
             if barcode:
                 unit = db.query(SalesStock).filter(
-                    SalesStock.barcode == barcode, SalesStock.status == StockStatus.AVAILABLE
+                    SalesStock.barcode == barcode, SalesStock.status == StockStatus.AVAILABLE, stock_key,
                 ).with_for_update().first()
                 if not unit:
                     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Barcode {barcode} is no longer available")
@@ -1978,7 +1997,7 @@ class SalesService:
                 unit_rows = (
                     db.query(SalesStock)
                     .filter(
-                        SalesStock.product_id == row_base["product_id"],
+                        stock_key,
                         SalesStock.status == StockStatus.AVAILABLE,
                         SalesStock.is_active == True,  # noqa: E712
                     )
@@ -2021,6 +2040,8 @@ class SalesService:
     def update_invoice(self, db: Session, invoice_id: int, invoice_data: schemas.InvoiceUpdate, user_id: int):
         # Lock the invoice row to prevent concurrent edits / double-approval
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if invoice:
+            set_stock_reference(db, "sales_order", invoice.id, invoice.invoice_no)
         if not invoice:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
         
@@ -2487,6 +2508,8 @@ class SalesService:
         # Lock the row so two deletes cannot both run (and give a voucher or coupon back twice)
         self._lock_approval_first(db, invoice_id)
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if invoice:
+            set_stock_reference(db, "sales_order", invoice.id, invoice.invoice_no)
         if not invoice:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
         
@@ -2564,6 +2587,8 @@ class SalesService:
         # Lock the invoice row to prevent concurrent approval
         self._lock_approval_first(db, invoice_id)
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if invoice:
+            set_stock_reference(db, "sales_order", invoice.id, invoice.invoice_no)
         if not invoice:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -2698,6 +2723,8 @@ class SalesService:
         """
         # Lock the invoice row to prevent concurrent complete/cancel
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if invoice:
+            set_stock_reference(db, "sales_order", invoice.id, invoice.invoice_no)
         if not invoice:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
 
@@ -2762,6 +2789,8 @@ class SalesService:
         # Lock the invoice row to prevent concurrent cancel / approve race
         self._lock_approval_first(db, invoice_id)
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if invoice:
+            set_stock_reference(db, "sales_order", invoice.id, invoice.invoice_no)
         if not invoice:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
 
@@ -2856,6 +2885,8 @@ class SalesService:
         reason stays on the approval request and in the audit trail."""
         self._lock_approval_first(db, invoice_id)
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if invoice:
+            set_stock_reference(db, "sales_order", invoice.id, invoice.invoice_no)
         if not invoice:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
         if invoice.approval_status != DocumentStatus.PENDING_APPROVAL:
@@ -3500,6 +3531,8 @@ class SalesService:
         """
         # Lock the sale_return row first to prevent double-processing
         sale_return = db.query(SaleReturn).filter(SaleReturn.id == return_id).with_for_update().first()
+        if sale_return:
+            set_stock_reference(db, "sale_return", sale_return.id, sale_return.sale_return_no)
         if not sale_return:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sale return not found")
 
@@ -3543,6 +3576,11 @@ class SalesService:
                     # units go back to available, the rest stay sold.
                     if not stock.barcode and 0 < item.quantity < stock.quantity:
                         stock = split_lot(db, stock, item.quantity)
+                    # Back in stock at the cost the sale's COGS took it out at (re-averages a
+                    # weighted-average item at that cost; see inventory/costing.py)
+                    sold_cost = item.invoice_item.unit_cost if getattr(item, "invoice_item", None) else None
+                    if sold_cost is not None:
+                        stock.unit_cost = sold_cost
                     stock.status = StockStatus.AVAILABLE
                     stock.is_active = True
                     stock.returned_date = tz.now()
@@ -4356,6 +4394,8 @@ class SalesService:
         """Confirm (verify) or reject a bank transfer payment."""
         # Lock the invoice row to prevent concurrent verify/reject
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+        if invoice:
+            set_stock_reference(db, "sales_order", invoice.id, invoice.invoice_no)
         
         if not invoice:
             raise HTTPException(

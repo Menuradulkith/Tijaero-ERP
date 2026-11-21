@@ -37,6 +37,7 @@ from app.modules.sales.quotation_schemas import (
     SalesQuoteUpdate,
 )
 from app.modules.sales.quotation_service import SalesQuoteService
+from tests.conftest import item_id_for
 
 
 SERVICE = SalesQuoteService()
@@ -75,7 +76,7 @@ def _po_group_for_quote_item(branch_code, supplier_id, quote_item, *, unit_price
         sales_quote_id=quote_item.quote_id,
         items=[
             po_schemas.PurchasingOrderItemCreate(
-                product_id=quote_item.product_id,
+                material_id=item_id_for(quote_item.product_id, supplier_id, Decimal(unit_price)),
                 quantity=quote_item.quantity,
                 unit_price=Decimal(unit_price),
                 warrenty_month="0",

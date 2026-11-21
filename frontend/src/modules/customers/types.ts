@@ -23,6 +23,13 @@ export interface Customer {
   mobile_contact_number?: string;
   home_contact_number?: string;
   company_name?: string;
+  vat_registration_number?: string;
+  /** Tax treatment — see SUPPLIER_TAX_AREA (same list). */
+  tax_area?: string;
+  /** Receivables group — see CUSTOMER_ACCOUNTING_GROUP. */
+  accounting_group?: string;
+  /** customer | prospect | end_customer — see CUSTOMER_CATEGORY. */
+  customer_category?: string;
   tax_registration_number?: string;
   company_registration_number?: string;
   occupation?: string;
@@ -53,6 +60,10 @@ export interface Customer {
   bank_branch?: string;
   bank_branch_code?: string;
   bank_swift_code?: string;
+  correspondent_bank_name?: string;
+  correspondent_bank_location?: string;
+  correspondent_bank_swift_code?: string;
+  correspondent_bank_iban?: string;
   name_in_cheque_card?: string;
   credit_days: number;
   max_credit_limit: number;
@@ -82,6 +93,13 @@ export interface CustomerCreate {
   mobile_contact_number?: string;
   home_contact_number?: string;
   company_name?: string;
+  vat_registration_number?: string;
+  /** Tax treatment — see SUPPLIER_TAX_AREA (same list). */
+  tax_area?: string;
+  /** Receivables group — see CUSTOMER_ACCOUNTING_GROUP. */
+  accounting_group?: string;
+  /** customer | prospect | end_customer — see CUSTOMER_CATEGORY. */
+  customer_category?: string;
   tax_registration_number?: string;
   company_registration_number?: string;
   occupation?: string;
@@ -112,6 +130,10 @@ export interface CustomerCreate {
   bank_branch?: string;
   bank_branch_code?: string;
   bank_swift_code?: string;
+  correspondent_bank_name?: string;
+  correspondent_bank_location?: string;
+  correspondent_bank_swift_code?: string;
+  correspondent_bank_iban?: string;
   name_in_cheque_card?: string;
   credit_days?: number;
   max_credit_limit?: number;
@@ -132,6 +154,14 @@ export interface CustomerUpdate {
   mobile_contact_number?: string;
   home_contact_number?: string;
   company_name?: string;
+  tax_registration_number?: string;
+  vat_registration_number?: string;
+  /** Tax treatment — see SUPPLIER_TAX_AREA (same list). */
+  tax_area?: string;
+  /** Receivables group — see CUSTOMER_ACCOUNTING_GROUP. */
+  accounting_group?: string;
+  /** customer | prospect | end_customer — see CUSTOMER_CATEGORY. */
+  customer_category?: string;
   occupation?: string;
   gender?: string;
   civil_status?: string;
@@ -160,6 +190,10 @@ export interface CustomerUpdate {
   bank_branch?: string;
   bank_branch_code?: string;
   bank_swift_code?: string;
+  correspondent_bank_name?: string;
+  correspondent_bank_location?: string;
+  correspondent_bank_swift_code?: string;
+  correspondent_bank_iban?: string;
   name_in_cheque_card?: string;
   credit_days?: number;
   max_credit_limit?: number;

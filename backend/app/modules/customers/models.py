@@ -44,6 +44,13 @@ class Customer(Base, AuditMixin):
     occupation = Column(String(255))
     company_name = Column(String(255))
     tax_registration_number = Column(String(50))
+    vat_registration_number = Column(String(50))
+    # Tax treatment (same fixed set as Supplier.tax_area — app.common.enums.SupplierTaxArea).
+    tax_area = Column(String(30))
+    # Receivables grouping — app.modules.customers.enums.CustomerAccountingGroup.
+    accounting_group = Column(String(30))
+    # customer / prospect / end_customer — app.modules.customers.enums.CustomerCategory.
+    customer_category = Column(String(20), nullable=False, default="customer", server_default="customer")
     company_registration_number = Column(String(50))
     # Payment (billing) address, structured like Supplier.billing_*. The
     # legacy single-line `payment_address` / `delivery_address` below are kept
@@ -73,6 +80,11 @@ class Customer(Base, AuditMixin):
     bank_branch = Column(String(255))
     bank_branch_code = Column(String(30))
     bank_swift_code = Column(String(20))
+    # Correspondent (intermediary) bank used for international transfers.
+    correspondent_bank_name = Column(String(255))
+    correspondent_bank_location = Column(String(255))
+    correspondent_bank_swift_code = Column(String(20))
+    correspondent_bank_iban = Column(String(34))
     date_joined = Column(TIMESTAMP, nullable=False)
     birthdate = Column(Date)
     id_card_number = Column(String(12))

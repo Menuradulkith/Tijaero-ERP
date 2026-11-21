@@ -146,6 +146,11 @@ def seed_permissions():
         {"name": "update_brands", "resource": "brands", "action": "update", "description": "Update brands"},
         {"name": "delete_brands", "resource": "brands", "action": "delete", "description": "Delete brands"},
 
+        {"name": "view_materials", "resource": "materials", "action": "view", "description": "View materials"},
+        {"name": "create_materials", "resource": "materials", "action": "create", "description": "Create materials"},
+        {"name": "update_materials", "resource": "materials", "action": "update", "description": "Update materials"},
+        {"name": "delete_materials", "resource": "materials", "action": "delete", "description": "Delete materials"},
+
         # ══════════════════════════════════════════════════════════════
         # FINANCE — per sub-page
         # ══════════════════════════════════════════════════════════════
@@ -352,6 +357,10 @@ def seed_permissions():
         {"name": "view_cost_price", "resource": "cost_price", "action": "view", "description": "View cost/buying price on stock and asset dashboards"},
         # Sales Track (Warehouse)
         {"name": "view_warehouse_sales_track", "resource": "warehouse_sales_track", "action": "view", "description": "View warehouse sales tracking"},
+        # Stock Counts (warehouse.stock_count.*)
+        {"name": "view_stock_count", "resource": "stock_count", "action": "view", "description": "View stock counts"},
+        {"name": "create_stock_count", "resource": "stock_count", "action": "create", "description": "Start stock counts and enter counted quantities"},
+        {"name": "post_stock_count", "resource": "stock_count", "action": "post", "description": "Post or cancel stock counts (adjusts stock and GL)"},
         # Item Transfer Notes
         {"name": "view_item_transfer_notes", "resource": "item_transfer_notes", "action": "view", "description": "View item transfer notes"},
         {"name": "create_item_transfer_notes", "resource": "item_transfer_notes", "action": "create", "description": "Create item transfer notes"},
@@ -689,8 +698,10 @@ def seed_permissions():
                 "view_products", "create_products", "update_products", "delete_products",
                 "view_categories", "create_categories", "update_categories", "delete_categories",
                 "view_brands", "create_brands", "update_brands", "delete_brands",
+                "view_materials", "create_materials", "update_materials", "delete_materials",
                 # Warehouse
                 "view_sales_stock", "create_sales_stock", "update_sales_stock",
+                "view_stock_count", "create_stock_count", "post_stock_count",
                 "view_cost_price",
                 "view_warehouse_sales_track",
                 "view_item_transfer_notes", "create_item_transfer_notes", "update_item_transfer_notes",
@@ -707,6 +718,7 @@ def seed_permissions():
             "description": "View and manage stock, transfers, and receive notes",
             "permissions": perms(
                 "view_sales_stock", "create_sales_stock", "update_sales_stock",
+                "view_stock_count", "create_stock_count", "post_stock_count",
                 "view_warehouse_sales_track",
                 "view_item_transfer_notes", "create_item_transfer_notes", "update_item_transfer_notes",
                 "view_receive_notes", "create_receive_notes", "update_receive_notes",

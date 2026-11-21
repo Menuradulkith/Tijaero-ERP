@@ -5,6 +5,8 @@ import uuid
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from tests.conftest import product_master_ids
+
 B = "/api/v1/inventory"
 
 
@@ -23,14 +25,17 @@ def cat(superclient):
 def brand(superclient):
     r = superclient.post(f"{B}/brands/", json={"brand_name": f"QA Brand {_u()}"})
     assert r.status_code == 201, r.text
-    return r.json()
+    b = r.json()
+    b["_pm"] = product_master_ids(superclient)  # product type / HS code / family for _prod
+    return b
 
 
 def _prod(cat, brand, **kw):
     u = _u()
     return {
         "name": f"QA Prod {u}", "item_type": "inventory", "tracking_type": "serial", "unit_of_measure": "pcs",
-        "cost_price": 100, "selling_price": 150, "category_id": cat["id"], "items_brand_id": brand["id"], **kw,
+        "cost_price": 100, "selling_price": 150, "category_id": cat["id"], "items_brand_id": brand["id"],
+        **brand.get("_pm", {}), **kw,
     }
 
 
@@ -277,6 +282,11 @@ class TestAuthorization:
         assert c.post(f"{B}/categories/", json={"name": "x", "category_code": "y"}).status_code == 403
         assert c.post(f"{B}/brands/", json={"brand_name": "x", "brand_code": "y"}).status_code == 403
         assert c.post(f"{B}/products/{product['id']}/minimum-prices", json={"minimum_price": 120}).status_code == 403
+        # product types / HS codes: a viewer may list but not add
+        assert c.get(f"{B}/product-types/").status_code == 200
+        assert c.get(f"{B}/hs-codes/").status_code == 200
+        assert c.post(f"{B}/product-types/", json={"name": "QA x"}).status_code == 403
+        assert c.post(f"{B}/hs-codes/", json={"code": "8471.99"}).status_code == 403
 
 
 # ================================================================ database backstop
@@ -328,3 +338,59 @@ class TestDatabaseIndexes:
         db.flush()
         assert self._collides(db, make(name=f" {first.name.upper()} "))
         assert self._collides(db, make(item_code=f" {first.item_code.lower()}"))
+
+
+class TestProductMasterGeneral:
+    """General section: product type + HS code (creatable lists), family mandatory; market/certificate optional."""
+
+    @pytest.mark.parametrize("field", ["product_type_id", "hs_code_id", "product_family"])
+    def test_mandatory_on_create(self, superclient, cat, brand, field):
+        body = _prod(cat, brand)
+        body.pop(field)
+        assert superclient.post(f"{B}/products/", json=body).status_code == 422
+
+    @pytest.mark.parametrize("field", ["product_type_id", "hs_code_id", "product_family"])
+    def test_cannot_be_cleared(self, superclient, product, field):
+        assert superclient.put(f"{B}/products/{product['id']}", json={field: None}).status_code == 422
+
+    @pytest.mark.parametrize("field", ["product_type_id", "hs_code_id"])
+    def test_unknown_reference_refused(self, superclient, cat, brand, field):
+        assert superclient.post(f"{B}/products/", json=_prod(cat, brand, **{field: 99999999})).status_code == 400
+
+    def test_saved_and_returned_with_names(self, superclient, cat, brand):
+        r = superclient.post(f"{B}/products/", json=_prod(cat, brand, target_market="EU, Middle East",
+                                                         required_certificate="CE", product_family="  Laptops  "))
+        assert r.status_code == 201, r.text
+        p = r.json()
+        assert p["product_family"] == "Laptops"
+        assert (p["target_market"], p["required_certificate"]) == ("EU, Middle East", "CE")
+        assert p["product_type_name"] and p["product_type_name"].startswith("QA Type")
+        assert p["hs_code"] and p["hs_code_description"] == "QA"
+
+    def test_item_type_defaults_to_inventory(self, superclient, cat, brand):
+        body = _prod(cat, brand)
+        body.pop("item_type")
+        r = superclient.post(f"{B}/products/", json=body)
+        assert r.status_code == 201, r.text
+        assert r.json()["item_type"] == "inventory"
+
+    def test_product_type_list_and_duplicates(self, superclient):
+        name = f"QA Type Dup {_u()}"
+        first = superclient.post(f"{B}/product-types/", json={"name": name})
+        assert first.status_code == 201, first.text
+        assert superclient.post(f"{B}/product-types/", json={"name": f"  {name.upper().replace(' ', '  ')} "}).status_code == 409
+        assert superclient.post(f"{B}/product-types/", json={"name": "   "}).status_code == 422
+        names = [t["name"] for t in superclient.get(f"{B}/product-types/").json()]
+        assert name in names
+
+    @pytest.mark.parametrize("code,status", [("8471", 201), ("8471.30.10", 201), ("84", 422), ("ABCD", 422), ("8471-30", 422)])
+    def test_hs_code_format(self, superclient, code, status):
+        # each code made unique per run by changing the last digits where valid
+        if status == 201:
+            code = f"{code[:4]}.{int(_u()[:2], 16) % 90 + 10}" if code == "8471" else f"{code[:8]}{int(_u()[:2], 16) % 90 + 10}"
+        assert superclient.post(f"{B}/hs-codes/", json={"code": code}).status_code == status
+
+    def test_hs_code_duplicate(self, superclient):
+        code = f"9{int(_u()[:4], 16) % 900 + 100}.{int(_u()[:2], 16) % 90 + 10}"
+        assert superclient.post(f"{B}/hs-codes/", json={"code": code}).status_code == 201
+        assert superclient.post(f"{B}/hs-codes/", json={"code": f" {code} "}).status_code == 409

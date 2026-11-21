@@ -3,12 +3,14 @@
  *
  * A BOM lists the components (with scrap % and issue method) and the routing
  * operations (work center, setup and run time) that make `output_quantity`
- * units of a product. Draft BOMs are editable; activating one makes it usable
+ * units of an Item Catalog item. Components and by-products are items too; BOMs
+ * saved before that only carry a product and show its name until re-saved.
+ * Draft BOMs are editable; activating one makes it usable
  * on production orders, and a change to an active BOM is made as a new version.
- * The cost roll-up can be pushed to the product's cost price (standard cost).
+ * The cost roll-up can be pushed to the linked product's cost price (standard cost).
  * Operations on an outside work center are costed at the supplier's price per
  * unit; by-products (bread crumbs, coconut poonac) are valued and taken off the
- * main product's cost. Over-production tolerance lets an order make a little
+ * main item's cost. Over-production tolerance lets an order make a little
  * more than planned when yields vary.
  */
 
@@ -73,8 +75,9 @@ import {
   useTConfirmDialog,
 } from "@/components/tijaero";
 
-import { useReferenceData, type ProductRef } from "@/hooks";
 import { usePermission } from "@/auth/permissions";
+import { ItemAutocomplete, ItemLink } from "@/modules/manufacturing/components/ItemFields";
+import { mfgItemCode, mfgItemLabel, mfgItemName, useMfgItems } from "@/modules/manufacturing/itemDisplay";
 import { bomsApi, workCentersApi, errorAlreadyToasted } from "@/modules/manufacturing/api";
 import {
   BOM,
@@ -86,7 +89,8 @@ import {
 } from "@/modules/manufacturing/types";
 
 interface BOMFormData {
-  product_id: number;
+  /** The item this BOM makes */
+  material_id: number;
   version: string;
   output_quantity: number;
   description: string;
@@ -94,7 +98,7 @@ interface BOMFormData {
 }
 
 const INITIAL_FORM_DATA: BOMFormData = {
-  product_id: 0,
+  material_id: 0,
   version: "1",
   output_quantity: 1,
   description: "",
@@ -102,7 +106,7 @@ const INITIAL_FORM_DATA: BOMFormData = {
 };
 
 const resetFormFromBOM = (bom: BOM): BOMFormData => ({
-  product_id: bom.product_id,
+  material_id: bom.material_id || 0,
   version: bom.version,
   output_quantity: Number(bom.output_quantity),
   description: bom.description || "",
@@ -111,12 +115,15 @@ const resetFormFromBOM = (bom: BOM): BOMFormData => ({
 
 interface ItemLine {
   _id: string;
-  product_id: number;
+  /** Component item (0 = not chosen yet, or an old product-only line) */
+  material_id: number;
   quantity: number;
   scrap_pct: number;
   issue_method: IssueMethod;
   remark: string;
   // Display only, from the saved BOM (component name / cost as the server sees them)
+  material_item_code?: string | null;
+  material_name?: string | null;
   product_name?: string | null;
   product_code?: string | null;
   unit_of_measure?: string | null;
@@ -139,8 +146,11 @@ interface OperationLine {
 
 interface ByProductLine {
   _id: string;
-  product_id: number;
+  /** By-product item (0 = not chosen yet, or an old product-only line) */
+  material_id: number;
   quantity: number;
+  material_item_code?: string | null;
+  material_name?: string | null;
   product_name?: string | null;
   product_code?: string | null;
   unit_of_measure?: string | null;
@@ -151,11 +161,13 @@ type DetailSection = "overview" | "components" | "operations" | "byproducts";
 const linesFromBOM = (bom: BOM): { items: ItemLine[]; operations: OperationLine[]; byProducts: ByProductLine[] } => ({
   items: bom.items.map((i) => ({
     _id: `item-${i.id}`,
-    product_id: i.product_id,
+    material_id: i.material_id || 0,
     quantity: Number(i.quantity),
     scrap_pct: Number(i.scrap_pct),
     issue_method: i.issue_method,
     remark: i.remark || "",
+    material_item_code: i.material_item_code,
+    material_name: i.material_name,
     product_name: i.product_name,
     product_code: i.product_code,
     unit_of_measure: i.unit_of_measure,
@@ -175,8 +187,10 @@ const linesFromBOM = (bom: BOM): { items: ItemLine[]; operations: OperationLine[
   })),
   byProducts: (bom.by_products || []).map((b) => ({
     _id: `bp-${b.id}`,
-    product_id: b.product_id,
+    material_id: b.material_id || 0,
     quantity: Number(b.quantity),
+    material_item_code: b.material_item_code,
+    material_name: b.material_name,
     product_name: b.product_name,
     product_code: b.product_code,
     unit_of_measure: b.unit_of_measure,
@@ -201,7 +215,9 @@ const BOM_STATUS_COLOR: Record<BOM["status"], "default" | "success" | "warning">
 };
 
 type BOMRow = BOM & {
-  product_display: string;
+  item_code_display: string;
+  item_display: string;
+  uom_display: string;
   output_num: number;
   unit_cost_num: number;
 };
@@ -255,9 +271,7 @@ export default function BOMsPage() {
     onDiscard: () => { setItemLines([]); setOperationLines([]); setByProductLines([]); setLinesDirty(false); setBomDetail(null); },
   });
 
-  const { data: referenceData } = useReferenceData(["products"], { productsLimit: 2000 });
-  const products: ProductRef[] = useMemo(() => referenceData?.products || [], [referenceData]);
-  const productById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
+  const { items: catalogItems, itemById, isLoading: itemsLoading } = useMfgItems();
 
   const { data: workCenters = [] } = useQuery({
     queryKey: ["mfg-work-centers"],
@@ -333,13 +347,15 @@ export default function BOMsPage() {
       .filter((b) =>
         !q ||
         b.bom_no.toLowerCase().includes(q) ||
-        (b.product_name || "").toLowerCase().includes(q) ||
-        (b.product_code || "").toLowerCase().includes(q)
+        mfgItemName(b).toLowerCase().includes(q) ||
+        mfgItemCode(b).toLowerCase().includes(q)
       )
       .filter((b) => !filterStatus || b.status === filterStatus);
     return filtered.map((b) => ({
       ...b,
-      product_display: `${b.product_name || `Product ${b.product_id}`}${b.product_code ? ` (${b.product_code})` : ""}`,
+      item_code_display: mfgItemCode(b),
+      item_display: mfgItemName(b),
+      uom_display: b.unit_of_measure || "",
       output_num: Number(b.output_quantity),
       unit_cost_num: Number(b.unit_cost),
     }));
@@ -355,7 +371,15 @@ export default function BOMsPage() {
           <Typography variant="body2" fontWeight={600}>{params.row.bom_no}</Typography>
         ),
       },
-      { field: "product_display", header: "Product", flex: 1, minWidth: 220 },
+      { field: "item_code_display", header: "Item Code", width: 130 },
+      {
+        field: "item_display",
+        header: "Item",
+        flex: 1,
+        minWidth: 200,
+        renderCell: (params: GridRenderCellParams<BOMRow>) => <ItemLink row={params.row} label={params.row.item_display} />,
+      },
+      { field: "uom_display", header: "UOM", width: 80 },
       { field: "version", header: "Version", width: 90 },
       { field: "output_num", header: "Output Qty", width: 105, type: "number" },
       { field: "item_count", header: "Components", width: 115, type: "number" },
@@ -369,7 +393,7 @@ export default function BOMsPage() {
         headerAlign: "center",
         renderCell: (params: GridRenderCellParams<BOMRow>) =>
           params.row.is_default ? (
-            <Tooltip title="Default BOM for this product">
+            <Tooltip title="Default BOM for this item">
               <StarIcon fontSize="small" color="warning" />
             </Tooltip>
           ) : null,
@@ -411,7 +435,7 @@ export default function BOMsPage() {
   const addItem = () => {
     setItemLines((prev) => [
       ...prev,
-      { _id: `new-${Date.now()}`, product_id: 0, quantity: 1, scrap_pct: 0, issue_method: "manual", remark: "" },
+      { _id: `new-${Date.now()}`, material_id: 0, quantity: 1, scrap_pct: 0, issue_method: "manual", remark: "" },
     ]);
     setLinesDirty(true);
   };
@@ -439,7 +463,7 @@ export default function BOMsPage() {
     setLinesDirty(true);
   };
   const addByProduct = () => {
-    setByProductLines((prev) => [...prev, { _id: `new-${Date.now()}`, product_id: 0, quantity: 1 }]);
+    setByProductLines((prev) => [...prev, { _id: `new-${Date.now()}`, material_id: 0, quantity: 1 }]);
     setLinesDirty(true);
   };
   const removeByProduct = (id: string) => {
@@ -447,13 +471,13 @@ export default function BOMsPage() {
     setLinesDirty(true);
   };
 
-  // Unit cost of a component line: the saved BOM's figure until the product is
-  // changed, otherwise the product's current cost price.
+  // Unit cost of a component line: the saved BOM's figure until the item is
+  // changed, otherwise the item's current cost price.
   const itemUnitCost = useCallback((line: ItemLine) => {
     const saved = bomDetail?.items.find((i) => `item-${i.id}` === line._id);
-    if (saved && saved.product_id === line.product_id) return Number(saved.unit_cost);
-    return Number(productById.get(line.product_id)?.cost_price) || 0;
-  }, [bomDetail, productById]);
+    if (saved && (saved.material_id || 0) === line.material_id) return Number(saved.unit_cost);
+    return Number(itemById.get(line.material_id)?.cost_price) || 0;
+  }, [bomDetail, itemById]);
 
   const itemLineCost = (line: ItemLine) =>
     round2(line.quantity * (1 + line.scrap_pct / 100) * itemUnitCost(line));
@@ -474,13 +498,13 @@ export default function BOMsPage() {
     };
   }, [workCenterById]);
 
-  // By-product unit value: the saved BOM's figure until the product is changed,
-  // otherwise the product's current cost price.
+  // By-product unit value: the saved BOM's figure until the item is changed,
+  // otherwise the item's current cost price.
   const byProductUnitCost = useCallback((line: ByProductLine) => {
     const saved = bomDetail?.by_products?.find((b) => `bp-${b.id}` === line._id);
-    if (saved && saved.product_id === line.product_id) return Number(saved.unit_cost);
-    return Number(productById.get(line.product_id)?.cost_price) || 0;
-  }, [bomDetail, productById]);
+    if (saved && (saved.material_id || 0) === line.material_id) return Number(saved.unit_cost);
+    return Number(itemById.get(line.material_id)?.cost_price) || 0;
+  }, [bomDetail, itemById]);
   const byProductValue = (line: ByProductLine) => round2(line.quantity * byProductUnitCost(line));
 
   // Live roll-up while editing; the server's figures when viewing.
@@ -518,12 +542,12 @@ export default function BOMsPage() {
 
   const productCostPrice = bomDetail
     ? Number(bomDetail.product_cost_price)
-    : Number(productById.get(formData.product_id)?.cost_price) || 0;
+    : Number(itemById.get(formData.material_id)?.cost_price) || 0;
   const costDifference = round2(rollup.unit - productCostPrice);
 
   // ─── validation ────────────────────────────────────────────────────────
   const duplicateComponent = useMemo(() => {
-    const ids = itemLines.map((l) => l.product_id).filter(Boolean);
+    const ids = itemLines.map((l) => l.material_id).filter(Boolean);
     return ids.length !== new Set(ids).size;
   }, [itemLines]);
 
@@ -531,25 +555,25 @@ export default function BOMsPage() {
     itemLines.length > 0 &&
     !duplicateComponent &&
     itemLines.every((l) =>
-      l.product_id > 0 && l.product_id !== formData.product_id && l.quantity > 0 && l.scrap_pct >= 0 && l.scrap_pct < 100
+      l.material_id > 0 && l.material_id !== formData.material_id && l.quantity > 0 && l.scrap_pct >= 0 && l.scrap_pct < 100
     );
   const operationsValid = operationLines.every(
     (o) => !!o.name.trim() && o.work_center_id > 0 && o.setup_minutes >= 0 && o.run_minutes >= 0 && o.outside_unit_cost >= 0
   );
-  const componentIds = useMemo(() => new Set(itemLines.map((l) => l.product_id).filter(Boolean)), [itemLines]);
+  const componentIds = useMemo(() => new Set(itemLines.map((l) => l.material_id).filter(Boolean)), [itemLines]);
   const duplicateByProduct = useMemo(() => {
-    const ids = byProductLines.map((l) => l.product_id).filter(Boolean);
+    const ids = byProductLines.map((l) => l.material_id).filter(Boolean);
     return ids.length !== new Set(ids).size;
   }, [byProductLines]);
-  const byProductClash = byProductLines.some((l) => l.product_id > 0 && componentIds.has(l.product_id));
+  const byProductClash = byProductLines.some((l) => l.material_id > 0 && componentIds.has(l.material_id));
   const byProductsValid =
     byProductLines.length <= 20 &&
     !duplicateByProduct &&
     !byProductClash &&
-    byProductLines.every((l) => l.product_id > 0 && l.product_id !== formData.product_id && l.quantity > 0);
+    byProductLines.every((l) => l.material_id > 0 && l.material_id !== formData.material_id && l.quantity > 0);
   const overproductionValid = formData.overproduction_pct >= 0 && formData.overproduction_pct <= 100;
   const isFormValid =
-    formData.product_id > 0 &&
+    formData.material_id > 0 &&
     !!formData.version.trim() &&
     formData.output_quantity > 0 &&
     overproductionValid &&
@@ -592,7 +616,7 @@ export default function BOMsPage() {
   const setDefaultMutation = useCrudMutation({
     mutationFn: bomsApi.setDefault,
     invalidateQueryKeys: invalidate,
-    successMessage: "BOM set as the product's default",
+    successMessage: "BOM set as the item's default",
     errorMessage: "Failed to set default BOM",
     onSuccess: showSaved,
   });
@@ -612,7 +636,7 @@ export default function BOMsPage() {
   });
   const updateCostMutation = useCrudMutation({
     mutationFn: bomsApi.updateProductCost,
-    invalidateQueryKeys: [...invalidate, ["referenceData"], ["products"]],
+    invalidateQueryKeys: [...invalidate, ["referenceData"], ["products"], ["materials"]],
     successMessage: "Product cost price updated from the BOM roll-up",
     errorMessage: "Failed to update product cost",
     onSuccess: showSaved,
@@ -650,7 +674,7 @@ export default function BOMsPage() {
     if (savingRef.current) return;
     const items = itemLines.map((l, idx) => ({
       sequence: (idx + 1) * 10,
-      product_id: l.product_id,
+      material_id: l.material_id,
       quantity: l.quantity,
       scrap_pct: l.scrap_pct,
       issue_method: l.issue_method,
@@ -666,12 +690,12 @@ export default function BOMsPage() {
       // Only an outside work center charges per unit
       outside_unit_cost: workCenterById.get(o.work_center_id)?.is_outside ? o.outside_unit_cost : 0,
     }));
-    const by_products = byProductLines.map((b) => ({ product_id: b.product_id, quantity: b.quantity }));
+    const by_products = byProductLines.map((b) => ({ material_id: b.material_id, quantity: b.quantity }));
     savingRef.current = true;
     const settle = { onSettled: () => { savingRef.current = false; } };
     if (isCreating) {
       const payload: BOMInput = {
-        product_id: formData.product_id,
+        material_id: formData.material_id,
         version: formData.version.trim(),
         output_quantity: formData.output_quantity,
         description: formData.description.trim() || null,
@@ -757,7 +781,7 @@ export default function BOMsPage() {
       title: "Activate BOM",
       message:
         `Activate ${selectedBOM.bom_no}? An active BOM can be used on production orders and can no longer be edited — changes are made as a new version.\n\n` +
-        `If the product is serial-tracked and has no stock yet, it is switched to batch tracking, so production output is received as batches.`,
+        `If the item is serial-tracked and has no stock yet, it is switched to batch tracking, so production output is received as batches.`,
       confirmText: "Activate",
       confirmColor: "primary",
     });
@@ -785,7 +809,7 @@ export default function BOMsPage() {
     const confirmed = await confirmDialog.confirm({
       title: "Update Product Cost",
       message:
-        `Update the cost of "${bomDetail.product_name}" from the BOM roll-up?\n\n` +
+        `Update the cost of "${bomDetail.product_name || mfgItemName(bomDetail)}" (the product sold for ${mfgItemLabel(bomDetail)}) from the BOM roll-up?\n\n` +
         `Current product cost: ${currencySymbol} ${fmtLKR(Number(bomDetail.product_cost_price))}\n` +
         `New unit cost: ${currencySymbol} ${fmtLKR(Number(bomDetail.unit_cost))}\n\n` +
         `This overwrites the product's cost price and the cost on all of the product's active price tiers. ` +
@@ -806,19 +830,18 @@ export default function BOMsPage() {
   const isDetailMode = !!selectedBOM || isCreating;
   const showError = (field: string) => touched[field] || isCreating;
 
-  // Products a component line may use: never the BOM's own product.
+  // Items a component / by-product line may use: never the item the BOM makes.
   const componentOptions = useMemo(
-    () => products.filter((p) => p.id !== formData.product_id),
-    [products, formData.product_id]
+    () => catalogItems.filter((m) => m.id !== formData.material_id),
+    [catalogItems, formData.material_id]
   );
   const activeWorkCenters = useMemo(() => workCenters.filter((w) => w.active), [workCenters]);
 
-  const productLabel = (p?: ProductRef | null) => (p ? `${p.name} (${p.item_code})` : "");
 
   // Section tabs; while editing, a tab with a problem is flagged so it is not missed.
   const flag = (ok: boolean) => (editable && !ok ? " (!)" : "");
   const sectionTabs = [
-    { id: "overview", label: `Overview${flag(formData.product_id > 0 && !!formData.version.trim() && formData.output_quantity > 0 && overproductionValid)}` },
+    { id: "overview", label: `Overview${flag(formData.material_id > 0 && !!formData.version.trim() && formData.output_quantity > 0 && overproductionValid)}` },
     { id: "components", label: `Components (${itemLines.length})${flag(itemsValid)}` },
     { id: "operations", label: `Operations (${operationLines.length})${flag(operationsValid)}` },
     { id: "byproducts", label: `By-products (${byProductLines.length})${flag(byProductsValid)}` },
@@ -855,7 +878,8 @@ export default function BOMsPage() {
         </Button>
       )}
       {canUpdate && selectedBOM.status === "active" && (
-        <Button size="small" variant="outlined" startIcon={<PriceChangeIcon />} onClick={handleUpdateCost} disabled={isActing || !bomDetail}>
+        <Button size="small" variant="outlined" startIcon={<PriceChangeIcon />} onClick={handleUpdateCost} disabled={isActing || !bomDetail || !bomDetail.product_id}
+          title={bomDetail && !bomDetail.product_id ? "No single product is linked to this item" : undefined}>
           Update Product Cost
         </Button>
       )}
@@ -880,7 +904,7 @@ export default function BOMsPage() {
           { label: "Bills of Materials", href: "/manufacturing/boms" },
           ...(isDetailMode ? [{ label: isCreating ? "New BOM" : selectedBOM?.bom_no || "" }] : []),
         ]}
-        title={selectedBOM ? `${selectedBOM.bom_no} · ${selectedBOM.product_name || ""} (v${selectedBOM.version})` : ""}
+        title={selectedBOM ? `${selectedBOM.bom_no} · ${mfgItemName(selectedBOM)} (v${selectedBOM.version})` : ""}
         titleIcon={<AccountTreeIcon color="primary" />}
         isCreating={isCreating}
         createTitle="New Bill of Materials"
@@ -941,28 +965,42 @@ export default function BOMsPage() {
             {section === "overview" && (
             <FormSection title="BOM Information" columns={3}>
               <TextField label="BOM No" size="small" value={isCreating ? "Auto-generated" : selectedBOM?.bom_no || ""} disabled />
-              <Autocomplete
-                size="small"
-                options={products}
-                getOptionLabel={productLabel}
-                value={productById.get(formData.product_id) || null}
-                onChange={(_, p) => {
-                  setFormData({ ...formData, product_id: p?.id || 0 });
-                  handleBlur("product_id");
-                }}
-                disabled={!isCreating}
-                isOptionEqualToValue={(o, v) => o.id === v.id}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Product"
-                    required
-                    placeholder={!isCreating && bomDetail ? `${bomDetail.product_name} (${bomDetail.product_code})` : undefined}
-                    error={showError("product_id") && !formData.product_id}
-                    helperText={showError("product_id") && !formData.product_id ? "Product is required" : "The product this BOM makes"}
-                  />
-                )}
-              />
+              {isCreating ? (
+                <ItemAutocomplete
+                  items={catalogItems}
+                  loading={itemsLoading}
+                  value={formData.material_id}
+                  onChange={(m) => {
+                    setFormData({ ...formData, material_id: m?.id || 0 });
+                    handleBlur("material_id");
+                  }}
+                  label="Item to make"
+                  required
+                  error={showError("material_id") && !formData.material_id}
+                  helperText={
+                    showError("material_id") && !formData.material_id
+                      ? "Item is required"
+                      : `The finished item this BOM makes${itemById.get(formData.material_id)?.unit_of_measure ? ` (UOM: ${itemById.get(formData.material_id)?.unit_of_measure})` : ""}`
+                  }
+                />
+              ) : (
+                <TextField
+                  label="Item to make"
+                  size="small"
+                  disabled
+                  value={selectedBOM ? mfgItemLabel(bomDetail || selectedBOM) : ""}
+                  helperText={
+                    selectedBOM ? (
+                      <>
+                        {(bomDetail || selectedBOM).unit_of_measure ? `UOM: ${(bomDetail || selectedBOM).unit_of_measure} · ` : ""}
+                        {(bomDetail || selectedBOM).material_id
+                          ? <ItemLink row={bomDetail || selectedBOM} label="Open in Item Catalog" />
+                          : "Saved before items: shows the product"}
+                      </>
+                    ) : undefined
+                  }
+                />
+              )}
               <TextField
                 label="Over-production Tolerance"
                 size="small"
@@ -1001,7 +1039,7 @@ export default function BOMsPage() {
                 disabled={!editable}
                 inputProps={{ min: 0.0001, step: 1 }}
                 error={formData.output_quantity <= 0}
-                helperText={`Units made by the quantities below${productById.get(formData.product_id)?.unit_of_measure ? ` (${productById.get(formData.product_id)?.unit_of_measure})` : ""}`}
+                helperText={`Units made by the quantities below${(itemById.get(formData.material_id)?.unit_of_measure || bomDetail?.unit_of_measure) ? ` (${itemById.get(formData.material_id)?.unit_of_measure || bomDetail?.unit_of_measure})` : ""}`}
               />
               <TRemarkField
                 label="Description"
@@ -1033,7 +1071,8 @@ export default function BOMsPage() {
                 <TableHead>
                   <TableRow sx={modernTableStyles.headerRow}>
                     <TableCell sx={{ width: 40 }}>#</TableCell>
-                    <TableCell>Component</TableCell>
+                    <TableCell>Component Item</TableCell>
+                    <TableCell sx={{ width: 70 }}>UOM</TableCell>
                     <TableCell align="right" sx={{ width: 110 }}>Quantity</TableCell>
                     <TableCell align="right" sx={{ width: 95 }}>Scrap %</TableCell>
                     <TableCell sx={{ width: 130 }}>Issue Method</TableCell>
@@ -1046,43 +1085,46 @@ export default function BOMsPage() {
                 <TableBody>
                   {itemLines.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={editable ? 9 : 8} sx={modernTableStyles.emptyCell}>
-                        {editable ? "Add the components this product is made from" : selectedBOM && !bomDetail ? "Loading..." : "No components"}
+                      <TableCell colSpan={editable ? 10 : 9} sx={modernTableStyles.emptyCell}>
+                        {editable ? "Add the component items this item is made from" : selectedBOM && !bomDetail ? "Loading..." : "No components"}
                       </TableCell>
                     </TableRow>
                   ) : (
                     itemLines.map((line, index) => {
-                      const product = productById.get(line.product_id);
+                      const item = itemById.get(line.material_id);
                       return (
                         <TableRow key={line._id} sx={{ ...modernTableStyles.bodyRow, ...(index % 2 === 1 && { bgcolor: "grey.25" }) }}>
                           <TableCell>{(index + 1) * 10}</TableCell>
                           <TableCell>
                             {editable ? (
-                              <Autocomplete
-                                size="small"
-                                options={componentOptions}
-                                getOptionLabel={productLabel}
-                                value={product || null}
-                                onChange={(_, p) => updateItem(line._id, { product_id: p?.id || 0, product_name: p?.name, product_code: p?.item_code, is_manufactured: false })}
-                                isOptionEqualToValue={(o, v) => o.id === v.id}
-                                renderInput={(params) => (
-                                  <TextField {...params} placeholder="Select component" error={!line.product_id} />
-                                )}
-                                sx={{ minWidth: 240 }}
+                              <ItemAutocomplete
+                                items={componentOptions}
+                                value={line.material_id}
+                                onChange={(m) => updateItem(line._id, {
+                                  material_id: m?.id || 0,
+                                  material_name: m?.name,
+                                  material_item_code: m?.item_code,
+                                  unit_of_measure: m?.unit_of_measure,
+                                  is_manufactured: false,
+                                })}
+                                placeholder={!line.material_id && line.product_name ? `Pick the item for ${line.product_name}` : "Select component item"}
+                                error={!line.material_id}
+                                hideUomHint
+                                minWidth={240}
                               />
                             ) : (
                               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                                 <Box>
-                                  <Typography variant="body2">{line.product_name || product?.name || `#${line.product_id}`}</Typography>
+                                  <Typography variant="body2"><ItemLink row={line} label={line.material_name || item?.name || mfgItemName(line)} /></Typography>
                                   <Typography variant="caption" color="text.secondary">
-                                    {line.product_code || product?.item_code}
-                                    {line.unit_of_measure ? ` · ${line.unit_of_measure}` : ""}
+                                    {line.material_item_code || item?.item_code || line.product_code}
                                   </Typography>
                                 </Box>
                                 {line.is_manufactured && <TChip label="Sub-assembly" size="small" color="info" variant="outlined" />}
                               </Box>
                             )}
                           </TableCell>
+                          <TableCell>{item?.unit_of_measure || line.unit_of_measure || "-"}</TableCell>
                           <TableCell align="right">
                             {editable ? (
                               <TextField size="small" type="number" value={line.quantity}
@@ -1270,7 +1312,7 @@ export default function BOMsPage() {
               <Box>
                 <Typography variant="subtitle1" fontWeight="bold">By-products</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Side products made with the main product (e.g. bread crumbs, coconut poonac). They are received into stock and their value is taken off the main product&apos;s cost.
+                  Side items made with the main item (e.g. bread crumbs, coconut poonac). They are received into stock and their value is taken off the main item&apos;s cost.
                 </Typography>
               </Box>
               {editable && (
@@ -1288,7 +1330,8 @@ export default function BOMsPage() {
                 <TableHead>
                   <TableRow sx={modernTableStyles.headerRow}>
                     <TableCell sx={{ width: 40 }}>#</TableCell>
-                    <TableCell>By-product</TableCell>
+                    <TableCell>By-product Item</TableCell>
+                    <TableCell sx={{ width: 70 }}>UOM</TableCell>
                     <TableCell align="right" sx={{ width: 160 }}>{`Qty per ${formData.output_quantity || 1} output`}</TableCell>
                     <TableCell align="right" sx={{ width: 130 }}>{`Unit Cost (${currencySymbol})`}</TableCell>
                     <TableCell align="right" sx={{ width: 130 }}>{`Value (${currencySymbol})`}</TableCell>
@@ -1298,41 +1341,43 @@ export default function BOMsPage() {
                 <TableBody>
                   {byProductLines.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={editable ? 6 : 5} sx={modernTableStyles.emptyCell}>
-                        {editable ? "Optional: add side products this BOM also makes" : "No by-products"}
+                      <TableCell colSpan={editable ? 7 : 6} sx={modernTableStyles.emptyCell}>
+                        {editable ? "Optional: add side items this BOM also makes" : "No by-products"}
                       </TableCell>
                     </TableRow>
                   ) : (
                     byProductLines.map((line, index) => {
-                      const product = productById.get(line.product_id);
-                      const invalidProduct = !line.product_id || componentIds.has(line.product_id);
+                      const item = itemById.get(line.material_id);
+                      const invalidItem = !line.material_id || componentIds.has(line.material_id);
                       return (
                         <TableRow key={line._id} sx={{ ...modernTableStyles.bodyRow, ...(index % 2 === 1 && { bgcolor: "grey.25" }) }}>
                           <TableCell>{index + 1}</TableCell>
                           <TableCell>
                             {editable ? (
-                              <Autocomplete
-                                size="small"
-                                options={componentOptions}
-                                getOptionLabel={productLabel}
-                                value={product || null}
-                                onChange={(_, p) => updateByProduct(line._id, { product_id: p?.id || 0, product_name: p?.name, product_code: p?.item_code, unit_of_measure: p?.unit_of_measure })}
-                                isOptionEqualToValue={(o, v) => o.id === v.id}
-                                renderInput={(params) => (
-                                  <TextField {...params} placeholder="Select by-product" error={invalidProduct} />
-                                )}
-                                sx={{ minWidth: 240 }}
+                              <ItemAutocomplete
+                                items={componentOptions}
+                                value={line.material_id}
+                                onChange={(m) => updateByProduct(line._id, {
+                                  material_id: m?.id || 0,
+                                  material_name: m?.name,
+                                  material_item_code: m?.item_code,
+                                  unit_of_measure: m?.unit_of_measure,
+                                })}
+                                placeholder={!line.material_id && line.product_name ? `Pick the item for ${line.product_name}` : "Select by-product item"}
+                                error={invalidItem}
+                                hideUomHint
+                                minWidth={240}
                               />
                             ) : (
                               <Box>
-                                <Typography variant="body2">{line.product_name || product?.name || `#${line.product_id}`}</Typography>
+                                <Typography variant="body2"><ItemLink row={line} label={line.material_name || item?.name || mfgItemName(line)} /></Typography>
                                 <Typography variant="caption" color="text.secondary">
-                                  {line.product_code || product?.item_code}
-                                  {line.unit_of_measure ? ` · ${line.unit_of_measure}` : ""}
+                                  {line.material_item_code || item?.item_code || line.product_code}
                                 </Typography>
                               </Box>
                             )}
                           </TableCell>
+                          <TableCell>{item?.unit_of_measure || line.unit_of_measure || "-"}</TableCell>
                           <TableCell align="right">
                             {editable ? (
                               <TextField size="small" type="number" value={line.quantity}
@@ -1392,11 +1437,11 @@ export default function BOMsPage() {
                 <Typography variant="body1" fontWeight={700} color="primary.main">{currencySymbol} {fmtLKR(rollup.unit)}</Typography>
               </Box>
               <Box>
-                <Typography variant="caption" color="text.secondary">Product Cost Price (standard)</Typography>
+                <Typography variant="caption" color="text.secondary">Cost Price (standard)</Typography>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" fontWeight={600}>{currencySymbol} {fmtLKR(productCostPrice)}</Typography>
-                  {formData.product_id > 0 && Math.abs(costDifference) >= 0.01 && (
-                    <Tooltip title={costDifference > 0 ? "Roll-up is above the product's cost price" : "Roll-up is below the product's cost price"}>
+                  {(formData.material_id > 0 || !!bomDetail) && Math.abs(costDifference) >= 0.01 && (
+                    <Tooltip title={costDifference > 0 ? "Roll-up is above the cost price" : "Roll-up is below the cost price"}>
                       <span>
                         <TChip
                           size="small"
@@ -1451,7 +1496,7 @@ export default function BOMsPage() {
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <TextField
                 size="small"
-                placeholder="Search BOMs or products..."
+                placeholder="Search BOMs or items..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 InputProps={{

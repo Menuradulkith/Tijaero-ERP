@@ -122,6 +122,8 @@ const cleanCustomerData = (data: CustomerCreate | CustomerUpdate) => {
     email: data.email?.trim() || null,
     home_contact_number: data.home_contact_number?.trim() || null,
     company_name: data.company_name?.trim() || null,
+    tax_registration_number: data.tax_registration_number?.trim() || null,
+    vat_registration_number: data.vat_registration_number?.trim() || undefined,
     occupation: data.occupation?.trim() || null,
     birthdate: data.birthdate?.trim() || null,
     id_card_number: data.id_card_number?.trim() || null,
@@ -145,6 +147,10 @@ const cleanCustomerData = (data: CustomerCreate | CustomerUpdate) => {
     bank_branch: data.bank_branch?.trim() || null,
     bank_branch_code: data.bank_branch_code?.trim() || null,
     bank_swift_code: data.bank_swift_code?.trim() || null,
+    correspondent_bank_name: data.correspondent_bank_name?.trim() || null,
+    correspondent_bank_location: data.correspondent_bank_location?.trim() || null,
+    correspondent_bank_swift_code: data.correspondent_bank_swift_code?.trim() || null,
+    correspondent_bank_iban: data.correspondent_bank_iban?.trim() || null,
     name_in_cheque_card: data.name_in_cheque_card?.trim() || null,
   };
 };

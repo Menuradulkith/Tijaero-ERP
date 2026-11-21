@@ -27,7 +27,7 @@ def _cust(**kw):
     u = _u()
     b = {"customer_type": "individual", "customer_name": f"QA Cust {u}", "title": "Mr", "gender": "m",
          "civil_status": "single", "no_of_kids": "0", "mobile_contact_number": "+94771234567",
-         "email": f"qa.{u}@example.com"}
+         "email": f"qa.{u}@example.com", "customer_category": "customer", "tax_area": "domestic_standard", "accounting_group": "local_trade", "vat_registration_number": "VAT-QA-1",}
     b.update(kw)
     return b
 

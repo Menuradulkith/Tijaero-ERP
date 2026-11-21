@@ -564,7 +564,7 @@ class PurchasingOrderRepository:
         for item in order.items:
             db_item = models.PurchasingOrderItems(
                 **item.model_dump(),
-                tax_rate=self._line_tax_rate(item.product_id, order_data.get('first_suppliers_id')),
+                tax_rate=self._line_tax_rate(item.material_id, None, order_data.get('first_suppliers_id')),
                 purchasingorders_id=db_order.id,
                 created_date=tz.today(),
                 added_date=tz.now()
@@ -581,9 +581,11 @@ class PurchasingOrderRepository:
     # Suppliers on these tax treatments charge no tax, whatever the product's rate.
     _UNTAXED_SUPPLIER_AREAS = ("domestic_zero_rated", "domestic_exempt", "export", "import")
 
-    def _line_tax_rate(self, product_id, supplier_id):
-        """Tax % for a PO line: the product's rate, 0 when the supplier's tax area is untaxed."""
+    def _line_tax_rate(self, material_id, product_id, supplier_id):
+        """Tax % for a PO line: the item's rate (the product's on an old product line),
+        0 when the supplier's tax area is untaxed."""
         from decimal import Decimal
+        from app.modules.materials.models import Material
         from app.modules.products.models import Product
 
         area = (
@@ -592,7 +594,10 @@ class PurchasingOrderRepository:
         )
         if area in self._UNTAXED_SUPPLIER_AREAS:
             return Decimal("0")
-        rate = self.db.query(Product.tax_rate).filter(Product.id == product_id).scalar()
+        if material_id:
+            rate = self.db.query(Material.tax_rate).filter(Material.id == material_id).scalar()
+        else:
+            rate = self.db.query(Product.tax_rate).filter(Product.id == product_id).scalar()
         return Decimal(str(rate or 0))
 
     def get_by_id(self, order_id: int) -> Optional[models.PurchasingOrder]:
@@ -695,7 +700,7 @@ class PurchasingOrderRepository:
         query = base.options(
             joinedload(models.PurchasingOrder.first_supplier),
             joinedload(models.PurchasingOrder.second_supplier),
-            selectinload(models.PurchasingOrder.items),
+            selectinload(models.PurchasingOrder.items).selectinload(models.PurchasingOrderItems.material),
         )
         if sort_by in ("supplier_display_name", "supplier_name"):
             query = query.outerjoin(models.Supplier, models.PurchasingOrder.first_suppliers_id == models.Supplier.id)
@@ -727,9 +732,10 @@ class PurchasingOrderRepository:
 
                 for item in items_data:
                     item = {k: v for k, v in item.items() if k != "tax_rate"}
+                    item.setdefault("warrenty_month", "0")
                     db_item = models.PurchasingOrderItems(
                         **item,
-                        tax_rate=self._line_tax_rate(item.get("product_id"), db_order.first_suppliers_id),
+                        tax_rate=self._line_tax_rate(item.get("material_id"), item.get("product_id"), db_order.first_suppliers_id),
                         purchasingorders_id=db_order.id,
                         created_date=tz.today(),
                         added_date=tz.now()
