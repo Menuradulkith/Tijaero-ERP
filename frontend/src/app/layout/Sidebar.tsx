@@ -9,6 +9,7 @@ import { useFormGuardStore } from "@/state/formGuardStore";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import BalanceIcon from "@mui/icons-material/Balance";
@@ -253,6 +254,12 @@ const menuItems: MenuItem[] = [
         indent: true,
       },
       { text: "Brands", icon: <SellIcon />, path: "/product-catalogs/brands", permission: PERMISSIONS.BRANDS_VIEW, indent: true },
+      {
+        text: "BOM",
+        icon: <AccountTreeOutlinedIcon />,
+        path: "/product-catalogs/boms",
+        permission: PERMISSIONS.PRODUCTS_VIEW,
+      },
     ],
   },
   {

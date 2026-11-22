@@ -391,7 +391,7 @@ export default function ProductsPage({
 
   const {
     data: productsPage,
-    isFetching: productsLoading,
+    isLoading: productsLoading,
   } = useQuery({
     queryKey: [
       "products", "paged", productPaging.page, productPaging.pageSize, productSearch.trim(), productActiveFilter,
@@ -416,7 +416,7 @@ export default function ProductsPage({
 
   const {
     data: categoriesPage,
-    isFetching: categoriesLoading,
+    isLoading: categoriesLoading,
   } = useQuery({
     queryKey: [
       "categories", "paged", categoryPaging.page, categoryPaging.pageSize, categorySearch.trim(), categoryActiveFilter,
@@ -439,7 +439,7 @@ export default function ProductsPage({
 
   const {
     data: brandsPage,
-    isFetching: brandsLoading,
+    isLoading: brandsLoading,
   } = useQuery({
     queryKey: [
       "brands", "paged", brandPaging.page, brandPaging.pageSize, brandSearch.trim(), brandActiveFilter,
@@ -1070,23 +1070,28 @@ export default function ProductsPage({
   };
 
   // Open the ?focus=<id> deep-link target (e.g. from an item's Linked Products
-  // in the Item Catalog). Nothing is auto-selected otherwise.
+  // in the Item Catalog), on the ?section=<tab id> tab when given. Nothing is auto-selected otherwise.
   const [searchParams, setSearchParams] = useSearchParams();
   const focusHandled = useRef(false);
+  // The deep link's tab; used once by the "back to General on a new selection" reset below.
+  const focusSection = useRef<string | null>(null);
   useEffect(() => {
     if (activeTab !== 0) return;
     const focusId = Number(searchParams.get("focus"));
     if (focusId && !focusHandled.current) {
       focusHandled.current = true;
+      const section = PRODUCT_DETAIL_TABS.find((t) => t.id === searchParams.get("section"))?.id ?? "general";
       productsApi
         .getById(focusId)
         .then((target) => {
-          setActiveProductSection("general");
+          focusSection.current = String(section);
+          setActiveProductSection(section as typeof activeProductSection);
           selectProductInternal(target);
         })
         .catch(() => showErrorToast("Could not open that product"));
       const next = new URLSearchParams(searchParams);
       next.delete("focus");
+      next.delete("section");
       setSearchParams(next, { replace: true });
     }
     // selectProductInternal is recreated each render; the ref guard runs this once per link.
@@ -1396,7 +1401,8 @@ export default function ProductsPage({
   // just toggling Edit/Cancel on the same record, so the user isn't yanked
   // away from what they're reviewing.
   useEffect(() => {
-    setActiveProductSection("general");
+    setActiveProductSection((focusSection.current ?? "general") as typeof activeProductSection);
+    focusSection.current = null;
   }, [productState.selectedItem?.id, productState.isCreating]);
 
   const handleNewBrand = () => {

@@ -410,7 +410,7 @@ export default function ItemCatalogPage({
 
   const {
     data: productsPage,
-    isFetching: productsLoading,
+    isLoading: productsLoading,
   } = useQuery({
     queryKey: [
       "materials", "paged", productPaging.page, productPaging.pageSize, productSearch.trim(), productActiveFilter,
@@ -436,7 +436,7 @@ export default function ItemCatalogPage({
 
   const {
     data: categoriesPage,
-    isFetching: categoriesLoading,
+    isLoading: categoriesLoading,
   } = useQuery({
     queryKey: [
       "material-categories", "paged", categoryPaging.page, categoryPaging.pageSize, categorySearch.trim(), categoryActiveFilter,
@@ -459,7 +459,7 @@ export default function ItemCatalogPage({
 
   const {
     data: brandsPage,
-    isFetching: brandsLoading,
+    isLoading: brandsLoading,
   } = useQuery({
     queryKey: [
       "brands", "paged", brandPaging.page, brandPaging.pageSize, brandSearch.trim(), brandActiveFilter,
@@ -644,23 +644,6 @@ export default function ItemCatalogPage({
         align: "right",
         headerAlign: "right",
         renderCell: (params: GridRenderCellParams<ProductRow>) => `${currencySymbol} ${fmtLKR(params.row.cost_price || 0)}`,
-      },
-      {
-        field: "selling_price",
-        header: "Sell Price",
-        width: 130,
-        align: "right",
-        headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<ProductRow>) => `${currencySymbol} ${fmtLKR(params.row.selling_price || 0)}`,
-      },
-      {
-        field: "minimum_selling_price",
-        header: "Min. Sell Price",
-        width: 130,
-        align: "right",
-        headerAlign: "right",
-        renderCell: (params: GridRenderCellParams<ProductRow>) =>
-          params.row.minimum_selling_price != null ? `${currencySymbol} ${fmtLKR(params.row.minimum_selling_price)}` : "-",
       },
       {
         field: "active",

@@ -29,6 +29,18 @@ def _num(v) -> Optional[float]:
     return None if v is None else float(v)
 
 
+def _work_center(wc) -> Optional[dict]:
+    if wc is None:
+        return None
+    return {
+        "id": wc.id, "code": wc.code, "name": wc.name, "active": bool(wc.active), "is_outside": bool(wc.is_outside),
+        "capacity": int(wc.capacity or 1), "efficiency_pct": float(wc.efficiency_pct or 100),
+        "working_hours_per_day": float(wc.working_hours_per_day or 8),
+        "labor_rate_per_hour": float(wc.labor_rate_per_hour or 0),
+        "overhead_rate_per_hour": float(wc.overhead_rate_per_hour or 0),
+    }
+
+
 class BomStructureService:
     def _structure(self, db: Session, product_id: int) -> Optional[ProductBomStructure]:
         return (
@@ -54,6 +66,23 @@ class BomStructureService:
             return None
         rows = db.query(ProductDesignDetailLine.material_id).filter(ProductDesignDetailLine.detail_id == detail.id)
         return {r[0] for r in rows}
+
+    def _check_work_centers(self, db: Session, data: BomStructureSave, structure) -> Dict[int, object]:
+        """The steps' work centers: they must exist; an inactive one may only stay where it already was."""
+        from app.modules.manufacturing.models import MfgWorkCenter
+
+        ids = {s.work_center_id for s in data.steps if s.work_center_id}
+        if not ids:
+            return {}
+        found = {w.id: w for w in db.query(MfgWorkCenter).filter(MfgWorkCenter.id.in_(ids)).all()}
+        missing = sorted(i for i in ids if i not in found)
+        if missing:
+            raise _bad_request(f"Work center(s) not found: {', '.join(map(str, missing))}")
+        kept = {s.work_center_id for s in structure.steps} if structure else set()
+        inactive = sorted(found[i].code for i in ids if not found[i].active and i not in kept)
+        if inactive:
+            raise _bad_request(f"Inactive work center(s) cannot be used: {', '.join(inactive)}")
+        return found
 
     # ── multi-level ────────────────────────────────────────────────────────
     def _structure_for_item(self, db: Session, material_id: int, exclude_product_id: int):
@@ -115,6 +144,9 @@ class BomStructureService:
             out.append({
                 "id": step.id, "sort_order": step.sort_order, "name": step.name, "work_area": step.work_area,
                 "minutes_per_unit": _num(step.minutes_per_unit), "instructions": step.instructions,
+                "work_center_id": step.work_center_id, "work_center": _work_center(step.work_center),
+                "setup_minutes": _num(step.setup_minutes), "move_minutes": _num(step.move_minutes),
+                "workers": step.workers, "outside_unit_cost": _num(step.outside_unit_cost),
                 "materials": materials,
             })
         return out
@@ -137,9 +169,96 @@ class BomStructureService:
         }
 
     # ── reads ──────────────────────────────────────────────────────────────
+    def work_centers(self, db: Session) -> List[dict]:
+        """Active Manufacturing work centers a routing step can use."""
+        from app.modules.manufacturing.models import MfgWorkCenter
+
+        rows = db.query(MfgWorkCenter).filter(MfgWorkCenter.active.is_(True)).order_by(MfgWorkCenter.code).all()
+        return [_work_center(w) for w in rows]
+
     def get(self, db: Session, product_id: int) -> Optional[dict]:
         product = design_brief_service._lock_product(db, product_id, lock=False)
         return self._result(db, product)
+
+    def page(self, db: Session, *, page: int, size: int, q: Optional[str] = None, status: Optional[str] = None,
+             sort_by: Optional[str] = None, order: str = "desc") -> dict:
+        """Server-side paged list of every product's BOM Structure (newest change first by default)."""
+        from sqlalchemy import func, or_
+
+        from app.auth.models import User
+        from app.modules.products.models import Category, Product
+        from app.modules.products.repository import _like_pattern, _order
+
+        steps = (
+            db.query(
+                ProductBomStep.structure_id.label("sid"),
+                func.count(ProductBomStep.id).label("steps"),
+                func.sum(ProductBomStep.minutes_per_unit).label("minutes"),
+            )
+            .group_by(ProductBomStep.structure_id)
+            .subquery()
+        )
+        mats = (
+            db.query(ProductBomStep.structure_id.label("sid"), func.count(ProductBomMaterial.id).label("mats"))
+            .join(ProductBomMaterial, ProductBomMaterial.step_id == ProductBomStep.id)
+            .group_by(ProductBomStep.structure_id)
+            .subquery()
+        )
+        step_count = func.coalesce(steps.c.steps, 0)
+        mat_count = func.coalesce(mats.c.mats, 0)
+
+        base = db.query(ProductBomStructure).join(Product, Product.id == ProductBomStructure.product_id)
+        pat = _like_pattern(q)
+        if pat:
+            base = base.filter(or_(Product.item_code.ilike(pat, escape="\\"), Product.name.ilike(pat, escape="\\")))
+
+        counts = dict(base.with_entities(ProductBomStructure.status, func.count(ProductBomStructure.id))
+                      .group_by(ProductBomStructure.status).all())
+        if status:
+            base = base.filter(ProductBomStructure.status == status)
+        total = base.with_entities(func.count(ProductBomStructure.id)).scalar() or 0
+
+        sorts = {
+            "product_code": (Product.item_code, True), "product_name": (Product.name, True),
+            "category_name": (Category.name, True), "status": (ProductBomStructure.status, False),
+            "step_count": (step_count, False), "material_count": (mat_count, False),
+            "total_minutes": (steps.c.minutes, False), "created_at": (ProductBomStructure.created_at, False),
+            "updated_at": (ProductBomStructure.updated_at, False),
+            "confirmed_at": (ProductBomStructure.confirmed_at, False),
+        }
+        col, is_text = sorts.get(sort_by or "", sorts["updated_at"])
+        direction = order if sort_by in sorts else "desc"
+        rows = (
+            base.outerjoin(Category, Category.id == Product.category_id)
+            .outerjoin(steps, steps.c.sid == ProductBomStructure.id)
+            .outerjoin(mats, mats.c.sid == ProductBomStructure.id)
+            .with_entities(ProductBomStructure, Product, Category.name, step_count, mat_count, steps.c.minutes)
+            .order_by(_order(col, direction, is_text).nulls_last(), ProductBomStructure.id.desc())
+            .offset(page * size)
+            .limit(size)
+            .all()
+        )
+
+        user_ids = {u for s, *_ in rows for u in (s.created_by, s.updated_by, s.confirmed_by) if u}
+        names = {
+            u.id: (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username)
+            for u in (db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else [])
+        }
+        items = [
+            {
+                "id": s.id, "product_id": p.id, "product_code": p.item_code, "product_name": p.name,
+                "product_active": bool(p.active), "category_name": cat, "status": s.status,
+                "step_count": int(n_steps), "material_count": int(n_mats), "total_minutes": _num(minutes),
+                "created_by_name": names.get(s.created_by), "created_at": s.created_at,
+                "updated_by_name": names.get(s.updated_by), "updated_at": s.updated_at,
+                "confirmed_by_name": names.get(s.confirmed_by), "confirmed_at": s.confirmed_at,
+            }
+            for s, p, cat, n_steps, n_mats, minutes in rows
+        ]
+        return {
+            "items": items, "total": total, "page": page, "size": size, "pages": -(-total // size),
+            "counts": {"all": sum(counts.values()), **counts},
+        }
 
     # ── writes ─────────────────────────────────────────────────────────────
     def save(self, db: Session, product_id: int, data: BomStructureSave, user_id: int) -> dict:
@@ -181,6 +300,7 @@ class BomStructureService:
                 "This would create a loop: one of the materials is made from this product "
                 "(through another product's BOM structure)."
             )
+        work_centers = self._check_work_centers(db, data, structure)
 
         now = tz.now()
         if structure is None:
@@ -195,9 +315,15 @@ class BomStructureService:
         structure.updated_at = now
         audit = dict(created_by=user_id, updated_by=user_id, created_at=now, updated_at=now)
         for step_order, step in enumerate(data.steps):
+            wc = work_centers.get(step.work_center_id) if step.work_center_id else None
             row = ProductBomStep(
                 sort_order=step_order, name=step.name, work_area=step.work_area or None,
-                minutes_per_unit=step.minutes_per_unit, instructions=step.instructions or None, **audit,
+                minutes_per_unit=step.minutes_per_unit, instructions=step.instructions or None,
+                work_center_id=wc.id if wc else None, setup_minutes=step.setup_minutes,
+                move_minutes=step.move_minutes, workers=step.workers,
+                # A cost per unit only means something for an outside work center.
+                outside_unit_cost=step.outside_unit_cost if wc is not None and wc.is_outside else None,
+                **audit,
             )
             for order, line in enumerate(step.materials):
                 item = items[line.material_id]

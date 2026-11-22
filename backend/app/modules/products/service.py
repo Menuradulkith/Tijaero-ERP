@@ -250,7 +250,7 @@ class ProductService:
         existing_name = repository.product_repository.get_by_name(db, product.name)
         if existing_name:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_409_CONFLICT,
                 detail=f"Product with name '{product.name}' already exists"
             )
 
@@ -316,7 +316,7 @@ class ProductService:
             existing_name = repository.product_repository.get_by_name(db, product.name)
             if existing_name and existing_name.id != product_id:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_409_CONFLICT,
                     detail=f"Product with name '{product.name}' already exists"
                 )
 

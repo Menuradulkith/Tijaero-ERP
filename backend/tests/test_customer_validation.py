@@ -42,10 +42,23 @@ class TestCreateValidation:
         ("commission_rate", 101), ("country_id", 2 ** 40), ("country_id", 0),
         ("billing_city", "C" * 121), ("billing_postal_code", "1" * 21), ("payment_address", "A" * 1001),
         ("bank_name", "B" * 256), ("bank_account_no", "9" * 51), ("customer_type", "alien"),
+        ("title", "King"), ("title", "<b>Mr</b>"), ("bank_swift_code", "!!"), ("bank_swift_code", "ABC123"),
     ])
     def test_rejected(self, superclient, field, value):
         r = superclient.post(f"{C}/", json=_body(**{field: value}))
         assert r.status_code == 422, (field, value, r.text[:200])
+
+    @pytest.mark.parametrize("value,stored", [("Mr", "mr"), ("MRS", "mrs"), ("miss", "miss"), ("Dr.", "dr")])
+    def test_title_is_normalised(self, superclient, value, stored):
+        r = superclient.post(f"{C}/", json=_body(title=value))
+        assert r.status_code == 201, r.text
+        assert r.json()["title"] == stored
+
+    @pytest.mark.parametrize("value,stored", [("boclklx1", "BOCLKLX1"), (" HBLI LKLX XXX ", "HBLILKLXXXX"), ("", None)])
+    def test_swift_is_normalised(self, superclient, value, stored):
+        r = superclient.post(f"{C}/", json=_body(bank_swift_code=value))
+        assert r.status_code == 201, r.text
+        assert r.json()["bank_swift_code"] == stored
 
     def test_unknown_country_and_currency_are_400(self, superclient):
         assert superclient.post(f"{C}/", json=_body(country_id=99999999)).status_code == 400
@@ -84,26 +97,26 @@ class TestCreditBalancesAreServerControlled:
 class TestUniqueness:
     def test_email_is_unique_ignoring_case_and_spaces(self, superclient, customer):
         for variant in (customer["email"].upper(), f" {customer['email']} "):
-            assert superclient.post(f"{C}/", json=_body(email=variant)).status_code == 400
+            assert superclient.post(f"{C}/", json=_body(email=variant)).status_code == 409
 
     def test_other_identifiers_unique(self, superclient):
         n = _u()
         assert superclient.post(f"{C}/", json=_body(id_card_number=f"NIC{n}")).status_code == 201
-        assert superclient.post(f"{C}/", json=_body(id_card_number=f"nic{n}")).status_code == 400
+        assert superclient.post(f"{C}/", json=_body(id_card_number=f"nic{n}")).status_code == 409
         assert superclient.post(f"{C}/", json=_body(passport_no=f"PP{n}")).status_code == 201
-        assert superclient.post(f"{C}/", json=_body(passport_no=f"pp{n}")).status_code == 400
+        assert superclient.post(f"{C}/", json=_body(passport_no=f"pp{n}")).status_code == 409
         assert superclient.post(f"{C}/", json=_business(company_registration_number=f"REG{n}")).status_code == 201
-        assert superclient.post(f"{C}/", json=_business(company_registration_number=f" reg{n} ")).status_code == 400
+        assert superclient.post(f"{C}/", json=_business(company_registration_number=f" reg{n} ")).status_code == 409
         assert superclient.post(f"{C}/", json=_business(tax_registration_number=f"TAX{n}")).status_code == 201
-        assert superclient.post(f"{C}/", json=_business(tax_registration_number=f"tax{n}")).status_code == 400
+        assert superclient.post(f"{C}/", json=_business(tax_registration_number=f"tax{n}")).status_code == 409
 
     def test_names_and_phones_may_repeat(self, superclient, customer):
         assert superclient.post(f"{C}/", json=_body(customer_name=customer["customer_name"])).status_code == 201
         assert superclient.post(f"{C}/", json=_body(mobile_contact_number=customer["mobile_contact_number"])).status_code == 201
 
-    def test_update_to_a_taken_email_is_400_and_own_email_is_fine(self, superclient, customer):
+    def test_update_to_a_taken_email_is_409_and_own_email_is_fine(self, superclient, customer):
         other = superclient.post(f"{C}/", json=_body()).json()
-        assert superclient.put(f"{C}/{other['id']}", json={"email": customer["email"].upper()}).status_code == 400
+        assert superclient.put(f"{C}/{other['id']}", json={"email": customer["email"].upper()}).status_code == 409
         assert superclient.put(f"{C}/{customer['id']}", json={"email": customer["email"]}).status_code == 200
 
     def test_database_index_backs_the_rule(self, db):

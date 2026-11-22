@@ -31,6 +31,10 @@ def _not_found(material_id: int) -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Material with id {material_id} not found")
 
 
+def _conflict(detail: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+
 def _bad(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
@@ -109,7 +113,7 @@ def materials_page(db: Session, page: int, size: int, **filters) -> dict:
 
 def create_material(db: Session, data: schemas.MaterialCreate, user_id: int) -> Material:
     if repo.get_by_name(db, data.name):
-        raise _bad(f"Material with name '{data.name}' already exists")
+        raise _conflict(f"Material with name '{data.name}' already exists")
     _check_prices(data.cost_price, data.selling_price, data.website_price)
     _validate_minimum_price(data.minimum_selling_price, data.cost_price, data.selling_price)
     _require_active_refs(db, data.category_id, data.items_brand_id)
@@ -136,7 +140,7 @@ def update_material(db: Session, material_id: int, data: schemas.MaterialUpdate,
     if data.name:
         existing = repo.get_by_name(db, data.name)
         if existing and existing.id != material_id:
-            raise _bad(f"Material with name '{data.name}' already exists")
+            raise _conflict(f"Material with name '{data.name}' already exists")
 
     new_cost = data.cost_price if data.cost_price is not None else current.cost_price
     new_selling = data.selling_price if data.selling_price is not None else current.selling_price

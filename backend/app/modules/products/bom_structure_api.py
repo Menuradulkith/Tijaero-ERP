@@ -1,12 +1,14 @@
-from typing import Annotated, Optional
+from typing import Annotated, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
 from app.db.session import get_db
-from app.modules.products.bom_structure_schemas import BomStructureOut, BomStructureSave
+from app.modules.products.bom_structure_schemas import (
+    BomStructureOut, BomStructurePage, BomStructureSave, BomWorkCenter,
+)
 from app.modules.products.bom_structure_service import bom_structure_service
 from app.modules.products.design_brief_schemas import DesignBriefConfirm, DesignBriefReject
 
@@ -17,6 +19,33 @@ router = APIRouter()
 
 can_view = require_permission(*Permissions.PRODUCT_VIEW)
 can_update = require_permission(*Permissions.PRODUCT_UPDATE)
+
+
+@router.get(
+    "/bom-structures/paged",
+    response_model=BomStructurePage,
+    summary="Paged list of every product's BOM Structure (search, status filter, sort)",
+)
+def list_bom_structures(
+    page: int = Query(0, ge=0, le=1_000_000),
+    size: int = Query(25, ge=1, le=200),
+    q: Optional[str] = Query(None, max_length=255),
+    status: Optional[Literal["draft", "confirmed", "rejected"]] = Query(None),
+    sort_by: Optional[str] = Query(None, max_length=40),
+    order: Literal["asc", "desc"] = Query("desc"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(can_view),
+):
+    return bom_structure_service.page(db, page=page, size=size, q=q, status=status, sort_by=sort_by, order=order)
+
+
+@router.get(
+    "/bom-structures/work-centers",
+    response_model=List[BomWorkCenter],
+    summary="Active Manufacturing work centers for BOM routing steps",
+)
+def list_bom_work_centers(db: Session = Depends(get_db), current_user: User = Depends(can_view)):
+    return bom_structure_service.work_centers(db)
 
 
 @router.get(

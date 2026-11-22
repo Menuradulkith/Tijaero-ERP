@@ -414,7 +414,7 @@ class TestSupplierDuplicatesAndDefaults:
         r = superclient.post(f"{PUR}/suppliers", json={
             "company_name": f"  {s['company_name'].upper()} ", "mobile_contact_number": "0771234567", "tax_area": "domestic_standard", "default_currency": "LKR", "incoterm": "FOB", "shipment_method": "sea",
         })
-        assert r.status_code == 400
+        assert r.status_code == 409
 
     def test_duplicate_blocked_by_database_when_precheck_is_bypassed(self, superclient, monkeypatch):
         from app.modules.purchasing.service import SupplierService
@@ -424,7 +424,7 @@ class TestSupplierDuplicatesAndDefaults:
         r = superclient.post(f"{PUR}/suppliers", json={
             "company_name": s["company_name"].lower(), "mobile_contact_number": "0771234567", "tax_area": "domestic_standard", "default_currency": "LKR", "incoterm": "FOB", "shipment_method": "sea",
         })
-        assert r.status_code == 400, r.text
+        assert r.status_code == 409, r.text
         assert "Company name" in r.json()["detail"]
 
     def test_blank_optional_unique_fields_do_not_clash(self, superclient):
@@ -446,10 +446,10 @@ class TestSupplierDuplicatesAndDefaults:
         methods = superclient.get(f"{PUR}/suppliers/{s['id']}/payment-methods").json()
         assert [m["id"] for m in methods if m["is_default"]] == [a.json()["id"]]
 
-    def test_duplicate_contact_id_card_rejected_with_400(self, superclient):
+    def test_duplicate_contact_id_card_rejected_with_409(self, superclient):
         s1, s2 = _supplier(superclient), _supplier(superclient)
         card = _uid("NIC")
         r1 = superclient.post(f"{PUR}/suppliers/{s1['id']}/contact-persons", json={"full_name": "A", "title": "Mr", "phone": "+94771234567", "id_card_number": card})
         assert r1.status_code == 201, r1.text
         r2 = superclient.post(f"{PUR}/suppliers/{s2['id']}/contact-persons", json={"full_name": "B", "title": "Mr", "phone": "+94771234568", "id_card_number": f" {card.lower()} "})
-        assert r2.status_code == 400
+        assert r2.status_code == 409
