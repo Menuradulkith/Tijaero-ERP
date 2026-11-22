@@ -4,7 +4,6 @@
 
 import { formatDateTimeReadable, formatCurrency } from "@/utils/formatters";
 import PersonIcon from "@mui/icons-material/Person";
-import HistoryIcon from "@mui/icons-material/History";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -25,6 +24,7 @@ import {
   Typography,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
+import HistoryIcon from "@mui/icons-material/History";
 import type { GridRenderCellParams } from "@mui/x-data-grid";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { GridPaginationModel } from "@mui/x-data-grid";

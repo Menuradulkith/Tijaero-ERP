@@ -3,8 +3,10 @@ from typing import Annotated, List, Literal, Optional
 from app.auth.dependencies import get_current_active_user, get_user_branch_filter
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
+from app.common import related_history
 from app.db.session import get_db
 from app.modules.customers import schemas, service
+from app.modules.customers.models import CustomerContactPerson
 from app.modules.customers.enums import CustomerType
 from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.orm import Session
@@ -263,7 +265,10 @@ def create_customer_contact_person(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
 ):
-    return service.contact_person_service.create_contact(db, customer_id, payload, current_user.id)
+    return related_history.logged(
+        db, current_user, "contact_added", "customer", customer_id, CustomerContactPerson,
+        lambda: service.contact_person_service.create_contact(db, customer_id, payload, current_user.id),
+        lambda r: f"Contact person: {r.full_name}", skip=("customer_id",))
 
 
 @router.patch(
@@ -279,7 +284,10 @@ def update_customer_contact_person(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.CUSTOMER_UPDATE)),
 ):
-    return service.contact_person_service.update_contact(db, customer_id, contact_id, payload, current_user.id)
+    return related_history.logged(
+        db, current_user, "contact_updated", "customer", customer_id, CustomerContactPerson,
+        lambda: service.contact_person_service.update_contact(db, customer_id, contact_id, payload, current_user.id),
+        lambda r: f"Contact person: {r.full_name}", row_id=contact_id, skip=("customer_id",))
 
 
 from datetime import date

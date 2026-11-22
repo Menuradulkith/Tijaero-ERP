@@ -10,6 +10,7 @@ from app.auth.dependencies import (
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_any_permission, require_permission, user_has_permission
 from app.common.audit import AuditLog
+from app.common import related_history
 from app.db.session import get_db
 from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, UploadFile, status
@@ -21,6 +22,8 @@ from . import schemas, service
 from .lookup_access import SUPPLIER_LOOKUP_PERMISSIONS, trim_suppliers
 from .models import GoodReceivedItems, GoodReceivedRejection, PurchasingReturnItems
 from .models import PurchasingOrder, PurchasingOrderItems, GoodReceivedNote, Supplier, SupplierAdvancePayment, SupplierCreditsSettle, SupplierPayment
+from .models import SupplierContactPerson, SupplierPaymentMethod, SupplierProduct
+from app.modules.materials.models import MaterialSupplier
 
 # Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
 RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
@@ -50,6 +53,15 @@ def _ensure_row_branch(db: Session, user: User, model, row_id: int) -> None:
 
 
 router = APIRouter(prefix="/purchasing", tags=["purchasing"])
+
+
+def _logged(db: Session, user: User, action: str, supplier_id: int, model, run, summary, row_id=None, other=None):
+    """Run a supplier side-change (contact, payment method, product / item link) and log it in the supplier's history."""
+    return related_history.logged(db, user, action, "supplier", supplier_id, model, run, summary,
+                                  row_id=row_id, other=other, skip=("supplier_id",))
+
+
+_label = related_history.label
 
 
 def _user_display_name(user: User) -> str:
@@ -533,7 +545,9 @@ def create_supplier_payment_method(
         require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
     ),
 ):
-    return service.SupplierPaymentMethodService(db).create_payment_method(supplier_id, payload)
+    return _logged(db, current_user, "payment_method_added", supplier_id, SupplierPaymentMethod,
+                   lambda: service.SupplierPaymentMethodService(db).create_payment_method(supplier_id, payload),
+                   lambda r: f"Payment method: {r.method_type}")
 
 
 @router.patch(
@@ -549,7 +563,9 @@ def update_supplier_payment_method(
         require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
     ),
 ):
-    return service.SupplierPaymentMethodService(db).update_payment_method(supplier_id, method_id, payload)
+    return _logged(db, current_user, "payment_method_updated", supplier_id, SupplierPaymentMethod,
+                   lambda: service.SupplierPaymentMethodService(db).update_payment_method(supplier_id, method_id, payload),
+                   lambda r: f"Payment method: {r.method_type}", row_id=method_id)
 
 
 @router.get(
@@ -578,7 +594,9 @@ def create_supplier_contact_person(
         require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
     ),
 ):
-    return service.SupplierContactPersonService(db).create_contact(supplier_id, payload)
+    return _logged(db, current_user, "contact_added", supplier_id, SupplierContactPerson,
+                   lambda: service.SupplierContactPersonService(db).create_contact(supplier_id, payload),
+                   lambda r: f"Contact person: {r.full_name}")
 
 
 @router.patch(
@@ -594,7 +612,9 @@ def update_supplier_contact_person(
         require_any_permission(Permissions.SUPPLIER_CREATE, Permissions.SUPPLIER_UPDATE)
     ),
 ):
-    return service.SupplierContactPersonService(db).update_contact(supplier_id, contact_id, payload)
+    return _logged(db, current_user, "contact_updated", supplier_id, SupplierContactPerson,
+                   lambda: service.SupplierContactPersonService(db).update_contact(supplier_id, contact_id, payload),
+                   lambda r: f"Contact person: {r.full_name}", row_id=contact_id)
 
 
 @router.get(
@@ -627,7 +647,10 @@ def create_supplier_product(
         )
     ),
 ):
-    return service.SupplierProductService(db).create_mapping(supplier_id, payload)
+    return _logged(db, current_user, "product_link_added", supplier_id, SupplierProduct,
+                   lambda: service.SupplierProductService(db).create_mapping(supplier_id, payload),
+                   lambda r: f"Product: {_label(db, 'products', r.product_id)}",
+                   other=lambda r: ("product", r.product_id, f"Supplier: {_label(db, 'supplier', supplier_id)}"))
 
 
 @router.patch(
@@ -648,7 +671,10 @@ def update_supplier_product(
         )
     ),
 ):
-    return service.SupplierProductService(db).update_mapping(supplier_id, mapping_id, payload)
+    return _logged(db, current_user, "product_link_updated", supplier_id, SupplierProduct,
+                   lambda: service.SupplierProductService(db).update_mapping(supplier_id, mapping_id, payload),
+                   lambda r: f"Product: {_label(db, 'products', r.product_id)}", row_id=mapping_id,
+                   other=lambda r: ("product", r.product_id, f"Supplier: {_label(db, 'supplier', supplier_id)}"))
 
 
 # ==================== Supplier price list on Item Catalog items ====================
@@ -687,7 +713,10 @@ def create_supplier_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_any_permission(*_SUPPLIER_ITEM_WRITE)),
 ):
-    return service.SupplierItemService(db).create_item(supplier_id, payload)
+    return _logged(db, current_user, "item_link_added", supplier_id, MaterialSupplier,
+                   lambda: service.SupplierItemService(db).create_item(supplier_id, payload),
+                   lambda r: f"Item: {_label(db, 'materials', r.material_id)}",
+                   other=lambda r: ("material", r.material_id, f"Supplier: {_label(db, 'supplier', supplier_id)}"))
 
 
 @router.put(
@@ -701,7 +730,10 @@ def update_supplier_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_any_permission(*_SUPPLIER_ITEM_WRITE)),
 ):
-    return service.SupplierItemService(db).update_item(supplier_id, link_id, payload)
+    return _logged(db, current_user, "item_link_updated", supplier_id, MaterialSupplier,
+                   lambda: service.SupplierItemService(db).update_item(supplier_id, link_id, payload),
+                   lambda r: f"Item: {_label(db, 'materials', r.material_id)}", row_id=link_id,
+                   other=lambda r: ("material", r.material_id, f"Supplier: {_label(db, 'supplier', supplier_id)}"))
 
 
 @router.get(

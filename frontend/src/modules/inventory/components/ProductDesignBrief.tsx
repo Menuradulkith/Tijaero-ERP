@@ -378,7 +378,12 @@ export function useProductDesignBrief(productId: number | null, canEdit: boolean
         </Paper>
       )}
 
-      {brief && !editing && <AuditCaption doc={brief} />}
+      {brief && !editing && (
+        <AuditCaption
+          doc={brief}
+          history={productId ? { entityType: "product_design_brief", entityId: productId } : undefined}
+        />
+      )}
 
       <RejectReasonDialog
         open={rejectOpen}

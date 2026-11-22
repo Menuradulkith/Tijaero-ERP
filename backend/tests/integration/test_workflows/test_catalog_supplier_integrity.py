@@ -165,7 +165,7 @@ class TestProductImage:
 
         log = superclient.get("/api/v1/common/activity-log", params={"entity_type": "product", "entity_id": p["id"]})
         if log.status_code == 200:  # endpoint shape varies; only assert when available
-            assert "image_url" in log.text
+            assert '"image"' in log.text and "image_url" not in log.text  # shown as "Image", never a raw path
 
     def test_image_url_in_update_payload_is_ignored(self, superclient):
         p = _product(superclient)

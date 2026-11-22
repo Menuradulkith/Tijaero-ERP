@@ -546,7 +546,12 @@ export function useProductDesignDetail(productId: number | null, canEdit: boolea
 
       {instructions}
 
-      {detail && !editing && <AuditCaption doc={detail} />}
+      {detail && !editing && (
+        <AuditCaption
+          doc={detail}
+          history={productId ? { entityType: "product_design_detail", entityId: productId } : undefined}
+        />
+      )}
 
       <RejectReasonDialog
         open={rejectOpen}
