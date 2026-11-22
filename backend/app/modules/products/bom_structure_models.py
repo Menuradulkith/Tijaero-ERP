@@ -34,9 +34,15 @@ class ProductBomStructure(Base, AuditMixin):
 
 
 class ProductBomStep(Base, AuditMixin):
+    """One step = one routing operation (Op 10, 20, 30... by position)."""
     __tablename__ = "product_bom_steps"
     __table_args__ = (
         CheckConstraint("minutes_per_unit IS NULL OR minutes_per_unit >= 0", name="ck_product_bom_steps_minutes"),
+        CheckConstraint("setup_minutes IS NULL OR setup_minutes >= 0", name="ck_product_bom_steps_setup"),
+        CheckConstraint("move_minutes IS NULL OR move_minutes >= 0", name="ck_product_bom_steps_move"),
+        CheckConstraint("workers IS NULL OR workers >= 1", name="ck_product_bom_steps_workers"),
+        CheckConstraint("outside_unit_cost IS NULL OR outside_unit_cost >= 0",
+                        name="ck_product_bom_steps_outside_cost"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -45,11 +51,22 @@ class ProductBomStep(Base, AuditMixin):
     )
     sort_order = Column(Integer, nullable=False, server_default="0")
     name = Column(String(150), nullable=False)
+    # Free-text area kept from before routing; the work center is the routing's resource.
     work_area = Column(String(150))
+    # Run time per unit of the product
     minutes_per_unit = Column(Numeric(10, 2))
     instructions = Column(Text)
+    # Routing (s150): Manufacturing work center, setup per batch, crew size, move/wait after the step
+    work_center_id = Column(Integer, ForeignKey("mfg_work_centers.id", ondelete="SET NULL"), nullable=True,
+                            index=True)
+    setup_minutes = Column(Numeric(10, 2))
+    move_minutes = Column(Numeric(10, 2))
+    workers = Column(Integer)
+    # Outside work centers only: what the subcontractor charges per unit
+    outside_unit_cost = Column(Numeric(14, 2))
 
     structure = relationship("ProductBomStructure", back_populates="steps")
+    work_center = relationship("MfgWorkCenter", lazy="joined")
     materials = relationship(
         "ProductBomMaterial", back_populates="step", cascade="all, delete-orphan",
         order_by="ProductBomMaterial.sort_order",

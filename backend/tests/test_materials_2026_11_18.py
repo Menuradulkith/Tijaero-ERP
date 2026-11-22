@@ -82,9 +82,9 @@ class TestCrud:
 
     def test_duplicate_name_is_refused(self, superclient, cat, brand, material):
         dup = superclient.post(f"{M}/items/", json=_body(cat, brand, name=f"  {material['name'].upper()} "))
-        assert dup.status_code == 400
+        assert dup.status_code == 409
         other = superclient.post(f"{M}/items/", json=_body(cat, brand)).json()
-        assert superclient.put(f"{M}/items/{other['id']}", json={"name": material["name"]}).status_code == 400
+        assert superclient.put(f"{M}/items/{other['id']}", json={"name": material["name"]}).status_code == 409
 
     def test_item_codes_are_unique_and_not_client_set(self, superclient, cat, brand, material):
         r = superclient.post(f"{M}/items/", json=_body(cat, brand, item_code=material["item_code"]))

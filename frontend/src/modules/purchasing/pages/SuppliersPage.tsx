@@ -982,7 +982,7 @@ export default function SuppliersPage() {
     setPaging((m) => (m.page === 0 ? m : { ...m, page: 0 }));
   }, [debouncedSearch, filterStatus, filterCountryId, sort]);
 
-  const { data: suppliersPage, isFetching: isLoading, refetch } = useQuery({
+  const { data: suppliersPage, isFetching: isLoading, isLoading: isFirstLoad, refetch } = useQuery({
     queryKey: [
       "suppliers", "paged", paging.page, paging.pageSize, debouncedSearch.trim(), filterStatus, filterCountryId,
       sort?.field, sort?.sort,
@@ -1264,7 +1264,7 @@ export default function SuppliersPage() {
 
 
   // One save at a time: a double-click used to send two POSTs (one 201, then a
-  // 400 "already exists" toast after the first had finished).
+  // 409 "already used" toast after the first had finished).
   const saveInFlightRef = useRef(false);
   const handleSave = useCallback(async () => {
     if (saveInFlightRef.current) return;
@@ -1503,7 +1503,8 @@ export default function SuppliersPage() {
           }
           onServerSortChange={setSort}
           columns={supplierColumns}
-          loading={isLoading}
+          // Placeholders only on the first load; a search keeps the current rows until the new page arrives.
+          loading={isFirstLoad}
           onRowClick={(row) => handleSelectSupplierWithCheck(row)}
           pageSizeOptions={[10, 25, 50, 100]}
           pageSize={25}

@@ -76,7 +76,7 @@ class CustomerService:
                 q = q.filter(Customer.id != exclude_id)
             if q.first():
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_409_CONFLICT,
                     detail=f"{label} '{value}' is already used by another customer.",
                 )
 
@@ -110,7 +110,7 @@ class CustomerService:
         raw = str(getattr(exc, "orig", exc))
         for _f, (label, idx) in self.UNIQUE_FIELDS.items():
             if idx in raw:
-                return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{label} is already used by another customer.")
+                return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"{label} is already used by another customer.")
         return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=integrity_error_detail(exc))
 
     def create_customer(self, db: Session, customer: schemas.CustomerCreate, user_id: int) -> Customer:

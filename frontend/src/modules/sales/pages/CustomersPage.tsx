@@ -170,7 +170,8 @@ const INITIAL_FORM_DATA: CustomerCreate = {
 const resetFormFromCustomer = (customer: Customer): CustomerCreate => ({
   customer_type: customer.customer_type,
   customer_name: customer.customer_name,
-  title: customer.title,
+  // The Title select only knows TITLE_CHOICES; anything else loads blank so the user picks one.
+  title: TITLE_CHOICES.find((t) => t.value === (customer.title || "").trim().replace(/\.$/, "").toLowerCase())?.value ?? "",
   email: customer.email || "",
   mobile_contact_number: normalizePhone(customer.mobile_contact_number),
   home_contact_number: normalizePhone(customer.home_contact_number),
@@ -324,7 +325,7 @@ export default function CustomersPage() {
     order: sort?.sort,
   });
 
-  const { data: customersPage, isFetching: isLoading } = useQuery({
+  const { data: customersPage, isFetching: isLoading, isLoading: isFirstLoad } = useQuery({
     queryKey: [
       "customers", "paged", paging.page, paging.pageSize, debouncedSearch.trim(), filterStatus, filterAgent, filterCategory,
       sort?.field, sort?.sort,
@@ -473,6 +474,7 @@ export default function CustomersPage() {
     formData.bank_account_name?.trim() &&
     formData.bank_name?.trim() &&
     formData.bank_account_no?.trim() &&
+    (!formData.bank_swift_code?.trim() || SWIFT_RE.test(formData.bank_swift_code.trim())) &&
     (!formData.correspondent_bank_swift_code?.trim() || SWIFT_RE.test(formData.correspondent_bank_swift_code.trim())) &&
     (!formData.correspondent_bank_iban?.trim() || IBAN_RE.test(formData.correspondent_bank_iban.replace(/\s/g, "")))
   );
@@ -673,7 +675,8 @@ export default function CustomersPage() {
         <TDataGrid<Customer>
           rows={filteredCustomers}
           columns={customerColumns}
-          loading={isLoading}
+          // Placeholders only on the first load; a search keeps the current rows until the new page arrives.
+          loading={isFirstLoad}
           serverPagination={{ rowCount: customersPage?.total ?? 0, paginationModel: paging, onPaginationModelChange: setPaging }}
           onServerSortChange={setSort}
           exportAllRows={() => fetchAllPages((page) => customersApi.getPage(pageParams(page, 200)))}
@@ -1318,9 +1321,15 @@ export default function CustomersPage() {
                 label="Swift Code"
                 size="small"
                 value={formData.bank_swift_code ?? ""}
-                onChange={(e) => setFormData({ ...formData, bank_swift_code: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, bank_swift_code: e.target.value.toUpperCase() })}
                 disabled={!isPaymentEditable}
                 inputProps={{ maxLength: 20 }}
+                error={!!formData.bank_swift_code && !SWIFT_RE.test(formData.bank_swift_code.trim())}
+                helperText={
+                  formData.bank_swift_code && !SWIFT_RE.test(formData.bank_swift_code.trim())
+                    ? "8 or 11 letters/digits"
+                    : undefined
+                }
               />
 
               <Box sx={{ gridColumn: "1 / -1", borderTop: 1, borderColor: "divider", pt: 1.5, mt: 0.5 }}>

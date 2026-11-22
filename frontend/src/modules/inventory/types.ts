@@ -295,13 +295,38 @@ export interface BomMaterial {
   sub_structure?: BomSubStructure | null;
 }
 
+/** A Manufacturing work center as a routing step uses it (current rates). */
+export interface BomWorkCenter {
+  id: number;
+  code: string;
+  name: string;
+  active: boolean;
+  is_outside: boolean;
+  capacity: number;
+  efficiency_pct: number;
+  working_hours_per_day: number;
+  labor_rate_per_hour: number;
+  overhead_rate_per_hour: number;
+}
+
+/** One step = one routing operation (Op 10, 20, 30... by position). */
 export interface BomStep {
   id: number;
   sort_order: number;
   name: string;
   work_area?: string | null;
+  /** Run time per unit (minutes). */
   minutes_per_unit?: number | null;
   instructions?: string | null;
+  work_center_id?: number | null;
+  work_center?: BomWorkCenter | null;
+  /** Per batch. */
+  setup_minutes?: number | null;
+  /** Waiting / moving to the next step. */
+  move_minutes?: number | null;
+  workers?: number | null;
+  /** Outside work centers only. */
+  outside_unit_cost?: number | null;
   materials: BomMaterial[];
 }
 
@@ -331,8 +356,43 @@ export interface BomStructureSave {
     work_area?: string | null;
     minutes_per_unit?: number | null;
     instructions?: string | null;
+    work_center_id?: number | null;
+    setup_minutes?: number | null;
+    move_minutes?: number | null;
+    workers?: number | null;
+    outside_unit_cost?: number | null;
     materials: { material_id: number; quantity: number; scrap_pct: number; notes?: string | null }[];
   }[];
+}
+
+/** One row of the BOM Structures list page. */
+export interface BomStructureListRow {
+  id: number;
+  product_id: number;
+  product_code: string;
+  product_name: string;
+  product_active: boolean;
+  category_name?: string | null;
+  status: DesignBriefStatus;
+  step_count: number;
+  material_count: number;
+  total_minutes?: number | null;
+  created_by_name?: string | null;
+  created_at?: string | null;
+  updated_by_name?: string | null;
+  updated_at?: string | null;
+  confirmed_by_name?: string | null;
+  confirmed_at?: string | null;
+}
+
+export interface BomStructurePage {
+  items: BomStructureListRow[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+  /** Per status for the current search (ignores the status filter). */
+  counts: { all: number; draft: number; confirmed: number; rejected: number };
 }
 
 export interface MinimumPrice {

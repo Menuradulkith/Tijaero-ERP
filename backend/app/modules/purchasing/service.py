@@ -47,7 +47,7 @@ class SupplierService:
             existing = self.repo.find_by_field_value(field, str(value), exclude_id=exclude_id)
             if existing:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_409_CONFLICT,
                     detail=f"{label} '{value}' is already used by another supplier."
                 )
 
@@ -94,7 +94,7 @@ class SupplierService:
                 None,
             )
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_409_CONFLICT,
                 detail=f"{label} is already used by another supplier." if label
                 else "This supplier duplicates an existing one.",
             )
@@ -485,7 +485,7 @@ class SupplierContactPersonService:
             existing = self.repo.find_by_field_value(field, str(value), exclude_id=exclude_id)
             if existing:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_409_CONFLICT,
                     detail=f"{label} '{value}' is already used by another contact person."
                 )
 

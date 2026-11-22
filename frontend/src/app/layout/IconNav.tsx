@@ -49,6 +49,7 @@ const PAGE_PERMISSIONS: Record<string, { resource: string; action: string }> = {
   "/manufacturing/mrp": { resource: "mrp", action: "view" },
   "/manufacturing/reorder-rules": { resource: "mrp", action: "view" },
   "/product-catalogs": { resource: "products", action: "view" },
+  "/product-catalogs/boms": { resource: "products", action: "view" },
   "/product-catalogs/categories": { resource: "categories", action: "view" },
   "/product-catalogs/brands": { resource: "brands", action: "view" },
   "/warehouse": { resource: "sales_stock", action: "view" },
@@ -167,6 +168,12 @@ const allPages = [
     text: "Products",
     path: "/product-catalogs",
     keywords: ["items", "stock"],
+    module: "/product-catalogs",
+  },
+  {
+    text: "BOM",
+    path: "/product-catalogs/boms",
+    keywords: ["bom", "bill of materials", "steps", "process", "packing"],
     module: "/product-catalogs",
   },
   {

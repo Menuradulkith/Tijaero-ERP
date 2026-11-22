@@ -50,6 +50,17 @@ def OptStr(n: int, pattern: Optional[str] = None):
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 GENDERS = {"m", "f", "u", "other", "male", "female"}
 CIVIL_STATUSES = {"single", "married", "separated", "divorced", "widowed", "other"}
+# Same choices as the customer form's Title select (TITLE_CHOICES).
+TITLES = ("mr", "mrs", "miss", "dr")
+
+
+def _swift(v, label):
+    if v is None or not str(v).strip():
+        return None
+    v = str(v).strip().replace(" ", "").upper()
+    if not re.fullmatch(r"[A-Z0-9]{8}([A-Z0-9]{3})?", v):
+        raise ValueError(f"{label} SWIFT/BIC code must be 8 or 11 letters/digits")
+    return v
 
 
 def _check_email(v):
@@ -210,14 +221,24 @@ class _CustomerInput(BaseModel):
 
     _v_cur = field_validator("default_currency", mode="before")(_currency)
 
+    @field_validator("bank_swift_code", mode="before")
+    @classmethod
+    def _v_swift(cls, v):
+        return _swift(v, "Bank")
+
     @field_validator("correspondent_bank_swift_code", mode="before")
     @classmethod
     def _v_corr_swift(cls, v):
+        return _swift(v, "Correspondent")
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _v_title(cls, v):
         if v is None or not str(v).strip():
             return None
-        v = str(v).strip().replace(" ", "").upper()
-        if not re.fullmatch(r"[A-Z0-9]{8}([A-Z0-9]{3})?", v):
-            raise ValueError("Correspondent SWIFT/BIC code must be 8 or 11 letters/digits")
+        v = str(v).strip().rstrip(".").lower()
+        if v not in TITLES:
+            raise ValueError("Title must be one of: Mr, Mrs, Miss, Dr")
         return v
 
     @field_validator("correspondent_bank_iban", mode="before")

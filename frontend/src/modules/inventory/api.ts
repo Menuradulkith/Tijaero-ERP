@@ -29,6 +29,9 @@ import {
   DesignDetailSave,
   BomStructure,
   BomStructureSave,
+  BomStructurePage,
+  BomWorkCenter,
+  DesignBriefStatus,
 } from "./types";
 
 export interface Paged<T> {
@@ -562,6 +565,22 @@ export const designDetailApi = {
 
 // ── Product BOM Structure API ───────────────────────────────────────────────
 export const bomStructureApi = {
+  /** Every product's BOM Structure, one page at a time (newest change first by default). */
+  getPage: async (
+    query: Omit<PageQuery, "active"> & { status?: DesignBriefStatus | null },
+  ): Promise<BomStructurePage> => {
+    const response = await apiClient.get<BomStructurePage>("/inventory/bom-structures/paged", {
+      params: cleanParams(query),
+    });
+    return response.data;
+  },
+
+  /** Active Manufacturing work centers a routing step can use. */
+  workCenters: async (): Promise<BomWorkCenter[]> => {
+    const response = await apiClient.get<BomWorkCenter[]>("/inventory/bom-structures/work-centers");
+    return response.data;
+  },
+
   /** null until the structure is first saved. */
   get: async (productId: number): Promise<BomStructure | null> => {
     const response = await apiClient.get<BomStructure | null>(`/inventory/products/${productId}/bom-structure`);

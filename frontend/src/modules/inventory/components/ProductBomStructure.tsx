@@ -5,6 +5,8 @@
  * separate from Manufacturing BOMs.
  *
  * - Steps are cards in order (move up / down); each step lists its materials.
+ * - Each step is also a routing operation (Op 10, 20...): Manufacturing work center, setup time per
+ *   batch, run time per unit, workers, move/wait time and, for an outside center, its cost per unit.
  * - Materials can only be items of the confirmed Design Detail (tags, stickers, bags...): add them one
  *   by one or all at once, with their Quantity (M) as the starting quantity. The API enforces this too.
  * - Multi-level: a material that is another product with its own BOM Structure shows it nested.
@@ -19,6 +21,7 @@ import {
   CircularProgress,
   IconButton,
   InputAdornment,
+  MenuItem,
   Paper,
   TextField,
   Tooltip,
@@ -41,7 +44,7 @@ import {
   useConfirmDialog,
 } from "@/components/tijaero";
 import { bomStructureApi, designBriefApi, designDetailApi } from "../api";
-import type { BomStructure, BomSubStructure, DesignBriefItemOption, DesignBriefStatus } from "../types";
+import type { BomStructure, BomSubStructure, BomWorkCenter, DesignBriefItemOption, DesignBriefStatus } from "../types";
 import { ProcessFlow, StepCard, SubAssembly } from "./BomParts";
 import { AuditCaption, CategoryItemFields, DocStatusAlerts, EmptyLines, RejectReasonDialog } from "./DesignDocParts";
 import { buildCategories, itemOptionsFor, type ItemLine, MAX_TEXT, UNCATEGORISED } from "./designDocUtils";
@@ -57,9 +60,18 @@ interface DraftMaterial extends ItemLine {
 interface DraftStep {
   key: string;
   name: string;
+  /** Free text from before routing; kept and shown under the work center. */
   work_area: string;
+  /** Run time per unit. */
   minutes: string;
   instructions: string;
+  work_center_id: number | null;
+  /** The saved center (it may since have gone inactive, so it is not in the option list). */
+  work_center: BomWorkCenter | null;
+  setup: string;
+  move: string;
+  workers: string;
+  outside_cost: string;
   materials: DraftMaterial[];
 }
 
@@ -84,10 +96,20 @@ const minutesError = (v: string) => {
   return null;
 };
 const stepNameError = (v: string) => (!v.trim() ? "Step name is required" : null);
+const workersError = (v: string) => {
+  if (!v.trim()) return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= 1000 ? null : "1 to 1000";
+};
 const materialHasError = (m: DraftMaterial) =>
   m.category_id == null || m.material_id == null || !!qtyError(m.quantity) || !!scrapError(m.scrap_pct);
 const stepHasError = (s: DraftStep) =>
-  !!stepNameError(s.name) || !!minutesError(s.minutes) || s.materials.some(materialHasError);
+  !!stepNameError(s.name) ||
+  [s.minutes, s.setup, s.move, s.outside_cost].some((v) => !!minutesError(v)) ||
+  !!workersError(s.workers) ||
+  s.materials.some(materialHasError);
+const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
+const strOf = (v?: number | null) => (v == null ? "" : String(v));
 
 // Item snapshots can lack a category; give them one fixed id so the Category dropdown can still show them.
 const NO_CATEGORY = 0;
@@ -103,8 +125,14 @@ const toDraft = (s: BomStructure | null | undefined): DraftStep[] =>
     key: `saved-${st.id}`,
     name: st.name,
     work_area: st.work_area ?? "",
-    minutes: st.minutes_per_unit == null ? "" : String(st.minutes_per_unit),
+    minutes: strOf(st.minutes_per_unit),
     instructions: st.instructions ?? "",
+    work_center_id: st.work_center_id ?? null,
+    work_center: st.work_center ?? null,
+    setup: strOf(st.setup_minutes),
+    move: strOf(st.move_minutes),
+    workers: strOf(st.workers),
+    outside_cost: strOf(st.outside_unit_cost),
     materials: st.materials.map((m) => ({
       key: `saved-m-${m.id}`,
       category_id: m.category_id ?? NO_CATEGORY,
@@ -127,6 +155,11 @@ const comparable = (steps: DraftStep[]) =>
       s.work_area.trim(),
       s.minutes,
       s.instructions.trim(),
+      s.work_center_id,
+      s.setup,
+      s.move,
+      s.workers,
+      s.outside_cost,
       s.materials.map((m) => [m.material_id, m.quantity, m.scrap_pct, m.notes.trim()]),
     ]),
   );
@@ -181,6 +214,20 @@ export function useProductBomStructure(productId: number | null, canEdit: boolea
     staleTime: 60_000,
   });
 
+  const { data: workCenters = [] } = useQuery({
+    queryKey: ["bom-work-centers"],
+    queryFn: bomStructureApi.workCenters,
+    enabled: editing,
+    staleTime: 60_000,
+  });
+  // Active centers, plus the step's own center if it has gone inactive since.
+  const centerOptions = (s: DraftStep) =>
+    s.work_center && !workCenters.some((w) => w.id === s.work_center?.id)
+      ? [...workCenters, s.work_center]
+      : workCenters;
+  const centerLabel = (w: BomWorkCenter) =>
+    `${w.code} — ${w.name}${w.is_outside ? " (outside)" : ""}${w.active ? "" : " (inactive)"}`;
+
   const { data: detail, isLoading: detailLoading } = useQuery({
     queryKey: ["product-design-detail", productId],
     queryFn: () => designDetailApi.get(productId as number),
@@ -213,6 +260,7 @@ export function useProductBomStructure(productId: number | null, canEdit: boolea
 
   const afterWrite = (data: BomStructure, message: string) => {
     queryClient.setQueryData(qKey, data);
+    queryClient.invalidateQueries({ queryKey: ["product-bom-structures"] });
     showSuccessToast(message);
   };
   const onWriteError = (e: unknown, fallback: string) => {
@@ -231,8 +279,13 @@ export function useProductBomStructure(productId: number | null, canEdit: boolea
         steps: steps.map((s) => ({
           name: s.name.trim(),
           work_area: s.work_area.trim() || null,
-          minutes_per_unit: s.minutes.trim() ? Number(s.minutes) : null,
+          minutes_per_unit: numOrNull(s.minutes),
           instructions: s.instructions.trim() || null,
+          work_center_id: s.work_center_id,
+          setup_minutes: numOrNull(s.setup),
+          move_minutes: numOrNull(s.move),
+          workers: numOrNull(s.workers),
+          outside_unit_cost: numOrNull(s.outside_cost),
           materials: s.materials.map((m) => ({
             material_id: m.material_id as number,
             quantity: Number(m.quantity),
@@ -274,6 +327,12 @@ export function useProductBomStructure(productId: number | null, canEdit: boolea
     work_area: "",
     minutes: "",
     instructions: "",
+    work_center_id: null,
+    work_center: null,
+    setup: "",
+    move: "",
+    workers: "",
+    outside_cost: "",
     materials: [],
   });
   const blankMaterial = (categoryId: number | null, categoryName: string): DraftMaterial => ({
@@ -583,7 +642,33 @@ export function useProductBomStructure(productId: number | null, canEdit: boolea
   const renderStep = (s: DraftStep, si: number) => {
     const readOnly = !editing;
     const nErr = !readOnly && showErrors ? stepNameError(s.name) : null;
-    const mErr = readOnly ? null : minutesError(s.minutes);
+    const err = (v: string) => (readOnly ? null : minutesError(v));
+    const wErr = readOnly ? null : workersError(s.workers);
+    const center = centerOptions(s).find((w) => w.id === s.work_center_id) ?? s.work_center;
+    const outside = !!center?.is_outside;
+    const num = (
+      label: string,
+      value: string,
+      key: "minutes" | "setup" | "move" | "workers" | "outside_cost",
+      aria: string,
+      unit: string | null,
+      error: string | null,
+      helper = " ",
+    ) => (
+      <TextField
+        label={label}
+        disabled={readOnly}
+        size="small"
+        type="number"
+        value={value}
+        onChange={(e) => updateStep(s.key, { [key]: e.target.value } as Partial<DraftStep>)}
+        placeholder={readOnly ? "-" : ""}
+        inputProps={{ min: key === "workers" ? 1 : 0, step: key === "workers" ? 1 : "any", "aria-label": aria }}
+        InputProps={unit ? { endAdornment: <InputAdornment position="end">{unit}</InputAdornment> } : undefined}
+        error={!!error}
+        helperText={error || helper}
+      />
+    );
     return (
       <StepCard
         key={s.key}
@@ -595,7 +680,7 @@ export function useProductBomStructure(productId: number | null, canEdit: boolea
         onMoveDown={() => moveStep(si, 1)}
         onRemove={() => removeStep(s, si)}
       >
-        <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "2fr 1.5fr 160px" } }}>
+        <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
           <TextField
             label="Step Name"
             required={!readOnly}
@@ -608,29 +693,78 @@ export function useProductBomStructure(productId: number | null, canEdit: boolea
             error={!!nErr}
             helperText={nErr || " "}
           />
-          <TextField
-            label="Work Area / Department"
-            disabled={readOnly}
-            size="small"
-            value={s.work_area}
-            onChange={(e) => updateStep(s.key, { work_area: e.target.value })}
-            placeholder={readOnly ? "-" : "e.g. Cutting room, Line 2"}
-            inputProps={{ maxLength: 150, "aria-label": `Work area of step ${si + 1}` }}
-            helperText=" "
-          />
-          <TextField
-            label="Time per unit"
-            disabled={readOnly}
-            size="small"
-            type="number"
-            value={s.minutes}
-            onChange={(e) => updateStep(s.key, { minutes: e.target.value })}
-            placeholder={readOnly ? "-" : ""}
-            inputProps={{ min: 0, step: "any", "aria-label": `Minutes per unit of step ${si + 1}` }}
-            InputProps={{ endAdornment: <InputAdornment position="end">min</InputAdornment> }}
-            error={!!mErr}
-            helperText={mErr || " "}
-          />
+          {readOnly ? (
+            <TextField
+              label="Work Center"
+              disabled
+              size="small"
+              value={center ? centerLabel(center) : ""}
+              placeholder="-"
+              inputProps={{ "aria-label": `Work center of step ${si + 1}` }}
+              helperText={s.work_area ? `Work area: ${s.work_area}` : " "}
+            />
+          ) : (
+            <TextField
+              select
+              label="Work Center"
+              size="small"
+              value={s.work_center_id ?? ""}
+              onChange={(e) => {
+                const id = e.target.value === "" ? null : Number(e.target.value);
+                updateStep(s.key, {
+                  work_center_id: id,
+                  work_center: centerOptions(s).find((w) => w.id === id) ?? null,
+                });
+              }}
+              inputProps={{ "aria-label": `Work center of step ${si + 1}` }}
+              helperText={
+                s.work_area
+                  ? `Work area: ${s.work_area}`
+                  : workCenters.length
+                    ? "From Manufacturing › Work Centers"
+                    : "No work centers yet (Manufacturing › Work Centers)"
+              }
+            >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
+              {centerOptions(s).map((w) => (
+                <MenuItem key={w.id} value={w.id}>
+                  {centerLabel(w)}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
+        </Box>
+        <Box
+          sx={{
+            display: "grid",
+            gap: 2,
+            gridTemplateColumns: { xs: "1fr 1fr", md: outside ? "repeat(5, 1fr)" : "repeat(4, 1fr)" },
+          }}
+        >
+          {num("Setup time", s.setup, "setup", `Setup minutes of step ${si + 1}`, "min", err(s.setup), "Per batch")}
+          {num("Run time / unit", s.minutes, "minutes", `Minutes per unit of step ${si + 1}`, "min", err(s.minutes))}
+          {num("Workers", s.workers, "workers", `Workers of step ${si + 1}`, null, wErr)}
+          {num(
+            "Move / wait time",
+            s.move,
+            "move",
+            `Move minutes of step ${si + 1}`,
+            "min",
+            err(s.move),
+            "Before the next step",
+          )}
+          {outside &&
+            num(
+              "Outside cost / unit",
+              s.outside_cost,
+              "outside_cost",
+              `Outside cost of step ${si + 1}`,
+              null,
+              err(s.outside_cost),
+              "Charged by the supplier",
+            )}
         </Box>
         <TextField
           label="Instructions"
@@ -720,12 +854,6 @@ export function useProductBomStructure(productId: number | null, canEdit: boolea
   ) : (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
       <DocStatusAlerts doc={structure} noun="BOM structure" canEdit={canEdit} editing={editing} />
-      {editing && !detailLoading && !detailConfirmed && (
-        <Alert severity="info">
-          Materials come from the confirmed Design Detail. Confirm the Design Detail first to add materials. You can
-          already add the steps.
-        </Alert>
-      )}
 
       {rows.length === 0 && !editing ? (
         <Paper variant="outlined">

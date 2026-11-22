@@ -150,6 +150,111 @@ def test_materials_only_from_confirmed_design_detail(db, superclient, make_produ
     assert _save(superclient, q, [_step("A", _mat(tag))]).status_code == 200
 
 
+def test_list_page_search_filter_counts_and_sort(db, superclient, make_product, make_item):
+    a, b, c = make_product(), make_product(), make_product()
+    fabric, tag = make_item("FABRIC"), make_item("TAG")
+    for p in (a, b, c):
+        _detail(db, p, fabric, tag)
+    _save(superclient, a, [_step("Cutting", _mat(fabric), minutes_per_unit=2), _step("Packing", _mat(tag))])
+    sb = _save(superclient, b, [_step("Sewing", _mat(fabric), _mat(tag), minutes_per_unit=1.5)]).json()
+    superclient.post(f"{_url(b)}/confirm", json={"expected_version": sb["version"]})
+    _save(superclient, c, [])
+    ids = {a.id, b.id, c.id}
+    L = f"{B}/bom-structures/paged"
+
+    def rows(**params):
+        r = superclient.get(L, params={"size": 200, **params})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    page = rows()
+    mine = {r["product_id"]: r for r in page["items"] if r["product_id"] in ids}
+    assert set(mine) == ids
+    ra = mine[a.id]
+    assert (ra["product_code"], ra["product_name"], ra["status"]) == (a.item_code, a.name, "draft")
+    assert (ra["step_count"], ra["material_count"], ra["total_minutes"]) == (2, 2, 2.0)
+    assert (mine[c.id]["step_count"], mine[c.id]["material_count"], mine[c.id]["total_minutes"]) == (0, 0, None)
+    assert mine[b.id]["status"] == "confirmed" and mine[b.id]["confirmed_by_name"]
+    assert ra["created_by_name"] and ra["updated_at"]
+    assert page["counts"]["all"] == page["total"] >= 3
+
+    # search by code; counts follow the search, the status filter narrows only the rows
+    found = rows(q=b.item_code)
+    assert [r["product_id"] for r in found["items"]] == [b.id] and found["counts"]["confirmed"] == 1
+    assert rows(q=b.item_code, status="draft")["total"] == 0
+    assert rows(q=b.item_code, status="draft")["counts"]["confirmed"] == 1
+    assert all(r["status"] == "confirmed" for r in rows(status="confirmed")["items"])
+    assert rows(q="%_nothing_%")["total"] == 0  # wildcards are literal
+
+    # newest change first by default; explicit sort and paging
+    assert rows()["items"][0]["product_id"] == c.id
+    by_steps = [r["step_count"] for r in rows(sort_by="step_count", order="asc")["items"]]
+    assert by_steps == sorted(by_steps)
+    one = superclient.get(L, params={"size": 1, "page": 1}).json()
+    assert len(one["items"]) == 1 and one["pages"] == one["total"]
+    assert superclient.get(L, params={"status": "bogus"}).status_code == 422
+    assert superclient.get(L, params={"size": 500}).status_code == 422
+
+
+def _wc(db, code, **kw):
+    from app.modules.manufacturing.models import MfgWorkCenter
+
+    wc = MfgWorkCenter(code=code, name=f"QA {code}", capacity=kw.pop("capacity", 1), **kw)
+    db.add(wc)
+    db.flush()
+    return wc
+
+
+def test_routing_fields_work_centers_and_rules(db, superclient, make_product):
+    import uuid
+
+    tag = uuid.uuid4().hex[:6].upper()
+    cut = _wc(db, f"QC{tag}", labor_rate_per_hour=600, overhead_rate_per_hour=300, efficiency_pct=80,
+              working_hours_per_day=8, capacity=2)
+    wash = _wc(db, f"QW{tag}", is_outside=True)
+    old = _wc(db, f"QO{tag}", active=False)
+    p = make_product()
+
+    # the option list holds active centers only, with their rates
+    opts = {w["id"]: w for w in superclient.get(f"{B}/bom-structures/work-centers").json()}
+    assert cut.id in opts and wash.id in opts and old.id not in opts
+    assert (opts[cut.id]["labor_rate_per_hour"], opts[cut.id]["efficiency_pct"], opts[cut.id]["capacity"]) == (
+        600.0, 80.0, 2)
+
+    r = _save(superclient, p, [
+        _step("Cutting", work_center_id=cut.id, setup_minutes=15, minutes_per_unit=2.5, workers=2, move_minutes=30,
+              outside_unit_cost=99),
+        _step("Washing", work_center_id=wash.id, outside_unit_cost=12.5),
+        _step("Packing"),
+    ])
+    assert r.status_code == 200, r.text
+    c, w, k = r.json()["steps"]
+    assert (c["work_center_id"], c["setup_minutes"], c["minutes_per_unit"], c["workers"], c["move_minutes"]) == (
+        cut.id, 15.0, 2.5, 2, 30.0)
+    assert c["outside_unit_cost"] is None  # only kept for an outside work center
+    assert c["work_center"]["code"] == cut.code and c["work_center"]["overhead_rate_per_hour"] == 300.0
+    assert w["work_center"]["is_outside"] and w["outside_unit_cost"] == 12.5
+    assert k["work_center"] is None and k["workers"] is None
+
+    v = r.json()["version"]
+    bad = _save(superclient, p, [_step("X", work_center_id=99999999)], version=v)
+    assert bad.status_code == 400 and "not found" in bad.json()["detail"]
+    bad = _save(superclient, p, [_step("X", work_center_id=old.id)], version=v)
+    assert bad.status_code == 400 and old.code in bad.json()["detail"]
+    # a center that went inactive after it was chosen can stay
+    cut.active = False
+    db.flush()
+    assert _save(superclient, p, [_step("Cutting", work_center_id=cut.id)], version=v).status_code == 200
+
+
+@pytest.mark.parametrize("bad", [
+    {"setup_minutes": -1}, {"move_minutes": -0.5}, {"workers": 0}, {"workers": 1001}, {"outside_unit_cost": -1},
+    {"setup_minutes": 1.234}, {"work_center_id": 0},
+])
+def test_routing_validation(superclient, make_product, bad):
+    assert _save(superclient, make_product(), [{"name": "Step", **bad}]).status_code == 422
+
+
 def test_permissions(api, make_user, make_product):
     p = make_product()
     _, view_token = make_user(permissions=[("products", "view")])
@@ -157,5 +262,9 @@ def test_permissions(api, make_user, make_product):
     assert c.get(_url(p)).status_code == 200
     assert _save(c, p, [_step("A")]).status_code == 403
     assert c.post(f"{_url(p)}/confirm", json={}).status_code == 403
+    assert c.get(f"{B}/bom-structures/paged").status_code == 200
+    assert c.get(f"{B}/bom-structures/work-centers").status_code == 200
     _, none_token = make_user(permissions=[])
     assert api(none_token).get(_url(p)).status_code == 403
+    assert api(none_token).get(f"{B}/bom-structures/paged").status_code == 403
+    assert api(none_token).get(f"{B}/bom-structures/work-centers").status_code == 403
