@@ -19,6 +19,7 @@ from app.modules.products.design_brief_schemas import DesignBriefConfirm, Design
 from app.modules.products.design_brief_service import _bad_request, _conflict, design_brief_service
 from app.modules.products.design_detail_models import ProductDesignDetail, ProductDesignDetailLine
 from app.modules.products.design_detail_schemas import DesignDetailSave
+from app.modules.products import doc_history
 
 
 class DesignDetailService:
@@ -78,6 +79,11 @@ class DesignDetailService:
             raise _bad_request(f"Inactive item(s) cannot be added: {', '.join(inactive)}")
 
         now = tz.now()
+        created = detail is None
+        lines_before = doc_history.detail_lines(detail)
+        header_before = {} if created else {
+            "special_instructions": detail.special_instructions, "packing_instructions": detail.packing_instructions,
+            "status": doc_history.STATUS_LABEL.get(detail.status)}
         if detail is None:
             detail = ProductDesignDetail(product_id=product_id, status="draft", created_by=user_id, created_at=now)
             db.add(detail)
@@ -99,6 +105,11 @@ class DesignDetailService:
                 design_url=line.design_url or None, sort_order=order,
                 created_by=user_id, updated_by=user_id, created_at=now, updated_at=now,
             ))
+        header_after = {"special_instructions": detail.special_instructions, "packing_instructions": detail.packing_instructions}
+        if not created:
+            header_after["status"] = "Draft"
+        doc_history.log_save(db, user_id, "product_design_detail", product_id, created, header_before, header_after,
+                             lines_before, doc_history.detail_lines(detail), doc_history.DETAIL_FIELDS, "Items")
         db.commit()
         return self._result(db, product_id)
 
@@ -124,6 +135,7 @@ class DesignDetailService:
         detail.confirmed_at = now
         detail.updated_by = user_id
         detail.updated_at = now
+        doc_history.log_status(db, user_id, "product_design_detail", product_id, "draft", "confirmed")
         db.commit()
         return self._result(db, product_id)
 
@@ -136,6 +148,7 @@ class DesignDetailService:
         detail.reject_reason = data.reason
         detail.updated_by = user_id
         detail.updated_at = now
+        doc_history.log_status(db, user_id, "product_design_detail", product_id, "draft", "rejected", data.reason)
         db.commit()
         return self._result(db, product_id)
 

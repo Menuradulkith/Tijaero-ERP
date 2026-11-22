@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_any_permission, require_permission
+from app.common import related_history
 from app.db.session import get_db
 from app.modules.materials import schemas, service
+from app.modules.materials.models import MaterialMinimumPrice, MaterialSupplier
 from app.utils.csv_export import csv_safe
 
 RowId = Annotated[int, Path(ge=1, le=2_147_483_647)]
@@ -144,12 +146,23 @@ def current_minimum_price(material_id: RowId, db: Session = Depends(get_db), cur
 def set_minimum_price(
     material_id: RowId, data: schemas.MinimumPriceCreate, db: Session = Depends(get_db), current_user: User = Depends(can_update),
 ):
-    return service.set_minimum_price(db, material_id, data.minimum_price)
+    current = service.repo.current_minimum_price(db, material_id)
+    before = {"minimum_price": current.minimum_price} if current else None
+    result = service.set_minimum_price(db, material_id, data.minimum_price)
+    related_history.record(db, current_user, "minimum_price_set", [("material", material_id)], "Minimum selling price",
+                           before, {"minimum_price": data.minimum_price})
+    return result
 
 
 @router.delete("/minimum-prices/{price_id}", summary="Delete Material Minimum Price")
 def delete_minimum_price(price_id: RowId, db: Session = Depends(get_db), current_user: User = Depends(can_delete)):
-    return service.delete_minimum_price(db, price_id)
+    row = db.get(MaterialMinimumPrice, price_id)
+    gone = (row.material_id, row.minimum_price) if row else None
+    result = service.delete_minimum_price(db, price_id)
+    if gone:
+        related_history.record(db, current_user, "minimum_price_removed", [("material", gone[0])], "Minimum selling price",
+                               {"minimum_price": gone[1]}, None)
+    return result
 
 
 @router.get("/items/{material_id}/suppliers", response_model=List[schemas.MaterialSupplier],
@@ -163,7 +176,12 @@ def list_material_suppliers(material_id: RowId, db: Session = Depends(get_db), c
 def add_material_supplier(
     material_id: RowId, data: schemas.MaterialSupplierCreate, db: Session = Depends(get_db), current_user: User = Depends(can_edit),
 ):
-    return service.add_supplier(db, material_id, data)
+    return related_history.logged(
+        db, current_user, "supplier_link_added", "material", material_id, MaterialSupplier,
+        lambda: service.add_supplier(db, material_id, data),
+        lambda r: f"Supplier: {related_history.label(db, 'supplier', r.supplier_id)}",
+        other=lambda r: ("supplier", r.supplier_id, f"Item: {related_history.label(db, 'materials', material_id)}"),
+        skip=("material_id",))
 
 
 @router.put("/items/{material_id}/suppliers/{link_id}", response_model=schemas.MaterialSupplier,
@@ -172,7 +190,12 @@ def update_material_supplier(
     material_id: RowId, link_id: RowId, data: schemas.MaterialSupplierUpdate,
     db: Session = Depends(get_db), current_user: User = Depends(can_edit),
 ):
-    return service.update_supplier(db, material_id, link_id, data)
+    return related_history.logged(
+        db, current_user, "supplier_link_updated", "material", material_id, MaterialSupplier,
+        lambda: service.update_supplier(db, material_id, link_id, data),
+        lambda r: f"Supplier: {related_history.label(db, 'supplier', r.supplier_id)}", row_id=link_id,
+        other=lambda r: ("supplier", r.supplier_id, f"Item: {related_history.label(db, 'materials', material_id)}"),
+        skip=("material_id",))
 
 
 # ---- material categories (own list; mirrors /inventory/categories) ----------------

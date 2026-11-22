@@ -271,6 +271,10 @@ ACTIVITY_LOG_ENTITY_TYPES: Dict[str, tuple] = {
     "brand": (P.BRAND_VIEW, None),
     "material": (P.MATERIAL_VIEW, None),
     "material_category": (P.MATERIAL_VIEW, None),
+    # Product documents (entity_id = the product's id)
+    "product_design_brief": (P.PRODUCT_VIEW, None),
+    "product_design_detail": (P.PRODUCT_VIEW, None),
+    "product_bom_structure": (P.PRODUCT_VIEW, None),
     "chart_of_account": (P.CHART_OF_ACCOUNTS_VIEW, None),
     "journal_entry": (P.JOURNAL_ENTRY_VIEW, "JournalEntry"),
     "cash_flow_statement": (P.CASH_FLOW_VIEW, "CashFlowStatement"),
@@ -354,16 +358,19 @@ def get_activity_log(
             for u in users
         }
 
+    from app.common.activity_display import readable
+
+    readable_changes = readable(db, entity_type, [e.changes for e in entries])
     return [
         schemas.ActivityLogEntry(
             id=e.id,
             action=e.action,
-            changes=e.changes,
+            changes=ch,
             timestamp=e.timestamp,
             user_id=e.user_id,
             user_name=name_map.get(e.user_id),
         )
-        for e in entries
+        for e, ch in zip(entries, readable_changes)
     ]
 
 

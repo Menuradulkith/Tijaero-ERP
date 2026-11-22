@@ -46,8 +46,35 @@ export interface TActivityHistoryPanelProps {
   entityType: string;
   /** The record's id. The panel stays closed (no fetch) while this is undefined. */
   entityId: number | undefined;
-  /** Optional per-action display labels, e.g. { create: "Supplier created" }. Falls back to the raw action string. */
+  /** Optional per-action display labels, e.g. { create: "Supplier created" }. Override the defaults below. */
   actionLabels?: Record<string, string>;
+}
+
+const DEFAULT_ACTION_LABELS: Record<string, string> = {
+  create: "Created",
+  update: "Updated",
+  delete: "Deleted",
+  confirm: "Confirmed",
+  reject: "Rejected",
+  contact_added: "Contact person added",
+  contact_updated: "Contact person updated",
+  payment_method_added: "Payment method added",
+  payment_method_updated: "Payment method updated",
+  product_link_added: "Product linked",
+  product_link_updated: "Product link updated",
+  item_link_added: "Item linked",
+  item_link_updated: "Item link updated",
+  supplier_link_added: "Supplier linked",
+  supplier_link_updated: "Supplier link updated",
+  minimum_price_set: "Minimum price set",
+  minimum_price_removed: "Minimum price removed",
+  price_tier_added: "Price tier added",
+  price_tier_updated: "Price tier updated",
+  price_tier_removed: "Price tier removed",
+};
+
+function formatAction(action: string, labels: Record<string, string>): string {
+  return labels[action] || DEFAULT_ACTION_LABELS[action] || formatFieldLabel(action);
 }
 
 // "billing_address_line1" -> "Billing Address Line1"
@@ -142,8 +169,10 @@ export function TActivityHistoryPanel({
       ) : (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
           {activityLog.map((entry) => {
-            const fields = entry.action === "update" ? entry.changes?.fields || [] : [];
+            const fields = Array.isArray(entry.changes?.fields) ? entry.changes.fields : [];
             const values = entry.changes?.values || {};
+            const summary = typeof entry.changes?.summary === "string" ? entry.changes.summary : "";
+            const itemsLabel = typeof entry.changes?.items_label === "string" ? entry.changes.items_label : "Items";
             return (
               <Box
                 key={entry.id}
@@ -156,7 +185,7 @@ export function TActivityHistoryPanel({
               >
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 2 }}>
                   <Typography variant="body2" fontWeight={600}>
-                    {actionLabels[entry.action] || entry.action}
+                    {formatAction(entry.action, actionLabels)}
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
                     {formatDateTimeReadable(entry.timestamp)}
@@ -165,6 +194,11 @@ export function TActivityHistoryPanel({
                 <Typography variant="caption" color="text.secondary">
                   {entry.user_name || "Unknown user"}
                 </Typography>
+                {summary && (
+                  <Typography variant="caption" component="div" sx={{ mt: 0.5 }}>
+                    {summary}
+                  </Typography>
+                )}
 
                 {fields.length > 0 && (
                   <Box
@@ -184,7 +218,7 @@ export function TActivityHistoryPanel({
                         return (
                           <Box key={field} sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
                             <Typography variant="caption" fontWeight={600}>
-                              Items:
+                              {itemsLabel}:
                             </Typography>
                             {itemChanges && itemChanges.length > 0 ? (
                               <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, pl: 1.25 }}>

@@ -42,6 +42,10 @@ export interface ActivityLogChanges {
    * added/removed/changed and how. Absent on older rows logged before this
    * shipped (those just show "Items: changed" with no further detail). */
   item_changes?: ActivityLogItemChange[];
+  /** One-line description of a related record (e.g. "Contact person: Jane"). */
+  summary?: string;
+  /** Heading for `item_changes` when the lines are not "Items" (e.g. "Materials"). */
+  items_label?: string;
   /** "create"/"delete" entries instead log a handful of ad-hoc identifying
    * fields (e.g. { po_no: "PO-123" }) rather than a fields/values diff. */
   [key: string]: unknown;

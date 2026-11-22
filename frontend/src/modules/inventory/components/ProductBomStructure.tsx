@@ -910,7 +910,12 @@ export function useProductBomStructure(productId: number | null, canEdit: boolea
         </Paper>
       )}
 
-      {structure && !editing && <AuditCaption doc={structure} />}
+      {structure && !editing && (
+        <AuditCaption
+          doc={structure}
+          history={productId ? { entityType: "product_bom_structure", entityId: productId } : undefined}
+        />
+      )}
 
       <RejectReasonDialog
         open={rejectOpen}

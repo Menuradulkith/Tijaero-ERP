@@ -200,6 +200,10 @@ class CustomerService:
             if "max_credit_limit" in submitted_fields:
                 # The balances follow the limit; they are never taken from the client.
                 updated_customer.initial_credit_amount = updated_customer.max_credit_limit
+            # payment/delivery address are rebuilt from the billing/shipping lines: log what was stored.
+            for derived in ("payment_address", "delivery_address"):
+                if derived in submitted_fields:
+                    submitted_fields[derived] = getattr(updated_customer, derived)
             changes = diff_changes(before_values, submitted_fields)
             if changes:
                 log_audit(

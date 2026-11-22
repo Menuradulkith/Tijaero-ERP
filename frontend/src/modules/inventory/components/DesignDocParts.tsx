@@ -1,5 +1,6 @@
 /** UI pieces shared by the Design Brief and Design Detail tabs. */
 import type { ReactNode } from "react";
+import { useState } from "react";
 import {
   Alert,
   Autocomplete,
@@ -25,6 +26,8 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 import RejectIcon from "@mui/icons-material/ThumbDown";
+import HistoryIcon from "@mui/icons-material/History";
+import { TActivityHistoryPanel } from "@/components/tijaero/panels/TActivityHistoryPanel";
 import { formatDateTimeReadable } from "@/utils/formatters";
 import type { DesignBriefItemOption, DesignBriefStatus } from "../types";
 import type { CategoryOption, ItemLine } from "./designDocUtils";
@@ -189,13 +192,41 @@ export function DocStatusAlerts({
   return null;
 }
 
-export function AuditCaption({ doc }: { doc: DocLike }) {
+export function AuditCaption({
+  doc,
+  history,
+}: {
+  doc: DocLike;
+  /** Adds a "History" link opening the document's activity history. */
+  history?: { entityType: string; entityId: number };
+}) {
+  const [open, setOpen] = useState(false);
   return (
-    <Typography variant="caption" color="text.secondary">
-      Created by {doc.created_by_name || "-"}
-      {when(doc.created_at)} · Last updated by {doc.updated_by_name || "-"}
-      {when(doc.updated_at)}
-    </Typography>
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+      <Typography variant="caption" color="text.secondary">
+        Created by {doc.created_by_name || "-"}
+        {when(doc.created_at)} · Last updated by {doc.updated_by_name || "-"}
+        {when(doc.updated_at)}
+      </Typography>
+      {history && (
+        <>
+          <Button
+            size="small"
+            startIcon={<HistoryIcon fontSize="small" />}
+            onClick={() => setOpen(true)}
+            sx={{ py: 0, minHeight: 0, textTransform: "none" }}
+          >
+            History
+          </Button>
+          <TActivityHistoryPanel
+            open={open}
+            onClose={() => setOpen(false)}
+            entityType={history.entityType}
+            entityId={history.entityId}
+          />
+        </>
+      )}
+    </Box>
   );
 }
 

@@ -17,6 +17,7 @@ from app.core import timezone as tz
 from app.modules.materials.models import Material
 from app.modules.products.design_brief_models import ProductDesignBrief, ProductDesignBriefLine
 from app.modules.products.design_brief_schemas import DesignBriefConfirm, DesignBriefReject, DesignBriefSave
+from app.modules.products import doc_history
 
 
 def _bad_request(detail: str) -> HTTPException:
@@ -115,6 +116,9 @@ class DesignBriefService:
             raise _bad_request(f"Inactive item(s) cannot be added: {', '.join(inactive)}")
 
         now = tz.now()
+        created = brief is None
+        lines_before = doc_history.brief_lines(brief)
+        header_before = {} if created else {"notes": brief.notes, "status": doc_history.STATUS_LABEL.get(brief.status)}
         if brief is None:
             brief = ProductDesignBrief(product_id=product_id, status="draft", created_by=user_id, created_at=now)
             db.add(brief)
@@ -133,6 +137,9 @@ class DesignBriefService:
                 brief=line.brief or None, sort_order=order,
                 created_by=user_id, updated_by=user_id, created_at=now, updated_at=now,
             ))
+        doc_history.log_save(db, user_id, "product_design_brief", product_id, created, header_before,
+                             {"notes": brief.notes, "status": "Draft"} if not created else {"notes": brief.notes},
+                             lines_before, doc_history.brief_lines(brief), doc_history.BRIEF_FIELDS, "Items")
         db.commit()
         return self._attach_names(db, self._brief(db, product_id))
 
@@ -158,6 +165,7 @@ class DesignBriefService:
         brief.confirmed_at = now
         brief.updated_by = user_id
         brief.updated_at = now
+        doc_history.log_status(db, user_id, "product_design_brief", product_id, "draft", "confirmed")
         db.commit()
         return self._attach_names(db, self._brief(db, product_id))
 
@@ -170,6 +178,7 @@ class DesignBriefService:
         brief.reject_reason = data.reason
         brief.updated_by = user_id
         brief.updated_at = now
+        doc_history.log_status(db, user_id, "product_design_brief", product_id, "draft", "rejected", data.reason)
         db.commit()
         return self._attach_names(db, self._brief(db, product_id))
 

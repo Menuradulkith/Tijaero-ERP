@@ -20,6 +20,7 @@ from app.modules.products.bom_structure_models import ProductBomMaterial, Produc
 from app.modules.products.bom_structure_schemas import BomStructureSave
 from app.modules.products.design_brief_schemas import DesignBriefConfirm, DesignBriefReject
 from app.modules.products.design_brief_service import _bad_request, _conflict, design_brief_service
+from app.modules.products import doc_history
 
 # How deep nested sub-structures are returned (the save-time loop check keeps the tree finite anyway).
 MAX_DEPTH = 5
@@ -303,6 +304,9 @@ class BomStructureService:
         work_centers = self._check_work_centers(db, data, structure)
 
         now = tz.now()
+        created = structure is None
+        lines_before = doc_history.bom_lines(structure)
+        header_before = {} if created else {"notes": structure.notes, "status": doc_history.STATUS_LABEL.get(structure.status)}
         if structure is None:
             structure = ProductBomStructure(product_id=product_id, status="draft", created_by=user_id, created_at=now)
             db.add(structure)
@@ -319,7 +323,7 @@ class BomStructureService:
             row = ProductBomStep(
                 sort_order=step_order, name=step.name, work_area=step.work_area or None,
                 minutes_per_unit=step.minutes_per_unit, instructions=step.instructions or None,
-                work_center_id=wc.id if wc else None, setup_minutes=step.setup_minutes,
+                work_center_id=wc.id if wc else None, work_center=wc, setup_minutes=step.setup_minutes,
                 move_minutes=step.move_minutes, workers=step.workers,
                 # A cost per unit only means something for an outside work center.
                 outside_unit_cost=step.outside_unit_cost if wc is not None and wc.is_outside else None,
@@ -334,6 +338,11 @@ class BomStructureService:
                     notes=line.notes or None, sort_order=order, **audit,
                 ))
             structure.steps.append(row)
+        header_after = {"notes": structure.notes}
+        if not created:
+            header_after["status"] = "Draft"
+        doc_history.log_save(db, user_id, "product_bom_structure", product_id, created, header_before, header_after,
+                             lines_before, doc_history.bom_lines(structure), (), "Steps & materials")
         db.commit()
         db.expire_all()
         return self._result(db, product)
@@ -360,6 +369,7 @@ class BomStructureService:
         structure.confirmed_at = now
         structure.updated_by = user_id
         structure.updated_at = now
+        doc_history.log_status(db, user_id, "product_bom_structure", product_id, "draft", "confirmed")
         db.commit()
         return self._result(db, product)
 
@@ -372,6 +382,7 @@ class BomStructureService:
         structure.reject_reason = data.reason
         structure.updated_by = user_id
         structure.updated_at = now
+        doc_history.log_status(db, user_id, "product_bom_structure", product_id, "draft", "rejected", data.reason)
         db.commit()
         return self._result(db, product)
 

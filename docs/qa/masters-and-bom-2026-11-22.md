@@ -117,3 +117,40 @@ Tests: `test_customer_validation.py`, `test_materials_2026_11_18.py`, `test_cata
 Pre-existing failures, not caused by these fixes:
 - In `tests/integration/test_workflows/test_frontend_api.py`, the product tests omit the newer required fields (product type, HS code) and the PO tests send `product_id` instead of `material_id`.
 - Three unused imports in `CustomersPage.tsx` (lint).
+
+## Activity history check (2026-11-22, afternoon)
+
+**Method:**
+- Created one record per entity and changed every editable field in one save (supplier 32 fields, customer 52, item 29, product 21, categories 4, brand 3).
+- Compared the history entry with the before and after records.
+- Re-saved the unchanged record as the UI does (full form) to look for phantom entries.
+- Ran each side action once.
+
+All test records (`QA-HIST-…`) and their files were deleted afterwards.
+
+**Passed:**
+- Every create is logged.
+- Every changed field is logged, with no missing and no extra fields, on all 7 entities.
+- Old and new values are correct, apart from finding H2.
+- Unchanged saves add nothing for suppliers, customers, categories and brands.
+- Image and logo uploads are logged.
+
+| # | Where | Finding | Severity |
+|---|---|---|---|
+| H1 | Products, Items | Saving an unchanged form adds an "Updated" entry such as "Cost Price 99.99 → 99.99" or "Selling Price 120.45 → 120.45". Prices are stored as exact decimals and compared with the float sent by the form (Decimal ≠ float for most cents values), so every Save clutters the history. | Medium |
+| H2 | Customers | Payment / delivery address are rebuilt from the billing / shipping lines on save, but the history logs the submitted value. It can show a value that was never stored ("Pay addr" while "B1, B2, Kandy…" was saved). | Low |
+| H3 | All pages | Linked fields show raw ids: "Category Id 2295 → 75795", "Items Brand Id", "Country Id". The image shows its file path ("Image Url (empty) → products/….png"). | Low (usability) |
+| H4 | Suppliers, Customers, Items, Products | Changes made outside the main Save are not in the history: supplier contact persons, payment methods and item links (on both the supplier and the item); customer contact persons; product / item minimum price added from its own section; product price tiers (add / edit / toggle / delete). | Medium |
+| H5 | BOM, product Design Brief / Design Detail / BOM Structure | No activity history at all: save, confirm and reject are not logged, and there is no history panel. The documents only show "created / last updated / confirmed / rejected by". | Medium |
+
+### Activity history: resolution (same day)
+
+| # | Fix |
+|---|---|
+| H1 | Values are compared by meaning (`99.99` = `Decimal('99.99')`, empty = none) before logging. Re-run: unchanged saves add 0 entries on all 7 entities. |
+| H2 | The customer history logs the stored payment / delivery address. |
+| H3 | The history shows names: Category, Brand, Country, Item, Supplier, Work Center, HS Code, Product Type. Images read "Image added / New image / Image removed". This applies to older entries too. |
+| H4 | Logged on the parent record (and on both sides for links): supplier contact persons, payment methods, item and product links; customer contact persons; item / product minimum price; product price tiers (add / edit / remove). The panel shows a one-line summary ("Price tier: Wholesale") plus the field changes. |
+| H5 | Design Brief, Design Detail and BOM Structure log Created / Updated (header fields plus line-level added / removed / changed) / Confirmed / Rejected (with reason). A "History" button next to "Created by … · Last updated by …" opens the panel on the product tabs and the BOM page. |
+
+Verified: `tests/test_activity_history_2026_11_22.py` (5 tests); the related suites pass (585). The field audit and side-action scripts were re-run live, and the panels were checked in the browser (product, supplier, design brief). The QA-HIST rows, their audit entries and the 3 uploaded test images were removed.

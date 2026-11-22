@@ -460,9 +460,15 @@ def set_product_minimum_price(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
 ):
-    return service.minimum_price_service.set_minimum_price(
-        db, product_id, price_data.minimum_price
-    )
+    from app.common import related_history
+    from app.modules.products import repository as product_repository
+
+    current = product_repository.minimum_price_repository.get_current_for_product(db, product_id)
+    before = {"minimum_price": current.minimum_price} if current else None
+    result = service.minimum_price_service.set_minimum_price(db, product_id, price_data.minimum_price)
+    related_history.record(db, current_user, "minimum_price_set", [("product", product_id)], "Minimum selling price",
+                           before, {"minimum_price": price_data.minimum_price})
+    return result
 
 
 @router.delete(
@@ -476,7 +482,16 @@ def delete_minimum_price(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_DELETE)),
 ):
-    return service.minimum_price_service.delete_minimum_price(db, price_id)
+    from app.common import related_history
+    from app.modules.products.models import MinimumPrice
+
+    row = db.get(MinimumPrice, price_id)
+    gone = (row.product_id, row.minimum_price) if row else None
+    result = service.minimum_price_service.delete_minimum_price(db, price_id)
+    if gone:
+        related_history.record(db, current_user, "minimum_price_removed", [("product", gone[0])], "Minimum selling price",
+                               {"minimum_price": gone[1]}, None)
+    return result
 
 
 import csv

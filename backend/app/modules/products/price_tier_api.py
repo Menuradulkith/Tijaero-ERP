@@ -5,8 +5,10 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.auth.rbac import Permissions, require_permission
+from app.common import related_history
 from app.db.session import get_db
 from app.modules.products.price_tier_schemas import PriceTierCreate, PriceTierOut, PriceTierUpdate
+from app.modules.products.price_tier_models import ProductPriceTier
 from app.modules.products.price_tier_service import price_tier_service
 
 # Ids are int4 in Postgres; bound them so an out-of-range id is a 422, not a DB 500.
@@ -14,6 +16,16 @@ ProductId = Annotated[int, Path(ge=1, le=2_147_483_647)]
 TierId = ProductId
 
 router = APIRouter()
+
+
+def _tier_label(r) -> str:
+    return f"Price tier: {getattr(r, 'remark', None) or 'Selling ' + str(getattr(r, 'selling_price', ''))}"
+
+
+def _logged(db, user, action, product_id, run, row_id=None):
+    """Run a price-tier change and log it in the product's history."""
+    return related_history.logged(db, user, action, "product", product_id, ProductPriceTier, run, _tier_label,
+                                  row_id=row_id, skip=("product_id",))
 
 
 @router.get(
@@ -63,7 +75,8 @@ def create_price_tier(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
 ):
-    return price_tier_service.create_tier(db, product_id, data, current_user.id)
+    return _logged(db, current_user, "price_tier_added", product_id,
+                   lambda: price_tier_service.create_tier(db, product_id, data, current_user.id))
 
 
 @router.put(
@@ -79,7 +92,8 @@ def update_price_tier(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
 ):
-    return price_tier_service.update_tier(db, product_id, tier_id, data, current_user.id)
+    return _logged(db, current_user, "price_tier_updated", product_id,
+                   lambda: price_tier_service.update_tier(db, product_id, tier_id, data, current_user.id), row_id=tier_id)
 
 
 @router.patch(
@@ -95,7 +109,8 @@ def toggle_price_tier(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
 ):
-    return price_tier_service.toggle_active(db, product_id, tier_id, is_active, current_user.id)
+    return _logged(db, current_user, "price_tier_updated", product_id,
+                   lambda: price_tier_service.toggle_active(db, product_id, tier_id, is_active, current_user.id), row_id=tier_id)
 
 
 @router.delete(
@@ -109,4 +124,10 @@ def delete_price_tier(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(*Permissions.PRODUCT_UPDATE)),
 ):
-    return price_tier_service.delete_tier(db, product_id, tier_id)
+    before = related_history.snap(db, ProductPriceTier, tier_id, skip=("product_id",))
+    result = price_tier_service.delete_tier(db, product_id, tier_id)
+    if before:
+        from types import SimpleNamespace
+        related_history.record(db, current_user, "price_tier_removed", [("product", product_id)],
+                               _tier_label(SimpleNamespace(**before)), before, None)
+    return result

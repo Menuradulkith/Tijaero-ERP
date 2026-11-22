@@ -33,6 +33,26 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _same(old: Any, new: Any) -> bool:
+    """Equal for the purpose of history: a price stored as Decimal('99.99') and
+    sent back by the form as 99.99 (float) is the same value, and so are
+    "" and None. Without this, every unchanged save logs "99.99 -> 99.99"."""
+    if old in ("", None) and new in ("", None):
+        return True
+    if isinstance(old, Enum):
+        old = old.value
+    if isinstance(new, Enum):
+        new = new.value
+    numeric = (int, float, Decimal)
+    if (isinstance(old, numeric) and isinstance(new, numeric)
+            and not isinstance(old, bool) and not isinstance(new, bool)):
+        try:
+            return Decimal(str(old)) == Decimal(str(new))
+        except Exception:
+            return old == new
+    return old == new
+
+
 def diff_changes(
     before_values: Mapping[str, Any], submitted_fields: Mapping[str, Any]
 ) -> dict:
@@ -45,7 +65,7 @@ def diff_changes(
     changed = {
         field: {"old": _json_safe(before_values.get(field)), "new": _json_safe(new_value)}
         for field, new_value in submitted_fields.items()
-        if before_values.get(field) != new_value
+        if not _same(before_values.get(field), new_value)
     }
     if not changed:
         return {}
@@ -102,7 +122,7 @@ def diff_line_items(
                 field_changes = {
                     f: {"old": _json_safe(before.get(f)), "new": _json_safe(after.get(f))}
                     for f in tracked_fields
-                    if before.get(f) != after.get(f)
+                    if not _same(before.get(f), after.get(f))
                 }
                 if field_changes:
                     entries.append({"key": key, "action": "changed", "changes": field_changes})
@@ -150,3 +170,34 @@ def log_audit(
         db.flush()
     except Exception:
         logger.warning("Failed to write audit log for %s:%s", entity_type, entity_id, exc_info=True)
+
+def log_related(
+    db: Session,
+    user_id: int,
+    action: str,
+    entity_type: str,
+    entity_id: int,
+    summary: str,
+    before: Mapping[str, Any] | None = None,
+    after: Mapping[str, Any] | None = None,
+) -> None:
+    """History entry for a change made outside the record's main form (a contact
+    person, a supplier link, a minimum price...). `summary` names what changed
+    ("Contact person: Jane Perera"); `before` / `after` give its field values:
+    only `after` for an addition, only `before` for a removal, both for an edit
+    (then only the fields that differ are kept, and nothing is logged if none do)."""
+    before = dict(before or {})
+    after = dict(after or {})
+    keys = list(dict.fromkeys([*before.keys(), *after.keys()]))
+    values = {
+        k: {"old": _json_safe(before.get(k)), "new": _json_safe(after.get(k))}
+        for k in keys
+        if not _same(before.get(k), after.get(k))
+    }
+    if before and after and not values:
+        return
+    changes: dict = {"summary": summary}
+    if values:
+        changes["fields"] = list(values.keys())
+        changes["values"] = values
+    log_audit(db, user_id=user_id or 0, action=action, entity_type=entity_type, entity_id=entity_id, changes=changes)
